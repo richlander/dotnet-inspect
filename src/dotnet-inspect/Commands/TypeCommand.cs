@@ -165,6 +165,11 @@ public static class TypeCommand
                 {
                     var apiType = lookupResult.Type!;
 
+                    // The type resolved after all, so a select the preamble deferred was never a
+                    // listing request. Report it against the pipeline that is rendering.
+                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                        return 1;
+
                     // Check each member filter before producing output
                     if (options.MemberFilter.Count > 0)
                     {
@@ -327,6 +332,15 @@ public static class TypeCommand
                 }
                 else if (options.EffectiveDiscovery)
                 {
+                    // A deferred select belongs to this listing, and discovery filters by it, so it
+                    // has to be resolved before the filter is applied rather than after.
+                    if (options.SelectDeferredToListing)
+                    {
+                        if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
+                            return 1;
+                        options = discoveryOptions;
+                    }
+
                     // Discovery is a schema query about the surface's sections; it is independent
                     // of which (unmatched) type was requested. The main listing and platform-prefix
                     // routes already dispatch it before rendering, so the glob and prefix-browse
@@ -360,6 +374,13 @@ public static class TypeCommand
                     var widePrefixExitCode = await TryExecuteWidePlatformPrefixFallbackAsync(options, originalTypeQuery, typePipeline);
                     if (widePrefixExitCode.HasValue)
                         return widePrefixExitCode.Value;
+
+                    // Nothing below renders a listing -- the glob branch is unreachable with a
+                    // deferred select, because a glob never enters the preamble as a single type --
+                    // so a deferred select has no listing to belong to and is reported the way the
+                    // preamble would have reported it.
+                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                        return 1;
 
                     if (lookupResult.Suggestions.Count > 0)
                     {
@@ -505,6 +526,16 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
+        // This renders a listing for what entered as a single-type request, so a select the
+        // preamble deferred resolves here, against the pipeline doing the rendering. Without this
+        // the deferred select would be dropped and the listing would ignore -S entirely.
+        if (browseOptions.SelectDeferredToListing)
+        {
+            if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
+                return 1;
+            browseOptions = resolvedBrowseOptions;
+        }
+
         CommandError.WriteNote($"Showing best-effort platform prefix matches for '{query}'.");
         CommandError.WriteNote($"Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
 
@@ -528,7 +559,9 @@ public static class TypeCommand
 
     private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
     {
-        if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+        if (NuGetCache.TryGetLatestCachedVersion(
+                packageName,
+                NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
             return true;
 
         try
@@ -606,11 +639,17 @@ public static class TypeCommand
             if (api == null)
                 continue;
 
-            ApiServices.ResolveForwardedTypes(api, assemblyPath, logger, options.IncludeAll);
+            ApiServices.ResolveForwardedTypes(
+                api,
+                assemblyPath,
+                logger,
+                options.IncludeAll,
+                isPlatformAssembly: true,
+                options);
 
             foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
             {
-                type.SourceAssemblyPath = assemblyPath;
+                type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
         }
@@ -657,7 +696,16 @@ public static class TypeCommand
         };
 
         CommandError.WriteNote($"Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
-        return ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
+
+        // The preamble resolved -S against the single-type pipeline because the argument shape
+        // looked like one type. It is not: this renders a listing, so the section names have to be
+        // re-resolved against the pipeline that will actually render them. Ordered after the note
+        // so a rejected section name still says which view rejected it.
+        var resolved = ApiCommand.ReresolveSectionsForListing(browseOptions);
+        if (resolved == null)
+            return 1;
+
+        return ApiCommand.WriteFullApiOutput(api, resolved, selectedTfm);
     }
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)

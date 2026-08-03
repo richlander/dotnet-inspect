@@ -26,7 +26,7 @@ namespace ILInspector.DecompilerHarness;
 /// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
-/// to a different contract V1 body changed the measured program shape
+/// to a different contract body changed the measured program shape
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
 /// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
@@ -40,8 +40,41 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class FidelityCheck
 {
-    internal const int CurrentContractVersion = 1;
-    internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
+    /// <summary>
+    /// The compile-back fidelity contract: which differences the comparison treats as
+    /// noise rather than defect. Persisted alongside corpus metrics, so a change to
+    /// <see cref="ContractBodyDiffNormalization"/> must bump this — otherwise a baseline
+    /// and a current run claim the same contract under different equality rules, and the
+    /// corpus sensor compares numbers that were never comparable.
+    /// </summary>
+    /// <remarks>
+    /// v2 (#3491) added generated-member ordinal correspondence. Roslyn's local-function
+    /// and state-machine names embed an ordinal over the containing type's members, which
+    /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
+    /// operand differences between identical bodies.
+    /// <para>
+    /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
+    /// whole of what it protects: the equality rules also include how
+    /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
+    /// moving any flag. Nothing detects that — the guard compares versions, and the
+    /// version only moves when a human moves it. Treat a change to operand rendering as
+    /// a contract change and reason about it explicitly here.
+    /// </para>
+    /// <para>
+    /// #3491 is the first such change and deliberately does not bump: it added the
+    /// signature this-attributes to the rendered text (<c>SignatureThisPrefix</c>), which
+    /// only ever <em>appends</em> to an operand and so is monotone toward stricter — a
+    /// body that compared unequal before cannot compare equal after. Measured on the
+    /// pinned corpus, it moved nothing: <c>Area=Fidelity</c> is 68/0 before and after,
+    /// because the corpus carries no <c>EXPLICITTHIS</c> signature and no instance
+    /// function pointer. A v2 baseline therefore stays comparable to a v2 run. A renderer
+    /// change that is not monotone, or that moves a corpus number, does not get this
+    /// argument and must bump.
+    /// </para>
+    /// </remarks>
+    internal const int CurrentContractVersion = 2;
+
+    internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
@@ -49,7 +82,15 @@ static class FidelityCheck
         // is the harness's rather than the original source file's, so Roslyn
         // renumbers the containing-method ordinal in every closure name it
         // synthesizes. That renumbering is not decompiler evidence (#3503).
-        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals;
+        //
+        // The two options split the name space rather than overlapping: the
+        // correspondence owns `d__`, `g__` and `b__` and folds only where the
+        // ordinal-free key is one-to-one on both sides, and the per-side
+        // rewrite keeps `<>9__`, which it still folds on weaker evidence
+        // (#3645). Retiring that last form needs a field index the
+        // correspondence does not have yet, which is the next slice.
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
@@ -247,11 +288,11 @@ static class FidelityCheck
     /// <summary>The fidelity check outcome for one method.</summary>
     public enum CompileBackStatus
     {
-        /// <summary>Recompiled to the same body under compile-back fidelity contract V1 — the goal.</summary>
+        /// <summary>Recompiled to the same body under the compile-back fidelity contract — the goal.</summary>
         Exact,
         /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
         OpcodeDiff,
-        /// <summary>Opcode names matched, but a V1-observable operand or branch target differed.</summary>
+        /// <summary>Opcode names matched, but a contract-observable operand or branch target differed.</summary>
         OperandDiff,
         /// <summary>The product body comparison could not produce a verdict.</summary>
         FidelityUnavailable,
@@ -4333,7 +4374,7 @@ static class FidelityCheck
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            normalization: ContractV1BodyDiffNormalization).Diff;
+            normalization: ContractBodyDiffNormalization).Diff;
     }
 
     static string CanonicalOpcode(string op)
@@ -4374,7 +4415,12 @@ static class FidelityCheck
                     builder.Add(reference);
                     if (TryReadAssemblyIdentity(fullPath) is { } identity)
                         resolvedReferences.Add(new CompilerReference(
-                            new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), provenance?.ToString() ?? "CompilerReference"),
+                            ResolvedAssemblyReference.Create(
+                                identity,
+                                fullPath,
+                                () => File.OpenRead(fullPath),
+                                AssemblyResolutionProvenance.Local(
+                                    provenance?.ToString() ?? "CompilerReference")),
                             PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
                                 or AssemblyDependencyProvenance.SharedFramework));
                 }

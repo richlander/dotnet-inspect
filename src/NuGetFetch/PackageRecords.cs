@@ -2,8 +2,36 @@ namespace NuGetFetch;
 
 public record PackageIdentity(string Id, string? Version);
 
+/// <summary>
+/// A NuGet package source.
+/// </summary>
+/// <remarks>
+/// Construction is the check: <see cref="Url"/> rejects a URL that cannot be used as a source,
+/// so holding a <c>PackageSource</c> is itself the evidence that its URL passed. Validating at
+/// the points that resolve sources instead would be containment applied by calling a function —
+/// something a new path can forget, and something no reviewer can see the absence of, because
+/// <c>string</c> is the type of both a checked and an unchecked URL.
+/// </remarks>
 public record PackageSource(string Name, string Url, PackageSourceCredential? Credential = null)
 {
+    private readonly string _url = ValidatedUrl(Url);
+
+    /// <summary>
+    /// The source URL. Assigning one that cannot be used as a NuGet source throws.
+    /// </summary>
+    /// <exception cref="UnsupportedSourceException">The URL cannot be used as a source.</exception>
+    public string Url
+    {
+        get => _url;
+        init => _url = ValidatedUrl(value);
+    }
+
+    private static string ValidatedUrl(string url)
+    {
+        UnsupportedSourceException.ThrowIfUnsupported(url);
+        return url;
+    }
+
     public static PackageSource NuGetOrg { get; } = new("nuget.org", "https://api.nuget.org/v3/index.json");
 
     public bool IsNuGetOrg =>

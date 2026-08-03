@@ -1,5 +1,7 @@
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
+using InertText;
+using InertText.Encoding;
 using Markout;
 
 namespace DotnetInspector.MetadataRendering;
@@ -48,18 +50,19 @@ public static class MetadataProjectionRenderer
     public static void Render(
         MetadataTableProjection projection,
         TextWriter output,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(output);
 
         if (format == MetadataTableFormat.Markdown)
-            RenderMarkdown(projection, output);
+            RenderMarkdown(projection, output, mode);
         else
-            RenderTabular(projection, output, format);
+            RenderTabular(projection, output, format, mode);
     }
 
-    static void RenderMarkdown(MetadataTableProjection projection, TextWriter output)
+    static void RenderMarkdown(MetadataTableProjection projection, TextWriter output, UntrustedTextMode mode)
     {
         var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
 
@@ -71,13 +74,13 @@ public static class MetadataProjectionRenderer
             first = false;
 
             writer.WriteHeading(2, HeadingText(table));
-            WriteTable(writer, table, identifyTable: false);
+            WriteTable(writer, table, identifyTable: false, mode);
         }
 
         writer.Flush();
     }
 
-    static void RenderTabular(MetadataTableProjection projection, TextWriter output, MetadataTableFormat format)
+    static void RenderTabular(MetadataTableProjection projection, TextWriter output, MetadataTableFormat format, UntrustedTextMode mode)
     {
         var options = new MarkoutWriterOptions
         {
@@ -86,7 +89,7 @@ public static class MetadataProjectionRenderer
         var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
 
         foreach (var table in projection.Tables)
-            WriteTable(writer, table, identifyTable: true);
+            WriteTable(writer, table, identifyTable: true, mode);
 
         writer.Flush();
     }
@@ -262,23 +265,24 @@ public static class MetadataProjectionRenderer
     public static void Render(
         MetadataImageOverview overview,
         TextWriter output,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(output);
 
         if (format == MetadataTableFormat.Markdown)
-            RenderOverviewMarkdown(overview, output);
+            RenderOverviewMarkdown(overview, output, mode);
         else
-            RenderOverviewTabular(overview, output, format);
+            RenderOverviewTabular(overview, output, format, mode);
     }
 
-    static void RenderOverviewMarkdown(MetadataImageOverview overview, TextWriter output)
+    static void RenderOverviewMarkdown(MetadataImageOverview overview, TextWriter output, UntrustedTextMode mode)
     {
         var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
 
         writer.WriteHeading(2, "Image");
-        WriteImageTable(writer, overview, identifySection: false);
+        WriteImageTable(writer, overview, identifySection: false, mode);
 
         writer.WriteBlankLine();
         writer.WriteHeading(2, "Heaps");
@@ -297,7 +301,7 @@ public static class MetadataProjectionRenderer
         writer.Flush();
     }
 
-    static void RenderOverviewTabular(MetadataImageOverview overview, TextWriter output, MetadataTableFormat format)
+    static void RenderOverviewTabular(MetadataImageOverview overview, TextWriter output, MetadataTableFormat format, UntrustedTextMode mode)
     {
         var options = new MarkoutWriterOptions
         {
@@ -308,18 +312,18 @@ public static class MetadataProjectionRenderer
         // The three parts have different shapes, so each keeps its own header and
         // carries a leading Section column, matching how the table renderer keeps
         // machine rows self-identifying.
-        WriteImageTable(writer, overview, identifySection: true);
+        WriteImageTable(writer, overview, identifySection: true, mode);
         WriteHeapTable(writer, overview, identifySection: true);
         WriteTableTable(writer, overview, identifySection: true);
 
         writer.Flush();
     }
 
-    static void WriteImageTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection)
+    static void WriteImageTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection, UntrustedTextMode mode)
     {
         WriteSectionTable(
             writer, identifySection, "image",
-            ["Property", "Value"], ["property", "value"], ImageFactRows(overview));
+            ["Property", "Value"], ["property", "value"], ImageFactRows(overview, mode));
     }
 
     /// <summary>
@@ -327,18 +331,14 @@ public static class MetadataProjectionRenderer
     /// multi-section overview and by <see cref="RenderImageFacts"/> so the two cannot report
     /// different facts about the same image.
     /// </summary>
-    static List<string[]> ImageFactRows(MetadataImageOverview overview)
+    static List<string[]> ImageFactRows(MetadataImageOverview overview, UntrustedTextMode mode)
     {
         var rows = new List<string[]>();
 
         // A truncated stamp must carry the ellipsis for the same reason a
         // truncated handle display does: a prefix must never be mistaken for the
         // whole value.
-        Add(
-            "Metadata version",
-            overview.MetadataVersionTruncated
-                ? overview.MetadataVersion + Ellipsis
-                : overview.MetadataVersion);
+        Add("Metadata version", Display(overview.MetadataVersion, mode));
         Add("Metadata kind", overview.Kind.ToString());
         Add("Has assembly manifest", overview.IsAssembly ? "yes" : "no");
         Add("Metadata offset", overview.MetadataOffset.ToString());
@@ -387,12 +387,13 @@ public static class MetadataProjectionRenderer
         MetadataImageOverview overview,
         TextWriter output,
         IReadOnlyCollection<string>? columns = null,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(output);
 
-        var rows = ImageFactRows(overview);
+        var rows = ImageFactRows(overview, mode);
         foreach (var heap in overview.Heaps)
         {
             string addressing = heap.Addressing == MetadataHeapAddressing.Index ? "index" : "byte offset";
@@ -549,7 +550,8 @@ public static class MetadataProjectionRenderer
         HeapKind heap,
         int address,
         TextWriter output,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(output);
@@ -558,12 +560,12 @@ public static class MetadataProjectionRenderer
         {
             var markdown = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
             markdown.WriteHeading(2, $"{MetadataHeapCoordinate.StreamName(heap)} heap at {address}");
-            markdown.WriteTable(HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address)]);
+            markdown.WriteTable(HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address, mode)]);
             markdown.Flush();
             return;
         }
 
-        RenderHeapValue(value, heap, address, output, columns: null, format);
+        RenderHeapValue(value, heap, address, output, columns: null, format, mode);
     }
 
     static readonly string[] HeapValueHeaders = ["Heap", "Address", "Length", "Truncated", "Value"];
@@ -576,7 +578,7 @@ public static class MetadataProjectionRenderer
     /// </summary>
     public static IReadOnlyList<string> HeapValueColumns => HeapValueHeaders;
 
-    static string[] HeapValueRow(MetadataValue value, HeapKind heap, int address)
+    static string[] HeapValueRow(MetadataValue value, HeapKind heap, int address, UntrustedTextMode mode)
     {
         var heapReference = value as MetadataValue.HeapReference;
         return
@@ -585,7 +587,7 @@ public static class MetadataProjectionRenderer
             address.ToString(),
             heapReference is null ? string.Empty : heapReference.Length.ToString(),
             heapReference is { Truncated: true } ? "yes" : "no",
-            FormatCell(value),
+            FormatCell(value, mode),
         ];
     }
 
@@ -608,13 +610,14 @@ public static class MetadataProjectionRenderer
         int address,
         TextWriter output,
         IReadOnlyCollection<string>? columns = null,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(output);
 
         WriteNarrowedTable(
-            output, format, HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address)], columns);
+            output, format, HeapValueHeaders, HeapValueHeaderNames, [HeapValueRow(value, heap, address, mode)], columns);
     }
 
     static readonly string[] HeapEntryHeaders = ["Address", "Length", "Refs", "Truncated", "Value"];
@@ -635,7 +638,8 @@ public static class MetadataProjectionRenderer
         MetadataHeapEntrySet entries,
         TextWriter output,
         IReadOnlyCollection<string>? columns = null,
-        MetadataTableFormat format = MetadataTableFormat.Markdown)
+        MetadataTableFormat format = MetadataTableFormat.Markdown,
+        UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentNullException.ThrowIfNull(output);
@@ -649,7 +653,7 @@ public static class MetadataProjectionRenderer
                 heapReference is null ? string.Empty : heapReference.Length.ToString(),
                 entry.ReferenceCount.ToString(),
                 heapReference is { Truncated: true } ? "yes" : "no",
-                FormatCell(entry.Value),
+                FormatCell(entry.Value, mode),
             ]);
         }
 
@@ -746,13 +750,13 @@ public static class MetadataProjectionRenderer
     /// puts in its heading are not lost: they are available as caveats from
     /// <see cref="Caveats(MetadataTableView)"/>, which such a caller must render.
     /// </summary>
-    public static void RenderRows(MetadataTableView table, TextWriter output)
+    public static void RenderRows(MetadataTableView table, TextWriter output, UntrustedTextMode mode = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(output);
 
         var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
-        WriteTable(writer, table, identifyTable: false);
+        WriteTable(writer, table, identifyTable: false, mode);
         writer.Flush();
     }
 
@@ -800,7 +804,7 @@ public static class MetadataProjectionRenderer
             : $"{table.Name} (showing rows {first}\u2013{last} of {truncation.RowCount})";
     }
 
-    static void WriteTable(MarkoutWriter writer, MetadataTableView table, bool identifyTable)
+    static void WriteTable(MarkoutWriter writer, MetadataTableView table, bool identifyTable, UntrustedTextMode mode)
     {
         // Markdown identifies the table with a heading; the machine formats carry
         // a leading Table column instead so every row self-identifies. Both add a
@@ -837,50 +841,100 @@ public static class MetadataProjectionRenderer
                 cells[cellSlot++] = table.Name;
             cells[cellSlot++] = row.RowId.ToString();
             for (int i = 0; i < row.Cells.Length; i++)
-                cells[cellSlot + i] = FormatCell(row.Cells[i]);
+                cells[cellSlot + i] = FormatCell(row.Cells[i], mode);
             rows.Add(cells);
         }
 
         writer.WriteTable(headers, headerNames, rows);
     }
 
-    static string FormatCell(MetadataValue value) => value switch
+    static string FormatCell(MetadataValue value, UntrustedTextMode mode) => value switch
     {
         MetadataValue.Nil => "nil",
         MetadataValue.Scalar scalar => scalar.Display,
         MetadataValue.Flags flags => flags.Decoded,
-        MetadataValue.HeapReference heap => FormatHeap(heap),
-        MetadataValue.Handle handle => FormatHandle(handle.Reference),
+        MetadataValue.HeapReference heap => FormatHeap(heap, mode),
+        MetadataValue.Handle handle => FormatHandle(handle.Reference, mode),
         MetadataValue.Range range => FormatRange(range.Reference),
-        MetadataValue.Malformed malformed => $"!malformed: {malformed.Detail}",
+        MetadataValue.Malformed malformed => $"!malformed: {Display(malformed.Detail, mode)}",
         _ => throw new InvalidOperationException($"Unhandled metadata value: {value.GetType().Name}"),
     };
 
-    static string FormatHeap(MetadataValue.HeapReference heap)
+    /// <summary>
+    /// Turns a contained value into display text, marking a partial one so it can never
+    /// be read as whole.
+    /// </summary>
+    /// <remarks>
+    /// This is the boundary the projection carries <see cref="InertString"/> up to. The
+    /// model keeps the text and its truncation together precisely so that the decision
+    /// made here — what a clipped value looks like — is made once, by the sink that knows
+    /// its own notation, rather than by every producer guessing at it.
+    /// <para>
+    /// It is also the only place <see cref="UntrustedTextMode.Raw"/> can act. The projection
+    /// cannot carry untreated text — no conversion admits a <see cref="string"/> into an
+    /// <see cref="InertString"/> — so raw output is produced by running the encoder backwards
+    /// here rather than by keeping a second, untreated copy of every value upstream. That is
+    /// the <c>vis</c>/<c>unvis</c> pairing the threat model specifies: the encoding is lossless
+    /// and invertible, and the decoder is what makes raw output a rendering choice instead of a
+    /// property of the model.
+    /// </para>
+    /// <para>
+    /// Because the decode happens after bounding, the budget cuts the same value in both modes:
+    /// the axes differ in how text is spelled, not in how much of it is shown. Encoded and raw
+    /// output of a clipped cell therefore describe the same prefix.
+    /// </para>
+    /// </remarks>
+    static string Display(InertString text, bool truncated, UntrustedTextMode mode)
     {
-        // The Blob heap carries no decoded text; its bounded hex preview stands in.
-        string body = heap.Text ?? heap.Preview;
-        return heap.Truncated ? body + Ellipsis : body;
+        string body = mode is UntrustedTextMode.Raw ? Decode(text) : text.ToString();
+        return truncated ? body + Ellipsis : body;
     }
 
-    static string FormatHandle(HandleRef reference)
+    /// <inheritdoc cref="Display(InertString, bool, UntrustedTextMode)"/>
+    static string Display(InertString text, UntrustedTextMode mode)
+        => Display(text, text.IsTruncated, mode);
+
+    /// <summary>
+    /// Runs the visual encoding backwards, recovering the artifact's own spelling.
+    /// </summary>
+    /// <remarks>
+    /// Total for anything this library produced: every spelling the encoder emits is one the
+    /// decoder accepts. The fallback is unreachable rather than load-bearing, and it fails
+    /// toward the encoded form — the safe direction — so a value that somehow did not round-trip
+    /// is shown contained rather than raw.
+    /// </remarks>
+    static string Decode(InertString text)
+        => VisualEncoder.TryDecode(text.ToString(), out string? decoded) ? decoded : text.ToString();
+
+    static string FormatHeap(MetadataValue.HeapReference heap, UntrustedTextMode mode)
+    {
+        // The Blob heap carries no decoded text; its bounded hex preview stands in.
+        // Truncation comes off the reference rather than the text because a blob's
+        // preview is bounded in bytes, which the hex spelling cannot report.
+        return Display(heap.Text ?? heap.Preview, heap.Truncated, mode);
+    }
+
+    static string FormatHandle(HandleRef reference, UntrustedTextMode mode)
     {
         if (reference.TargetRowId == 0)
             return "nil";
 
         string target = $"{reference.TargetTable}[{reference.TargetRowId}]";
 
+        if (reference.Display is not { } display)
+            return target;
+
         // A truncated display must always carry the ellipsis so it is never
         // mistaken for a whole value — even when the budget clipped it to empty,
         // which must still render as "(…)" rather than a bare target that looks
         // like an unavailable display.
-        if (reference.DisplayTruncated)
-            return $"{target} ({reference.Display}{Ellipsis})";
+        if (display.IsTruncated)
+            return $"{target} ({Display(display, mode)})";
 
-        if (string.IsNullOrEmpty(reference.Display))
+        if (display.IsEmpty)
             return target;
 
-        return $"{target} ({reference.Display})";
+        return $"{target} ({Display(display, mode)})";
     }
 
     static string FormatRange(HandleRange range)

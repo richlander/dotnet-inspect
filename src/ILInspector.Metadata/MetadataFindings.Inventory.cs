@@ -23,6 +23,44 @@ public static partial class MetadataFindings
     public static readonly FindingDescriptor AssemblyAttributeDescriptor =
         new("metadata.assembly-attribute", "Assembly or module attribute");
 
+    public static readonly FindingDescriptor AssemblySurfaceDescriptor =
+        new("metadata.assembly-surface", "Assembly surface classification");
+
+    /// <summary>
+    /// Projects a typed surface-classification outcome onto the Finding spine.
+    /// A rejected inventory remains a failed inspection rather than an
+    /// implementation-shaped result.
+    /// </summary>
+    public static FindingInspection<AssemblySurfaceClassification>
+        InspectAssemblySurface(
+            AssemblySurfaceClassificationOutcome outcome,
+            FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(subject);
+
+        return outcome switch
+        {
+            AssemblySurfaceClassificationOutcome.Classified classified =>
+                new FindingInspection<AssemblySurfaceClassification>.Complete(
+                [
+                    new Finding<AssemblySurfaceClassification>(
+                        subject,
+                        AssemblySurfaceDescriptor,
+                        new FindingKey("surface"),
+                        classified.Classification),
+                ]),
+            AssemblySurfaceClassificationOutcome.Rejected rejected =>
+                new FindingInspection<AssemblySurfaceClassification>.Failed(
+                    new InspectionError(
+                        subject,
+                        AssemblySurfaceDescriptor,
+                        rejected.Failure.Detail)),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly surface classification outcome."),
+        };
+    }
+
     public static FindingInspection<AssemblyReference> InspectAssemblyReferences(
         IEnumerable<AssemblyReference> references,
         FindingSubject subject)

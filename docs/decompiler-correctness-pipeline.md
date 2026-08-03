@@ -51,7 +51,7 @@ The correctness system should have these properties:
 | 5 | Type binding boss | `--bind-check`, type-bind gates | Whole-type/source artifacts bind without ambiguous/missing-reference errors outside known noise. | Method-body compile-back fidelity. |
 | 6 | Altitude boss | idiom scorecard, `LoweringCoverage`, sidecar rows | The output reached the intended C# idiom. | Soundness around near misses. |
 | 7 | Structure boss | `--gaps`, `--structuring-stops`, `--by-shape` | Which control-flow or fidelity shapes remain unraised. | That raised shapes are semantically faithful. |
-| 8 | Fidelity boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to an exact contract V1 body. | Methods the check cannot recompile or compare. |
+| 8 | Fidelity boss | `--fidelity-check`, fixture fidelity gates, lowered fidelity gates | Decompiled body recompiles to an exact contract body. | Methods the check cannot recompile or compare. |
 | 9 | Corpus boss | `--diff-corpus-baseline`, `--quality-diff-card`, Deep Inspect corpus, PR quick corpus | Aggregate movement across real assemblies, including regressions and coverage. | That the changed methods were fidelity-checked. |
 | 10 | Changed-method boss | `--emit-corpus-delta`, `--fidelity-method-delta` | The methods a behavior PR changed are identified and attempted by compile-back fidelity. | That uncheckable changed methods are safe. |
 | 11 | Final boss | changed-method fidelity over the risky target population, improved examples, still-flat near misses, adversarial review | A risky raise/structuring PR has evidence over the methods it actually changed and its nearest false positives. | Whole-program semantic equivalence. |
@@ -461,7 +461,7 @@ Use these names in issues and PRs when selecting evidence:
 | **Annotation fidelity** | Allocation/unsafety/lifetime facts agree with independent IL witnesses. |
 | **Type artifact correctness** | Whole-type/source output has the right type/file/member shape. |
 | **Type binding** | Whole-type/source output binds in a Roslyn harness. |
-| **Fidelity** | Compile-back contract V1 body proof. This is the semantic body oracle. |
+| **Fidelity** | Compile-back contract body proof. This is the semantic body oracle. |
 | **Completeness** | Raised-vs-residual coverage: `--gaps`, `--structuring-stops`, scorecard/ledger movement. |
 | **Corpus health** | Aggregate real-world signal from the fixed corpus. |
 | **Changed-method evidence** | Per-method delta plus compile-back over methods the PR actually changed. |
@@ -475,7 +475,7 @@ both:
   `FidelityUnavailable`, `RecompileFail`, `ContextFail`, `NotFull`,
   `not-sampled`.
 
-Compile-back fidelity contract V1 defines `Exact` as a full product-owned IL
+The compile-back fidelity contract defines `Exact` as a full product-owned IL
 body comparison match. It compares opcode families, immediate values, symbolic
 member/type/string identities, and branch topology while tolerating
 local/argument macro and slot-layout changes. `OpcodeDiff` means opcode names
@@ -531,10 +531,9 @@ Report:
 4. per-method delta artifact;
 5. changed-method fidelity result, or a clear statement that changed methods are
    not currently checkable;
-6. cross-model adversarial review summary with resolution commit links (two
-   reviewers from the AGENTS.md
-   [Adversarial Review](../AGENTS.md#adversarial-review) roster, never your own
-   model).
+6. adversarial review summary with resolution commit links, staffed according
+   to the AGENTS.md
+   [Adversarial Review](../AGENTS.md#adversarial-review) tier table.
 
 For #1175-class retained-label work, the changed-method population must include
 the forward-merge / structuring-residual methods the PR changes. A green global
@@ -678,7 +677,7 @@ the output reached the intended C# idiom — not a soundness proof. Report:
    `Partial` row);
 2. shape proof for the raise: positive fixture plus near-miss decline (altitude
    without a decline is just an unproven positive);
-3. for any behavior change, the contract V1 / changed-method fidelity evidence the
+3. for any behavior change, the contract / changed-method fidelity evidence the
    raise needs — altitude says nothing about near-miss soundness.
 
 Do not inflate the scorecard with positive-only rows just to move a number. Keep

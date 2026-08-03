@@ -26,6 +26,43 @@ public record NuGetSourceOptions
 /// </summary>
 public static class NuGetSourceResolver
 {
+    /// <summary>
+    /// Resolves sources and reduces them to the identities the package content
+    /// cache records, so a caller can ask the cache for content this
+    /// configuration is actually entitled to. Configured order is preserved.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveSourceKeys(
+        NuGetSourceOptions? options,
+        string? workingDirectory = null)
+        => SourceKeys(ResolveSources(options, workingDirectory));
+
+    /// <summary>
+    /// Reduces already-resolved sources to their cache identities, preserving
+    /// configured order.
+    /// </summary>
+    /// <remarks>
+    /// Order is part of the contract. Sources are consulted in configured order
+    /// on a miss, so a cache read that consults slots in some other order could
+    /// answer from a lower-precedence feed than the one a cold run would have
+    /// used. Returning a set rather than an ordered list would leave that
+    /// precedence undefined.
+    /// </remarks>
+    public static IReadOnlyList<string> SourceKeys(IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var keys = new List<string>();
+        foreach (var source in sources)
+        {
+            var key = NuGetCache.GetSourceKey(source.Url);
+            if (seen.Add(key))
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
     {
         options ??= NuGetSourceOptions.Default;
@@ -87,9 +124,20 @@ public static class NuGetSourceResolver
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
         // reaches this point — and SourceResolver then finds no packageSources and substitutes
         // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
-        if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+        try
         {
-            return $"NuGet config file '{configFile}' declares no usable package sources.";
+            if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
+            {
+                return $"NuGet config file '{configFile}' declares no usable package sources.";
+            }
+        }
+        catch (UnsupportedSourceException ex)
+        {
+            // Resolution rejects a source the config declares. That rejection is a throw because
+            // it guards every path that reaches a feed, most of which are far past parsing; here,
+            // where the config is only being inspected, it converts back to the returned string
+            // this method promises so the CLI reports it as an option error.
+            return ex.Message;
         }
 
         return null;

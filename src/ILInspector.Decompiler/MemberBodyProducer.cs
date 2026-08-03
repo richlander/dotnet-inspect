@@ -215,17 +215,19 @@ public static class MemberBodyProducer
     /// </summary>
     public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         var composed = ComposeCore(
             type,
             dllPath,
             pdbPath,
-            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
-            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            () => ResolveDefinition(start, type, resolver, context),
+            (definition, ctx) => Pipeline.MetadataSource.Open(
+                definition.Assembly.Assembly,
+                pdbPath,
+                resolver,
+                ctx),
             context,
             printerOptions);
         return composed is null
@@ -262,16 +264,18 @@ public static class MemberBodyProducer
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         return ComposeMemberCore(
             type,
             member,
-            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
-            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            () => ResolveDefinition(start, type, resolver, context),
+            (definition, ctx) => Pipeline.MetadataSource.Open(
+                definition.Assembly.Assembly,
+                pdbPath,
+                resolver,
+                ctx),
             context,
             printerOptions);
     }
@@ -303,24 +307,73 @@ public static class MemberBodyProducer
     public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+        var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
-            () => File.OpenRead(dllPath),
-            Provenance: "StartAssembly");
+            AssemblyResolutionProvenance.Local("StartAssembly"));
         return ComposeMembersBatch(
             type,
-            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
-            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            () => ResolveDefinition(start, type, resolver, context),
+            (definition, ctx) => Pipeline.MetadataSource.Open(
+                definition.Assembly.Assembly,
+                pdbPath,
+                resolver,
+                ctx),
             context);
+    }
+
+    static ResolvedTypeDefinition? ResolveDefinition(
+        ResolvedAssemblyReference start,
+        ApiType type,
+        IAssemblyReferenceResolver resolver,
+        Pipeline.MetadataContext? context)
+    {
+        MetadataTypeDefinitionName? name = type.DefinitionName;
+        if (name is null)
+        {
+            string metadataName = type.MetadataName ?? type.Name;
+            if (metadataName.Contains('+', StringComparison.Ordinal)
+                || MetadataTypeDefinitionName.Create(
+                    type.Namespace ?? "",
+                    [metadataName])
+                    is not MetadataTypeDefinitionNameResult.Valid valid)
+            {
+                return null;
+            }
+            name = valid.Name;
+        }
+
+        var request = TypeResolutionRequest.FromAssembly(
+            start,
+            AssemblyResolutionScope.Any,
+            name);
+        TypeResolutionOutcome outcome;
+        if (context is not null)
+        {
+            outcome = context.Resolve(start, request);
+        }
+        else
+        {
+            using var catalog = new TypeResolutionCatalog();
+            var policy = new AssemblyReferenceBindingPolicy(resolver);
+            using TypeResolutionContext resolutionContext =
+                catalog.CreateContext(
+                    policy,
+                    [start],
+                    [request]);
+            outcome = resolutionContext.Resolve(request);
+        }
+
+        return outcome is TypeResolutionOutcome.Resolved resolved
+            ? resolved.Definition
+            : null;
     }
 
     static string? ComposeCore(
         ApiType type,
         string dllPath,
         string? pdbPath,
-        Func<TypeLocation?> locateType,
-        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Func<ResolvedTypeDefinition?> locateType,
+        Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
@@ -329,27 +382,20 @@ public static class MemberBodyProducer
 
         try
         {
-            if (locateType() is not { } location)
+            if (locateType() is not { } definition)
                 return null;
 
             Stream? stream = null;
             PEReader? peReader = null;
             try
             {
-                stream = location.OpenRead();
+                stream = definition.Assembly.Assembly.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
-                TypeDefinitionHandle typeHandle = default;
-                foreach (var h in reader.TypeDefinitions)
-                {
-                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
-                    {
-                        typeHandle = h;
-                        break;
-                    }
-                }
-                if (typeHandle.IsNil)
+                if (!definition.Address.TryResolve(
+                        reader,
+                        out TypeDefinitionHandle typeHandle))
                     return null;
 
                     // Bodies are decompiled from the same on-disk assembly the
@@ -357,7 +403,9 @@ public static class MemberBodyProducer
                     // type facts (value-type-ness of a bare token) during import. A
                     // shared context (when a batch caller supplies one) opens each
                     // referenced assembly once across many composed types.
-                    using var pipelineSource = openPipelineSource(location, context);
+                    using var pipelineSource = openPipelineSource(
+                        definition,
+                        context);
                     var union = TryUnionDeclaration(reader, typeHandle, type);
 
                     var sb = new StringBuilder();
@@ -422,8 +470,8 @@ public static class MemberBodyProducer
     static MemberRenderResult ComposeMemberCore(
         ApiType type,
         ApiMember member,
-        Func<TypeLocation?> locateType,
-        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Func<ResolvedTypeDefinition?> locateType,
+        Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
@@ -432,30 +480,25 @@ public static class MemberBodyProducer
 
         try
         {
-            if (locateType() is not { } location)
+            if (locateType() is not { } definition)
                 return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
 
             Stream? stream = null;
             PEReader? peReader = null;
             try
             {
-                stream = location.OpenRead();
+                stream = definition.Assembly.Assembly.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
-                TypeDefinitionHandle typeHandle = default;
-                foreach (var h in reader.TypeDefinitions)
-                {
-                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
-                    {
-                        typeHandle = h;
-                        break;
-                    }
-                }
-                if (typeHandle.IsNil)
+                if (!definition.Address.TryResolve(
+                        reader,
+                        out TypeDefinitionHandle typeHandle))
                     return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
 
-                using var pipelineSource = openPipelineSource(location, context);
+                using var pipelineSource = openPipelineSource(
+                    definition,
+                    context);
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 // The same body/attribute namespaces the whole-type listing
@@ -506,8 +549,8 @@ public static class MemberBodyProducer
     /// </summary>
     static IReadOnlyDictionary<ApiMember, MemberRenderResult> ComposeMembersBatch(
         ApiType type,
-        Func<TypeLocation?> locateType,
-        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Func<ResolvedTypeDefinition?> locateType,
+        Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context)
     {
         var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
@@ -516,30 +559,25 @@ public static class MemberBodyProducer
 
         try
         {
-            if (locateType() is not { } location)
+            if (locateType() is not { } definition)
                 return results;
 
             Stream? stream = null;
             PEReader? peReader = null;
             try
             {
-                stream = location.OpenRead();
+                stream = definition.Assembly.Assembly.OpenRead();
                 peReader = new PEReader(stream);
                 MetadataReader reader = peReader.GetMetadataReader();
 
-                TypeDefinitionHandle typeHandle = default;
-                foreach (var h in reader.TypeDefinitions)
-                {
-                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
-                    {
-                        typeHandle = h;
-                        break;
-                    }
-                }
-                if (typeHandle.IsNil)
+                if (!definition.Address.TryResolve(
+                        reader,
+                        out TypeDefinitionHandle typeHandle))
                     return results;
 
-                using var pipelineSource = openPipelineSource(location, context);
+                using var pipelineSource = openPipelineSource(
+                    definition,
+                    context);
                 var union = TryUnionDeclaration(reader, typeHandle, type);
 
                 foreach (var member in type.Members)

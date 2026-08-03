@@ -67,9 +67,24 @@ internal enum ScanTokenKind
 /// from the code around it.
 /// </param>
 /// <param name="DepthKnown">
-/// False once the scanner has lost its place — an unterminated single-line literal, or a
-/// conditional directive whose braces may belong to a discarded branch. <see cref="Depth"/> is
-/// meaningless from that point on and callers must treat it as "do not know" rather than as zero.
+/// False where the scanner cannot vouch for <see cref="Depth"/>, which callers must then treat as
+/// "do not know" rather than as zero. Two causes. An unterminated single-line literal loses the
+/// place for the rest of the file. A conditional group loses it for the tokens inside the group,
+/// because the branch being scanned may be the one the compiler discards, and recovers after an
+/// <c>#endif</c> whose branches each returned to the depth the group opened at — every branch then
+/// leaves the same depth behind, so it no longer matters which one compiles. A group that does not
+/// meet that bar loses the place for the rest of the file, as before.
+/// </param>
+/// <param name="Section">
+/// Which run of source between conditional directives this token sits in — a counter incremented
+/// at every <c>#if</c>, <c>#elif</c>, <c>#else</c> and <c>#endif</c>, so two tokens sharing a value
+/// are certainly in the same compiled branch. It is deliberately conservative in one direction
+/// only: two tokens in DIFFERENT sections may still share a branch (a nested group may merely have
+/// opened and closed between them), so a consumer asking "were these written in the same branch?"
+/// gets a sound "no" that is sometimes a false alarm, and never an unsound "yes". That is what lets
+/// a rule distinguish a declaration header CROSSING a group from one written entirely inside a
+/// single branch — the first is branch-dependent and the second is not, and brace depth alone
+/// cannot tell them apart.
 /// </param>
 internal readonly record struct ScanToken(
     ScanTokenKind Kind,
@@ -78,7 +93,8 @@ internal readonly record struct ScanToken(
     int Length,
     int Depth,
     int BracketDepth,
-    bool DepthKnown)
+    bool DepthKnown,
+    int Section)
 {
     /// <summary>The index one past the token's last character, within its own line.</summary>
     public int End => Column + Length;

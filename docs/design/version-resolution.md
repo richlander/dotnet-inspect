@@ -4,6 +4,11 @@ dotnet-inspect uses Docker-style version tags to balance freshness against
 latency. Version discovery is cached briefly; package contents are cached
 permanently by exact version.
 
+The command modes and listing rules describe current behavior. Candidate-source
+and payload-provenance rules describe the target
+[package source model](package-source-model.md); its implementation boundaries
+identify current deviations.
+
 ## Four modes
 
 | Syntax | Behavior | Network I/O |
@@ -16,27 +21,33 @@ permanently by exact version.
 
 ### Pinned (`Name@version`)
 
-The version is treated as immutable. If the package is already in the NuGet
-global cache (`~/.nuget/packages`) or the app cache, it is used immediately.
-No network request is made. If the version has never been downloaded, it is
-fetched once and cached permanently.
+The version is treated as immutable and the caller supplies the candidate. If
+the package is already in a payload cache under an eligible producer, it is
+used immediately. A global-folder entry qualifies only when its
+`.nupkg.metadata.source` matches an eligible feed. No network request is made
+on a qualifying hit. Otherwise, the package is fetched from an eligible source
+and cached permanently under that producer.
 
 ### Latest stable (`Name`)
 
 This is the default and the most common case. Resolution follows this order:
 
-1. **Version cache** — check the version-resolution cache (1-hour TTL). If a
-   cached version string exists, use it.
+1. **Version cache** — check each eligible feed's version-resolution cache
+   (1-hour TTL) for a source-scoped candidate list.
 2. **Network** — if the version cache misses, query NuGet for the latest stable
    version.
-3. **Package cache** — after resolving the version, use the NuGet global cache
-   or app package cache for that exact version; download only if missing.
+3. **Package cache** — after resolving the version and retaining the feeds that
+   reported it, use only a payload cached under one of those producers;
+   otherwise download from one of them.
 
 Adding `--preview`/`--prerelease` switches step 1/2 to a separate prerelease-aware
 version cache/feed query and may resolve to a preview version.
 
-For platform ref packs (e.g., `Microsoft.NETCore.App.Ref`), the same strategy
-applies: if a pack directory exists on disk, use it without querying NuGet.
+SDK-installed ref and runtime packs are direct platform inputs, not NuGet
+package candidates, and may be selected from the installed SDK/runtime. A pack
+projected into dotnet-inspect's `packs-v2` cache is different: it is a
+source-derived payload. Its version comes from an eligible feed or candidate
+cache, and the projected payload must retain that producer's authorization.
 
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
@@ -46,6 +57,11 @@ when `api.nuget.org` is present in the resolved source list; a custom-only feed
 does not leak its package identity to NuGet.org or reuse a NuGet.org metadata
 cache entry for a same-named private package. Package acquisition and RID
 companion-package verification continue to follow the configured sources.
+
+This describes the current gate. The target
+[package source model](package-source-model.md#enrichment-is-a-separate-capability)
+narrows it further when package source mapping is enabled: NuGet.org must be
+eligible for the package id, not merely active somewhere in configuration.
 
 ### Always check (`Name@latest`)
 
@@ -234,13 +250,20 @@ read as listed.
 
 | Cache | Location | TTL | Written by |
 | --- | --- | --- | --- |
-| NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
-| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
+| NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client; payload-only, with producer in `.nupkg.metadata` |
+| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v4/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
+
+The app package cache carries a `{source}` segment because cached content is
+scoped to the source that supplied it; see
+[Source conformance](cache-concurrency.md#source-conformance). The NuGet global
+cache has no such segment. The target source model reads its
+`.nupkg.metadata.source` before using it as a payload replica of an authorized
+feed.
 
 ## Network download/cache behavior
 
@@ -250,7 +273,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 
 | Download or check | Cache behavior |
 | --- | --- |
-| Pinned package `.nupkg` extraction | Uses NuGet global cache or app package cache permanently; downloads only when missing. |
+| Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
@@ -277,32 +300,39 @@ complete app-cache entries transactionally. Separate processes may duplicate
 immutable work, but readers observe only a marked, atomically published winner.
 Platform-pack projection uses the same model in a separate cache namespace.
 
-Cache identity is the cache root, normalized package id, and version.
-Source order selects the producer on a miss and is not a separate durable cache
-identity. See [cache concurrency and publication](cache-concurrency.md) for the
+Cache identity is the cache root, normalized package id, version, and the source
+that supplied the bytes. A discovered coordinate may be fulfilled only by a
+feed that reported it; a pinned coordinate may be fulfilled by any eligible
+feed. See the
+[cache concurrency and publication](cache-concurrency.md) for the
 single-flight boundary, dependency-overlap safety, filesystem rename semantics,
 failure model, and NuGet, Docker, and Git precedents.
 
+The NuGet global folder participates only in payload fulfillment. Its recorded
+source must be authorized for the exact coordinate; installed versions do not
+expand the candidate set. `--no-nuget-cache` excludes it entirely.
+
 ## Multiple sources
 
-Sources are consulted in configured order, and the two version operations combine
-them differently.
+The active sources form an eligible set, not a precedence list. Package source
+mapping may narrow that set for a package id; see the
+[package source model](package-source-model.md). Version operations combine all
+eligible sources.
 
 | Operation | Combination | Order sensitive |
 | --- | --- | --- |
-| `--latest-version` | First source that carries the package answers; later sources are not consulted. | Yes |
+| `--latest-version` | Highest semantic version carried by any eligible source. | No |
 | `--versions` | Union across all sources, deduplicated. | No |
 | `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
 
-First-source-wins for `--latest-version` is deliberate: it is the same precedence
-rule restore uses, and it lets a private feed shadow a public one. The corollary
-is that `--add-source` cannot change `--latest-version` for a package that also
-exists on nuget.org, because the added source lands after the default. To
-override, pass `--source` explicitly and put the preferred feed first.
+An added private or nightly feed can therefore raise the latest-version answer
+even when NuGet.org also carries the package. Source declaration order cannot
+make one feed shadow another. Use package source mapping, or select a single
+source, when only one feed may answer for an id.
 
-Because `--versions` unions and `--latest-version` does not, the two can disagree.
-`--versions-with-feed` exists to make that disagreement legible: it shows which
-feed each version actually came from.
+`--versions-with-feed` keeps provenance that the merged views discard. It shows
+which feeds carry each coordinate, including a coordinate published by more than
+one feed.
 
 ### Listing status across sources
 
@@ -332,11 +362,13 @@ request deduplication is covered separately in
 
 | Docker command | dotnet-inspect command | Version behavior |
 | --- | --- | --- |
-| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Uses a pinned, reproducible coordinate. |
-| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Uses the newest locally cached stable version, or resolves from NuGet when absent. |
+| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Fixes the version; producer provenance determines the bytes. |
+| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Resolves the newest stable candidate from selected feeds, then uses a matching cached payload when available. |
 | `docker pull nginx` | `dotnet-inspect package System.Text.Json@latest` | Always checks NuGet for the current version. |
 
-NuGet packages are immutable once published (a given version string always
-refers to the same content), so pinned versions never go stale. The bare-name
-default optimizes for the interactive CLI use case where sub-second response
-time matters more than always having the absolute latest version.
+A pinned version does not by itself guarantee byte reproducibility across
+feeds: two feeds may publish different payloads for one coordinate. A pinned
+coordinate plus one authorized producer, or another verified content identity,
+is reproducible. The bare-name default optimizes for the interactive CLI use
+case where sub-second response time matters more than always having the
+absolute latest version.

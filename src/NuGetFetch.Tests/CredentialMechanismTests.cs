@@ -182,15 +182,29 @@ public sealed class CredentialMechanismTests : IDisposable
     }
 
     [Fact]
-    public void InlineCredentialsInSourceUrl_AreNotSupported()
+    public void InlineCredentialsInSourceUrl_AreRejected()
     {
         // A userinfo-bearing URL carries no credential into the request: nothing parses it out
-        // into an Authorization header, and HttpClient does not send userinfo on its own.
-        PackageSource source = Single(SourceResolver.ResolveSources(
+        // into an Authorization header, and HttpClient does not send userinfo on its own. That
+        // used to mean the source was accepted and the credential quietly dropped, which reached
+        // the feed anonymously and failed as a bare 401 — indistinguishable, to the operator,
+        // from a credential that was sent and rejected. Resolution refuses it instead.
+        var ex = Assert.Throws<UnsupportedSourceException>(() => SourceResolver.ResolveSources(
             explicitSource: "https://pat:s3cret@feed.example/v3/index.json"));
 
-        Assert.Null(source.Credential);
-        Assert.Null(source.GetAuthHeader());
+        // The message is printed, so it names the source without repeating the credential.
+        Assert.Contains("feed.example", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InlineCredentialsInSourceUrl_CanBeTestedWithoutCatching()
+    {
+        // The rejection has a non-throwing half so a caller can check before committing to a
+        // source, rather than using an exception for control flow.
+        Assert.False(SourceResolver.IsSupportedSource(
+            "https://pat:s3cret@feed.example/v3/index.json"));
+        Assert.True(SourceResolver.IsSupportedSource("https://feed.example/v3/index.json"));
     }
 
     [Fact]

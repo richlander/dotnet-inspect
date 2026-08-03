@@ -2056,8 +2056,13 @@ public sealed class LibraryBodyIndex
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
-        readonly IAssemblyReferenceResolver? _resolver;
-        readonly Dictionary<AssemblyReferenceIdentity, ReferencedAssemblyMetadata?> _referencedAssemblyCache = new();
+        readonly TypeResolutionCatalog? _resolutionCatalog;
+        readonly AssemblyReferenceBindingPolicy? _bindingPolicy;
+        readonly ResolvedAssemblyReference? _rootAssembly;
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            ReferencedAssemblyMetadata?> _referencedAssemblyCache =
+                new(ReferenceEqualityComparer.Instance);
         readonly string _assemblyName;
         readonly Guid _mvid;
         readonly bool _memorySafetyRulesEnabled;
@@ -2067,10 +2072,22 @@ public sealed class LibraryBodyIndex
             _path = path;
             _reader = reader;
             _peReader = peReader;
-            _resolver = resolver;
             _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
             _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+            if (resolver is not null && reader.IsAssembly)
+            {
+                string fullPath = System.IO.Path.GetFullPath(path);
+                _rootAssembly = ResolvedAssemblyReference.Create(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                    fullPath,
+                    () => File.OpenRead(fullPath),
+                    AssemblyResolutionProvenance.Local(
+                        "LibraryBodyIndex"));
+                _bindingPolicy =
+                    new AssemblyReferenceBindingPolicy(resolver);
+                _resolutionCatalog = new TypeResolutionCatalog();
+            }
         }
 
         public void Dispose()
@@ -2078,6 +2095,7 @@ public sealed class LibraryBodyIndex
             foreach (var assembly in _referencedAssemblyCache.Values)
                 assembly?.Dispose();
             _referencedAssemblyCache.Clear();
+            _resolutionCatalog?.Dispose();
         }
 
         // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
@@ -2088,6 +2106,40 @@ public sealed class LibraryBodyIndex
         sealed class ReferencedAssemblyMetadata(Stream stream, PEReader peReader) : IDisposable
         {
             public MetadataReader Reader { get; } = peReader.GetMetadataReader();
+
+            internal static ReferencedAssemblyMetadata? TryOpen(
+                ResolvedAssemblyReference assembly)
+            {
+                Stream? stream = null;
+                PEReader? peReader = null;
+                try
+                {
+                    stream = assembly.OpenRead();
+                    peReader = new PEReader(stream);
+                    if (!peReader.HasMetadata)
+                        return null;
+                    var metadata =
+                        new ReferencedAssemblyMetadata(stream, peReader);
+                    stream = null;
+                    peReader = null;
+                    return metadata;
+                }
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or ArgumentException)
+                {
+                    return null;
+                }
+                finally
+                {
+                    peReader?.Dispose();
+                    stream?.Dispose();
+                }
+            }
 
             public void Dispose()
             {
@@ -2129,73 +2181,42 @@ public sealed class LibraryBodyIndex
             string ns,
             string name)
         {
+            if (_resolutionCatalog is null
+                || _bindingPolicy is null
+                || _rootAssembly is null
+                || MetadataTypeDefinitionName.Create(ns, [name])
+                    is not MetadataTypeDefinitionNameResult.Valid valid)
+            {
+                return null;
+            }
+
             var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
             var scope = ScopeForReference(assemblyReference);
-            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
-
-            // A TypeRef names the assembly the compiler bound against, which is routinely
-            // a facade that type-forwards to the definer -- every framework reference in a
-            // reference-assembly or facade-only shared-framework layout resolves this way.
-            // Opening only the named assembly finds no TypeDef there and reports the type
-            // as unresolvable, so follow ExportedType forwarders to the defining assembly.
-            //
-            // Decoding a forwarder is TypeForwardResolver's mechanism and is reused here.
-            // The traversal itself runs in the builder because the defining MetadataReader
-            // must outlive this call under _referencedAssemblyCache's ownership, whereas
-            // TypeForwardResolver.LocateType disposes every assembly it opens.
-            HashSet<AssemblyReferenceIdentity>? visited = null;
-            for (int hop = 0; hop <= TypeForwardResolver.DefaultMaxHops; hop++)
+            var request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(_rootAssembly),
+                scope,
+                valid.Name);
+            using TypeResolutionContext context =
+                _resolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [_rootAssembly],
+                    [request]);
+            if (context.Resolve(request)
+                is not TypeResolutionOutcome.Resolved resolved)
             {
-                var metadata = ResolveReferencedAssembly(identity, scope);
-                if (metadata is null)
-                    return null;
-
-                if (FindTopLevelTypeDefinition(metadata.Reader, ns, name) is { } definition)
-                    return (metadata.Reader, definition);
-
-                if (TypeForwardResolver.ForwardTargetAssemblyIdentity(metadata.Reader, fullTypeName) is not { } forwarded)
-                    return null;
-
-                visited ??= new HashSet<AssemblyReferenceIdentity> { identity };
-                if (!visited.Add(forwarded))
-                    return null;
-                identity = forwarded;
-                scope = NextHopScope(scope, forwarded);
+                return null;
             }
 
-            return null;
-        }
-
-        /// <summary>
-        /// Scope for the next forwarder hop. A forwarder must not launder a platform
-        /// assembly into an unconstrained lookup: an <see cref="AssemblyResolutionScope.Any"/>
-        /// reference can forward into a framework-signed assembly, and resolving that hop
-        /// under <c>Any</c> would let a confusable local copy satisfy it. Scope only ever
-        /// tightens, never the reverse. The function is gated by the <c>NextHopScope_*</c>
-        /// tests; the call site below is gated by
-        /// <c>ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope</c>, which is
-        /// the one test that fails if this call is dropped from the loop.
-        /// </summary>
-        internal static AssemblyResolutionScope NextHopScope(
-            AssemblyResolutionScope current, AssemblyReferenceIdentity forwarded)
-            => current == AssemblyResolutionScope.Any
-                && FrameworkAssemblyKeys.IsFrameworkToken(forwarded.PublicKeyToken)
-                    ? AssemblyResolutionScope.Platform
-                    : current;
-
-        static TypeDefinitionHandle? FindTopLevelTypeDefinition(MetadataReader reader, string ns, string name)
-        {
-            foreach (var candidateHandle in reader.TypeDefinitions)
-            {
-                var candidate = reader.GetTypeDefinition(candidateHandle);
-                if (candidate.IsNested)
-                    continue;
-                if (reader.StringComparer.Equals(candidate.Namespace, ns)
-                    && reader.StringComparer.Equals(candidate.Name, name))
-                    return candidateHandle;
-            }
-
-            return null;
+            ReferencedAssemblyMetadata? metadata =
+                OpenReferencedAssembly(
+                    resolved.Definition.Assembly.Assembly);
+            return metadata is not null
+                && resolved.Definition.Address.TryResolve(
+                    metadata.Reader,
+                    out TypeDefinitionHandle definition)
+                    ? (metadata.Reader, definition)
+                    : null;
         }
 
         (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveNestedExternalType(
@@ -2220,63 +2241,22 @@ public sealed class LibraryBodyIndex
             return null;
         }
 
-        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        ReferencedAssemblyMetadata? OpenReferencedAssembly(
+            ResolvedAssemblyReference assembly)
         {
-            // Guarded because parallel full builds resolve referenced assemblies concurrently
-            // from many method-analysis threads. Resolution is per unique referenced assembly
-            // (bounded and cached), so lock contention is negligible; the lock is reentrant on
-            // the same thread for any transitive resolution. Holding it across the open keeps
-            // single-resolve semantics (no duplicate opens leaking undisposed metadata).
             lock (_referencedAssemblyCache)
             {
-                if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
+                if (_referencedAssemblyCache.TryGetValue(
+                        assembly.Registration,
+                        out ReferencedAssemblyMetadata? cached))
+                {
                     return cached;
+                }
 
-                var resolved = OpenReferencedAssembly(identity, scope);
-                _referencedAssemblyCache[identity] = resolved;
-                return resolved;
-            }
-        }
-
-        ReferencedAssemblyMetadata? OpenReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        {
-            if (_resolver is null)
-                return null;
-
-            ResolvedAssemblyReference? resolved;
-            try
-            {
-                resolved = _resolver.Resolve(identity, scope);
-            }
-            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
-            {
-                return null;
-            }
-
-            if (resolved?.Path is not { Length: > 0 } path || !File.Exists(path))
-                return null;
-
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
-            {
-                stream = File.OpenRead(path);
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
-                    return null;
-                var metadata = new ReferencedAssemblyMetadata(stream, peReader);
-                stream = null;
-                peReader = null;
-                return metadata;
-            }
-            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
-            {
-                return null;
-            }
-            finally
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
+                ReferencedAssemblyMetadata? opened =
+                    ReferencedAssemblyMetadata.TryOpen(assembly);
+                _referencedAssemblyCache[assembly.Registration] = opened;
+                return opened;
             }
         }
 
@@ -2284,14 +2264,6 @@ public sealed class LibraryBodyIndex
             => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
                 ? AssemblyResolutionScope.Platform
                 : AssemblyResolutionScope.Any;
-
-        static bool IsRecoverableReferenceResolutionFailure(Exception ex)
-            => ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException
-                or NotSupportedException
-                or ArgumentException;
 
         sealed class DecodedBody
         {

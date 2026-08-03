@@ -4,6 +4,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
+using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 
@@ -104,15 +105,23 @@ public static class PackageExtractor
 
         while (true)
         {
-            var outcome = await DownloadAndExtractPackageAsync(
-                client,
-                currentPackageSource,
-                log,
-                tempDirPrefix,
-                sourceOptions,
-                currentVersion,
-                currentForceLatest,
-                currentIncludePrerelease).ConfigureAwait(false);
+            // Scoped per hop, not per acquisition: each hop resolves a different package id,
+            // and a source failure recorded while resolving one package must not be offered
+            // as the explanation for the next one going missing.
+            PackageExtractionOutcome outcome;
+            using (FeedFailureTelemetry.Scope())
+            {
+                outcome = await DownloadAndExtractPackageAsync(
+                    client,
+                    currentPackageSource,
+                    log,
+                    tempDirPrefix,
+                    sourceOptions,
+                    currentVersion,
+                    currentForceLatest,
+                    currentIncludePrerelease).ConfigureAwait(false);
+            }
+
             if (!outcome.IsSuccess)
                 return outcome;
 
@@ -225,7 +234,10 @@ public static class PackageExtractor
                 if (HttpClientFactory.IsOffline)
                     return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
 
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                return PackageExtractionOutcome.Error(
+                    (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                        ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                        .ToString());
             }
         }
 
@@ -234,10 +246,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         var request = new PackageAcquisitionRequest(
-            Path.GetFullPath(
-                NuGetCache.GetPackageCachePath(
-                    normalizedName,
-                    normalizedVersion)));
+            $"{normalizedName}@{normalizedVersion}",
+            string.Join(
+                '|',
+                sources.Select(source => NuGetCache.GetSourceKey(source.Url))));
         return await s_packageRequests.GetOrAddAsync(
             request,
             _ => AcquireResolvedPackageAsync(
@@ -270,6 +282,7 @@ public static class PackageExtractor
         IPackageContent? cached = s_packageStore.TryGetCached(
             normalizedName,
             normalizedVersion,
+            NuGetSourceResolver.SourceKeys(sources),
             log);
         if (cached != null)
         {
@@ -289,7 +302,7 @@ public static class PackageExtractor
             string nupkgPath = Path.Combine(
                 tempDir,
                 $"{packageName}.{version}.nupkg");
-            string? successfulSource = null;
+            NuGetSource? successfulSource = null;
 
             foreach (var source in sources)
             {
@@ -317,7 +330,7 @@ public static class PackageExtractor
                         .ConfigureAwait(false);
                     if (ok)
                     {
-                        successfulSource = source.Name;
+                        successfulSource = source;
                         break;
                     }
                 }
@@ -340,14 +353,16 @@ public static class PackageExtractor
                 if (knownVersions == null || knownVersions.Count == 0)
                 {
                     return PackageExtractionOutcome.Error(
-                        $"Package '{packageName}' not found.");
+                        (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                            ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                            .ToString());
                 }
 
                 return PackageExtractionOutcome.Error(
                     $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            log?.Invoke($"Package downloaded successfully from {successfulSource}.");
+            log?.Invoke($"Package downloaded successfully from {successfulSource.Name}.");
 
             // Persist the downloaded nupkg through the package store. The
             // filesystem store extracts and transactionally commits it to the
@@ -359,6 +374,7 @@ public static class PackageExtractor
                 content = await s_packageStore.CommitAsync(
                     packageName,
                     version,
+                    NuGetCache.GetSourceKey(successfulSource.Url),
                     nupkgStream).ConfigureAwait(false);
             }
             log?.Invoke($"Cached to: {content.RootPath}");
@@ -402,7 +418,14 @@ public static class PackageExtractor
         }
     }
 
-    private readonly record struct PackageAcquisitionRequest(string CachePath);
+    /// <summary>
+    /// Identifies one in-flight acquisition. The source scope is part of the
+    /// identity, not just the coordinate: callers configured for different
+    /// sources must not share a download, or one would receive bytes the other
+    /// was entitled to. Callers with the same ordered source list resolve
+    /// identically and can safely share.
+    /// </summary>
+    private readonly record struct PackageAcquisitionRequest(string CachePath, string SourceScope);
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.
@@ -478,7 +501,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         // Cache hit: read the nuspec straight from the already-extracted package.
-        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        var cachedPath = NuGetCache.TryGetCachedPackage(
+            normalizedName,
+            normalizedVersion,
+            NuGetSourceResolver.ResolveSourceKeys(sourceOptions));
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             var cachedNuspec = Directory
@@ -693,38 +719,70 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         string cacheKey = includePrerelease ? $"{normalizedName}-prerelease" : normalizedName;
 
-        // Cache nuget.org results even when additional custom sources are configured.
+        // Cache nuget.org results even when additional custom sources are configured. The cached
+        // value is nuget.org's own latest, not the overall answer: only nuget.org results are ever
+        // written here, so a hit lets that one source be answered without a request while the
+        // remaining sources are still consulted.
         bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
+        string? cachedNuGetOrgVersion = null;
         if (canCache)
         {
-            string? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
             {
-                cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
+                cachedNuGetOrgVersion = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
             }
-            if (cached != null)
-            {
-                log?.Invoke($"Using cached version: {cached}");
-                return cached;
-            }
+            if (cachedNuGetOrgVersion != null)
+                log?.Invoke($"Using cached version: {cachedNuGetOrgVersion}");
         }
+
+        // Every source is consulted and the highest version wins. Source order does not decide the
+        // answer: a feed carries the versions nuget.org does not have, and those are usually the
+        // higher ones, so stopping at the first source that happened to know the package would hide
+        // them whenever nuget.org is listed first -- which is the usual way to write a nuget.config.
+        // This matches GetVersionsAsync and ResolveVersionPatternAsync, which already aggregate, and
+        // it matches NuGet itself, where source order is not precedence (that is what package source
+        // mapping is for).
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestOriginal = null;
 
         foreach (var source in sources)
         {
-            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
-            if (version != null)
+            string? version;
+            if (source.IsNuGetOrg && cachedNuGetOrgVersion != null)
             {
-                if (canCache && source.IsNuGetOrg)
+                version = cachedNuGetOrgVersion;
+            }
+            else
+            {
+                version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
+                if (version != null && canCache && source.IsNuGetOrg)
                 {
                     using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
                     CoreCache.Set(VersionCacheCategory, cacheKey, version, extension: "txt");
                 }
-                return version;
+            }
+
+            if (version == null)
+                continue;
+
+            if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+            {
+                if (best == null || parsed > best)
+                {
+                    best = parsed;
+                    bestOriginal = version;
+                }
+            }
+            else if (bestOriginal == null)
+            {
+                // Unparseable version strings cannot be ordered; keep the first as a last resort so
+                // an odd feed still yields an answer rather than none.
+                bestOriginal = version;
             }
         }
 
-        return null;
+        return bestOriginal;
     }
 
     /// <summary>

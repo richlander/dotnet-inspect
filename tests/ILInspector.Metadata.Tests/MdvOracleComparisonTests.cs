@@ -149,7 +149,7 @@ public class MdvOracleComparisonTests
         Assert.Equal(HeapKind.Guid, mvid.Heap);
 
         // Two independent Guid-heap decodes of the same image must agree.
-        Assert.Equal(guidMatch.Groups[1].Value, mvid.Text, ignoreCase: true);
+        Assert.Equal(guidMatch.Groups[1].Value, mvid.Text!.Value.ToString(), ignoreCase: true);
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public class MdvOracleComparisonTests
 
         var assemblyRef = Assert.Single(Project().Tables, table => table.Name == "AssemblyRef");
         var names = assemblyRef.Rows
-            .Select(row => (Cell(assemblyRef, row, "Name") as MetadataValue.HeapReference)?.Text)
+            .Select(row => (Cell(assemblyRef, row, "Name") as MetadataValue.HeapReference)?.Text?.ToString())
             .Where(text => text is not null)
             .Select(text => text!)
             .ToHashSet(StringComparer.Ordinal);
@@ -273,7 +273,7 @@ public class MdvOracleComparisonTests
         Assert.SkipUnless(
             MdvOutput.Value is not null,
             "mdv (Roslyn metadata viewer) is not installed or did not run; " +
-            "install it with `dotnet tool install --global Microsoft.Metadata.Visualizer`.");
+            "install it with `source eng/activate-iltools.sh --mdv`.");
         return MdvOutput.Value!;
     }
 

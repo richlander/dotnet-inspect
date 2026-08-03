@@ -7,7 +7,7 @@ namespace ILInspector.Decompiler.Tests;
 /// The fidelity gate for the lowered C# view. Like <see cref="FidelityGateTests"/>,
 /// it decompiles every method on <see cref="CfgSampleClass"/>, recompiles it inside a
 /// reconstructed shape of its type, and compares the body under compile-back fidelity
-/// contract V1 — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
+/// the fidelity contract — but it renders through <see cref="CSharpPrinter.PrintLowered"/>
 /// (the de-sugared SharpLab-style view) instead of the shipped sugared view. Each official
 /// C# view earns its own compiler→decompiler→compiler validation, so a regression that turns
 /// a lowered method's recompiled IL into a different stream fails CI.
@@ -20,7 +20,7 @@ public class LoweredFidelityGateTests
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";
 
     /// <summary>
-    /// Methods whose lowered C# still differs under compile-back fidelity contract V1 — the open
+    /// Methods whose lowered C# still differs under the compile-back fidelity contract — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set, and
     /// <see cref="DocketRowsStayCheckedDiffs"/> fails if a listed method stops differing.
     /// The lowered view's by-design divergences (for example lowering skipping
@@ -121,7 +121,7 @@ public class LoweredFidelityGateTests
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
-        // Contract V1 rebaseline: opcode names still match, but canonical
+        // Fidelity contract rebaseline: opcode names still match, but canonical
         // operands, symbolic targets, or branch targets differ.
         "DayNumber",
         // MakeConsumerWithTwoLeadingArgs (#3272): the trailing object initializer
@@ -146,7 +146,7 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Methods the lowered view keeps exact under contract V1. This is the sugared pinned set minus
+    /// Methods the lowered view keeps exact under the fidelity contract. This is the sugared pinned set minus
     /// ClassicLock, which the lowered view legitimately reshapes (lowering skips LockSugarPass,
     /// emitting an
     /// explicit Monitor.Enter/Exit form the fidelity check shell cannot bind — it lands in the
@@ -274,7 +274,7 @@ public class LoweredFidelityGateTests
         });
 
         Assert.True(unexpected.Count == 0,
-            "New lowered fidelity check contract V1 diffs (lowered C# recompiles to different IL):\n"
+            "New lowered fidelity check contract diffs (lowered C# recompiles to different IL):\n"
             + string.Join("\n\n", details)
             + $"\n\nFull current diff set: {string.Join(", ", diffResults.Select(r => r.Method))}");
     }
@@ -347,7 +347,7 @@ public class LoweredFidelityGateTests
 
         Assert.True(
             unavailable.Length == 0,
-            "Lowered compile-back fidelity contract V1 was unavailable for: "
+            "Lowered the compile-back fidelity contract was unavailable for: "
             + string.Join(", ", unavailable));
     }
 

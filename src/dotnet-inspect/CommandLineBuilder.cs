@@ -183,7 +183,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand));
+        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));

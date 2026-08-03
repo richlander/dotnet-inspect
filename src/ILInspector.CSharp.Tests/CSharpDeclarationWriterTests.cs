@@ -1491,6 +1491,190 @@ public sealed class CSharpDeclarationWriterTests
         Assert.Equal("public class GlobalKeywordType<T> where T : struct, @struct", declaration);
     }
 
+    /// <summary>
+    /// A caller-supplied generic-parameter list (the decompiled-source `member`
+    /// view passes the names it resolved from metadata) makes the ApiSignature
+    /// renderer decline, so the declaration is composed on the text path instead.
+    /// That path used to drop the `where` clauses, emitting C# that no longer
+    /// states the constraint its body relies on (issue #3664).
+    /// </summary>
+    [Fact]
+    public void GenericMethod_WithCallerSuppliedTypeParameters_KeepsConstraints()
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member, options: null, methodParameters: ["T"]);
+
+        Assert.Equal(
+            "public static int Compare<T>(T a, T b) where T : System.IComparable<T>",
+            declaration);
+    }
+
+    /// <summary>
+    /// The ApiSignature path renders the same constraints, so the two paths agree
+    /// on the clause rather than one of them silently dropping it.
+    /// </summary>
+    [Fact]
+    public void GenericMethod_WithoutCallerSuppliedTypeParameters_KeepsConstraints()
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "public static int Compare<T>(T a, T b) where T : System.IComparable<T>",
+            declaration);
+    }
+
+    /// <summary>
+    /// An override inherits its constraints, and a type constraint may not be restated:
+    /// `csc` rejects it with CS0460. Both declaration paths have to omit it, so the gate
+    /// runs with and without a caller-supplied generic-parameter list.
+    /// (The `class`/`struct` carve-out C# does allow is covered separately, by
+    /// <see cref="OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires"/>.)
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void OverrideGenericMethod_OmitsInheritedConstraints(bool callerSuppliesTypeParameters)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.IsOverride = true;
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: callerSuppliesTypeParameters ? ["T"] : null);
+
+        Assert.Equal("public override int Compare<T>(T a, T b)", declaration);
+    }
+
+    /// <summary>
+    /// An explicit interface implementation inherits its constraints for the same
+    /// reason an override does, and restating them is the same CS0460.
+    /// </summary>
+    /// <remarks>
+    /// Only the caller-supplied case is load-bearing today: forcing the gate open
+    /// fails that case but not the ApiSignature one, because the ApiSignature method
+    /// branch keys on <c>Kind == "method"</c> and so never renders this kind at all.
+    /// The second case is therefore a pin, not a gate — it fails if a later change
+    /// routes explicit interface implementations through that branch without
+    /// teaching it about inherited constraints.
+    /// </remarks>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExplicitInterfaceGenericMethod_OmitsInheritedConstraints(bool callerSuppliesTypeParameters)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.Kind = "explicit-interface-implementation";
+        member.Name = "Samples.IComparer.Compare";
+        member.Signature = "int Samples.IComparer.Compare<T>(T a, T b)";
+        member.SignatureModel!.MemberName = "Samples.IComparer.Compare<T>";
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: callerSuppliesTypeParameters ? ["T"] : null);
+
+        Assert.DoesNotContain("where", declaration, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The restatement C# permits on a member that inherits its constraints is decided
+    /// by one fact -- whether the type parameter is known to be a reference type, known
+    /// to be a value type, or neither -- and it is load-bearing, not cosmetic: it decides
+    /// whether <c>T?</c> means a nullable reference type or Nullable&lt;T&gt;. Omitting
+    /// it produces an override that does not compile (CS0453/CS0115/CS0534), and naming
+    /// the wrong one is CS8822 or CS8665, so the writer reduces from the classified fact
+    /// rather than from the constraint spelling.
+    /// </summary>
+    /// <remarks>
+    /// This gate owns the reduction only. That the classifier assigns the right
+    /// <see cref="TypeParameterTypeKind"/> to compiler-produced metadata -- including the
+    /// System.Enum row, where a class constraint nonetheless requires <c>default</c> -- is
+    /// gated separately against a real compiled artifact by
+    /// <c>ApiOutputFormatterTests.ConstraintRestatement_MatchesWhatCSharpRequires</c>.
+    /// </remarks>
+    [Theory]
+    // Known to be a reference type: the bare keyword, never the annotated `class?`
+    // metadata records, because the annotated form is itself CS0460 here.
+    [InlineData(TypeParameterTypeKind.ReferenceType, "where T : class")]
+    // Known to be a value type.
+    [InlineData(TypeParameterTypeKind.ValueType, "where T : struct")]
+    // Neither: `default` is the only spelling that keeps `T?` meaning a nullable
+    // reference type, and omitting the clause entirely does not compile.
+    [InlineData(TypeParameterTypeKind.NeitherReferenceNorValue, "where T : default")]
+    // Not classified. Both concrete answers are compile errors when guessed wrong, so
+    // the clause is omitted and the render stays as it was before this rule existed.
+    [InlineData(TypeParameterTypeKind.Undetermined, "")]
+    public void OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires(
+        TypeParameterTypeKind typeKind,
+        string expectedClause)
+    {
+        var (type, member) = CreateConstrainedGenericMethod();
+        member.IsStatic = false;
+        member.IsOverride = true;
+        member.SignatureModel!.TypeParameters[0].TypeKind = typeKind;
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type,
+            member,
+            options: null,
+            methodParameters: ["T"]);
+
+        Assert.Equal(
+            string.IsNullOrEmpty(expectedClause)
+                ? "public override int Compare<T>(T a, T b)"
+                : $"public override int Compare<T>(T a, T b) {expectedClause}",
+            declaration);
+    }
+
+    static (ApiType Type, ApiMember Member) CreateConstrainedGenericMethod()
+    {
+        var member = new ApiMember
+        {
+            Name = "Compare",
+            Kind = "method",
+            IsStatic = true,
+            Signature = "int Compare<T>(T a, T b)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Compare<T>",
+                TypeParameters =
+                [
+                    new TypeParameter
+                    {
+                        Name = "T",
+                        Constraints = ["System.IComparable<T>"],
+                        StructuredConstraints =
+                        [
+                            new TypeParameterConstraint("System.IComparable<T>", IsTypeName: true),
+                        ],
+                    },
+                ],
+                Parameters =
+                [
+                    new ApiParameter { Name = "a", Type = "T" },
+                    new ApiParameter { Name = "b", Type = "T" },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Values",
+            Kind = "class",
+            Members = [member],
+        };
+        return (type, member);
+    }
+
     static ApiType CreateSampleType()
         => new()
         {

@@ -63,8 +63,10 @@ var (selectedPath, _)      = TfmSelector.SelectHighestTfmAssembly(...);        /
 ```
 
 The bare `path` is handed to inspection, which then **re-opens the file and re-derives** some
-of what was just discarded (for example `InspectAsync` re-probes
-`PlatformResolver.IsFacadeOnlyAssembly(path)` and re-reads name/version from metadata).
+of what was just discarded. Facade classification no longer interprets raw
+forwarder rows in Services -- it consumes a Metadata-owned declaration
+inventory and retains a typed outcome and Finding -- but the path handoff still
+causes that inventory and name/version facts to be read again.
 
 Where provenance *is* needed downstream, it is smuggled as loose extra parameters rather
 than bundled:
@@ -166,26 +168,90 @@ only `Target.Location`; `AssemblyInspectionSession.Open` takes the resulting **r
 method-body session takes `Target.Selector` + the **facets**. One object crosses the CLI→service
 boundary; each service downstream receives just its own slice, not the whole request.
 
-### 2. `ResolvedAssemblyReference` — the resolution output (reuse what #2051 built)
+### 2. `ResolvedAssemblyReference` — the resolution output
 
 The resolver's answer: how to open the assembly *plus* everything it learned while finding it.
-This is the currency that replaces the bare `string`. **This type already exists** — #2051
-introduced `ResolvedAssemblyReference` in `ILInspector.Metadata` and the decompiler already
-resolves through it:
+This is the currency that replaces the bare `string`. #2051 introduced
+`ResolvedAssemblyReference` in `ILInspector.Metadata`, and the decompiler already resolves
+through it. The structured forwarding design evolves it in its second delivery slice from the
+original value-equal record to a registration-backed, non-equatable descriptor:
 
 ```csharp
-// ILInspector.Metadata/AssemblyReferenceIdentity.cs
-public sealed record ResolvedAssemblyReference(
-    AssemblyReferenceIdentity Identity,   // simple name, version, culture, public-key token
-    string? Path,
-    Func<Stream> OpenRead,                // both a path AND an opener — streams compose too
-    string? Provenance = null);
+public abstract record AssemblyResolutionProvenance
+{
+    private protected AssemblyResolutionProvenance() { }
+    private protected abstract int Discriminator { get; }
+
+    public static AssemblyResolutionProvenance Package(
+        string packageId,
+        string packageVersion,
+        string? tfm,
+        string? rid) =>
+        new PackageAsset(packageId, packageVersion, tfm, rid);
+
+    public static AssemblyResolutionProvenance Platform(
+        string framework,
+        string? frameworkVersion,
+        string resolverSource) =>
+        new PlatformAsset(framework, frameworkVersion, resolverSource);
+
+    public static AssemblyResolutionProvenance Project(
+        string project,
+        string? tfm,
+        string? rid) =>
+        new ProjectAsset(project, tfm, rid);
+
+    public static AssemblyResolutionProvenance Local(string resolverSource) =>
+        new LocalAsset(resolverSource);
+
+    public sealed record PackageAsset(
+        string PackageId,
+        string PackageVersion,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 0;
+    }
+
+    public sealed record PlatformAsset(
+        string Framework,
+        string? FrameworkVersion,
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 1;
+    }
+
+    public sealed record ProjectAsset(
+        string Project,
+        string? Tfm,
+        string? Rid) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 2;
+    }
+
+    public sealed record LocalAsset(
+        string ResolverSource) : AssemblyResolutionProvenance
+    {
+        private protected override int Discriminator => 3;
+    }
+}
+
+var reference = ResolvedAssemblyReference.Create(
+    selectedIdentity,
+    path,
+    () => File.OpenRead(path),
+    provenance);
 ```
 
-So the inspection path **adopts this existing descriptor**, not a parallel one. It already
-answers "path vs stream vs opener" (it carries both). The one change: widen `string? Provenance`
-into a structured value — package@version, tfm, rid, platform-or-not, resolver source — so
-inspection reads provenance back instead of re-deriving it.
+The acquisition owner retains the returned canonical descriptor and opaque registration per
+selected candidate. The handle contains no payload and cannot recreate the descriptor; the
+descriptor exposes the selected image's identity, path, opener, structured provenance, and
+registration. The incoming `AssemblyRef` identity remains request evidence, not descriptor
+identity. See
+[Type forwarding resolution](type-forwarding-resolution.md#assembly-candidate) for the
+authoritative identity, ownership, and migration contract. Provenance still widens from
+`string?` into a structured value — package@version, tfm, rid, platform-or-not, resolver source
+— so inspection reads provenance back instead of re-deriving it.
 
 **Multi-assembly locations (one query type).** There is a **single** `InspectionQuery`; there is
 no separate `PackageInspectionQuery`. Resolving `Target.Location` yields
@@ -386,12 +452,13 @@ Three rules keep the surface flat:
 1. **Inspection-time services take the session/owner — one signature.** A scanner or the
    method-body session consumes the already-open owner; it does not accept a path *or* a
    reference, because by then the assembly is open.
-2. **Value-boundary services take the `ResolvedAssemblyReference` — and a path lifts into one.**
+2. **Value-boundary services take the `ResolvedAssemblyReference` — and an acquisition owner
+   lifts a path into one.**
    Where a service genuinely accepts an assembly by value (the resolution boundary, or a
-   standalone call), it takes the reference. A path-only caller wraps it in a line —
-   `new ResolvedAssemblyReference(identity, path, () => File.OpenRead(path))`, exactly what the
-   #2051 `AssemblyLocator` adapter already does — so there is **one** input type, and "I only
-   have a path" is a trivial lift, not a second overload per service.
+   standalone call), it takes the reference. A path-only caller asks the local acquisition owner
+   to register the selected image through `ResolvedAssemblyReference.Create`, so there is **one**
+   input type, not a second overload per service. The owner reads the selected image identity and
+   retains the canonical descriptor; consumers do not synthesize request-shaped descriptors.
 3. **Never take `(path, ResolvedAssemblyReference? reference = null)`.** That optional/nullable
    both-or-neither shape is precisely the loose-parameter smell this design removes; it invites
    callers to pass a path and re-open. Prefer one required, typed input.
@@ -546,11 +613,14 @@ The end state is large; get there without a big-bang rewrite. Suggested order:
    `MemberCodeProvider` and the current `ResearchViews.ProjectMember` implementation next (see
    [the sibling seam](#the-sibling-seam-method-body--coordinate-inspection)).
 
+The provenance breadth is resolved by `AssemblyResolutionProvenance`: package assets carry
+package/version/tfm/rid, platform assets carry framework/version/source, project assets carry
+project/tfm/rid, and local assets carry resolver source. This is the minimum current consumers
+read back; adding another field or arm requires a named consumer rather than turning provenance
+into a grab bag.
+
 ## Open questions
 
-- **Provenance breadth.** `ResolvedAssemblyReference.Provenance` is a single `string?` today.
-  How much structure does inspection actually need (package@version, tfm, rid, platform flag,
-  resolver source) before it becomes a grab bag? Prefer the minimum consumers read back.
 - **Query granularity.** Is `InspectionQuery.Facets` the right knob, or should the session be
   lazy (scan on first access) so the query only needs the target? Laziness may make the facet
   set redundant.

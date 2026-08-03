@@ -194,7 +194,39 @@ the shipped CLI) is the worked example, and
 `docs/decompiler-correctness-pipeline.md` owns its host contract, its structural
 and semantic levels, and what to do when a fixture trips one.
 
-Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
+Some tests use external tools as independent oracles and **skip** when those
+tools are absent: `ilasm`/`ildasm` (CLI and decompiler suites) and `mdv`
+(the metadata projection oracle). A machine without them reports a green run
+that proved less than it appears to, so restore them before trusting a clean
+result:
+
+```bash
+source eng/activate-iltools.sh --mdv
+```
+
+`eng/restore-iltools.sh` does the acquisition and prints the directories;
+`eng/activate-iltools.sh` is the sourceable wrapper that puts them on PATH.
+Source the wrapper rather than assembling PATH by hand. A child process cannot
+change its parent's PATH, so the assembly has to happen in your shell, and
+every way of getting it wrong is silent -- a masked exit status, a lost
+trailing newline, or empty output prepending an empty PATH entry, which means
+the current directory. Each leaves a plausible PATH with no oracles on it. The
+wrapper is the one tested copy of that logic; `IlToolsActivationTests` in
+`src/dotnet-inspect.Tests` is its gate, and also fails if this documentation
+goes back to hand-rolling the assembly.
+
+The script pins the `ilasm`/`ildasm` version for CI and local runs alike;
+`ci.yml`, `deep-inspect.yml`, and `release.yml` invoke `eng/restore-iltools.sh`
+directly, appending its output to `$GITHUB_PATH` so the runner does the joining.
+Only `ci.yml` passes `--mdv`, because it is the only workflow that runs the
+metadata oracle suite. Its install step is `continue-on-error` so that a feed
+outage does not cost every other result in the lane, but `Check
+ilasm/ildasm/mdv result` runs after the suites and fails the lane if
+acquisition failed: losing oracle coverage is red, not a quietly shorter skip
+list. `deep-inspect.yml` and `release.yml` still degrade to skips, so read
+their step logs before treating a green decompiler or IL-diff leg as
+oracle-backed.
+
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `ILInspector.Decompiler.Tests` composes `Speed` and `Area` traits and offers a
@@ -334,36 +366,82 @@ round:
   and re-run the validation the change claims; the resulting head is what you
   hand out. Reviewing a stale head spends the review on code that is not what
   will merge, and defers conflict resolution to *after* the reviews are clean —
-  where the resolution is itself unreviewed.
-- **The PR is mergeable and green.** Use `gh pr view <n> --json
-  mergeable,mergeStateStatus` for conflicts and `gh pr checks <n> --required`
-  for the gating runs; when the repository marks no check required, `--required`
-  reports none and exits non-zero, so fall back to plain `gh pr checks <n>`.
-  Exit `0` means nothing failed and nothing is outstanding; exit `8` means
-  checks are still running, which is not green — wait with `--watch`. A
-  `skipping` result is terminal and does not block: a path-filtered job that
-  skipped will never become a pass, so waiting on it waits forever. It is also
-  not evidence of anything. Never cite a skipped job as proof your change was
-  validated, and if a change should have triggered a job that skipped, treat the
-  path filter as the bug.
+  where the resolution is itself unreviewed. Once the reviews *are* clean, this
+  reverses: see [Clean reviews are not spent by main
+  moving](#clean-reviews-are-not-spent-by-main-moving).
+- **The PR is mergeable and green** — two questions, two commands. For
+  conflicts, `gh pr view <n> --json mergeable`: `CONFLICTING` blocks, and
+  `UNKNOWN` means GitHub has not finished computing the merge, so re-query
+  rather than read it as clear. For the gating runs, `gh pr checks <n>
+  --required`, which on a PR targeting `main` resolves to `ci-required` — the
+  only check the ruleset requires. Exit `0` is green; exit `8` means checks are
+  still running, so wait with `--watch`. Exit `1` reporting *no* required
+  checks is inconclusive: the aggregate may not have registered yet, or the
+  ruleset may not cover the PR's base. Fall back to plain `gh pr checks <n>`
+  and inspect the base separately; a PR targeting `main` is not green until its
+  current-head `ci-required` has passed. Do not read
+  `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
+  for a PR with no checks at all (#3706). `skipping` is terminal and does not
+  block, but it is also not evidence: never cite a skipped job as validation,
+  and if a change should have triggered a job that skipped, the path filter is
+  the bug. After a push, compare `headRefOid` from `gh pr view <n> --json
+  headRefName,headRefOid` with `headSha` from `gh run list --branch
+  <headRefName> --event pull_request --json databaseId,headSha,status,conclusion`,
+  then watch that run by id. `gh pr checks --watch` can otherwise return exit
+  `0` against the previous head's run before the new one registers.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
   bottom open slice takes `origin/main` as its base, and rebasing an upper slice
   onto `main` pulls in work its parent has not landed and makes the slice's diff
-  report its parent's changes as its own.
-- **No checks reported is terminal, not pending.** A slice can report no checks
-  at all — `gh pr checks` prints "no checks reported" while the PR is
-  MERGEABLE/CLEAN. Whether a given base branch schedules runs is not something
-  to assume in either direction: read what the PR actually reports, and if
-  nothing is reported, do not wait for runs that may never come. In that state
-  the slice's evidence is the validation you ran locally plus the bottom slice's
-  CI, so say what you ran, and never report an unrun slice as green. Re-check
-  after the slice retargets `main`, where anything newly scheduled does gate.
+  report its parent's changes as its own. `ci.yml` applies no base-branch
+  filter, so every slice schedules the same CI wherever it targets; a slice
+  reporting *no* checks is therefore not green. Re-query after the registration
+  window and verify the current head; if no matching workflow run appears, that
+  is a scheduling bug to investigate, since a PR that triggers no workflow
+  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
+  (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
 a confirmation rather than a second full pass.
+
+### Clean reviews are not spent by main moving
+
+For a PR that targets `main` — including the bottom slice of a stack — when
+every reviewer the tier requires has come back clean at the current head and
+`origin/main` has since moved, **stop and ask.** Do not integrate main, and do
+not open another round on your own initiative. Evaluate this from the latest
+clean result: an earlier finding that was fixed and then reviewed clean does not
+disqualify it. If a finding remains unresolved, or the head changed after that
+clean result because of an author change, conflict resolution, or restack, the
+exception does not apply: resolve or restack, integrate the effective base, and
+review the new head normally.
+
+Ask with an analysis of what actually landed: which commits touch files this
+change touches, which behavior this change relies on that they alter, and any
+conflict a textual merge would resolve silently but wrongly. Say plainly when
+the answer is that nothing in the range interacts with this change — that is the
+common case and it is the most useful thing you can report.
+
+The user decides which continuation the evidence warrants:
+
+- If the range is non-interacting, the user may direct you to integrate main,
+  re-run the claimed validation and current-head CI, and carry the clean reviews
+  forward without another round. Record the reviewed head, old and new main
+  tips, the non-interaction analysis, and the user's decision on the PR.
+- If the range can affect the change, integrate main and run a new round at the
+  resulting head.
+
+The first continuation is the sole exception to the fixed-head review rule; it
+does not authorize carrying reviews across author changes, conflict-resolution
+changes, or a restack that occurred after the recorded reviewed head.
+
+This is the one place the settled-branch rule yields, and it has to, or the
+budget is unbounded: on a busy `main`, a round takes longer than the interval
+between commits, so integrate-and-re-review by reflex never converges. A pair of
+clean reviews is a result. Unrelated commits landing behind it do not retract
+it.
 
 ### A quick read is not a round
 
@@ -377,40 +455,46 @@ Keep the two distinct. A quick read gets no isolated worktree, no fixed head,
 and **satisfies no tier** — a PR that had one still owes its full review once
 the branch settles. When you cite its findings, say which it was.
 
-### How many reviews, and from which models
+### How many reviewers, and from which models
 
-**How much review a PR needs is a function of its triviality and risk alone —
-never the kind of change it makes.** If you are unsure which tier applies,
-escalate: default to more review, not less.
+The review gate has one threshold: trivial changes may skip review; everything
+else gets the standard round. Risk scales how deeply the reviewers attack the
+change, not how the round is staffed. If you are unsure whether a change is
+trivial, escalate: default to review, not none.
 
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| More than trivial, but not high risk | A single review round, always with **MAI-Code**. |
-| High risk — the default for any substantial change | Two review rounds from two different models. |
+| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer. |
 
-High risk means subtle correctness, security, or compatibility risk, or a large
-or uncertain blast radius.
+Adversarial-review roster — this list is the single source of truth, and
+scenario docs should reference it rather than restating it:
 
-Reviewer roster — this list is the single source of truth, and scenario docs
-should reference it rather than restating it:
-
+- **GPT-5.6 Sol** — the fixed seat, in every round
 - Claude Opus
 - Gemini Pro
-- GPT
-- MAI-Code
 
-**Always use the highest version a model offers** — if both Opus 4.8 and Opus 5
-are available, use Opus 5. In the two-model tier, do not review with your own
-model when another listed family is available.
+**Strongly prefer a second seat from a different model family than the one that
+authored the change.** Two families fail differently, and an author reviewing
+its own work brings the same blind spot that produced the bug — the second seat
+exists for the perspective the first cannot have. Reuse of your own model is
+permitted rather than blocking, because the fixed seat already guarantees one
+independent perspective, but treat it as the fallback when no other roster
+reviewer is available, and say on the PR which case applied.
+
+**Use the highest version and quality level a model offers** in the second seat
+— given both Opus 4.8 and Opus 5, use Opus 5. The GPT-5.6 Sol seat is a
+deliberate pin rather than a "highest available" slot; when it should move, move
+it here.
 
 These tiers assume a harness — such as the GitHub Copilot CLI — that can
-delegate to any family in the roster. A harness exposing only its own vendor's
-models (Claude Code, Codex) changes how the reviews are obtained, never the bar:
-it satisfies the **single-round** tier with its own model, and for the
-**two-model** tier it reviews with its own model and then **requests a second,
-different-family round from the user**, not marking the PR ready until that
-round arrives.
+delegate to the roster. A harness with only some roster models changes how the
+round is obtained, never the bar: run the roster reviewer it has and request
+every missing seat from the user. An out-of-roster model may provide a quick
+read but does not fill a seat.
+
+A **round** evaluates one settled head with every reviewer its tier requires.
+Two reviewers in the same round count as one round, not two.
 
 ### Running the round
 
@@ -425,6 +509,31 @@ After addressing findings, re-review the fixed exact head. Reconcile the reviews
 publicly on the PR: attribute findings, state what was verified or dismissed, and
 link resolution commits or explain explicit non-actions. Do not mark the PR ready
 until every required fixed-head review is clean.
+
+### Keep review proportional to the contract
+
+Review the invariant the design actually promises. Unless the threat model
+explicitly includes hostile in-process callers, require the invariant for
+well-behaved code that follows the design — not for arbitrary code that bypasses
+or misuses its abstractions.
+
+Prefer simple, auditable enforcement over making every abstraction a fortress
+against rogue callers. `InertString` is the model: code that uses the type
+properly gets its invariant, while bypasses and misuse are deliberately easy to
+find with a targeted search. A reviewer should report such a caller so it can be
+fixed, but should not demand bend-over-backwards features in the type merely to
+make misuse impossible. Escalate to stronger enforcement only when the stated
+contract or threat model requires it.
+
+### Stop after six rounds
+
+Do not begin a seventh review round without explicit user approval, and get
+fresh approval for every additional round. Before requesting approval, present
+an analysis of why six rounds did not converge. In particular, determine
+whether the repeated findings expose an architectural problem, missing test
+coverage, or reviewers expanding the contract beyond the intended threat
+model. State the proposed architectural or test remedy, or explain why the
+remaining concern should be dismissed, before spending another round.
 
 ## PR and CI discipline
 
@@ -462,6 +571,8 @@ until it is unreviewable, and over parallel PRs that race in the same files.
 - **Name the stack in every PR**: the slice's position, its parent PR, and the
   enumerated residual, which is the non-action boundary the PR-summary rule
   already requires.
+- **Name every slice branch descriptively.** No prefix is required for CI:
+  `ci.yml` applies no base-branch filter, so a PR runs CI whatever it targets.
 - **One branch and one worktree per slice**, branched from the parent slice, and
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and

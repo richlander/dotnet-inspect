@@ -752,6 +752,11 @@ public static class MetadataDeclarationQuery
         GenericContext context)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list for the same reason `ApiSurfaceExtractor` shares one:
+        // `where T : U` chains run through it, and answering each parameter from scratch
+        // rewalks the chain's whole tail, which is quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
@@ -789,6 +794,12 @@ public static class MetadataDeclarationQuery
                 Constraints = constraints,
                 StructuredConstraints = structured,
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
+                TypeKind = TypeParameterKindClassifier.Classify(
+                    reader,
+                    handle,
+                    hasValueTypeConstraint: isStruct,
+                    hasReferenceTypeConstraint: (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                    chain),
             });
         }
 

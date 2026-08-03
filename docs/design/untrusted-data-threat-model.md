@@ -9,6 +9,169 @@ This document records the trust boundaries and security rules for product code.
 It is a living model: new acquisition paths, parsers, caches, or output features
 must update the relevant boundary and verification obligations.
 
+## Scope and priority
+
+State intent; do not make promises. These libraries may eventually ship, and
+the patterns in a tool like `mdi` may be reimplemented elsewhere, so the model
+should be legible enough to copy — but "we thought about this" is not a
+guarantee, and this document does not offer one.
+
+**In scope:** harm to the machine or the user's tooling caused by untrusted
+input arriving over the internet — a package from a feed, a PDB from a symbol
+server, source fetched from SourceLink. Using a NuGet package is a trust
+decision the user makes; that this tool is a no-commitment offer, easy to point
+at anything, raises rather than lowers the bar for what it does with what it
+finds.
+
+The intended consumer raises it further. This tool is built to be handed to
+**autonomous agents**, so its output is frequently acted on without a human
+reading it. Two things follow. A rendering hazard is not bounded by whether
+someone is watching a terminal, and output that misstates identity is not
+caught by a reader who would have noticed. Trust in the *input* is also
+misplaced in a specific way worth naming: a caller who pre-vetted their
+dependencies concludes that reading them is safe, but a vetted package can be
+hijacked after the fact, and the names entering a build are not spelled
+uniformly across projects, transitive edges, and floating versions.
+
+**Out of scope:** deliberately opening artifacts you already know are hostile,
+and running the tool elevated. Both are the caller's decision, and neither is a
+boundary this tool can defend.
+
+**Target: two to three nines, not five.** That is a real ceiling, and it is
+what makes the ordering below meaningful rather than aspirational.
+
+Work is ranked in this order, and the order is not negotiable when they compete
+for attention:
+
+1. **Reliability and security on correct, well-formed binaries.** This is first
+   because it is the normal case, and because rigor on correct inputs is what
+   makes reasoning about malformed ones possible at all. A tool that is wrong
+   about ordinary assemblies has no standing to claim anything about hostile
+   ones.
+2. **Security on malformed binaries.** Everything downstream of a parser that
+   accepts what it should have rejected.
+3. **Reliability against environmental patterns that require an attacker to
+   already have access to the machine.** Not zero — but at most two nines, and
+   never ahead of the first two.
+
+A crash on malformed input is a **reliability** defect, not a security one. It
+is still worth fixing, and not only for tidiness: a crash means the code is one
+step away from the same input producing an effect that does *not* announce
+itself.
+
+Local machine weirdness is tier 3. A symbolic link someone placed in a package
+cache is a user doing user things, not an elevation of privilege. It would be a
+security issue if a *package* could create it during extraction — and that
+would be a defect in NuGet's restore, not in this tool.
+
+## Strategy: reject, do not sanitize
+
+When untrusted input violates a contract, the response is a typed rejection.
+Sanitizing — accepting the artifact and repairing the offending value — is
+rejected as a strategy for two reasons:
+
+- **It is hard to get right, and being wrong is silent.** A sanitizer has to be
+  correct about the full set of dangerous forms. A rejecter only has to be
+  correct that *this* form is not allowed.
+- **Where there is one mouse, there are many.** A field that contains a
+  terminal escape sequence is evidence about the artifact, not about the field.
+  Repairing it and continuing gives a malformed or hostile package a second
+  chance to be interesting somewhere the check does not reach.
+
+The consequence is a stack that must be **resilient to errors**, not resilient
+to handling bad input. Those are different engineering problems and only one of
+them is defensible: error paths are few, shared, and testable, while
+bad-input-tolerance is diffuse and every new consumer re-litigates it.
+
+### Prefer an allow list wherever the grammar is known
+
+A rejecter still has to decide what to reject, and there are two ways to write
+that down. A **deny list** enumerates the bad forms; an **allow list**
+enumerates the permitted ones and refuses everything else. Where a field's
+grammar is externally defined and small — a package id, a version — use the
+allow list.
+
+The difference is not stylistic. A deny list is only ever as current as the
+last hazard someone thought of, and it cannot express the attacks that use
+*ordinary* characters. Cyrillic `а` (`U+0430`) and Latin `a` (`U+0061`) are the
+same glyph, different code points, and both are general category `Ll` — no
+hazard classification will ever separate them, because neither is a hazard.
+Homoglyph typosquatting is defeated by constraining the grammar and by nothing
+else.
+
+An allow list is also the cheapest thing here to audit — one small set checked
+against one field — and the fastest to run, needing no Unicode tables. It is
+the same reject-over-sanitize rule applied one step earlier: at the point the
+value is admitted rather than the point it is printed.
+
+Free-form fields cannot be treated this way. Assembly-derived type and member
+names are legitimately non-ASCII, and prose is legitimately international, so
+those fall back to visual encoding. See
+[metadata-table-projection.md](metadata-table-projection.md#constrain-the-grammar-first-encode-only-what-cannot-be)
+for the sink classes and the encoding rules that follow from them.
+
+Push the decision **down**. The best shape is a type whose construction *is*
+the check, so choosing the type grants the capability and auditing is a search
+rather than an argument. A rule enforced by *calling a function* is a rule a
+new path can forget, and `string` is the type of both a checked and an
+unchecked value.
+
+`HardenedJson` is the repository's closest existing move in this direction, and
+it is worth being precise about how far it actually goes: it is a `static
+class` whose `Parse` returns an ordinary `JsonDocument`, so it is a single
+named entry point that centralizes the policy — not a type whose construction
+enforces it. Choosing it grants the capability; nothing stops a new call site
+from reaching for `JsonDocument.Parse` instead, and some already do (see open
+work). A centralized entry point is a real improvement over per-call-site
+options and is cheap to audit by grep, but it is the weaker of the two shapes,
+and new hardening should prefer the stronger one where the value crosses a
+layer boundary.
+
+The stronger shape now exists. `InertText.InertString` (#3636) is a type whose
+construction *is* the encoding, so treated text has a different type from
+untreated text and survives composition — a site that merely passes a value
+along cannot drop the property, and forgetting becomes a compile error rather
+than a missing line in a hand-maintained list. It is the primitive this section
+argues for; prefer it over a new `HardenedJson`-shaped static entry point when
+the thing being contained is text bound for a sink.
+
+One thing this rule does **not** forbid is escaping and encoding. Escaping a
+value on the way into a sink — JSON string escapes, `vis(3)`-style visual
+encoding of control characters — is a property of the *encoding*, applied
+uniformly to all text, lossless and invertible. Sanitization is different: it
+inspects a value, judges it dangerous, and alters or drops part of it so the
+rest can proceed.
+
+Both have to know which characters the sink interprets; a terminal has no
+formal grammar, so encoding for one is not the free lunch that escaping for
+JSON is. The distinction is what happens when you are **wrong** about that set:
+
+- Under-encode, and the fix is to widen the set in one place. Nothing was
+  lost, the decoder still recovers the original, and every call site inherits
+  the correction at once.
+- Under-sanitize, and the data is already gone, the judgment is spread across
+  every call site that made it, and there is no decoder to appeal to.
+
+Uniformity is the other half. An encoder does not decide *whether* a given
+value is hostile, so it cannot be wrong about a value — only about the sink.
+That is a much smaller thing to be right about, and it is written down.
+
+### Failure messages carry no artifact data
+
+A rejection message names the **user-supplied** input — the path, coordinate,
+or package the caller asked for — plus the rule that fired and the location
+within the artifact. It must not quote the offending value.
+
+This is not in tension with keeping failures attributable: attribution is
+satisfied by naming what the user wrote and where the problem is. The rejected
+value is by construction the most hostile string encountered, and echoing it
+into an exception message or onto `stderr` re-opens on the error path the exact
+channel the check just closed.
+
+See [metadata-table-projection.md](metadata-table-projection.md#safety) for
+this model worked through on one surface, including how a hostile image stays
+inspectable without handing over its bytes.
+
 ## Security objectives
 
 The product must:
@@ -132,11 +295,16 @@ provenance divergence it does **not** address is closed separately, by the
 control below.
 
 Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
-parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
-duplicate-bearing JSON the same way; that is fail-closed, but it does not by itself convert those
-callers to explicit failure reporting, which remains open work below.
+are *intended* to parse through the same guard, and most do. Callers that already treated malformed
+JSON as "no data" now treat duplicate-bearing JSON the same way; that is fail-closed, but it does
+not by itself convert those callers to explicit failure reporting, which remains open work below.
 
-`runfaster` still parses its trace inputs directly and is not yet covered.
+The coverage is not yet complete, and the gaps are on the feed path specifically:
+`PackageExtractor` uses `HardenedJson.Parse` at four call sites but plain
+`System.Text.Json.JsonDocument.Parse` at two more when reading registration pages, and
+`NuGetFetch.NuGetApi` deserializes the service index, version index, and search responses through a
+source-generated context that does not reject duplicates. `runfaster` also still parses its trace
+inputs directly. Nothing gates the invariant, which is why the gaps persisted; see open work below.
 
 ### SourceLink provenance is read off the URL source is fetched from
 
@@ -485,6 +653,10 @@ race window, but a local adversary able to mutate the chosen directory
 concurrently remains a residual risk. Security-sensitive automation should use
 a fresh directory with permissions restricted to the invoking user.
 
+That residual risk is **tier 3**: it requires an attacker who already has write
+access to a directory the user chose. It is worth the checks already listed
+here, and it is not worth trading against correctness on ordinary inputs.
+
 ## Required rules for new code
 
 These are requirements for new or changed paths and audit targets for existing
@@ -504,7 +676,8 @@ For each artifact-derived path:
 4. Resolve the full destination and prove it remains beneath the root.
 5. Preflight collisions across the full operation.
 6. Refuse unintended overwrite.
-7. Keep failures visible and attributable to the offending artifact.
+7. Keep failures visible, and attributable to the input the **user** supplied.
+   Do not quote the rejected artifact value.
 
 Do not use `Path.Combine(root, untrustedValue)` as a containment check.
 
@@ -545,9 +718,138 @@ land in temporary files and become visible atomically after validation.
 
 Artifact text can contain Markdown delimiters, newlines, terminal control
 characters, URLs, or prompt-like instructions. Renderers must preserve output
-structure and must not interpret inspected text as authority. JSON serializers
-provide structural escaping; Markdown, table, plain-text, and stderr paths need
-equivalent control-character and delimiter discipline.
+structure and must not interpret inspected text as authority.
+
+> **Status.** Both axes are built in `mdi`, which is the reference consumer:
+> the default refuses, `--show-untrusted-text` opts out of the trust axis, and
+> `--dangerously-print-raw` additionally opts out of the rendering axis. The
+> rendering axis rests on `InertText.InertString` (#3636), extended to Unicode
+> general categories in #3628.
+>
+> Two things remain unbuilt. **Survey mode** is not implemented: refusal stops
+> at the first violation rather than reporting every one, though
+> `InertString.IsPermitted` already returns a `ScalarViolation` shaped for it.
+> And **`dotnet-inspect` has neither flag**; the library default is to encode
+> and continue, so its behavior is the middle row of both tables. That default
+> is deliberate — containment is a safety property the library owes every
+> caller, while refusing is a policy only a caller can choose — but it means the
+> trust axis currently exists only where a command line can express it.
+
+Presentation is **two orthogonal decisions**, and collapsing them into one flag
+is a design error.
+
+**Trust** — what happens when a concerning pattern is found:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | abort at the first one |
+| survey mode | keep going; report location and pattern kind, never content, bounded by the traversal budget |
+| `--show-untrusted-text` | keep going and render the values anyway |
+
+The trust skip is **not** `dangerously`-named, which is a correction to an
+earlier draft of this section rather than a departure from it. The argument
+below is that the skip is defensible precisely because visual encoding still
+applies underneath it — it means "do not refuse," not "it is fine to put my
+terminal at risk." A name that called it dangerous would contradict that, and
+would spend the word on the safe path, leaving nothing louder for the flag that
+genuinely hands over live control characters.
+
+**Rendering** — how artifact text is spelled once something is printed:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | visually encoded into an inert form |
+| `--dangerously-print-raw` | no visual encoding; the output format's own structural escaping still applies |
+
+That last clause is load-bearing and measured: the format keeps itself well
+formed regardless of the flag. JSONL escapes scalars below U+0020 per RFC 8259,
+which is not containment — those escapes decode back to the original scalar —
+and TSV replaces the line and paragraph separators, which it cannot carry in a
+record. Markdown carries everything. So the raw mode promises that `mdi` adds
+no encoding of its own, not that every scalar reaches the stream.
+
+**Raw output is produced by the decoder, at the sink.** Since #3687 the
+projection cannot hold untreated text at all: its text-bearing fields are
+`InertString`, and no conversion admits a `string` into one. That closes off the
+obvious implementation — keeping a second, raw copy of every value beside the
+contained one — and forces the honest one, which is to run the encoding
+backwards at the moment of printing. This is the `vis`/`unvis` pairing named
+below rather than a workaround for it: the encoding is lossless and invertible
+precisely so that a decoder can exist, and having the decoder is what makes raw
+output a *rendering* choice instead of a property of the model. A literal
+backslash is always rewritten on the way in, which is what keeps the inverse
+unique. Refusal is unaffected and still happens upstream, against the raw text,
+because the question it asks — does this artifact carry something concerning —
+is about the artifact rather than about the spelling.
+
+Placing the decode after the character budget also buys a property the earlier
+implementation lacked: **both modes cut the same value at the same point.**
+Bounding raw text separately, in its own units, made the rendering axis quietly
+a *content* axis too, so that asking for a different spelling changed how much
+of the value you saw — a subtler form of exactly the collapse this section
+warns about. `MdiUntrustedTextModeTests.RawAndEncodedRenderingsShowTheSamePrefix`
+gates it by re-encoding the raw cell and comparing it to the encoded one,
+running the encoder forward so the assertion is not a restatement of the
+decode. On an artifact carrying nothing that needs containment the three
+tiers are byte-identical; measured over a 2,031,325-byte assembly, all three
+agree exactly.
+
+The axes are independent, and that is the design. Visual encoding is the
+default on **every** artifact-text path, including underneath the trust-axis
+skip — which is precisely what makes that skip defensible: it means "do not
+refuse," not "it is fine to put my terminal at risk." Reaching a live control
+character therefore requires opting out of both axes, two separately named
+mistakes. `mdi` enforces exactly that: `--dangerously-print-raw` on its own is
+rejected rather than silently ignored, because refusal comes first and the flag
+would otherwise change nothing while appearing to.
+
+Rendering is **visual encoding, not neutralization**: control characters are
+re-spelled into an inert, lossless, invertible form rather than removed or
+replaced. The vocabulary is borrowed rather than coined — see below — and the
+three properties together are what let the encoding be the default: it costs
+the reader nothing, so there is no case for making it opt-in, and a default
+cannot be forgotten by a new path. Nothing passes a flag to make a JSON
+serializer escape `\u001B`.
+
+This is established practice for tools that read hostile bytes:
+
+- **BSD `vis(3)`** is where the vocabulary and the contract come from. It
+  visually encodes arbitrary input into graphic characters only, and pairs the
+  encoder with a decoder (`unvis`) so the transform is unique and invertible.
+  Encode-without-a-decoder is not this pattern.
+- **Caret notation** — `^[` for `ESC`, `^?` for `DEL` — is the standard
+  spelling for C0 and `DEL`, used by `cat -v`, `less`, and `stty`, and dating
+  to the PDP-6 up-arrow that the 1967 ASCII revision replaced with `^`. Specify
+  it; do not invent a spelling.
+- **`grep`** refuses binary content by default and prints `Binary file X
+  matches` — location, never content — with `-a`/`--text` as the named opt-in,
+  for exactly this threat.
+- **`less`** renders control characters in caret notation by default and
+  reserves raw output for `-r`.
+- **`rustc`** made bidirectional control characters a deny-by-default hard
+  error after Trojan Source (CVE-2021-42574) rather than stripping them. Its
+  denied set is nine code points — the embeddings and overrides
+  `U+202A`–`U+202E` and the isolates `U+2066`–`U+2069`. Unicode's
+  `Bidi_Control` property adds the three marks `U+200E`, `U+200F`, and `U+061C`
+  for twelve; do not attribute those three to `rustc`. Every one of the twelve
+  is `Cf`, and none is anywhere near C1, so a rule written as "control
+  characters" excludes all of them — which is why the encoded set is defined by
+  Unicode property rather than by a hand-written list.
+- **`binutils`** is the cautionary case rather than a model: its parsers are
+  continuously fuzzed, and fuzzing has repeatedly found parser defects that
+  received CVEs.
+
+Do not copy `less`'s one mistake: its protection is conditional on stdout being
+a TTY, and it degrades to `cat` when output is redirected — `-r` makes no
+difference there, because nothing is being encoded in the first place. A pipe
+is precisely where an agent or a log is.
+
+JSON serializers provide structural escaping. Markdown, table, plain-text, and
+stderr paths need equivalent discipline, and stderr especially — see
+[failure messages carry no artifact data](#failure-messages-carry-no-artifact-data).
+
+[metadata-table-projection.md](metadata-table-projection.md#safety) works this
+through on one surface and specifies a concrete encoding.
 
 One artifact-derived string on the SourceLink path is rendered today: the
 reported `RepositoryUrl`, which `AssemblyInspector` writes to
@@ -623,11 +925,16 @@ only ordinary compiler output.
 | SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values; the mapping rule is pinned against the specification's worked example, and the set of product files reading the map is pinned by set equality |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
-| Structured output | Untrusted delimiters/control characters cannot escape the selected format. `MdiContainmentTests` splices a payload spanning every control range the projector recognizes (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1 control) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw control character survives and every neutralized form is present. The `--references` view carries no artifact text, so it is asserted only against raw controls, as a regression net. Mutation-checked by disabling `MetadataTableProjector.IsControl` and by narrowing it to `ESC` alone |
+| Structured output | Untrusted non-graphic scalars cannot escape the selected format. `MdiContainmentTests` splices a payload reaching past any single predicate's notion of "control" (a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, a C1 control, the bidi override `U+202E`, the line separator `U+2028`, the zero-width space `U+200B`, and the supplementary tag character `U+E0074`) into both a real `#Strings` entry and the metadata version stamp, then renders that assembly in every format through the three views that carry artifact text — table, heap, and overview — asserting no raw non-graphic scalar survives and every contained form is present. The `--references` view carries no artifact text, so it is asserted only against raw scalars, as a regression net. Mutation-checked by restoring the pre-#3628 range predicate (dies naming `U+202E`) and by a category-correct but `char`-based predicate (dies naming `U+E0074`). Until #3628 this row named a payload that was `Cc` only, so a bidi override would not have been noticed; the payload and the assertion helper had both been scoped to the projector's own predicate, which is why the gate stayed green while `U+202E` reached the terminal. Both now classify by Unicode general category over scalars. Two limits remain: the assertion deliberately permits raw `CR`/`LF`/`TAB`, and format *delimiters* are not covered by this gate at all |
 
 ## Open work
 
-1. Extend duplicate-property rejection to `runfaster` trace parsing.
+1. Extend duplicate-property rejection to the readers that still bypass
+   `HardenedJson`: the two `JsonDocument.Parse` call sites in
+   `PackageExtractor` registration-page reading, `NuGetFetch.NuGetApi`'s
+   source-generated feed contexts, and `runfaster` trace parsing. Add a gate
+   asserting no product JSON entry point parses outside the guard, so the set
+   cannot silently regrow.
 2. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
 3. Audit every product write against the derived-path rules, including symbol
@@ -640,4 +947,60 @@ only ordinary compiler output.
 6. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
 7. Revisit filesystem containment if .NET exposes a portable atomic
-   no-follow/open-beneath primitive.
+   no-follow/open-beneath primitive. **Tier 3.**
+8. Adopt the reject-over-sanitize strategy where the product currently
+   neutralizes. `MetadataTableProjector` repairs control characters in
+   artifact text and continues, which is the sanitize strategy this document
+   now argues against, and it is applied by calling a helper rather than by
+   construction — which is how the metadata version stamp reached
+   presentation uncontained. Introduce the trust axis (default abort, survey,
+   named skip), move rendering into a type a renderer cannot bypass, and
+   re-point `MdiContainmentTests` at the new property. Ship the encoder with
+   its decoder and the round-trip/injectivity gate described in
+   [metadata-table-projection.md](metadata-table-projection.md#safety); a
+   caret-introduced spelling is not invertible and must not be used. Note the
+   existing escaper has the same defect from the other direction: `EscapeCore`
+   renders controls as `\uXXXX` but only escapes `\` when `escapeStructural`
+   is set, and `NeutralizeControls` passes `false`, so a literal `\u001B` in
+   artifact text and a real `ESC` produce identical output.
+
+   Adopt the general-category rule at the same time. `IsControl` is
+   `c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f')` — `Cc` only — so
+   the metadata path does not encode bidi overrides, `U+2028`/`U+2029`, or
+   `U+FEFF`. Other paths in this repository already do: `AppliedTasteSection`
+   gates `\u202E`, `\u061C`, and `\u2066`, and the IL string-literal printer
+   gates `\u2028`/`\u2029`. One product with two containment sets is the same
+   inheritance failure as the version stamp, one layer up, and the narrower
+   set is the one a reader of this design would have copied.
+9. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
+   throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
+   Printability here is a function of **provenance, not content**: the same
+   helper receives user-typed coordinates and artifact-derived ones, so it
+   cannot be decided by inspecting the value. Three graph-resolved paths reach
+   it, all verified:
+
+   - `ProjectCommand` → `ProjectAssetsParser` package references →
+     `PackageExtractor.ExtractPackageAsync`.
+   - `NuspecParser` → `PackageDependency.Id`/`.Version` →
+     `DependencyResolutionService.ResolveDependencyTreeAsync` →
+     `PackageExtractor.TryGetNuspecXmlAsync` → `NuGetCache.TryGetCachedPackage`.
+   - A package-authored `DotnetToolSettings.xml` `Id` becoming the current
+     package source, then reaching acquisition and cache validation.
+
+   The second path leaks twice and reaches a package the user never named.
+   `DependencyResolutionService` logs `dep.Id`/`dep.Version` before any
+   validation, then catches `Exception` and logs `ex.Message`, re-emitting the
+   rejected value; that same handler returns an empty result, which is the
+   success-shaped failure this document forbids elsewhere.
+   `ValidatePathComponent` does not reject control characters other than
+   `NUL`, so an `ESC` passes it outright. This is the natural first
+   application of the hardened-entrypoint pattern, alongside the nuspec input
+   contract behind #3394 and #3418.
+10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
+    points. The domain-matched precedent is `binutils`, whose parsers are
+    continuously fuzzed and have repeatedly yielded CVEs that way. Most of
+    those are memory-safety defects that C# denies us, so the realistic harm
+    set here is smaller and enumerable — hang or unbounded allocation,
+    plausible-but-wrong output, and output-channel injection — but nothing
+    currently searches for any of the three. This is the one open item that
+    pays into tiers 1 and 2 at the same time.

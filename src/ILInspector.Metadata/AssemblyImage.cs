@@ -16,14 +16,20 @@ public sealed class AssemblyImage : IDisposable
 {
     readonly Stream? _stream;
     readonly Action? _ensureLenderAlive;
+    readonly bool _ownsReader;
     bool _disposed;
 
     internal PEReader PEReader { get; }
 
-    AssemblyImage(Stream? stream, PEReader peReader, Action? ensureLenderAlive = null)
+    AssemblyImage(
+        Stream? stream,
+        PEReader peReader,
+        bool ownsReader,
+        Action? ensureLenderAlive = null)
     {
         _stream = stream;
         PEReader = peReader;
+        _ownsReader = ownsReader;
         _ensureLenderAlive = ensureLenderAlive;
     }
 
@@ -54,7 +60,7 @@ public sealed class AssemblyImage : IDisposable
     /// Gate: <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
     /// </summary>
     internal static AssemblyImage Borrow(PEReader peReader, Action ensureLenderAlive)
-        => new(stream: null, peReader, ensureLenderAlive);
+        => new(stream: null, peReader, ownsReader: false, ensureLenderAlive);
 
     /// <summary>
     /// Opens an image from a resolved assembly reference, using its stream opener. This is the
@@ -62,13 +68,40 @@ public sealed class AssemblyImage : IDisposable
     /// </summary>
     public static AssemblyImage Open(ResolvedAssemblyReference reference) => FromStream(reference.OpenRead());
 
+    internal static AssemblyImage OpenPrefetched(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+            stream.Dispose();
+            return new AssemblyImage(
+                stream: null,
+                peReader,
+                ownsReader: true);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            stream.Dispose();
+            throw;
+        }
+    }
+
     static AssemblyImage FromStream(Stream stream)
     {
         try
         {
             // LeaveOpen: this AssemblyImage is the sole owner of the stream and disposes it
             // explicitly in Dispose(), so the PEReader must not also take ownership.
-            return new AssemblyImage(stream, new PEReader(stream, PEStreamOptions.LeaveOpen));
+            return new AssemblyImage(
+                stream,
+                new PEReader(stream, PEStreamOptions.LeaveOpen),
+                ownsReader: true);
         }
         catch
         {
@@ -93,11 +126,8 @@ public sealed class AssemblyImage : IDisposable
             return;
         _disposed = true;
 
-        // A borrowed image owns neither the reader nor a stream; the opener disposes both.
-        if (_stream is null)
-            return;
-
-        PEReader.Dispose();
-        _stream.Dispose();
+        if (_ownsReader)
+            PEReader.Dispose();
+        _stream?.Dispose();
     }
 }

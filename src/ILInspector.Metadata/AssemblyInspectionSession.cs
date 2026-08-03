@@ -23,6 +23,9 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Opens a session from a resolved assembly reference (path or stream opener).</summary>
     public static AssemblyInspectionSession Open(ResolvedAssemblyReference reference) => new(AssemblyImage.Open(reference));
 
+    internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
+        new(AssemblyImage.OpenPrefetched(stream));
+
     /// <summary>
     /// A session over an image a <see cref="PdbContext"/> already opened, so a caller that holds
     /// one can reach the facets without opening the path a second time.
@@ -176,8 +179,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// (including tables the projection does not model), and PE/CLI header
     /// facts. Null when the image carries no metadata.
     /// </summary>
-    public MetadataImageOverview? MetadataImage()
-        => MetadataImageInspector.Describe(_image.PEReader);
+    /// <param name="untrustedText">
+    /// What to do with the metadata root's version stamp, which is artifact-controlled text.
+    /// Defaults to containment, matching the projection.
+    /// </param>
+    public MetadataImageOverview? MetadataImage(
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
+        => MetadataImageInspector.Describe(_image.PEReader, untrustedText);
 
     /// <summary>
     /// One heap value read by address, independent of any row that references
@@ -202,6 +210,19 @@ public sealed class AssemblyInspectionSession : IDisposable
         HeapKind heap,
         MetadataProjectionOptions? options = null)
         => MetadataTableProjector.ReadHeapEntries(_image.PEReader, heap, options);
+
+    internal AssemblyReferenceIdentity AssemblyIdentity() =>
+        AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
+
+    internal Guid ModuleVersionId()
+    {
+        var reader = _image.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
+
+    internal TypeDeclarationResult ProbeDeclaration(
+        MetadataTypeDefinitionName name) =>
+        MetadataTypeDeclarationProbe.Probe(_image.GetMetadataReader(), name);
 
     public void Dispose() => _image.Dispose();
 }

@@ -155,6 +155,19 @@ public enum IlBodyDiffNormalization
     /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
+
+    /// <summary>
+    /// Compare Roslyn compiler-generated lambdas, local functions and state machines
+    /// under an ordinal-free name when the two sides correspond one-to-one.
+    /// </summary>
+    /// <remarks>
+    /// The ordinal Roslyn embeds in these names indexes the containing type's members,
+    /// so it shifts whenever that type's member population differs — which it always
+    /// does when one side is a reconstructed skeleton. Requires both readers; see
+    /// <see cref="CompilerGeneratedOrdinalCorrespondence"/> for why the decision is
+    /// two-sided.
+    /// </remarks>
+    NormalizeCompilerGeneratedOrdinals = 1 << 4,
 }
 
 public enum IlBodyDiffOutcome
@@ -240,7 +253,8 @@ public static class IlBodyDiff
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
-        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals;
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
@@ -270,11 +284,16 @@ public static class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(newBody);
 
+        var (oldCorrespondence, newCorrespondence) =
+            (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader)
+                : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
+
         return Compare(
             MethodInstructions.Decode(oldBody),
             MethodInstructions.Decode(newBody),
-            new MetadataOperandResolver(oldReader, normalization),
-            new MetadataOperandResolver(newReader, normalization),
+            new MetadataOperandResolver(oldReader, normalization, oldCorrespondence),
+            new MetadataOperandResolver(newReader, normalization, newCorrespondence),
             normalization);
     }
 
@@ -297,7 +316,7 @@ public static class IlBodyDiff
             return false;
         }
 
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None);
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None, CompilerGeneratedOrdinalCorrespondence.Empty);
         return TryBuildOperations(
             body.Instructions,
             resolver,
@@ -718,7 +737,8 @@ public static class IlBodyDiff
 
     sealed class MetadataOperandResolver(
         MetadataReader reader,
-        IlBodyDiffNormalization normalization)
+        IlBodyDiffNormalization normalization,
+        CompilerGeneratedOrdinalCorrespondence correspondence)
     {
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
         // so the type-name climbs below would recurse until an uncatchable
@@ -830,7 +850,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name), SynthesizedMemberKind.Method), genericArgs: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs: null);
         }
 
         string FormatMemberReference(MemberReferenceHandle handle)
@@ -848,7 +868,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Method), genericArgs: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), MethodNameOutsideCorrespondence(reader.GetString(member.Name)), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
@@ -884,7 +904,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name), SynthesizedMemberKind.Method), genericArgs);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
@@ -908,7 +928,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Method), genericArgs);
+            return FormatCall(signature, FormatMemberParent(member.Parent), MethodNameOutsideCorrespondence(reader.GetString(member.Name)), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
@@ -922,7 +942,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name), SynthesizedMemberKind.Field)}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{FieldName(handle, field)}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -939,12 +959,16 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
-            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Field)}";
+            // A MemberReference names a field the correspondence never indexed, so an
+            // owned name arriving this way is declined rather than folded -- the same
+            // accepted cost, in the same direction, that MethodNameOutsideCorrespondence
+            // documents for methods.
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{FieldNameOutsideCorrespondence(reader.GetString(member.Name))}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
         {
-            string instance = signature.Header.IsInstance ? "instance " : "";
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
             string arity = signature.GenericParameterCount > 0
                 ? $"`{signature.GenericParameterCount}"
@@ -985,7 +1009,9 @@ public static class IlBodyDiff
         string FormatTypeDefinition(TypeDefinitionHandle handle)
         {
             var type = reader.GetTypeDefinition(handle);
-            string name = reader.GetString(type.Name);
+            string name = correspondence.TryGetTypeName(handle, out var elided)
+                ? elided
+                : reader.GetString(type.Name);
             var declaring = type.GetDeclaringType();
             string fullName;
             if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
@@ -1016,6 +1042,70 @@ public static class IlBodyDiff
             }
             return $"[{CurrentAssemblyName()}]{fullName}";
         }
+
+        string MethodName(MethodDefinitionHandle handle, MethodDefinition method)
+        {
+            if (correspondence.TryGetMethodName(handle, out var elided))
+                return elided;
+
+            // A name the correspondence recognizes is its to decide about, even when it
+            // declined to fold. Declining means the ordinal-free key was ambiguous on a
+            // side, so the two members are not known to correspond; handing the same name
+            // to the per-side rewrite would fold it anyway on weaker evidence and mask a
+            // real difference (#3645). Only names outside `d__`/`g__` fall through.
+            return MethodNameOutsideCorrespondence(reader.GetString(method.Name));
+        }
+
+        string FieldName(FieldDefinitionHandle handle, FieldDefinition field)
+        {
+            if (correspondence.TryGetFieldName(handle, out var elided))
+                return elided;
+
+            return FieldNameOutsideCorrespondence(reader.GetString(field.Name));
+        }
+
+        // The field analogue of MethodNameOutsideCorrespondence, and for the same reason:
+        // a lambda cache field the correspondence recognized but declined to fold must not
+        // fall through to the per-side rewrite, which folds `<>9__N_K` to `<>9__#_K` on
+        // strictly weaker evidence -- that key drops the containing method entirely, so it
+        // merges every method's slot K. Declining is a false positive; folding there is a
+        // masked difference. Gated by
+        // DeclinedLambdaCacheField_StaysOutOfThePerSideRewrite, which drives this function
+        // end to end through Compare and fails if it is reduced to the rewrite.
+        string FieldNameOutsideCorrespondence(string raw)
+            => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                && CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail(raw) is not null
+                    ? raw
+                    : NormalizeMemberName(raw, SynthesizedMemberKind.Field);
+
+        // The two options split the synthesized name space when both are requested: the
+        // correspondence owns `d__`, `g__` and `b__`, and the per-side rewrite keeps
+        // `<>9__`. Where the correspondence owns a name, its refusal to fold is the
+        // answer -- it declined because the ordinal-free key was ambiguous on a side, so
+        // the members are not known to correspond, and letting the per-side rewrite fold
+        // it anyway on weaker evidence would mask a real difference (#3645).
+        //
+        // The guard is conditioned on the correspondence actually being requested. A
+        // caller that asked only for the per-side rewrite gets exactly what that option
+        // documents, including its own treatment of `g__`; this composition narrows no
+        // option the caller did not opt into.
+        //
+        // Known and accepted cost, measured rather than assumed: a MemberReference names
+        // a method the correspondence never indexed, so an owned name arriving that way
+        // is declined here and never folded by either option, where the per-side rewrite
+        // alone would have folded it. A generic local function reached through a
+        // MemberReference is the real Roslyn shape that hits this, and it reports
+        // OperandDiff under the composed contract where main reported Exact. That is a
+        // false positive, not a masked difference, and it is the direction this design
+        // deliberately errs in: the correspondence cannot establish that two
+        // differently numbered names denote the same member without seeing both
+        // definitions, and folding without that evidence is the defect (#3645) rather
+        // than the feature. No corpus row is affected -- Area=Fidelity is 68/0.
+        string MethodNameOutsideCorrespondence(string raw)
+            => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                && SynthesizedOrdinals.CorrespondenceOwnsAnyLevel(raw)
+                    ? raw
+                    : NormalizeMemberName(raw, SynthesizedMemberKind.Method);
 
         string CurrentAssemblyName()
             => (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
@@ -1363,6 +1453,61 @@ public static class IlBodyDiff
         }
 
         /// <summary>
+        /// Reports whether the compiler-generated correspondence owns this name at any
+        /// level of the <em>same</em> enclosing-name chain this rewrite recurses through.
+        /// </summary>
+        /// <remarks>
+        /// Checking only the outermost name is not enough, because the rewrite does not
+        /// stop there either: it folds the outer ordinal and then recurses on the
+        /// enclosing name under the same grammar. A name whose outer form is `b__` but
+        /// whose enclosing name is a `g__` local function therefore had its `g__` ordinal
+        /// folded by the rewrite even while the correspondence was declining to fold it —
+        /// the exact reversal the guard exists to prevent, reached one level down.
+        ///
+        /// The walk peels exactly what the recursion peels, so the two cannot disagree
+        /// about which levels exist, and it is bounded by the same
+        /// <see cref="MaxNestingDepth"/> over the same untrusted input. Ownership at any
+        /// level declines the whole name rather than the owned level alone: the outer
+        /// ordinal is the rewrite's to fold, but folding it would still emit a name whose
+        /// inner ordinal was elided on one side and not the other. Declining costs a
+        /// false positive on a shape Roslyn does not emit — measured, it names a lambda
+        /// inside a local function after the outermost method (`&lt;Run&gt;b__0_1`), not
+        /// after the local function — and never a masked difference.
+        ///
+        /// The question is asked with <c>GeneratedNameKind.Any</c> on purpose. The
+        /// correspondence only ever <em>folds</em> a form on the kind Roslyn emits it on,
+        /// but this guard is not deciding a fold: it is deciding whether the per-side
+        /// rewrite must keep its hands off. Answering narrowly here would release a
+        /// state-machine-shaped method name to the rewrite on the grounds that the
+        /// correspondence would not fold it — which is precisely the reversal above.
+        /// Broad here and narrow there means such a name is folded by neither.
+        /// </remarks>
+        internal static bool CorrespondenceOwnsAnyLevel(string value)
+        {
+            for (int depth = 0; depth <= MaxNestingDepth; depth++)
+            {
+                if (CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(
+                        value,
+                        CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any) is not null)
+                    return true;
+
+                // A redundant fast path, not a rule, and so deliberately ungated in the
+                // manner this file already documents for the rewrite's own: `< 2` short
+                // -circuits the `<>`-prefixed anonymous shapes, whose containing name is
+                // empty. Relaxing it to `< 0` peels an empty string, which the next
+                // iteration rejects for length and then terminates on, so the answer and
+                // the termination are the same and no test can tell the two apart.
+                int close = FindClosingAngle(value);
+                if (close < 2)
+                    return false;
+
+                value = value[1..close];
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Reports whether <c>value[start..end]</c> is an ordinal exactly as
         /// Roslyn spells one.
         /// </summary>
@@ -1497,8 +1642,9 @@ public static class IlBodyDiff
             => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
         public string GetFunctionPointerType(MethodSignature<string> signature)
         {
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
-            return $"method {convention}{signature.ReturnType} *({FormatParameterList(signature)})";
+            return $"method {instance}{convention}{signature.ReturnType} *({FormatParameterList(signature)})";
         }
 
         static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
@@ -1548,6 +1694,49 @@ public static class IlBodyDiff
         for (int i = requiredCount; i < signature.ParameterTypes.Length; i++)
             builder.Add(signature.ParameterTypes[i]);
         return string.Join(", ", builder);
+    }
+
+    /// <summary>
+    /// Spells the <c>this</c> attributes of a method signature header the way ILAsm
+    /// does: <c>instance</c> for <c>HASTHIS</c>, and <c>explicit</c> for
+    /// <c>EXPLICITTHIS</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every bit of a signature header that distinguishes two methods has to reach the
+    /// rendered operand, because the operand is the whole of what the comparison sees.
+    /// <c>EXPLICITTHIS</c> was silently dropped, which made two methods with different
+    /// calling conventions render identically. That was latent while names were compared
+    /// literally — differing names still differed — and became a masked difference as
+    /// soon as <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>
+    /// folded the names, since the operand was then the only remaining discriminator.
+    /// <para>
+    /// Fixing it here rather than by widening the correspondence key is deliberate. A key
+    /// term would have to encode the signature, and a signature blob encodes type
+    /// references as metadata tokens, which legitimately differ between the two
+    /// assemblies being compared for the same logical signature — so keying on it would
+    /// suppress real folds. The renderer already decodes to a side-independent spelling,
+    /// so the difference belongs there, where it also protects every comparison that does
+    /// not fold names at all.
+    /// </para>
+    /// <para>
+    /// The bit is spelled independently of <c>HASTHIS</c>. ECMA-335 II.15.3 only defines
+    /// <c>EXPLICITTHIS</c> alongside <c>HASTHIS</c>, but untrusted metadata can set it
+    /// alone, and rendering it only in the pair would leave that shape colliding with a
+    /// static signature.
+    /// </para>
+    /// <para>
+    /// Gated end-to-end by
+    /// <c>IlBodyDiffNormalizationTests.MethodsDifferingOnlyInExplicitThis_DoNotFold</c>
+    /// and <c>..._FunctionPointersDifferingOnlyInTheirThisAttributes_AreNotEqual</c>.
+    /// </para>
+    /// </remarks>
+    static string SignatureThisPrefix(SignatureHeader header)
+    {
+        string instance = header.IsInstance ? "instance " : "";
+        string explicitThis = (header.Attributes & SignatureAttributes.ExplicitThis) != 0
+            ? "explicit "
+            : "";
+        return instance + explicitThis;
     }
 
     static string CallingConventionPrefix(SignatureCallingConvention convention)

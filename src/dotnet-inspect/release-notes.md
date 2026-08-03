@@ -33,6 +33,35 @@
   `Kind` column. The `type`/`member` `Performance Triage` lens is
   unchanged (#2833).
 
+### Native AOT codegen
+
+- Builds the Native AOT tools with `OptimizationPreference=Speed` instead of
+  `Size`, worth a measured 6-7% on real commands for about 9% more binary size
+  (#3675).
+
+### Metadata text containment
+
+- Contains metadata cell text by Unicode general category rather than by a
+  hand-written character range, closing a gap where bidi overrides, line and
+  paragraph separators, zero-width and other format characters, and every
+  supplementary scalar reached the terminal raw from the `mdi` table, heap and
+  overview views (#3628, part of #3635). Control characters that were already
+  contained keep the same meaning but change spelling, from `\u001B` to caret
+  notation `\^[`; the quote is no longer escaped, because cells are not quote
+  wrapped in any rendered format.
+- **Breaking:** `mdi` now refuses, rather than renders, when an assembly carries
+  text that a terminal would act on — bidi overrides, separators, and other
+  non-graphic scalars. It exits non-zero and reports the heap coordinate, the
+  code point and its Unicode category, without echoing the text. Two flags
+  select the other treatments: `--show-untrusted-text` renders the inert
+  spelling, which is byte for byte what previous versions produced, and
+  `--dangerously-print-raw` hands the text over uncontained for studying a
+  hostile artifact, and must be combined with `--show-untrusted-text` because
+  refusal comes first. Both spellings show the same amount of a clipped value,
+  differing only in how it is written. Ordinary assemblies are unaffected: the
+  modes differ only in whether they can fail, so output is unchanged wherever no
+  such text exists.
+
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,

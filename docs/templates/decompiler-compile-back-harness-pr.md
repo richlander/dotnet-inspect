@@ -145,7 +145,7 @@ hand-authored targets):
 - **Product impact:** {none, or explain any product-output behavior change}.
 - **Scope boundary:** {nearby failure intentionally left as a frontier or future issue}.
 - **RTS boundary:** {not applicable / RTS only orchestrates closure + Roslyn +
-  contract V1 body comparison; product/shared code owns C# source generation}.
+  contract body comparison; product/shared code owns C# source generation}.
 
 ## Evidence
 
