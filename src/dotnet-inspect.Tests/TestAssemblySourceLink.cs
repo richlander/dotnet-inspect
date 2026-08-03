@@ -50,6 +50,17 @@ internal static class TestAssemblySourceLink
     /// The probe observes only that SourceLink is absent; it does not establish why. The hint
     /// reports the observation as fact and offers the known environmental cause as a candidate,
     /// with a check precise enough to confirm or exclude it, rather than asserting it.
+    ///
+    /// The check is deliberately four clauses. `--path-format=absolute` is required because git
+    /// answers `--git-common-dir` relatively when invoked below the repository root, which makes a
+    /// naive string comparison read a primary checkout as linked; `show-ref --verify` separates a
+    /// packed ref from one that is simply gone. Each clause was validated against a matrix of
+    /// checkout shapes, and only the real defect reports a match.
+    ///
+    /// The repair renames the branch away and back rather than deleting and recreating it.
+    /// Deleting the current branch discards its reflog and leaves HEAD pointing at a missing ref
+    /// until the recreate lands; renaming carries the reflog across and keeps HEAD resolvable at
+    /// every step, so an interruption is recoverable rather than broken.
     /// </remarks>
     public static string FailureHint =>
         UnavailableReason is { } reason
@@ -60,13 +71,14 @@ internal static class TestAssemblySourceLink
               + "`Microsoft.Build.Tasks.Git` looks for `packed-refs` in `$GIT_DIR` while it lives in "
               + "`$GIT_COMMON_DIR`, resolves no revision, and the build emits no SourceLink without "
               + "warning. Confirm — exit 0 means this is the cause: "
-              + "`git symbolic-ref -q HEAD >/dev/null "
-              + "&& [ \"$(git rev-parse --git-dir)\" != \"$(git rev-parse --git-common-dir)\" ] "
-              + "&& ! test -f \"$(git rev-parse --git-common-dir)/$(git symbolic-ref -q HEAD)\"`. "
-              + "Repair by recreating the loose ref — `git update-ref <branch> HEAD` alone is a "
-              + "no-op here, because the value is unchanged: "
-              + "`B=$(git symbolic-ref -q HEAD); S=$(git rev-parse HEAD); "
-              + "git update-ref -d \"$B\" && git update-ref \"$B\" \"$S\"`. "
+              + "`B=$(git symbolic-ref -q HEAD) && git show-ref --verify --quiet \"$B\" "
+              + "&& [ \"$(git rev-parse --path-format=absolute --git-dir)\" "
+              + "!= \"$(git rev-parse --path-format=absolute --git-common-dir)\" ] "
+              + "&& ! test -f \"$(git rev-parse --path-format=absolute --git-common-dir)/$B\"`. "
+              + "Repair by renaming the branch away and back, which rewrites the ref loosely — note "
+              + "`git update-ref <branch> HEAD` is a no-op here, because the value is unchanged: "
+              + "`N=$(git symbolic-ref --short -q HEAD); git branch -m \"$N\" \"$N.unpack-tmp\" "
+              + "&& git branch -m \"$N.unpack-tmp\" \"$N\"`. "
               + "Then `git config gc.packRefs false` prevents recurrence. Other causes — a source "
               + "archive with no `.git`, or SourceLink explicitly disabled — need no repair."
             : string.Empty;
