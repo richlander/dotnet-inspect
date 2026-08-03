@@ -68,8 +68,12 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
       - name: Self-test change detection
-        run: python3 eng/test-ci-change-detection.py
+        run: dotnet run eng/test-ci-change-detection.cs
 
       - name: Detect changes
         id: filter
@@ -80,7 +84,7 @@ jobs:
           # main. So when the change set cannot be determined, force every
           # output true: CI over-runs instead of silently vanishing. Enforced
           # by the fallback branch below, which runs no fallible command, and
-          # by eng/test-ci-change-detection.py.
+          # by eng/test-ci-change-detection.cs.
           FILES=""
           RESOLVED=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
