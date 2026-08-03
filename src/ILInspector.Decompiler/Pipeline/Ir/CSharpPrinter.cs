@@ -1769,7 +1769,23 @@ public sealed partial class CSharpPrinter
         AppendStatementCore(sb, node, indent);
         RecordExpressionRanges(sb, node, start);
         _printedRanges.Record(node, start, sb.Length);
+        if (HasNamedRegions(node))
+            _printedRanges.RecordRegion(PrintedRegionRole.Construct, start, sb.Length);
     }
+
+    static bool HasNamedRegions(IrNode node)
+        => node is ForLoop
+            or WhileLoop
+            or DoWhileLoop
+            or TryCatch
+            or Lock
+            or Fixed
+            or UsingStatement
+            or ForeachStatement
+            or TryFinally
+            or IfStatement
+            or Switch
+            or SwitchBranch;
 
     /// <summary>
     /// Binds each expression under <paramref name="statement"/> to the characters
@@ -2053,41 +2069,62 @@ public sealed partial class CSharpPrinter
         {
             string initializer = Statement(forLoop.Initializer)?.TrimEnd(';') ?? "";
             string increment = ForLoopIncrementText(forLoop.Increment);
-            sb.Append(pad).Append("for (").Append(initializer).Append("; ")
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("for (").Append(initializer).Append("; ")
                 .Append(Condition(forLoop.Condition)).Append("; ").Append(increment).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendStatements(sb, forLoop.Body.Children, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is WhileLoop whileLoop)
         {
-            sb.Append(pad).Append("while (").Append(Condition(whileLoop.Condition)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("while (").Append(Condition(whileLoop.Condition)).AppendLf(")");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendStatements(sb, whileLoop.Body.Children, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is DoWhileLoop doWhile)
         {
             sb.Append(pad).AppendLf("do");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, doWhile.Body, indent + 1);
             // The body's own AppendStatement calls left _statementIndent at the
             // deepest nested statement's level; restore it to this statement's
             // own indent before the condition (itself part of this statement,
             // not the body) renders, so a lambda inside it aligns correctly.
             _statementIndent = indent;
-            sb.Append(pad).Append("}").Append("\n").Append(pad)
-                .Append("while (").Append(Condition(doWhile.Condition)).AppendLf(");");
+            sb.Append(pad).Append("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
+            sb.Append("\n").Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("while (").Append(Condition(doWhile.Condition)).AppendLf(");");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
             return;
         }
         if (node is TryCatch tryCatch)
         {
             sb.Append(pad).AppendLf("try");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, tryCatch.TryBody, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             foreach (var clause in tryCatch.Clauses)
             {
                 // As in the do/while condition above, a preceding body (the try
@@ -2095,89 +2132,133 @@ public sealed partial class CSharpPrinter
                 // deeper than this statement's own indent; restore it before
                 // CatchHeader (which may render a filter's `when (...)` lambda).
                 _statementIndent = indent;
-                sb.Append(pad).AppendLf(CatchHeader(clause));
+                sb.Append(pad);
+                int catchStart = sb.Length;
+                sb.AppendLf(CatchHeader(clause));
                 sb.Append(pad).AppendLf("{");
                 AppendContainer(sb, clause.Body, indent + 1);
                 sb.Append(pad).AppendLf("}");
+                _printedRanges?.RecordRegion(PrintedRegionRole.Catch, catchStart, sb.Length);
             }
             return;
         }
         if (node is Lock lockStatement)
         {
-            sb.Append(pad).Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("lock (").Append(Expression(lockStatement.LockObject)).AppendLf(")");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, lockStatement.Body, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is Fixed fixedStatement)
         {
-            sb.Append(pad)
-                .Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("fixed (").Append(TypeText(fixedStatement.ElementType)).Append("* ")
                 .Append(FixedLocalName(fixedStatement)).Append(" = ")
                 .Append(fixedStatement.SourceIsAddress
                     ? "&" + Deref(fixedStatement.PinSource)
                     : Expression(fixedStatement.PinSource))
                 .AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, fixedStatement.Body, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is UsingStatement usingStatement)
         {
-            sb.Append(pad)
-                .Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append(usingStatement.IsAwait ? "await using (" : "using (").Append(TypeText(usingStatement.ResourceType)).Append(' ')
                 .Append(LocalName(usingStatement.LocalIndex)).Append(" = ")
                 .Append(CoerceText(usingStatement.Resource, usingStatement.ResourceType)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, usingStatement.Body, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is ForeachStatement foreachStatement)
         {
-            sb.Append(pad)
-                .Append(foreachStatement.IsAwait ? "await foreach (" : "foreach (")
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append(foreachStatement.IsAwait ? "await foreach (" : "foreach (")
                 .Append(TypeText(foreachStatement.LocalType)).Append(' ')
                 .Append(LocalName(foreachStatement.LocalIndex)).Append(" in ")
                 .Append(Expression(foreachStatement.Collection)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendStatements(sb, foreachStatement.Body.Children, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is TryFinally tryFinally)
         {
             sb.Append(pad).AppendLf("try");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendContainer(sb, tryFinally.TryBody, indent + 1);
             sb.Append(pad).AppendLf("}");
-            sb.Append(pad).AppendLf("finally");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
+            sb.Append(pad);
+            int finallyStart = sb.Length;
+            sb.AppendLf("finally");
             sb.Append(pad).AppendLf("{");
             AppendContainer(sb, tryFinally.FinallyBody, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Finally, finallyStart, sb.Length);
             return;
         }
         if (node is IfStatement ifStatement)
         {
-            sb.Append(pad).Append("if (").Append(Condition(ifStatement.Condition)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("if (").Append(Condition(ifStatement.Condition)).AppendLf(")");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             AppendStatements(sb, ifStatement.Then.Children, indent + 1);
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             if (ifStatement.Else is { } elseArm)
             {
-                sb.Append(pad).AppendLf("else");
+                sb.Append(pad);
+                int elseStart = sb.Length;
+                sb.AppendLf("else");
                 sb.Append(pad).AppendLf("{");
                 AppendStatements(sb, elseArm.Children, indent + 1);
                 sb.Append(pad).AppendLf("}");
+                _printedRanges?.RecordRegion(PrintedRegionRole.Else, elseStart, sb.Length);
             }
             return;
         }
         if (node is Switch switchNode)
         {
-            sb.Append(pad).Append("switch (").Append(Expression(switchNode.Value)).AppendLf(")");
-            sb.Append(pad).AppendLf("{");
+            sb.Append(pad);
+            int headerStart = sb.Length;
+            sb.Append("switch (").Append(Expression(switchNode.Value)).AppendLf(")");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Header, headerStart, sb.Length);
+            sb.Append(pad);
+            int bodyStart = sb.Length;
+            sb.AppendLf("{");
             string labelPad = pad + "    ";
             var labelEnum = SwitchLabelEnumType(switchNode.Value);
             foreach (var section in switchNode.Sections)
@@ -2187,13 +2268,28 @@ public sealed partial class CSharpPrinter
                 // restore it before this section's own labels render (a `when`
                 // pattern guard could, in principle, contain a lambda).
                 _statementIndent = indent;
+                int caseStart = -1;
                 foreach (var label in section.Labels)
-                    sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLf(":");
+                {
+                    sb.Append(labelPad);
+                    if (caseStart < 0)
+                        caseStart = sb.Length;
+                    sb.Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLf(":");
+                }
                 if (section.IsDefault)
-                    sb.Append(labelPad).AppendLf("default:");
+                {
+                    sb.Append(labelPad);
+                    if (caseStart < 0)
+                        caseStart = sb.Length;
+                    sb.AppendLf("default:");
+                }
+                if (caseStart < 0)
+                    caseStart = sb.Length;
                 AppendContainer(sb, section.Body, indent + 2);
+                _printedRanges?.RecordRegion(PrintedRegionRole.Case, caseStart, sb.Length);
             }
             sb.Append(pad).AppendLf("}");
+            _printedRanges?.RecordRegion(PrintedRegionRole.Body, bodyStart, sb.Length);
             return;
         }
         if (node is SwitchBranch switchBranch)
@@ -2208,8 +2304,13 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).Append(temp).Append(" = ")
                 .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLf(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
-                sb.Append(pad).Append("if (").Append(temp).Append(" == ").Append(t)
+            {
+                sb.Append(pad);
+                int caseStart = sb.Length;
+                sb.Append("if (").Append(temp).Append(" == ").Append(t)
                     .AppendLf($") goto IL_{switchBranch.TargetOffsets[t]:X4};");
+                _printedRanges?.RecordRegion(PrintedRegionRole.Case, caseStart, sb.Length);
+            }
             return;
         }
         if (Statement(node) is { } line)
