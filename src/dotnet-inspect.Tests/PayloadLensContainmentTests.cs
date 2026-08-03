@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -46,11 +47,14 @@ namespace DotnetInspector.Tests;
 /// does put a real <c># Info</c> table in the picture -- and asserts the table
 /// landed on the other stream.
 /// </remarks>
-public class PayloadLensContainmentTests
+public class PayloadLensContainmentTests : IDisposable
 {
     private const string Bidi = "\u202E";
     private const string Escape = "\u001B";
     private const string LineSeparator = "\u2028";
+    private readonly string _cacheDirectory =
+        Directory.CreateTempSubdirectory("payload-containment-cache-").FullName;
+    private bool _deleteCacheOnDispose = true;
 
     /// <summary>
     /// The README bytes every test here plants and expects back unchanged.
@@ -76,6 +80,25 @@ public class PayloadLensContainmentTests
         "intro" + Bidi + "MARKERBIDI\n"
         + "line" + Escape + "MARKERESC\n"
         + "line" + LineSeparator + "MARKERLS\n";
+
+    /// <summary>
+    /// Keeps payload subprocesses off the operator's real cache.
+    /// </summary>
+    /// <remarks>
+    /// This independently gates the cache environment on this class's
+    /// launcher; the diagnostic containment tests use a different launcher.
+    /// </remarks>
+    [Fact]
+    public void ChildCli_UsesThePerTestCache()
+    {
+        var (output, error) = RunCliCore(["cache", "--json", "-T:q"]);
+
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            _cacheDirectory,
+            document.RootElement.GetProperty("location").GetString());
+    }
 
     [Fact]
     public void ReadmeLens_ReproducesThePayloadByteForByte()
@@ -267,7 +290,10 @@ public class PayloadLensContainmentTests
         }
     }
 
-    private static (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(string[] args) =>
+        RunCliCore(["package", .. args]);
+
+    private (string Output, string Error) RunCliCore(string[] args)
     {
         // The product copy in *this* project's output, matching
         // UntrustedArgumentDiagnosticContainmentTests: rebuilding the product
@@ -284,13 +310,13 @@ public class PayloadLensContainmentTests
             UseShellExecute = false,
         };
 
-        psi.ArgumentList.Add("package");
         foreach (string arg in args)
         {
             psi.ArgumentList.Add(arg);
         }
 
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+        psi.Environment["DOTNET_INSPECT_CACHE_DIR"] = _cacheDirectory;
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
@@ -301,10 +327,18 @@ public class PayloadLensContainmentTests
         var stderr = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000))
         {
-            process.Kill(entireProcessTree: true);
-            throw new TimeoutException($"{executable} did not exit.");
+            _deleteCacheOnDispose = false;
+            OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
+            throw new TimeoutException(
+                $"{executable} did not exit; preserved its test cache at {_cacheDirectory}.");
         }
 
         return (stdout.GetAwaiter().GetResult(), stderr.GetAwaiter().GetResult());
+    }
+
+    public void Dispose()
+    {
+        if (_deleteCacheOnDispose && Directory.Exists(_cacheDirectory))
+            Directory.Delete(_cacheDirectory, recursive: true);
     }
 }

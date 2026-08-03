@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -35,13 +36,16 @@ namespace DotnetInspector.Tests;
 /// </description></item>
 /// </list>
 /// </remarks>
-public class UntrustedArgumentDiagnosticContainmentTests
+public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 {
     private const string Bidi = "\u202E";
     private const string VerticalTab = "\u000B";
     private const string Escape = "\u001B";
     private const string LineSeparator = "\u2028";
     private const string ParagraphSeparator = "\u2029";
+    private readonly string _cacheDirectory =
+        Directory.CreateTempSubdirectory("diagnostic-containment-cache-").FullName;
+    private bool _deleteCacheOnDispose = true;
 
     /// <remarks>
     /// A raw line feed and carriage return are the most direct forgery of all --
@@ -152,14 +156,31 @@ public class UntrustedArgumentDiagnosticContainmentTests
 
         // The same writer, with a line terminator injected into the message.
         var (_, injected) = RunCli(["depends", $"HOSTILE{"\n"}Error: INJECTEDARG"]);
-        string[] injectedLines = Lines(injected);
 
-        HostileOutputAssert.MarkersRendered(injected, "message-line-injection", "INJECTEDARG");
+        const string InjectedSeverity = "Error: INJECTEDARG";
+        HostileOutputAssert.MarkersRendered(injected, "message-line-injection", InjectedSeverity);
+        HostileOutputAssert.NoLineSplit(injected, InjectedSeverity);
+    }
 
-        // A run may emit several genuine diagnostics; what the injection must
-        // not do is add a line that is neither indented nor prefixed by this
-        // writer. The forged "Error: INJECTEDARG" is folded into its message.
-        AssertEveryLineIsOwned(injectedLines, injected);
+    /// <summary>
+    /// Keeps out-of-process containment tests off the operator's real cache.
+    /// </summary>
+    /// <remarks>
+    /// This is the non-vacuity gate for the <c>DOTNET_INSPECT_CACHE_DIR</c>
+    /// wiring in <see cref="RunCli"/>. Without it, an obsolete category in the
+    /// operator cache can emit an unrelated maintenance line and make a
+    /// diagnostic assertion order-dependent (#3726).
+    /// </remarks>
+    [Fact]
+    public void ChildCli_UsesThePerTestCache()
+    {
+        var (output, error) = RunCli(["cache", "--json", "-T:q"]);
+
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            _cacheDirectory,
+            document.RootElement.GetProperty("location").GetString());
     }
 
     /// <summary>
@@ -237,24 +258,6 @@ public class UntrustedArgumentDiagnosticContainmentTests
             unindented.Length == 0,
             "A diagnostic must have exactly one unindented line, or injected text can forge one. "
                 + $"Extra: {string.Join(" | ", unindented)} in: {raw}");
-    }
-
-    private static void AssertEveryLineIsOwned(string[] lines, string raw)
-    {
-        string[] orphans =
-        [
-            .. lines.Where(l =>
-                l.Length > 0
-                && !l.StartsWith("  ", StringComparison.Ordinal)
-                && !l.StartsWith("Error: ", StringComparison.Ordinal)
-                && !l.StartsWith("Warning: ", StringComparison.Ordinal)
-                && !l.StartsWith("Note: ", StringComparison.Ordinal)),
-        ];
-
-        Assert.True(
-            orphans.Length == 0,
-            "Every stderr line must be indented or written by CommandError. "
-                + $"Orphans: {string.Join(" | ", orphans)} in: {raw}");
     }
 
     /// <summary>
@@ -401,7 +404,7 @@ public class UntrustedArgumentDiagnosticContainmentTests
         writer.Write(content);
     }
 
-    private static (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(string[] args)
     {
         string executable = Path.Combine(
             Path.GetDirectoryName(ProductAssemblyPath())!,
@@ -422,6 +425,7 @@ public class UntrustedArgumentDiagnosticContainmentTests
         // Out-of-process, so the offline switch has to travel as environment
         // rather than as the process-wide static the in-process helper sets.
         psi.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+        psi.Environment["DOTNET_INSPECT_CACHE_DIR"] = _cacheDirectory;
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
@@ -432,8 +436,10 @@ public class UntrustedArgumentDiagnosticContainmentTests
         var stderr = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000))
         {
-            try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
-            throw new TimeoutException($"{executable} did not exit.");
+            _deleteCacheOnDispose = false;
+            OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
+            throw new TimeoutException(
+                $"{executable} did not exit; preserved its test cache at {_cacheDirectory}.");
         }
 
         Task.WaitAll([stdout, stderr], 10_000);
@@ -460,5 +466,11 @@ public class UntrustedArgumentDiagnosticContainmentTests
         return string.IsNullOrEmpty(located)
             ? throw new FileNotFoundException("Could not locate the dotnet-inspect product assembly.")
             : located;
+    }
+
+    public void Dispose()
+    {
+        if (_deleteCacheOnDispose && Directory.Exists(_cacheDirectory))
+            Directory.Delete(_cacheDirectory, recursive: true);
     }
 }
