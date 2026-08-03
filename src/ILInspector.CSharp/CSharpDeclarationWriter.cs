@@ -788,8 +788,9 @@ internal static class CSharpDeclarationWriter
     /// rather than cosmetic: a bare <c>class</c> or <c>struct</c> constraint *may* be
     /// restated, and it is what decides how <c>T?</c> binds. Dropping it silently
     /// rewrites <c>T?</c> from a nullable reference type to <see cref="System.Nullable{T}"/>
-    /// (or the reverse), so those two are reduced to their legal spelling and kept
-    /// while every other constraint is omitted.
+    /// (or the reverse), so those two are reduced to their legal spelling and kept.
+    /// Constraints outside that pair are omitted here; see
+    /// <see cref="AppendInheritedConstraintRestatement"/> for the cases that leaves open.
     /// </summary>
     /// <remarks>
     /// Both member call sites (the <see cref="ApiSignature"/> renderer and the text
@@ -810,10 +811,22 @@ internal static class CSharpDeclarationWriter
     /// Restates only what C# permits on a member that inherits its constraints: the
     /// bare <c>class</c> or <c>struct</c> keyword. The annotated <c>class?</c> form is
     /// itself CS0460, and <c>unmanaged</c> is a value-type constraint, so both are
-    /// reduced to the legal spelling that preserves how <c>T?</c> binds. Every other
-    /// constraint — <c>notnull</c>, <c>new()</c>, and type constraints — is inherited
-    /// and cannot be named here.
+    /// reduced to the legal spelling that preserves how <c>T?</c> binds.
     /// </summary>
+    /// <remarks>
+    /// Every clause emitted here was compiled against csc as a restatement on an
+    /// override, and the reduction is gated by
+    /// <c>OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows</c> plus the two
+    /// real-artifact canaries in <c>ApiOutputFormatterTests</c>. What is emitted is
+    /// therefore correct, but it is knowingly *incomplete*: a base constraint that is
+    /// not one of these keywords — <c>notnull</c>, a named class or interface type, or
+    /// no constraint at all — also needs a restatement (<c>class</c> or <c>default</c>,
+    /// per the table in issue #3721) once the signature spells <c>T?</c>, and none is
+    /// emitted for it. Deciding those rows needs a reference-/value-type fact about the
+    /// constraint type that <see cref="TypeParameter"/> does not carry and that Metadata
+    /// rather than this layer must own, so it is tracked as #3721 rather than guessed at
+    /// here. Those cases render exactly as they did before this reduction existed.
+    /// </remarks>
     static string AppendInheritedConstraintRestatement(
         string declaration,
         IReadOnlyList<TypeParameter> typeParameters)
