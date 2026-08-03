@@ -662,6 +662,11 @@ public static class ApiSurfaceExtractor
         bool includeVariance)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list because `where T : U` chains run through it: answering
+        // each parameter from scratch would rewalk the chain's whole tail, which is
+        // quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
@@ -715,7 +720,8 @@ public static class ApiSurfaceExtractor
                 reader,
                 param,
                 hasValueTypeConstraint: (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
-                hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0);
+                hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                chain);
             parameters.Add(typeParam);
         }
 

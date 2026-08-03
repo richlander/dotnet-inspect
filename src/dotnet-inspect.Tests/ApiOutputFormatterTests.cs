@@ -877,6 +877,190 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
+    /// The gate for the same-module half of core-type identity. An ordinary assembly may
+    /// declare its own <c>System.Enum</c>; that type is a plain class, so a parameter
+    /// constrained to it IS known to be a reference type and the override must restate
+    /// <c>class</c>. Matching the name alone yields <c>default</c>, which is CS8822.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_RejectsASameModuleCoreLibraryLookalike()
+    {
+        string dllPath = EmitSameModuleLookalikeSample();
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "SameModuleLookalikeSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = Assert.Single(member.SignatureModel!.TypeParameters);
+
+            // The constraint really is spelled `System.Enum`, and it really is a
+            // same-module TypeDefinition, so neither the name nor the handle kind
+            // distinguishes it from the core library's.
+            Assert.Contains(
+                typeParameter.StructuredConstraints ?? [],
+                constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
+
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for reconvergence. Two `where T : U` branches that meet at the same
+    /// parameter must both be answered: the shared parameter is not on the second
+    /// branch's path, so treating it as a cycle would drop a clause C# requires
+    /// (CS0115/CS0534 on the override).
+    /// </summary>
+    /// <remarks>
+    /// Two mechanisms in <c>TypeParameterKindClassifier.ClassifySibling</c> are each
+    /// independently sufficient here -- releasing a parameter from the path once its own
+    /// subtree is done, and reusing an answer already reached -- so this fails only when
+    /// both are absent, which is the state it was written against. The long-chain gate
+    /// below isolates the answer cache.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_AnswersAReconvergingConstraintChain()
+    {
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                parameters[0].SetInterfaceConstraints(parameters[1], parameters[2]);
+                parameters[1].SetInterfaceConstraints(parameters[3]);
+                parameters[2].SetInterfaceConstraints(parameters[3]);
+            },
+            "T", "A", "B", "X");
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = member.SignatureModel!.TypeParameters[0];
+
+            Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for memoization. Following `where T : U` without reusing answers
+    /// reclassifies the whole remaining chain from every parameter, which is quadratic:
+    /// a 4,000-parameter chain measured over twenty seconds before answers were cached.
+    /// The bound is loose enough that only the missing cache can trip it -- the cached
+    /// walk finishes in milliseconds.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ClassifiesALongConstraintChainWithoutRewalkingIt()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+            },
+            names);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            Assert.Equal(Length, member.SignatureModel!.TypeParameters.Count);
+            Assert.All(
+                member.SignatureModel.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// Emits one assembly declaring its own <c>System.Enum</c> alongside a generic
+    /// virtual method constrained to it, so the constraint is a same-module
+    /// TypeDefinition rather than a cross-assembly TypeReference.
+    /// </summary>
+    static string EmitSameModuleLookalikeSample()
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("SameModuleLookalikeEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("SameModuleLookalikeEmit");
+        var impostor = module.DefineType(
+            "System.Enum",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class);
+        var tb = module.DefineType(
+            "SameModuleLookalikeSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var mb = tb.DefineMethod(
+            "Pick",
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+        var typeParameters = mb.DefineGenericParameters("T");
+        typeParameters[0].SetBaseTypeConstraint(impostor);
+        mb.SetReturnType(typeParameters[0]);
+        mb.SetParameters(typeParameters[0]);
+        var il = mb.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        impostor.CreateType();
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"same-module-lookalike-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Emits a generic virtual method whose type parameters are wired to each other by
+    /// <paramref name="constrain"/>, which is how `where T : U` chains -- absent from
+    /// every assembly measured, but expressible -- reach the classifier.
+    /// </summary>
+    static string EmitConstraintChainSample(
+        Action<System.Reflection.Emit.GenericTypeParameterBuilder[]> constrain,
+        params string[] names)
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ChainEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("ChainEmit");
+        var tb = module.DefineType(
+            "ChainSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var mb = tb.DefineMethod(
+            "Pick",
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+        var typeParameters = mb.DefineGenericParameters(names);
+        constrain(typeParameters);
+        mb.SetReturnType(typeParameters[0]);
+        mb.SetParameters(typeParameters[0]);
+        var il = mb.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"chain-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
     /// Emits two assemblies: one declaring a <c>System.Enum</c> that is not the core
     /// library's, and one whose generic virtual method is constrained to it. Returns the
     /// path of the second.

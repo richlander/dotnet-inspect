@@ -36,20 +36,20 @@ internal static class TypeParameterKindClassifier
         GenericParameter parameter,
         bool hasValueTypeConstraint,
         bool hasReferenceTypeConstraint)
-        => Classify(reader, parameter, hasValueTypeConstraint, hasReferenceTypeConstraint, visited: null);
+        => Classify(reader, parameter, hasValueTypeConstraint, hasReferenceTypeConstraint, new ChainState());
 
-    /// <param name="visited">
-    /// The parameters already being classified on this chain. `where T : U` makes T only
-    /// as known as U, so classification follows the chain, and this set stops a cyclic
-    /// or self-referential chain -- which metadata can express even though C# cannot --
-    /// from recursing forever.
+    /// <param name="chain">
+    /// State for following `where T : U`, which makes T only as known as U. Carries the
+    /// parameters on the *current* path, so a cyclic or self-referential chain -- which
+    /// metadata can express even though C# cannot -- terminates, and the answers already
+    /// computed, so a chain that reconverges is answered rather than re-walked.
     /// </param>
-    static TypeParameterTypeKind Classify(
+    internal static TypeParameterTypeKind Classify(
         MetadataReader reader,
         GenericParameter parameter,
         bool hasValueTypeConstraint,
         bool hasReferenceTypeConstraint,
-        HashSet<GenericParameterHandle>? visited)
+        ChainState chain)
     {
         // The attribute flags are decisive on their own and need no constraint types.
         if (hasValueTypeConstraint)
@@ -83,7 +83,7 @@ internal static class TypeParameterKindClassifier
 
                 // `where T : U` -- T is exactly as known as U, so follow the chain.
                 case ConstraintClass.DeferToTypeParameter:
-                    switch (ClassifySibling(reader, parameter, constraint.Type, visited))
+                    switch (ClassifySibling(reader, parameter, constraint.Type, chain))
                     {
                         case TypeParameterTypeKind.ReferenceType:
                             return TypeParameterTypeKind.ReferenceType;
@@ -121,7 +121,7 @@ internal static class TypeParameterKindClassifier
         MetadataReader reader,
         GenericParameter parameter,
         EntityHandle constraintType,
-        HashSet<GenericParameterHandle>? visited)
+        ChainState chain)
     {
         if (constraintType.Kind != HandleKind.TypeSpecification)
             return TypeParameterTypeKind.Undetermined;
@@ -142,18 +142,38 @@ internal static class TypeParameterKindClassifier
                 return TypeParameterTypeKind.Undetermined;
 
             var siblingHandle = handles[target.Index];
-            visited ??= [];
-            if (!visited.Add(siblingHandle))
+            // Already answered on another branch. Reusing it is what keeps a chain that
+            // reconverges from being mistaken for a cycle, and what keeps a long chain
+            // linear instead of quadratic.
+            if (chain.Answers.TryGetValue(siblingHandle, out var answered))
+                return answered;
+
+            // Only the current path guards against cycles, so a parameter is released
+            // once its own subtree is done and stays reachable from a sibling branch.
+            // A cyclic chain answers Undetermined, and caching that can carry the
+            // cycle's verdict to a parameter that merely reaches it -- fail-closed in
+            // the same direction the rest of this classifier takes, and unreachable
+            // from C#, which cannot express a cyclic constraint chain at all.
+            if (!chain.Path.Add(siblingHandle))
                 return TypeParameterTypeKind.Undetermined;
 
-            var sibling = reader.GetGenericParameter(siblingHandle);
-            var special = sibling.Attributes & GenericParameterAttributes.SpecialConstraintMask;
-            return Classify(
-                reader,
-                sibling,
-                (special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
-                (special & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
-                visited);
+            try
+            {
+                var sibling = reader.GetGenericParameter(siblingHandle);
+                var special = sibling.Attributes & GenericParameterAttributes.SpecialConstraintMask;
+                var kind = Classify(
+                    reader,
+                    sibling,
+                    (special & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
+                    (special & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                    chain);
+                chain.Answers[siblingHandle] = kind;
+                return kind;
+            }
+            finally
+            {
+                chain.Path.Remove(siblingHandle);
+            }
         }
         catch (BadImageFormatException)
         {
@@ -187,6 +207,19 @@ internal static class TypeParameterKindClassifier
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// The two things following a `where T : U` chain needs: the parameters on the path
+    /// currently being walked, and the answers already reached. Answers outlive a single
+    /// walk -- a handle identifies the same parameter for the whole module -- so a caller
+    /// classifying a parameter list reuses one instance across it.
+    /// </summary>
+    internal sealed class ChainState
+    {
+        public HashSet<GenericParameterHandle> Path { get; } = [];
+
+        public Dictionary<GenericParameterHandle, TypeParameterTypeKind> Answers { get; } = [];
     }
 
     readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);
@@ -290,9 +323,52 @@ internal static class TypeParameterKindClassifier
         if ((definition.Attributes & TypeAttributes.Interface) != 0)
             return ConstraintClass.ProvesNothing;
 
-        return IsClassThatProvesNothing(fullName)
+        // Same-module, so the name is checked against the module's own identity rather
+        // than against a resolution scope: an ordinary assembly may declare a type
+        // called `System.Enum`, and that type is a plain class, so a parameter
+        // constrained to it IS known to be a reference type.
+        return IsClassThatProvesNothing(fullName) && DeclaresCoreLibraryRoot(reader)
             ? ConstraintClass.ProvesNothing
             : ConstraintClass.ProvesReferenceType;
+    }
+
+    /// <summary>
+    /// True when the module being read is itself a core library — the only module whose
+    /// own <c>System.Object</c>, <c>System.ValueType</c> and <c>System.Enum</c> are the
+    /// special types C# treats as proving nothing about a type parameter.
+    /// </summary>
+    /// <remarks>
+    /// A core library is recognized the way <c>ApiSurfaceExtractor</c> already
+    /// recognizes the genuine root object: it declares a <c>System.Object</c> with no
+    /// base type, which only the root can have. An assembly that merely declares
+    /// <c>System.Enum</c> inherits its object from elsewhere and is rejected. An
+    /// assembly that declares a nil-base <c>System.Object</c> is structurally a core
+    /// library, and a compilation against it really does treat its <c>System.Enum</c> as
+    /// the special type, so accepting that case tracks the compiler rather than
+    /// trusting the assembly.
+    /// </remarks>
+    static bool DeclaresCoreLibraryRoot(MetadataReader reader)
+    {
+        try
+        {
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var candidate = reader.GetTypeDefinition(handle);
+                if (candidate.BaseType.IsNil
+                    && (candidate.Attributes & TypeAttributes.Interface) == 0
+                    && string.Equals(reader.GetString(candidate.Namespace), "System", StringComparison.Ordinal)
+                    && string.Equals(reader.GetString(candidate.Name), "Object", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+
+        return false;
     }
 
     static bool IsClassThatProvesNothing(string? fullName)
