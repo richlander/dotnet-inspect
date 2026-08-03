@@ -103,9 +103,26 @@ public class ApiCommand
         if (SelectOutput.WriteUnresolved(selectResult))
             return null;
 
-        return selectResult.Sections != null
+        var listingOptions = selectResult.Sections != null
             ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
             : options with { SelectDeferredToListing = false };
+
+        // The preamble skips the selection-arity checks for a deferred select because it cannot yet
+        // know which pipeline will render. Now it is known, so they run here against the sections
+        // the listing actually resolved. The payload projections are deliberately not re-checked:
+        // the listing refuses them outright further down, and that reason is the useful one.
+        if (options.SelectDeferredToListing)
+        {
+            if (listingOptions.Discover == null && listingOptions.Count
+                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+                return null;
+
+            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                    listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
+                return null;
+        }
+
+        return listingOptions;
     }
 
     // ===== Shared Preamble =====
@@ -286,13 +303,14 @@ public class ApiCommand
                 options = options with { IncludeSections = selectResult.Sections };
         }
 
-        // A deferred select has no IncludeSections yet, so ask the listing pipeline how many
-        // sections it resolves to; otherwise every deferred --count would fail the arity check on
-        // an empty set rather than on what the listing will actually render.
-        var countSections = options.SelectDeferredToListing
-            ? ResolveSelectForListing(options, typePipeline).Sections
-            : options.IncludeSections;
-        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(countSections))
+        // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
+        // listing or the single-type view will render, so every selection check below has to stand
+        // down: judging the empty set reports a requirement to narrow -S that is neither true nor
+        // actionable, and judging the listing's sections preempts the single-type view's own, more
+        // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
+        var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+            && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -307,7 +325,8 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            if (options.Discover == null && !options.SelectDeferredToListing
+                && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
             {
@@ -333,7 +352,8 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && options.Discover == null && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && options.Discover == null && !options.SelectDeferredToListing
+            && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
         if (options.Print && options.Rows is not null)
@@ -348,7 +368,8 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+        if (!options.SelectDeferredToListing
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
         // Auto-promote verbosity when -S targets specific sections

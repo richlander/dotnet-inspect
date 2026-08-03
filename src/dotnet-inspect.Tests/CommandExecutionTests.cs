@@ -3380,8 +3380,17 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// A name that is valid for neither pipeline is a plain typo and still fails in the preamble,
-    /// keeping the fast rejection for the case that cannot be a listing.
+    /// keeping the fast rejection -- and the single-type suggestions -- for the case that cannot be
+    /// a listing.
     /// </summary>
+    /// <remarks>
+    /// This is the gate for that claim, and for the guard that carries it: dropping the
+    /// "resolves against the listing" test from <c>ShouldDeferSelectToListing</c> would defer every
+    /// total failure, so a typo would announce a prefix browse it never performs and then offer the
+    /// listing's sections. Asserting only the exit code and the "not found" text cannot see that --
+    /// both survive the deferral, because a landing site rejects the typo either way. The two
+    /// negative assertions below are what make the difference observable.
+    /// </remarks>
     [Theory]
     [InlineData("Command")]
     [InlineData("DotnetInspector.Tests.CommandExecutionTests")]
@@ -3392,6 +3401,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("best-effort prefix matches", error, StringComparison.Ordinal);
+        Assert.Contains("Baseclass", error, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -3436,6 +3447,83 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Contains("exactly one section", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The preamble runs four selection checks -- --count arity, shape-projection arity, --print
+    /// selection, and tabular arity -- and every one of them reads the include set. A deferred
+    /// select leaves that set empty, so each check has to ask the listing pipeline what the select
+    /// resolves to or it silently judges nothing. Only --count was made deferral-aware at first;
+    /// the tabular check then let a two-section select through and rendered just the first table at
+    /// exit 0, which the direct listing rejects. Pinned per flag so a regression names its own site.
+    /// </summary>
+    [Theory]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    public async Task Type_PrefixBrowse_MultiSectionSelect_FailsTabularArityLikeTheDirectListing(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("kind\ttype", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A single-section select must still reach the renderer once the tabular check consults the
+    /// listing pipeline, or the fix for the multi-section case would simply reject everything.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_SingleSectionSelect_StillRendersTabular()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("kind\ttype", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The payload projections are not supported by the listing at all, so the deferred path must
+    /// reach that diagnostic rather than the arity one. Judging the deferral's empty include set
+    /// reported "requires -S/--select to match exactly one section" for a select that resolves to
+    /// exactly one -- telling the user to narrow a selector that was never the problem.
+    /// </summary>
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task Type_PrefixBrowse_PayloadProjection_ReportsTheListingReasonNotArity(string flag)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("is not supported when listing types", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("exactly one section", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The deferred select must actually narrow the rendered listing, not merely stop failing.
+    /// A prefix whose matches are all one kind cannot show the difference -- selecting Classes and
+    /// selecting nothing render the same single table -- so this uses a prefix that matches four
+    /// kinds, where a dropped selector is visible as the other three sections surviving.
+    /// </summary>
+    [Theory]
+    [InlineData("--all")]
+    [InlineData("--shape")]
+    public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag, "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var headings = SectionHeadings(output);
+        Assert.Equal(["Classes"], headings);
     }
 
     /// <summary>
