@@ -87,9 +87,8 @@ must likewise remain distinct, but the current cache identity incorrectly folds
 `/feed` and `/feed/`. Correcting it requires a cache namespace migration and is
 tracked by [#3737](https://github.com/richlander/dotnet-inspect/issues/3737).
 The digest keeps source URLs out of cache paths and makes every identity a
-valid path segment. It is opacity rather than confidentiality: a feed URL is
-low entropy, and a local reader who can see these paths can already see which
-packages were cached.
+valid path segment. It is a path-safe identifier, not a security boundary;
+source authorization comes from the source policy, not from hiding cache keys.
 
 ## Guarantees
 
