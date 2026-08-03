@@ -381,16 +381,33 @@ public class ScanTokenTests
     }
 
     [Fact]
-    public void ConditionalDirective_MarksTheDepthUnknowable()
+    public void ConditionalDirective_MarksTheDepthUnknowableInsideTheGroupOnly()
     {
-        var lines = new[] { "#if DEBUG", "int x;", "#endif" };
+        var lines = new[] { "#if DEBUG", "int x;", "#endif", "int y;" };
         var tokens = BodySlicer.ScanTokens(lines);
 
-        // The braces around a conditional branch may belong to text the compiler discards, so the
-        // depth stops meaning anything — and the tokens say so rather than reporting a plausible
-        // number.
-        Assert.All(tokens, t => Assert.False(t.DepthKnown));
+        // The braces inside a conditional branch may belong to text the compiler discards, so the
+        // depth stops meaning anything there — and the tokens say so rather than reporting a
+        // plausible number.
+        Assert.All(tokens.Where(t => t.Line is 0 or 1), t => Assert.False(t.DepthKnown));
         Assert.Equal(ScanTokenKind.Directive, tokens[0].Kind);
+
+        // Every branch of this group returns to the depth it started at, so the depth below the
+        // #endif is that depth whichever branch the compiler keeps, and knownness is restored
+        // rather than lost to end of file (#3668). The #endif itself is emitted after the group
+        // closes, so it carries the restored answer.
+        Assert.All(tokens.Where(t => t.Line >= 2), t => Assert.True(t.DepthKnown));
+    }
+
+    [Fact]
+    public void AnUnbalancedConditional_LeavesTheDepthUnknowableToEndOfFile()
+    {
+        var lines = new[] { "#if DEBUG", "if (x) {", "#endif", "}", "int y;" };
+        var tokens = BodySlicer.ScanTokens(lines);
+
+        // This branch opens a brace it does not close, so the depth after the #endif really does
+        // depend on whether DEBUG was defined. The loss must stand.
+        Assert.All(tokens, t => Assert.False(t.DepthKnown));
     }
 
     [Fact]
