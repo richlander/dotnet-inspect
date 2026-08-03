@@ -530,7 +530,7 @@ public static class TypeCommand
     {
         if (NuGetCache.TryGetLatestCachedVersion(
                 packageName,
-                NuGetSourceResolver.ResolveSourceKeys(null)) != null)
+                NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
             return true;
 
         try

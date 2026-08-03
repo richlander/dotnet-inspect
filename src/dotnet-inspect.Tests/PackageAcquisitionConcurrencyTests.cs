@@ -73,7 +73,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             Assert.Equal(1, handler.RequestCount);
             Assert.False(
                 Directory.Exists(
-                    NuGetCache.GetPackageCachePath(packageName, Version)));
+                    NuGetCache.GetPackageCachePath(packageName, Version, TestSourceKey)));
         }
         finally
         {
@@ -94,7 +94,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             });
         Assert.Equal(1, handler.RequestCount);
         Assert.Equal(
-            NuGetCache.GetPackageCachePath(packageName, Version),
+            NuGetCache.GetPackageCachePath(packageName, Version, TestSourceKey),
             first.ExtractPath);
         Assert.True(File.Exists(first.NupkgPath));
         Assert.Equal(
@@ -197,7 +197,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.True(outcome.IsSuccess);
         Assert.Equal(PayloadPackage, outcome.Result!.PackageName);
         Assert.Equal(
-            NuGetCache.GetPackageCachePath(PayloadPackage, Version),
+            NuGetCache.GetPackageCachePath(PayloadPackage, Version, TestSourceKey),
             outcome.Result.ExtractPath);
         Assert.Equal(2, handler.RequestCount);
     }
@@ -374,7 +374,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
         Assert.False(
             Directory.Exists(
-                NuGetCache.GetPackageCachePath(packageName, Version)));
+                NuGetCache.GetPackageCachePath(packageName, Version, TestSourceKey)));
         AssertNoStagingDirectories(packageName);
     }
 
@@ -383,7 +383,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     {
         string packageName = $"corrupt.test.{Guid.NewGuid():N}";
         const string Version = "3.1.0";
-        string target = NuGetCache.GetPackageCachePath(packageName, Version);
+        string target = NuGetCache.GetPackageCachePath(packageName, Version, TestSourceKey);
         Directory.CreateDirectory(target);
         string existingFile = Path.Combine(target, "existing.txt");
         File.WriteAllText(existingFile, "preserve");
@@ -543,7 +543,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Assert.False(failed.IsSuccess);
         Assert.False(
             Directory.Exists(
-                NuGetCache.GetPackageCachePath(packageName, Version)));
+                NuGetCache.GetPackageCachePath(packageName, Version, TestSourceKey)));
 
         var retried = await PackageExtractor.ExtractPackageAsync(
             client,
@@ -630,13 +630,26 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     [Theory]
     [InlineData("https://pkgs.invalid/v3/index.json", "https://pkgs.invalid/v3/index.json/")]
-    [InlineData("https://pkgs.invalid/v3/index.json", "HTTPS://Pkgs.Invalid/V3/Index.json")]
+    [InlineData("https://pkgs.invalid/v3/index.json", "HTTPS://PKGS.INVALID/v3/index.json")]
     [InlineData("https://pkgs.invalid/v3/index.json", "  https://pkgs.invalid/v3/index.json  ")]
     public void GetSourceKey_TreatsSpellingsOfOneFeedAsOneSource(string left, string right)
     {
-        // Two configs naming one feed differently must share cached bytes, or
-        // scoping silently degrades into duplicated downloads.
+        // Scheme, host and a trailing slash are not distinctions any feed makes.
+        // Two configs naming one feed differently must share cached bytes.
         Assert.Equal(NuGetCache.GetSourceKey(left), NuGetCache.GetSourceKey(right));
+    }
+
+    [Theory]
+    [InlineData("https://pkgs.invalid/FeedA/v3/index.json", "https://pkgs.invalid/feeda/v3/index.json")]
+    [InlineData("https://pkgs.invalid/v3/index.json?feed=A", "https://pkgs.invalid/v3/index.json?feed=a")]
+    public void GetSourceKey_KeepsFeedsThatDifferOnlyByPathCaseApart(string left, string right)
+    {
+        // Only scheme and host are case-insensitive. /FeedA and /feeda are
+        // different feeds on a case-sensitive server, and aliasing them would
+        // serve one feed's bytes for the other — the bug this scoping exists to
+        // prevent. NuGetSourceResolver refuses whole-URL case-insensitive
+        // matching for the same reason.
+        Assert.NotEqual(NuGetCache.GetSourceKey(left), NuGetCache.GetSourceKey(right));
     }
 
     [Fact]
@@ -648,16 +661,132 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void GetSourceKey_DoesNotRevealTheSourceUrl()
+    public void GetSourceKey_IsAnOpaquePathSafeIdentifier()
     {
-        // Commit markers are world-readable files and a source URL can carry
-        // userinfo credentials, so the key must be a digest, not the URL.
+        // The key becomes a directory name, so it must be a safe path segment
+        // for any URL and must not carry a URL's text into the cache layout.
+        // This is opacity, not confidentiality: a feed URL is low entropy, and
+        // a local reader who can see this can already see the cached packages.
         const string Secret = "s3cret-token";
         var key = NuGetCache.GetSourceKey($"https://user:{Secret}@pkgs.invalid/v3/index.json");
 
         Assert.DoesNotContain(Secret, key, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pkgs.invalid", key, StringComparison.OrdinalIgnoreCase);
-        Assert.Matches("^[0-9a-f]{16}$", key);
+        Assert.Matches("^[0-9a-f]{32}$", key);
+        Assert.Equal(-1, key.IndexOfAny(Path.GetInvalidFileNameChars()));
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_DoesNotShareOneDownloadAcrossDifferentSourceSets()
+    {
+        // Single-flight coalescing must not join callers whose configurations
+        // differ. If it did, a caller configured for one feed could be handed
+        // bytes fetched from a feed it does not read from — the same confusion
+        // the cache scoping prevents, arriving by a different route.
+        string packageName = $"flightscope.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        var handler = new GatedPackageHandler(CreatePackageArchive(packageName, Version));
+        using var client = new HttpClient(handler);
+        string tempPrefix = $"package-flight-scope-{Guid.NewGuid():N}-";
+
+        var feedB = new NuGetSourceOptions { Sources = ["https://feed-b.invalid/v3/index.json"] };
+
+        Task<PackageExtractionOutcome> viaNuGetOrg = PackageExtractor.ExtractPackageAsync(
+            client, packageName, tempDirPrefix: tempPrefix,
+            sourceOptions: s_nugetOrgSource, version: Version);
+        Task<PackageExtractionOutcome> viaFeedB = PackageExtractor.ExtractPackageAsync(
+            client, packageName, tempDirPrefix: tempPrefix,
+            sourceOptions: feedB, version: Version);
+
+        bool bothInFlight;
+        try
+        {
+            // The assertion: two callers with different source sets produce two
+            // concurrent downloads. If they shared a flight the count stays at
+            // 1 and this times out, which is the failure being guarded against.
+            bothInFlight = await WaitForRequestCountAsync(handler, 2, TimeSpan.FromSeconds(20));
+        }
+        finally
+        {
+            handler.Release();
+        }
+
+        Assert.True(
+            bothInFlight,
+            "Callers with different source sets shared one download; "
+                + $"observed {handler.RequestCount} request(s), expected 2.");
+
+        PackageExtractionOutcome[] outcomes = await Task.WhenAll(viaNuGetOrg, viaFeedB);
+
+        // Only the nuget.org flight is expected to complete: this fixture does
+        // not serve a parseable service index for the second feed. That is
+        // immaterial here — the point is that the flights were separate.
+        Assert.True(outcomes[0].IsSuccess);
+        AssertNoTemporaryDirectories(tempPrefix);
+    }
+
+    [Fact]
+    public void CommitPackage_SecondSourceCommitsAlongsideTheFirst()
+    {
+        // The same coordinate served by two configured feeds. The second feed
+        // correctly misses the first feed's slot, downloads, and must be able
+        // to commit. Holding both in one slot cannot work: the second feed
+        // would either overwrite content it is not entitled to serve, or fail
+        // to cache a package it just downloaded successfully.
+        string packageName = $"twofeeds.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string keyA = NuGetCache.GetSourceKey("https://feed-a.invalid/v3/index.json");
+        string keyB = NuGetCache.GetSourceKey("https://feed-b.invalid/v3/index.json");
+
+        CommittedPackage a = NuGetCache.CommitPackage(
+            CreateExtractedPackage(Path.Combine(_testRoot, "two-a"), packageName, "A", 1),
+            nupkgPath: null, packageName, Version, keyA);
+
+        Assert.Null(NuGetCache.TryGetCachedPackage(packageName, Version, [keyB]));
+
+        CommittedPackage b = NuGetCache.CommitPackage(
+            CreateExtractedPackage(Path.Combine(_testRoot, "two-b"), packageName, "B", 1),
+            nupkgPath: null, packageName, Version, keyB);
+
+        Assert.NotEqual(a.ExtractPath, b.ExtractPath);
+        Assert.Equal(a.ExtractPath, NuGetCache.TryGetCachedPackage(packageName, Version, [keyA]));
+        Assert.Equal(b.ExtractPath, NuGetCache.TryGetCachedPackage(packageName, Version, [keyB]));
+
+        // Each slot keeps the bytes its own feed served.
+        Assert.Equal("A", File.ReadAllText(Path.Combine(a.ExtractPath, "payload", "0000.txt")));
+        Assert.Equal("B", File.ReadAllText(Path.Combine(b.ExtractPath, "payload", "0000.txt")));
+        AssertNoStagingDirectories(packageName);
+    }
+
+    [Fact]
+    public async Task CommitPackage_ConcurrentPublishersFromDifferentSourcesBothSucceed()
+    {
+        string packageName = $"twofeedsrace.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string keyA = NuGetCache.GetSourceKey("https://feed-a.invalid/v3/index.json");
+        string keyB = NuGetCache.GetSourceKey("https://feed-b.invalid/v3/index.json");
+        string sourceA = CreateExtractedPackage(Path.Combine(_testRoot, "race-a"), packageName, "A", 64);
+        string sourceB = CreateExtractedPackage(Path.Combine(_testRoot, "race-b"), packageName, "B", 64);
+
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim();
+
+        Task<CommittedPackage> Publish(string dir, string key) => Task.Run(() =>
+        {
+            ready.Signal();
+            start.Wait();
+            return NuGetCache.CommitPackage(dir, nupkgPath: null, packageName, Version, key);
+        });
+
+        Task<CommittedPackage> publishA = Publish(sourceA, keyA);
+        Task<CommittedPackage> publishB = Publish(sourceB, keyB);
+
+        Assert.True(ready.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        start.Set();
+        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+
+        Assert.NotEqual(committed[0].ExtractPath, committed[1].ExtractPath);
+        AssertNoStagingDirectories(packageName);
     }
 
     [Fact]
@@ -756,6 +885,22 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         writer.Write(content);
     }
 
+    private static async Task<bool> WaitForRequestCountAsync(
+        GatedPackageHandler handler,
+        int expected,
+        TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (handler.RequestCount >= expected)
+                return true;
+            await Task.Delay(25);
+        }
+
+        return handler.RequestCount >= expected;
+    }
+
     private static string CreateExtractedPackage(
         string path,
         string packageName,
@@ -788,14 +933,18 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     private static void AssertNoStagingDirectories(string packageName)
     {
+        // Cache entries are {name}/{version}/{sourceKey}, so staging directories
+        // sit one level deeper than the package directory.
         string packagePath = NuGetCache.GetPackageCachePath(
             packageName,
-            "unused");
-        string parent = Path.GetDirectoryName(packagePath)!;
+            "unused",
+            TestSourceKey);
+        string parent = Path.GetDirectoryName(Path.GetDirectoryName(packagePath)!)!;
         if (!Directory.Exists(parent))
             return;
 
-        Assert.Empty(Directory.GetDirectories(parent, ".*.tmp-*"));
+        Assert.Empty(
+            Directory.GetDirectories(parent, ".*.tmp-*", SearchOption.AllDirectories));
     }
 
     private static void AssertNoPackStagingDirectories(string packageName)

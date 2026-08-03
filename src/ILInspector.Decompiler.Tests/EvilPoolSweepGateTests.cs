@@ -1175,7 +1175,7 @@ public class EvilPoolSweepGateTests
             NuGetCache.CommitPackage(staged, null, package, FixtureVersion, TestSourceKey);
 
             string committed = Path.Combine(
-                NuGetCache.GetPackageCachePath(package, FixtureVersion),
+                NuGetCache.GetPackageCachePath(package, FixtureVersion, TestSourceKey),
                 "lib",
                 FixtureTfm,
                 assembly);

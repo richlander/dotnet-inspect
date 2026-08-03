@@ -246,10 +246,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         var request = new PackageAcquisitionRequest(
-            Path.GetFullPath(
-                NuGetCache.GetPackageCachePath(
-                    normalizedName,
-                    normalizedVersion)));
+            $"{normalizedName}@{normalizedVersion}",
+            string.Join(
+                '|',
+                sources.Select(source => NuGetCache.GetSourceKey(source.Url))));
         return await s_packageRequests.GetOrAddAsync(
             request,
             _ => AcquireResolvedPackageAsync(
@@ -418,7 +418,14 @@ public static class PackageExtractor
         }
     }
 
-    private readonly record struct PackageAcquisitionRequest(string CachePath);
+    /// <summary>
+    /// Identifies one in-flight acquisition. The source scope is part of the
+    /// identity, not just the coordinate: callers configured for different
+    /// sources must not share a download, or one would receive bytes the other
+    /// was entitled to. Callers with the same ordered source list resolve
+    /// identically and can safely share.
+    /// </summary>
+    private readonly record struct PackageAcquisitionRequest(string CachePath, string SourceScope);
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.

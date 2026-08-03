@@ -20,7 +20,7 @@ public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
 /// </summary>
 public static class NuGetCache
 {
-    private const string PackageContentCategory = "package-content-v3";
+    private const string PackageContentCategory = "package-content-v4";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
@@ -166,20 +166,31 @@ public static class NuGetCache
             }
         }
 
-        // Check app cache
+        // Check app cache. A read happens before the tool knows which source
+        // would serve the package, so it asks every source the caller is
+        // currently configured to read from. A slot belonging to any other
+        // source is not consulted: those bytes were fetched under an authority
+        // this caller no longer claims.
         var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
-            var appPackageDir = Path.Combine(appCachePath, normalizedName, normalizedVersion);
-            if (IsCommittedPackageValid(
-                appPackageDir,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys))
+            foreach (var sourceKey in allowedSourceKeys ?? [])
             {
-                InfoTracker.RecordCacheHit();
-                CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                return appPackageDir;
+                var appPackageDir = Path.Combine(
+                    appCachePath,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey);
+                if (IsCommittedPackageValid(
+                    appPackageDir,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey))
+                {
+                    InfoTracker.RecordCacheHit();
+                    CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
+                    return appPackageDir;
+                }
             }
         }
 
@@ -191,14 +202,26 @@ public static class NuGetCache
     /// <summary>
     /// Gets the final path for a package in the transactional content cache.
     /// </summary>
-    public static string GetPackageCachePath(string packageName, string version)
+    /// <remarks>
+    /// The source is part of the path, not merely recorded inside the entry, so
+    /// one coordinate served by two feeds occupies two slots. A single slot
+    /// cannot hold both: the second feed would have to either overwrite content
+    /// another feed is entitled to or fail to commit a package it downloaded
+    /// successfully. The cost is duplicated bytes when two feeds carry the same
+    /// package, which is cheaper than either alternative.
+    /// </remarks>
+    public static string GetPackageCachePath(string packageName, string version, string sourceKey)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
+        ValidatePathComponent(sourceKey, "source key");
 
         var appCachePath = GetPackageContentCachePath();
-        var packageDir = Path.Combine(appCachePath, packageName.ToLowerInvariant(), version.ToLowerInvariant());
-        return packageDir;
+        return Path.Combine(
+            appCachePath,
+            packageName.ToLowerInvariant(),
+            version.ToLowerInvariant(),
+            sourceKey);
     }
 
     /// <summary>
@@ -229,7 +252,8 @@ public static class NuGetCache
         string normalizedVersion = version.ToLowerInvariant();
         string targetPath = GetPackageCachePath(
             normalizedName,
-            normalizedVersion);
+            normalizedVersion,
+            sourceKey);
         string? parentDir = Path.GetDirectoryName(targetPath)
             ?? throw new InvalidOperationException(
                 $"Package cache path has no parent: {targetPath}");
@@ -241,7 +265,7 @@ public static class NuGetCache
             targetPath,
             normalizedName,
             normalizedVersion,
-            [sourceKey]))
+            sourceKey))
         {
             return OpenCommittedPackage(
                 targetPath,
@@ -257,7 +281,7 @@ public static class NuGetCache
 
         string stagingPath = Path.Combine(
             parentDir,
-            $".{normalizedVersion}.tmp-{Guid.NewGuid():N}");
+            $".{sourceKey}.tmp-{Guid.NewGuid():N}");
         CoreCache.EnsurePathInCacheContext(stagingPath);
 
         try
@@ -301,7 +325,7 @@ public static class NuGetCache
                 targetPath,
                 normalizedName,
                 normalizedVersion,
-                [sourceKey]))
+                sourceKey))
             {
                 return OpenCommittedPackage(
                     targetPath,
@@ -357,8 +381,23 @@ public static class NuGetCache
             IsCachedPackageValid(dir, normalizedName);
         bool IsAppCacheValid(string dir)
         {
+            // A version directory now holds one slot per source. The version
+            // counts as cached only if a source this caller reads from
+            // committed it.
             string version = Path.GetFileName(dir);
-            return IsCommittedPackageValid(dir, normalizedName, version, allowedSourceKeys);
+            foreach (var sourceKey in allowedSourceKeys ?? [])
+            {
+                if (IsCommittedPackageValid(
+                        Path.Combine(dir, sourceKey),
+                        normalizedName,
+                        version,
+                        sourceKey))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         VersionDir? best = null;
 
@@ -426,40 +465,21 @@ public static class NuGetCache
         string cachedPath,
         string packageName,
         string version,
-        IReadOnlyCollection<string>? allowedSourceKeys)
+        string sourceKey)
     {
         try
         {
             if (!IsCachedPackageValid(cachedPath))
                 return false;
 
-            var marker = File.ReadAllText(
-                Path.Combine(cachedPath, CommitMarkerFileName));
-
-            // A cache read happens before the tool knows which source would
-            // serve this package, so the question is not "does the marker name
-            // one source" but "is the source that wrote these bytes still one
-            // the caller is configured to read from". A marker naming a source
-            // outside that set is a miss, not a hit: those bytes were fetched
-            // under an authority the caller no longer claims.
-            if (allowedSourceKeys is null)
-            {
-                return marker.Equals(
-                    GetCommitMarkerContent(packageName, version, AnySourceKey),
+            // The source is already selected by the path; the marker restates it
+            // so an entry that was moved or hand-copied between slots is not
+            // mistaken for one this source committed.
+            return File.ReadAllText(
+                Path.Combine(cachedPath, CommitMarkerFileName))
+                .Equals(
+                    GetCommitMarkerContent(packageName, version, sourceKey),
                     StringComparison.Ordinal);
-            }
-
-            foreach (var sourceKey in allowedSourceKeys)
-            {
-                if (marker.Equals(
-                        GetCommitMarkerContent(packageName, version, sourceKey),
-                        StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
         catch (IOException)
         {
@@ -491,32 +511,74 @@ public static class NuGetCache
         => $"{PackageContentCategory}:{packageName}@{version}:{sourceKey}";
 
     /// <summary>
-    /// Marker component used when a package was not acquired from a NuGet
-    /// source at all (a local <c>.nupkg</c> path, say). Such content is not
-    /// attributable to any feed, so it is only ever a hit for a caller that
-    /// also supplies no source set.
+    /// Identity used for content that did not come from a NuGet source at all,
+    /// such as a local <c>.nupkg</c> path. It occupies its own cache slot like
+    /// any other source.
     /// </summary>
-    private const string AnySourceKey = "local";
+    private const string LocalSourceKey = "local";
 
     /// <summary>
-    /// Derives a stable, non-revealing identity for a NuGet source from its
-    /// URL. The URL itself is never written to the cache: a source URL can
-    /// carry userinfo credentials, and cache markers are world-readable files.
+    /// Derives a stable identity for a NuGet source from its URL, used as a
+    /// path segment in the content cache.
     /// </summary>
+    /// <remarks>
+    /// The digest keeps source URLs out of cache paths and makes every identity
+    /// a safe path segment regardless of the URL's characters. It is opacity,
+    /// not confidentiality: a feed URL is low entropy, and anyone who can read
+    /// the cache can already see which packages were fetched. Protecting feed
+    /// identity from a local reader would require cache permissions, not a hash.
+    ///
+    /// Only scheme and host are case-insensitive. Path and query are compared
+    /// as written, because <c>/FeedA</c> and <c>/feeda</c> are different feeds
+    /// on a case-sensitive server — the same reason
+    /// <c>NuGetSourceResolver.FindConfiguredSourceFor</c> refuses to match
+    /// whole URLs case-insensitively.
+    /// </remarks>
     /// <param name="sourceUrl">The source URL, or a local folder path.</param>
     /// <returns>A short hex digest identifying the source.</returns>
     public static string GetSourceKey(string? sourceUrl)
     {
         if (string.IsNullOrWhiteSpace(sourceUrl))
-            return AnySourceKey;
+            return LocalSourceKey;
 
-        // Normalize the spellings that denote the same feed: case, surrounding
-        // whitespace, and a trailing slash. Two configs that name one feed
-        // differently must share cached bytes, or the cache silently duplicates.
-        var normalized = sourceUrl.Trim().TrimEnd('/').ToLowerInvariant();
+        var trimmed = sourceUrl.Trim();
+        string normalized;
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !uri.IsFile)
+        {
+            // Scheme and host are case-insensitive by definition; the rest is
+            // not. A trailing slash is not a distinction any feed makes.
+            var origin = $"{uri.Scheme.ToLowerInvariant()}://{uri.Authority.ToLowerInvariant()}";
+            var rest = uri.GetComponents(
+                UriComponents.Path | UriComponents.Query,
+                UriFormat.UriEscaped);
+            normalized = $"{origin}/{rest}".TrimEnd('/');
+        }
+        else
+        {
+            // A local folder source. Resolve it so a relative and an absolute
+            // spelling of one directory share a slot, and respect the
+            // platform's own case rules rather than assuming.
+            string resolved;
+            try
+            {
+                resolved = Path.GetFullPath(uri?.IsFile == true ? uri.LocalPath : trimmed);
+            }
+            catch (ArgumentException)
+            {
+                resolved = trimmed;
+            }
+            catch (IOException)
+            {
+                resolved = trimmed;
+            }
+
+            resolved = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalized = OperatingSystem.IsLinux() ? resolved : resolved.ToLowerInvariant();
+        }
 
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
-        return Convert.ToHexStringLower(digest.AsSpan(0, 8));
+        return Convert.ToHexStringLower(digest.AsSpan(0, 16));
     }
 
     private static void CopyDirectory(string sourceDir, string targetDir)
