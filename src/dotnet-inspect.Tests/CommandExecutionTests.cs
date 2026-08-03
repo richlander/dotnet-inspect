@@ -5610,7 +5610,13 @@ public partial class CommandExecutionTests
         Assert.True(
             renderedLines > count,
             $"expected the tree to render more lines ({renderedLines}) than the {count} files it counts");
-        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.Ordinal);
+
+        // The manifest is a reachable package file, which is the claim; its filename casing is
+        // not. A package restored into the NuGet global packages folder carries the manifest under
+        // the normalized (lowercased) id, while one expanded from the .nupkg keeps the authored
+        // casing, so pinning "Newtonsoft.Json.nuspec" ordinally asserts which source resolved the
+        // package rather than that the nuspec is listed.
+        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -13240,6 +13246,16 @@ public partial class CommandExecutionTests
         // something else. The role answers a document's kind only where the name is silent;
         // letting a declaration override a stated kind would run the link rewriter over a PNG
         // and hand back a corrupted file, which is the outcome this command prevents.
+
+        // Win32 strips trailing dots from a path before it reaches the filesystem, so a package
+        // entry named "logo.png." lands on disk as "logo.png" no matter who expands it -- both
+        // this fixture and the product's own extraction. The declared path then names nothing the
+        // package lists, and the case cannot be staged on Windows at all rather than behaving
+        // differently there. It stays covered on every other platform.
+        Assert.SkipWhen(
+            OperatingSystem.IsWindows() && readmePath.EndsWith('.'),
+            "Windows cannot hold a file whose name ends in a dot: the name is normalized away before it reaches the filesystem.");
+
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         var declared = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
