@@ -370,15 +370,15 @@ public static class AnnotationAnchor
                 // different nodes. Each is a group of `Box` nodes over the same
                 // local -- all 66 choose ranges of identical width printing
                 // identical text, differing only in column, so what is being
-                // chosen is which *occurrence* of that local gets underlined.
-                // None is more correct than another, and because the text is the
-                // same a reader cannot see which was taken; only the column
-                // moves. So the requirement is not that the choice be right but
-                // that it be a function of the ranges rather than of the walk:
-                // leftmost, and narrowest where two start together. On this
-                // corpus that agrees with what the unarbitrated walk already
-                // produced on all 66, so it changes no rendered output here; it
-                // exists so the choice cannot move when traversal order does.
+                // chosen is which visibly different *occurrence* of that local
+                // gets underlined. None is more semantically correct than
+                // another. The requirement is therefore not semantic
+                // superiority but that the visible choice be a function of the
+                // ranges rather than of the walk: leftmost, and narrowest where
+                // two start together. On this corpus that agrees with what the
+                // unarbitrated walk already produced on all 66, so it changes no
+                // rendered output here; it exists so traversal order cannot
+                // move the underline in the future.
                 if (chosen.TryGetValue(offset, out var best)
                     && (best.Start < innerRange.Start.Value
                         || (best.Start == innerRange.Start.Value
