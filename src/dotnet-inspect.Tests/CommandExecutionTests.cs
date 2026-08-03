@@ -2984,7 +2984,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -3005,7 +3005,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "--tips", "q");
@@ -3014,6 +3014,22 @@ public partial class CommandExecutionTests
         Assert.Empty(runError);
         Assert.DoesNotContain("This is a type-forwarding library", output);
     }
+
+    [Fact]
+    public async Task BareQualifiedPlatformType_WithLeafCollision_RoutesExactly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.IO.File", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("System.IO.File", output);
+    }
+
+    private static bool IsFacadeAssembly(string assemblyPath) =>
+        PlatformResolver.ClassifyAssemblySurface(assemblyPath)
+            is AssemblySurfaceClassificationOutcome.Classified classified
+        && classified.Classification.Kind == AssemblySurfaceKind.Facade;
 
     [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
@@ -8787,7 +8803,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -8808,7 +8824,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "Library Info", "--tips", "q");
@@ -8878,7 +8894,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime is not facade-only in this runtime.");
 
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
@@ -11513,7 +11529,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -11536,7 +11552,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "System.Text.Json", "--markdown", "-v:q", "--tips", "q");

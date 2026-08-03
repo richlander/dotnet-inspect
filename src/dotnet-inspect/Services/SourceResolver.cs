@@ -57,7 +57,8 @@ public static class SourceResolver
     /// </summary>
     internal static LocalProbeResult? TryProbeLocalQualifiedName(
         string name,
-        IReadOnlyList<string> sourceKeys)
+        IReadOnlyList<string> sourceKeys,
+        Action<string>? reportPlatformLookupFailure = null)
     {
         // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
         // Single-dot names like "System.CommandLine" are ambiguous: could be
@@ -111,13 +112,35 @@ public static class SourceResolver
         // System.Runtime, not System.Numerics).
         if (platformCandidate != null)
         {
-            var runtimeLib = PlatformResolver.FindLibraryContainingType(platformCandidate);
-            if (runtimeLib != null)
+            PlatformTypeLookupOutcome lookup =
+                PlatformResolver.LookupType(name);
+            if (lookup is PlatformTypeLookupOutcome.Missing)
+                lookup = PlatformResolver.LookupType(platformCandidate);
+
+            switch (lookup)
             {
-                RequestTelemetry.Breadcrumb(
-                    "qualified-type-split",
-                    $"{name} -> platform={runtimeLib}; type={platformCandidate}");
-                return new LocalProbeResult(runtimeLib, platformCandidate, LocalSourceKind.Platform);
+                case PlatformTypeLookupOutcome.Resolved resolved:
+                    string runtimeLibrary =
+                        resolved.Candidate.Assembly.Identity.Name;
+                    string exactTypeName =
+                        resolved.Candidate.Type.ToMetadataFullName();
+                    RequestTelemetry.Breadcrumb(
+                        "qualified-type-split",
+                        $"{name} -> platform={runtimeLibrary}; type={exactTypeName}");
+                    return new LocalProbeResult(
+                        runtimeLibrary,
+                        exactTypeName,
+                        LocalSourceKind.Platform);
+                case PlatformTypeLookupOutcome.Missing:
+                    break;
+                case PlatformTypeLookupOutcome.Ambiguous ambiguous:
+                    reportPlatformLookupFailure?.Invoke(
+                        $"Platform type lookup is ambiguous across {ambiguous.Candidates.Length} candidates.");
+                    break;
+                case PlatformTypeLookupOutcome.Rejected rejected:
+                    reportPlatformLookupFailure?.Invoke(
+                        $"Platform type lookup failed ({rejected.Failure.Kind}).");
+                    break;
             }
         }
 
@@ -131,10 +154,21 @@ public static class SourceResolver
     internal static LocalProbeResult? TryResolveQualifiedTypeName(
         string name,
         IReadOnlyList<string> sourceKeys,
-        bool allowPlatformPrefixFallback)
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure = null)
     {
-        var probe = TryProbeLocalQualifiedName(name, sourceKeys);
-        if (probe != null || !allowPlatformPrefixFallback)
+        bool platformLookupFailed = false;
+        var probe = TryProbeLocalQualifiedName(
+            name,
+            sourceKeys,
+            message =>
+            {
+                platformLookupFailed = true;
+                reportPlatformLookupFailure?.Invoke(message);
+            });
+        if (probe != null
+            || platformLookupFailed
+            || !allowPlatformPrefixFallback)
             return probe;
 
         return TryProbePlatformQualifiedPrefix(name);
@@ -291,14 +325,16 @@ public static class SourceResolver
                 
                 if (!mightBeTypeDotMember)
                 {
-                    var library = PlatformResolver.FindLibraryContainingType(packagePath);
-                    if (library != null)
+                    PlatformTypeLookupOutcome lookup =
+                        PlatformResolver.LookupType(packagePath);
+                    if (lookup is PlatformTypeLookupOutcome.Resolved resolved)
                     {
                         typeName = packagePath;
                         packagePath = null;
-                        platformAssembly = library;
+                        platformAssembly =
+                            resolved.Candidate.Assembly.Identity.Name;
                     }
-                    else
+                    else if (lookup is PlatformTypeLookupOutcome.Missing)
                     {
                         // Convert backtick notation back to C#-style for display
                         var displayName = MetadataTypeNameFormatter.FormatGenericTypeName(packagePath);
@@ -306,6 +342,32 @@ public static class SourceResolver
                             packagePath, assemblyPath, platformAssembly, null, null,
                             VersionError: true,
                             VersionErrorMessage: $"'{displayName}' looks like a type name but was not found in platform libraries. Specify the source: 'source <package> \"{displayName}\"'.");
+                    }
+                    else if (lookup
+                        is PlatformTypeLookupOutcome.Ambiguous ambiguous)
+                    {
+                        return new ResolvedSource(
+                            packagePath,
+                            assemblyPath,
+                            platformAssembly,
+                            null,
+                            null,
+                            VersionError: true,
+                            VersionErrorMessage:
+                                $"The platform type name is ambiguous across {ambiguous.Candidates.Length} candidates. Use --platform to select its source.");
+                    }
+                    else if (lookup
+                        is PlatformTypeLookupOutcome.Rejected rejected)
+                    {
+                        return new ResolvedSource(
+                            packagePath,
+                            assemblyPath,
+                            platformAssembly,
+                            null,
+                            null,
+                            VersionError: true,
+                            VersionErrorMessage:
+                                $"Platform type lookup failed ({rejected.Failure.Kind}). Specify the source explicitly.");
                     }
                 }
             }
@@ -358,10 +420,23 @@ public static class SourceResolver
                 if (tryQualifiedTypeName && typeName == null
                     && packagePath != null && platformAssembly == null && assemblyPath == null)
                 {
+                    string? platformLookupFailure = null;
                     var probe = TryResolveQualifiedTypeName(
                         bareName,
                         sourceKeys,
-                        allowPlatformPrefixFallback: true);
+                        allowPlatformPrefixFallback: true,
+                        message => platformLookupFailure = message);
+                    if (platformLookupFailure is not null)
+                    {
+                        return new ResolvedSource(
+                            packagePath,
+                            assemblyPath,
+                            platformAssembly,
+                            null,
+                            null,
+                            VersionError: true,
+                            VersionErrorMessage: platformLookupFailure);
+                    }
                     if (probe != null)
                     {
                         typeName = probe.Remainder;

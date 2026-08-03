@@ -161,10 +161,14 @@ public static class MemberOptionsParser
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
         {
+            string? platformLookupFailure = null;
             var split = SharedParsers.TrySplitQualifiedTypeMember(
                 source.PackagePath,
                 sourceKeys,
-                allowPlatformPrefixFallback: true);
+                allowPlatformPrefixFallback: true,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+                return new VersionError(platformLookupFailure);
             if (split != null)
             {
                 positionalMembers.Add(split.Value.MemberName);
@@ -185,10 +189,14 @@ public static class MemberOptionsParser
             && source.PlatformAssembly == null
             && source.AssemblyPath == null)
         {
+            string? platformLookupFailure = null;
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 source.PackagePath,
                 sourceKeys,
-                allowPlatformPrefixFallback: true);
+                allowPlatformPrefixFallback: true,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+                return new VersionError(platformLookupFailure);
             if (probe != null)
             {
                 if (source.TypeName != null)

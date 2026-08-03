@@ -97,7 +97,8 @@ public static class SharedParsers
     internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
         string value,
         IReadOnlyList<string> sourceKeys,
-        bool allowPlatformPrefixFallback)
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure = null)
     {
         for (var i = value.Length - 1; i > 0; i--)
         {
@@ -109,10 +110,17 @@ public static class SharedParsers
             if (string.IsNullOrWhiteSpace(memberName))
                 continue;
 
+            string? platformLookupFailure = null;
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 typeCandidate,
                 sourceKeys,
-                allowPlatformPrefixFallback);
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                reportPlatformLookupFailure?.Invoke(platformLookupFailure);
+                return null;
+            }
             if (probe != null)
                 return (probe, memberName);
 

@@ -111,6 +111,49 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public void TryResolveQualifiedTypeName_AmbiguousCatalogFallbackReportsFailure()
+    {
+        var (assemblyPath, _, _, error) =
+            PlatformResolver.ResolveAssembly("System.Numerics");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Numerics not available: {error}");
+            return;
+        }
+
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            "System.Numerics.Enumerator",
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(probe);
+        Assert.Contains("ambiguous", failure, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("System.IO.File", "System.Runtime")]
+    [InlineData("System.Threading.ThreadState", "System.Threading.Thread")]
+    public void TryResolveQualifiedTypeName_UsesQualifiedCatalogIdentity(
+        string typeName,
+        string expectedAssembly)
+    {
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            typeName,
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(failure);
+        Assert.NotNull(probe);
+        Assert.Equal(expectedAssembly, probe.SourceName);
+        Assert.Equal(typeName, probe.Remainder);
+        Assert.Equal(SourceResolver.LocalSourceKind.Platform, probe.Kind);
+    }
+
+    [Fact]
     public async Task ResolveAsync_PackageTypeSyntax_DoesNotUseRootPlatformFallback()
     {
         var source = await SourceResolver.ResolveAsync(

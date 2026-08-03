@@ -217,18 +217,38 @@ public static class RouterCommandDefinition
                     context.Logger.Log);
                 if (resolvedPath != null && resolvedError == null)
                 {
-                    if (target.Count(c => c == '.') >= 2 && PlatformResolver.IsFacadeOnlyAssembly(resolvedPath))
-                        return ["type", target, .. tail];
+                    AssemblySurfaceClassificationOutcome classification =
+                        PlatformResolver.ClassifyAssemblySurface(resolvedPath);
+                    if (classification
+                        is AssemblySurfaceClassificationOutcome.Rejected rejected)
+                    {
+                        CommandError.Write(
+                            $"Could not classify the platform assembly surface ({rejected.Failure.Kind}).");
+                        return tokens;
+                    }
 
-                    return ["library", target, .. tail];
+                    bool isFacade =
+                        ((AssemblySurfaceClassificationOutcome.Classified)
+                            classification).Classification.Kind
+                        == AssemblySurfaceKind.Facade;
+                    return target.Count(c => c == '.') >= 2 && isFacade
+                        ? ["type", target, .. tail]
+                        : ["library", target, .. tail];
                 }
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+            string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
                 sourceKeys,
-                allowPlatformPrefixFallback);
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                CommandError.Write(platformLookupFailure);
+                return tokens;
+            }
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
@@ -266,7 +286,13 @@ public static class RouterCommandDefinition
             var typeProbe = SourceResolver.TryResolveQualifiedTypeName(
                 target,
                 sourceKeys,
-                allowPlatformPrefixFallback);
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                CommandError.Write(platformLookupFailure);
+                return tokens;
+            }
             if (typeProbe != null)
             {
                 if (typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
