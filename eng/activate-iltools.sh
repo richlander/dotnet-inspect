@@ -83,9 +83,13 @@ fi
 # it still works when the PATH being repaired is itself unusable.
 #
 # Walks the string colon by colon rather than translating colons to newlines and
-# reading lines. `read` ends an element at a newline, so the newline form tears a
-# directory containing one into two entries -- and a directory *ending* in one
-# yields an empty element, which means the current directory.
+# reading lines, matching the PATH rebuild below. There the newline form was a
+# live defect: it tore a caller's directory containing a newline into two
+# entries, and a trailing one produced an empty element. Here the haystack is
+# always $joined, whose elements come from the producer's line-oriented output
+# and so can contain neither a newline nor a colon -- this form is consistency
+# and hardening for a future caller, not a property any test can currently
+# reach.
 __iltools_path_has() {
     local needle="$1" rest="${2-}" element
 

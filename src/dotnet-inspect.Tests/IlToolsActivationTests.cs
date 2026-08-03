@@ -371,23 +371,36 @@ public class IlToolsActivationTests
     /// the resolved directory on stdout, which command substitution captures
     /// ahead of `pwd` -- leaving a two-line script directory that resolves to
     /// nothing, so activation fails on a machine where nothing is wrong.
+    ///
+    /// The script must be sourced by a *relative* path for this to bite: `cd`
+    /// consults CDPATH only for a relative target, so an absolute `source`
+    /// would exercise nothing. The layout mirrors the documented invocation --
+    /// `source eng/activate-iltools.sh` from the repository root, with CDPATH
+    /// naming a directory that also holds an `eng`.
     /// </summary>
     [Fact]
     public void Activate_WithCdpathSet_StillResolvesItsOwnDirectory()
     {
         Assert.SkipUnless(HasBash, SkipReason);
 
-        using var scratch = new ScratchDirectory(TwoDirectoryProducer);
+        using var scratch = new ScratchDirectory(producer: null);
 
-        // CDPATH names the scratch directory's own parent, so a relative `cd`
-        // to the script's directory can resolve through it.
+        var eng = Directory.CreateDirectory(Path.Combine(scratch.Path, "eng")).FullName;
+        var activate = Path.Combine(eng, "activate-iltools.sh");
+        File.Copy(ActivateScript, activate);
+        ScratchDirectory.MakeExecutablePublic(activate);
+
+        var stub = Path.Combine(eng, "restore-iltools.sh");
+        File.WriteAllText(stub, TwoDirectoryProducer + "\n");
+        ScratchDirectory.MakeExecutablePublic(stub);
+
         var script = string.Join('\n', [
-            $"export CDPATH=\"{Path.GetDirectoryName(scratch.Path)}\"",
+            $"export CDPATH=\"{scratch.Path}\"",
             ReportPathOnExit,
-            $"source \"{scratch.ActivatePath}\"",
+            "source eng/activate-iltools.sh",
         ]);
 
-        var result = RunBash(script, "/orig1");
+        var result = RunBash(script, "/orig1", workingDirectory: scratch.Path);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(["/tmp/iltools-a", "/tmp/iltools-b", "/orig1"], result.PathEntries);
@@ -711,10 +724,10 @@ public class IlToolsActivationTests
         return RunBash(string.Join('\n', lines), initialPath);
     }
 
-    static ActivationResult RunBash(string script, string? initialPath) =>
-        Run("bash", script, initialPath);
+    static ActivationResult RunBash(string script, string? initialPath, string? workingDirectory = null) =>
+        Run("bash", script, initialPath, workingDirectory);
 
-    static ActivationResult Run(string shell, string script, string? initialPath)
+    static ActivationResult Run(string shell, string script, string? initialPath, string? workingDirectory = null)
     {
         var info = new ProcessStartInfo(shell)
         {
@@ -722,6 +735,9 @@ public class IlToolsActivationTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+
+        if (workingDirectory is not null)
+            info.WorkingDirectory = workingDirectory;
         info.ArgumentList.Add("-c");
         info.ArgumentList.Add(script);
 
