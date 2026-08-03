@@ -1436,10 +1436,6 @@ public abstract class DefinitionCorrespondence
         public AssemblyCatalogGenerationId Right { get; }
     }
 
-    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
-    {
-        internal IncompleteMetadata() { }
-    }
 }
 
 public sealed class DuplicateArtifactCandidateEvidence
@@ -2091,6 +2087,11 @@ public abstract class TypeCorrespondenceFailure
 
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
+    }
+
+    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
+    {
+        internal IncompleteMetadata() { }
     }
 }
 
