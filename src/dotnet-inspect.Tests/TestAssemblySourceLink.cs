@@ -67,6 +67,11 @@ internal static class TestAssemblySourceLink
     /// nothing, and `git refs migrate` refuses outright while worktrees exist. Prescribing the
     /// `files` repair there loops forever.
     ///
+    /// Suppressing recurrence takes two settings, not one. `gc.packRefs` governs only `git gc`;
+    /// the `pack-refs` maintenance task runs `pack-refs --all --prune` regardless, so a repository
+    /// with background maintenance enabled silently re-breaks itself. Neither setting constrains
+    /// an explicit `git pack-refs`, and the hint says so rather than overclaiming.
+    ///
     /// UNVERIFIED BY ANY GATE: these are opaque command strings, so no test asserts that they
     /// detect the defect, that the matrix reports one match, or that the repair is safe. They
     /// were validated by hand — across primary and linked checkouts, at the root and below it,
@@ -91,8 +96,11 @@ internal static class TestAssemblySourceLink
               + "branch away and back, which rewrites the ref loosely — note `git update-ref "
               + "<branch> HEAD` is a no-op here, because the value is unchanged: "
               + "`N=$(git symbolic-ref --short -q HEAD); git branch -m \"$N\" \"$N.unpack-tmp\" "
-              + "&& git branch -m \"$N.unpack-tmp\" \"$N\"`, then `git config gc.packRefs false` to "
-              + "prevent recurrence. Under `reftable` no ref-layout repair applies — the stack is "
+              + "&& git branch -m \"$N.unpack-tmp\" \"$N\"`, then stop automatic repacking with "
+              + "`git config gc.packRefs false && git config maintenance.pack-refs.enabled false` "
+              + "— both are needed, because the scheduled `pack-refs` maintenance task ignores "
+              + "`gc.packRefs`; an explicit `git pack-refs` still repacks. Under `reftable` no "
+              + "ref-layout repair applies — the stack is "
               + "per-worktree by design, renaming produces no loose ref, `gc.packRefs` is "
               + "meaningless, and `git refs migrate` refuses while worktrees exist — so build from "
               + "the primary checkout, or use an SDK carrying the fix (10.0.302 does). Other "
