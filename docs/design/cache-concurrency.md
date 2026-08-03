@@ -47,15 +47,19 @@ of the data.
 
 ### Known deviation: precedence between two entitled sources
 
-Slots are consulted in configured order, so when two configured feeds both hold
-a coordinate the higher-precedence one answers, as it would on a cold run. The
-case that still differs is when the higher-precedence feed holds the package but
-has no cached slot: a cold run downloads from it, a warm run answers from the
-lower-precedence feed's slot. Both are entitlement-correct — the caller reads
-both feeds — so this is precedence, not source confusion. Closing it requires
-probing the network on every request, which would defeat cache-first and offline
-operation, so it is left open deliberately and tracked as part of the broader
-source-support design.
+Slots are consulted in configured order, so when two configured feeds both have
+the coordinate cached, the higher-precedence one answers, as it would on a cold
+run. The case that still differs is when the higher-precedence feed holds the
+package but has no cached slot: a cold run downloads from it, a warm run answers
+from the lower-precedence feed's slot. Both are entitlement-correct — the caller
+reads both feeds — so this is precedence, not source confusion. Closing it
+requires probing the network on every request, which would defeat cache-first and
+offline operation, so it is left open deliberately and tracked as part of the
+broader source-support design.
+
+"Entitled" here means the source appears in the caller's configured sources.
+dotnet-inspect does not yet consult `<packageSourceMapping>`, which would narrow
+entitlement further, to the feeds mapped to a particular package id.
 
 A source is identified by a digest of its canonical URL, and canonicalization is
 shared with the credential scope's `IsSameEndpoint` rather than reimplemented, so

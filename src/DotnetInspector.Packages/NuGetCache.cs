@@ -134,10 +134,13 @@ public static class NuGetCache
     /// <param name="allowedSourceKeys">
     /// Keys (per <see cref="GetSourceKey"/>) of the sources the caller is
     /// currently configured to read from, in configured order. Cached content
-    /// committed by a source outside this set is treated as a miss. Order
-    /// matters: slots are consulted in it, so a higher-precedence source's
-    /// cached copy answers ahead of a lower one's, matching the order a cold
-    /// run would have tried the feeds in.
+    /// committed by a source outside this set is treated as a miss, so an empty
+    /// or <see langword="null"/> list never hits the app cache. Content that
+    /// came from no NuGet source, such as a local <c>.nupkg</c>, is keyed
+    /// <c>local</c> and must be requested by including that key explicitly.
+    /// Order matters: slots are consulted in it, so a higher-precedence
+    /// source's cached copy answers ahead of a lower one's, matching the order
+    /// a cold run would have tried the feeds in.
     /// </param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
     public static string? TryGetCachedPackage(
