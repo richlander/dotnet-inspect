@@ -436,9 +436,10 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
         var stderr = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(120_000))
         {
-            if (!OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10)))
-                _deleteCacheOnDispose = false;
-            throw new TimeoutException($"{executable} did not exit.");
+            _deleteCacheOnDispose = false;
+            OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
+            throw new TimeoutException(
+                $"{executable} did not exit; preserved its test cache at {_cacheDirectory}.");
         }
 
         Task.WaitAll([stdout, stderr], 10_000);
