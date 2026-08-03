@@ -18,6 +18,11 @@ public sealed class MetadataSourceFindingsTests
         return adjusted * 2;
     }
 
+    sealed class NestedTypeSourceProbe
+    {
+        public static int SourceMappedMethod() => 42;
+    }
+
 #line 100 "Generated/MetadataSourceFindings.g.cs"
     static int MultiDocumentMappedMethod(int value)
     {
@@ -53,12 +58,12 @@ public sealed class MetadataSourceFindingsTests
                 CanonicalPath: "src/Components/App.razor"),
         ];
 
-        var all = Findings(MetadataFindings.InspectSourceDocuments(documents, Subject));
-        var filtered = Findings(MetadataFindings.InspectSourceDocuments(
+        var all = Findings(SourceLinkFindings.InspectSourceDocuments(documents, Subject));
+        var filtered = Findings(SourceLinkFindings.InspectSourceDocuments(
             documents,
             Subject,
             new SourceDocumentQuery("text.json")));
-        var missing = Findings(MetadataFindings.InspectSourceDocuments(
+        var missing = Findings(SourceLinkFindings.InspectSourceDocuments(
             documents,
             Subject,
             new SourceDocumentQuery("does-not-exist")));
@@ -94,11 +99,11 @@ public sealed class MetadataSourceFindingsTests
             Checksum = [0x02],
         };
 
-        var exact = Assert.Single(Pairs(MetadataFindings.CompareSourceDocuments(
+        var exact = Assert.Single(Pairs(SourceLinkFindings.CompareSourceDocuments(
             [oldDocument],
             [movedRow],
             Subject)));
-        var changed = Assert.Single(Pairs(MetadataFindings.CompareSourceDocuments(
+        var changed = Assert.Single(Pairs(SourceLinkFindings.CompareSourceDocuments(
             [oldDocument],
             [changedContent],
             Subject)));
@@ -227,6 +232,22 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void TypeSourceResolution_RequiresATypeDefinedByTheAssembly()
+    {
+        using var context = PdbContext.Open(
+            typeof(MetadataSourceFindingsTests).Assembly.Location);
+        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+
+        Assert.NotNull(resolver.ResolveTypeSource(
+            typeof(MetadataSourceFindingsTests).FullName!));
+        Assert.NotNull(resolver.ResolveTypeSource(nameof(NestedTypeSourceProbe)));
+        Assert.Null(resolver.ResolveTypeSource(
+            $"Not.This.Assembly.{nameof(MetadataSourceFindingsTests)}"));
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
@@ -260,11 +281,11 @@ public sealed class MetadataSourceFindingsTests
         };
         var movedLine = renumbered with { StartLine = 20, EndLine = 22 };
 
-        var exact = Assert.Single(Pairs(MetadataFindings.CompareMemberSources(
+        var exact = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
             [renumbered],
             Subject)));
-        var changed = Assert.Single(Pairs(MetadataFindings.CompareMemberSources(
+        var changed = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
             [movedLine],
             Subject)));
@@ -295,7 +316,7 @@ public sealed class MetadataSourceFindingsTests
             StartLine: 10,
             EndLine: 12);
 
-        var findings = Findings(MetadataFindings.InspectMemberSources(
+        var findings = Findings(SourceLinkFindings.InspectMemberSources(
             [Mapping(1), Mapping(2)],
             Subject,
             new MemberSourceQuery(new HashSet<int> { 2 })));
@@ -313,7 +334,7 @@ public sealed class MetadataSourceFindingsTests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .MetadataToken;
 
-        var mappings = Findings(MetadataFindings.InspectMemberSources(
+        var mappings = Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(new HashSet<int> { token })))
@@ -352,7 +373,7 @@ public sealed class MetadataSourceFindingsTests
                 .MetadataToken,
         ];
 
-        var actualTokens = Findings(MetadataFindings.InspectMemberSources(
+        var actualTokens = Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(tokens.ToHashSet())))
@@ -374,7 +395,7 @@ public sealed class MetadataSourceFindingsTests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .MetadataToken;
 
-        var mapping = Assert.Single(Findings(MetadataFindings.InspectMemberSources(
+        var mapping = Assert.Single(Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(new HashSet<int> { token })))
@@ -417,13 +438,13 @@ public sealed class MetadataSourceFindingsTests
     {
         using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
 
-        var documents = Findings(MetadataFindings.InspectSourceDocuments(
+        var documents = Findings(SourceLinkFindings.InspectSourceDocuments(
             source,
             Subject,
             new SourceDocumentQuery(nameof(MetadataSourceFindingsTests))));
-        var members = Findings(MetadataFindings.InspectMemberSources(source, Subject));
-        var options = Findings(MetadataFindings.InspectCompilationOptions(source, Subject));
-        var references = Findings(MetadataFindings.InspectCompilationReferences(source, Subject));
+        var members = Findings(SourceLinkFindings.InspectMemberSources(source, Subject));
+        var options = Findings(MetadataFindings.InspectCompilationOptions(source.Context, Subject));
+        var references = Findings(MetadataFindings.InspectCompilationReferences(source.Context, Subject));
 
         Assert.Contains(documents, finding =>
             finding.Payload.CanonicalPath.EndsWith(
@@ -451,13 +472,13 @@ public sealed class MetadataSourceFindingsTests
             using var source = SourceLinkService.Open(assemblyPath);
 
             Assert.IsType<FindingInspection<SourceDocumentObservation>.Absent>(
-                MetadataFindings.InspectSourceDocuments(source, Subject).Value);
+                SourceLinkFindings.InspectSourceDocuments(source, Subject).Value);
             Assert.IsType<FindingInspection<MemberSourceObservation>.Absent>(
-                MetadataFindings.InspectMemberSources(source, Subject).Value);
+                SourceLinkFindings.InspectMemberSources(source, Subject).Value);
             Assert.IsType<FindingInspection<CompilationOptionInfo>.Absent>(
-                MetadataFindings.InspectCompilationOptions(source, Subject).Value);
+                MetadataFindings.InspectCompilationOptions(source.Context, Subject).Value);
             Assert.IsType<FindingInspection<CompilationReferenceInfo>.Absent>(
-                MetadataFindings.InspectCompilationReferences(source, Subject).Value);
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject).Value);
         }
         finally
         {
@@ -481,7 +502,7 @@ public sealed class MetadataSourceFindingsTests
 
             Assert.True(source.HasPdb);
             var failed = Assert.IsType<FindingInspection<CompilationReferenceInfo>.Failed>(
-                MetadataFindings.InspectCompilationReferences(source, Subject).Value);
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject).Value);
             Assert.Contains("truncated", failed.Error.Reason, StringComparison.OrdinalIgnoreCase);
         }
         finally

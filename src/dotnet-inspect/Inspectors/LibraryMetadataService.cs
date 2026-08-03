@@ -239,14 +239,14 @@ internal static class LibraryMetadataService
                 readCachedPdb: sourcePlan.ReadCachedPdb);
 
             var sourceSubject = FindingSubjectFor(path);
-            inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
+            inspection.SourceDocumentInspection = SourceLinkFindings.InspectSourceDocuments(
                 service,
                 sourceSubject);
             inspection.CompilationOptionInspection = MetadataFindings.InspectCompilationOptions(
-                service,
+                service.Context,
                 sourceSubject);
             inspection.CompilationReferenceInspection = MetadataFindings.InspectCompilationReferences(
-                service,
+                service.Context,
                 sourceSubject);
 
             if (needsAuditSignals)
