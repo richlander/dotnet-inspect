@@ -3,6 +3,7 @@ using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Text;
 
 namespace ILInspector.Research;
 
@@ -290,17 +291,19 @@ public static partial class ResearchViews
                 : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, printedRanges, annotations, annotatedInstrLines);
-        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly) };
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            annotations, AnnotationAnchor.ComputeSpans(imported), printedRanges);
+        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
     // resolved annotations, and the IL instruction lines into one ordered
-    // AnnotatedSourceLine stream. The range containment (Best over statement spans)
+    // BoundSourceLine stream. The range containment (Best over statement spans)
     // and the offset -> line bucketing live here, in the producer, so the printer
     // stays dumb. C# lines carry their resolved annotations as structure (the
     // printer bakes the trailing "// ..." comment); IL lines carry their offset and
     // already fact-annotated text.
-    static IReadOnlyList<AnnotatedSourceLine> CorrelateMixedSource(
+    static IReadOnlyList<BoundSourceLine> CorrelateMixedSource(
         IrFunction imported,
         string csText,
         PrintedRangeMap printedRanges,
@@ -347,18 +350,18 @@ public static partial class ResearchViews
         }
 
         var csLines = RenderCSharpBodyLines(csText, printedRanges);
-        var stream = new List<AnnotatedSourceLine>(csLines.Count);
+        var stream = new List<BoundSourceLine>(csLines.Count);
         for (int i = 0; i < csLines.Count; i++)
         {
             if (ilBeforeLine.TryGetValue(i, out var preamble))
                 foreach (var (offset, text) in preamble)
-                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
+                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il));
 
             var csLine = csLines[i];
             var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
                 ? (IReadOnlyList<IAnnotation>)annos
                 : [];
-            stream.Add(new AnnotatedSourceLine(
+            stream.Add(new BoundSourceLine(
                 csLine.Text,
                 csLine.Offset,
                 SourceLineKind.CSharp,
@@ -366,7 +369,7 @@ public static partial class ResearchViews
 
             if (ilByLine.TryGetValue(i, out var ils))
                 foreach (var (offset, text) in ils)
-                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
+                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il));
         }
         return stream;
     }
@@ -374,7 +377,7 @@ public static partial class ResearchViews
     // The scalar fast path: project a printed C# body into offset-anchored lines.
     // Each SourceLine carries its trimmed text and the smallest source offset among
     // the statements that start on it (-1 when the line owns no statement, e.g. a
-    // brace or blank). The correlation layer builds its richer AnnotatedSourceLine
+    // brace or blank). The correlation layer builds its richer BoundSourceLine
     // stream on top of this, and scalar "just give me the body" consumers can take
     // it directly for line-addressable diff and body-subset anchoring.
     static IReadOnlyList<SourceLine> RenderCSharpBodyLines(
@@ -384,6 +387,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
@@ -402,7 +411,10 @@ public static partial class ResearchViews
     // structured annotations into a trailing "// ..." comment; IL lines are framed
     // as "// ..." comments indented under the preceding C# line, reading the indent
     // straight from that line's leading whitespace.
-    static string RenderMixedStream(IReadOnlyList<AnnotatedSourceLine> stream, AnnotationGestureSelector gestures)
+    static string RenderMixedStream(
+        IReadOnlyList<BoundSourceLine> stream,
+        AnnotationGestureSelector gestures,
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
     {
         var sb = new StringBuilder();
         string csIndent = "";
@@ -412,7 +424,7 @@ public static partial class ResearchViews
         {
             if (line.Kind == SourceLineKind.Il)
             {
-                sb.AppendLine($"{csIndent}    // {line.Text}");
+                sb.AppendLf($"{csIndent}    // {line.Text}");
                 continue;
             }
 
@@ -421,9 +433,9 @@ public static partial class ResearchViews
             string text = line.Text;
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
-            sb.AppendLine(text);
-            foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true))
-                sb.AppendLine(caretLine);
+            sb.AppendLf(text);
+            foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents))
+                sb.AppendLf(caretLine);
         }
         return sb.ToString().TrimEnd();
     }
@@ -484,16 +496,18 @@ public static partial class ResearchViews
         AnnotationGestureSelector gestures)
     {
         var stream = CorrelateOverlay(raised, output, printedRanges, annotations);
-        return RenderOverlayStream(output, stream, gestures);
+        var extents = AnnotationAnchor.ComputeCaretExtents(
+            annotations, AnnotationAnchor.ComputeSpans(raised), printedRanges);
+        return RenderOverlayStream(output, stream, gestures, extents);
     }
 
     // The C#-only correlation: anchor each annotation group to its printed C# line
-    // and emit an ordered AnnotatedSourceLine stream (Kind=CSharp, no IL). This is
+    // and emit an ordered BoundSourceLine stream (Kind=CSharp, no IL). This is
     // the degenerate single-medium case of CorrelateMixedSource — same currency and
     // shape, with an empty IL operand — so the overlay views (cost, semantics,
     // annotated source) flow through the same produce -> print pipeline as the
     // interleave instead of splicing comments into a raw string.
-    static IReadOnlyList<AnnotatedSourceLine> CorrelateOverlay(
+    static IReadOnlyList<BoundSourceLine> CorrelateOverlay(
         IrFunction raised,
         string output,
         PrintedRangeMap printedRanges,
@@ -507,6 +521,12 @@ public static partial class ResearchViews
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            // Statement coordinates only, matching CSharpBodyDiff.BuildSourceLines.
+            // Expression ranges exist so a caret can underline a sub-statement; they
+            // are not IL anchors, and letting them into this Min() drags each line's
+            // offset back to the earliest expression opcode printed on it.
+            if (node is IrExpression)
+                continue;
             if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
@@ -515,9 +535,9 @@ public static partial class ResearchViews
         }
 
         var textLines = output.Replace("\r\n", "\n").Split('\n');
-        var stream = new List<AnnotatedSourceLine>(textLines.Length);
+        var stream = new List<BoundSourceLine>(textLines.Length);
         for (int i = 0; i < textLines.Length; i++)
-            stream.Add(new AnnotatedSourceLine(
+            stream.Add(new BoundSourceLine(
                 textLines[i],
                 lineOffsets.GetValueOrDefault(i, -1),
                 SourceLineKind.CSharp,
@@ -533,8 +553,9 @@ public static partial class ResearchViews
     // for byte (no split/rejoin normalization).
     static string RenderOverlayStream(
         string output,
-        IReadOnlyList<AnnotatedSourceLine> stream,
-        AnnotationGestureSelector gestures)
+        IReadOnlyList<BoundSourceLine> stream,
+        AnnotationGestureSelector gestures,
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
     {
         bool any = false;
         foreach (var line in stream)
@@ -554,9 +575,9 @@ public static partial class ResearchViews
             lines.Add(side.Count > 0
                 ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(side)}"
                 : line.Text);
-            lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true));
+            lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents));
         }
-        return string.Join(Environment.NewLine, lines);
+        return string.Join("\n", lines);
     }
 
     // Partition one line's facts by reporting gesture. Order within each bucket is

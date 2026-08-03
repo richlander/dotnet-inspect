@@ -235,12 +235,18 @@ read as listed.
 | Cache | Location | TTL | Written by |
 | --- | --- | --- | --- |
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
-| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
+| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v4/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
 | Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
+
+The app package cache carries a `{source}` segment because cached content is
+scoped to the source that supplied it; see
+[Source conformance](cache-concurrency.md#source-conformance). The NuGet global
+cache has no such segment — it is source-blind by NuGet's own design, and
+dotnet-inspect reads it as an ambient local store rather than as a feed.
 
 ## Network download/cache behavior
 
@@ -277,11 +283,58 @@ complete app-cache entries transactionally. Separate processes may duplicate
 immutable work, but readers observe only a marked, atomically published winner.
 Platform-pack projection uses the same model in a separate cache namespace.
 
-Cache identity is the cache root, normalized package id, and version.
-Source order selects the producer on a miss and is not a separate durable cache
-identity. See [cache concurrency and publication](cache-concurrency.md) for the
+Cache identity is the cache root, normalized package id, version, and the source
+that supplied the bytes. Source order selects the producer on a miss. See
+[cache concurrency and publication](cache-concurrency.md) for the
 single-flight boundary, dependency-overlap safety, filesystem rename semantics,
 failure model, and NuGet, Docker, and Git precedents.
+
+The NuGet global folder is deliberately outside this scheme. It is read eagerly,
+before source scoping is considered, because it is not a feed dotnet-inspect
+fetched from: the user populated it, normally by restoring, and binding to it is
+what makes inspection agree with what a build actually consumed. `--no-nuget-cache`
+excludes it for callers that need only configured sources to answer.
+
+## Multiple sources
+
+Sources are consulted in configured order, and the two version operations combine
+them differently.
+
+| Operation | Combination | Order sensitive |
+| --- | --- | --- |
+| `--latest-version` | First source that carries the package answers; later sources are not consulted. | Yes |
+| `--versions` | Union across all sources, deduplicated. | No |
+| `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
+
+First-source-wins for `--latest-version` is deliberate: it is the same precedence
+rule restore uses, and it lets a private feed shadow a public one. The corollary
+is that `--add-source` cannot change `--latest-version` for a package that also
+exists on nuget.org, because the added source lands after the default. To
+override, pass `--source` explicitly and put the preferred feed first.
+
+Because `--versions` unions and `--latest-version` does not, the two can disagree.
+`--versions-with-feed` exists to make that disagreement legible: it shows which
+feed each version actually came from.
+
+### Listing status across sources
+
+Listing status is a nuget.org concept; see
+[listed vs. unlisted versions](#listed-vs-unlisted-versions). Other feeds do not
+publish one, so their versions are reported as listed. That leaves the merged
+views with a question they cannot answer well: when a version is unlisted on
+nuget.org but also published to a private feed, is it listed?
+
+The merged views answer "listed" — a version listed on any source counts as
+listed. This keeps a version that is genuinely available from a private feed from
+disappearing, but it does mean adding a private feed that mirrors nuget.org can
+re-surface a version nuget.org has hidden.
+
+`--versions-with-feed` does not have to answer, because it has already split the
+version by feed. It applies listing per row, so the nuget.org row is hidden while
+the private-feed row survives. When the two views disagree about a version, this
+is why.
+
+These semantics are pinned by `SourcePrecedenceTests`.
 
 ## Design rationale
 

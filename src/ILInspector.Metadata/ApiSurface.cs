@@ -1,18 +1,65 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using ILInspector.CSharp;
+using ILInspector.Findings;
 
 namespace ILInspector.Metadata;
+
+/// <summary>
+/// Containment for XML documentation text.
+/// </summary>
+/// <remarks>
+/// Doc comments are read from an untrusted assembly's companion XML file, and
+/// their text is rendered into Markdown prose and table cells. A summary
+/// carrying a line terminator, ANSI escape, or bidi override breaks out of its
+/// cell and injects text that reads as genuine tool output (issue #3319). Doc
+/// text is prose only -- no consumer matches, keys, or compares it -- so unlike
+/// <see cref="ApiMember.Signature"/> it can be contained at the model rather
+/// than at each of its ~40 render sites.
+/// </remarks>
+internal static class DocText
+{
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+}
 
 /// <summary>
 /// Represents extracted documentation comments from source code.
 /// </summary>
 public class DocComment
 {
-    public string? Summary { get; set; }
-    public string? Remarks { get; set; }
+    /// <inheritdoc cref="DocText"/>
+    public string? Summary { get => field; set => field = DocText.Contain(value); }
 
+    /// <inheritdoc cref="DocText"/>
+    public string? Remarks { get => field; set => field = DocText.Contain(value); }
+
+    /// <summary>
+    /// Parameter documentation, keyed by parameter name.
+    /// </summary>
+    /// <remarks>
+    /// The key is deliberately left raw. It is a parameter name used to look
+    /// documentation up, not display text, and it is never rendered — this
+    /// dictionary is <see cref="JsonIgnoreAttribute"/>d and its only consumers
+    /// merge it. Containing the key was containment applied to identity, which
+    /// is the one thing #3319 must not do: containment folds line endings, so
+    /// two distinct <c>&lt;param name&gt;</c> values in an attacker-supplied XML
+    /// doc file collapsed to one key and <c>ToDictionary</c> threw, ending the
+    /// inspection with an error instead of output. The value is contained
+    /// because it is prose that may reach output.
+    /// </remarks>
     [JsonIgnore]
-    public Dictionary<string, string>? Parameters { get; set; }
-    public string? Returns { get; set; }
+    public Dictionary<string, string>? Parameters
+    {
+        get => field;
+        set => field = value is null
+            ? null
+            : value.ToDictionary(e => e.Key, e => DocText.Contain(e.Value));
+    }
+
+    /// <inheritdoc cref="DocText"/>
+    public string? Returns { get => field; set => field = DocText.Contain(value); }
 
     /// <summary>
     /// Sample code references extracted from doc comments.
@@ -120,6 +167,17 @@ public class ApiSurface
     /// types were resolved from target assemblies.
     /// </summary>
     public bool IsTypeForwardingAssembly { get; set; }
+
+    /// <summary>
+    /// Typed classification evidence retained for consumers that must
+    /// distinguish a non-facade surface from a failed classification.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
 }
 
 public sealed record ApiSurfaceInspectionFailure(
@@ -134,6 +192,13 @@ public sealed record ApiSurfaceInspectionFailure(
 /// </summary>
 public class TypeForwarder
 {
+    /// <summary>
+    /// Exact metadata lookup name retained for structured definition resolution.
+    /// It is omitted from serialized API surfaces, which predate this currency.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
+
     /// <summary>
     /// Full name of the forwarded type.
     /// </summary>
@@ -181,9 +246,36 @@ public class TypeParameter
     public IReadOnlyList<TypeParameterConstraint>? StructuredConstraints { get; set; }
 
     /// <summary>
+    /// Whether the constraint set proves this type parameter is a reference type, a
+    /// value type, or neither — the metadata fact behind C#'s "known to be a reference
+    /// type" rule, which is not the same question as which constraint keywords are
+    /// present. A named <em>class</em> constraint proves reference-ness without any
+    /// keyword, while <c>System.Enum</c> is a class that proves nothing, because a type
+    /// parameter constrained to it may still be a value type.
+    /// </summary>
+    /// <remarks>
+    /// Consumers need this to decide the one constraint an <c>override</c> may restate,
+    /// which is what disambiguates <c>T?</c> between a nullable reference type and
+    /// <see cref="System.Nullable{T}"/>. Populated by metadata producers and left at
+    /// <see cref="TypeParameterTypeKind.Undetermined"/> when a constraint type could not
+    /// be classified — an external <see cref="System.Reflection.Metadata.TypeReference"/>
+    /// whose interface flag this assembly cannot read, or a signature the blob guards
+    /// refused to decode. Undetermined is the fail-closed default, so a producer that
+    /// does not populate it reads as "do not know" rather than as "neither". Not
+    /// serialized.
+    /// </remarks>
+    [JsonIgnore]
+    public TypeParameterTypeKind TypeKind { get; set; } = TypeParameterTypeKind.Undetermined;
+
+    /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
-    public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
+    /// <remarks>
+    /// This is presentation, not identity — <see cref="Name"/> stays raw — so the
+    /// untrusted metadata name is contained here (issue #3319).
+    /// </remarks>
+    public string DisplayName => CSharpIdentifierCore.ContainComposedName(
+        Variance != null ? $"{Variance} {Name}" : Name);
 
     /// <summary>
     /// Returns constraints as a comma-separated string, or null if none.
@@ -202,6 +294,36 @@ public class TypeParameter
 /// constraints untouched.
 /// </summary>
 public readonly record struct TypeParameterConstraint(string Value, bool IsTypeName);
+
+/// <summary>
+/// Whether a type parameter's constraints prove it is a reference type, a value type,
+/// or neither. This mirrors the rule C# uses for "known to be a reference type" — the
+/// reference-type constraint flag, or an effective base class other than
+/// <c>System.Object</c>, <c>System.ValueType</c> and <c>System.Enum</c> — rather than
+/// the surface spelling of the constraint list.
+/// </summary>
+public enum TypeParameterTypeKind
+{
+    /// <summary>
+    /// A constraint type could not be classified, so nothing is proven either way. The
+    /// fail-closed default: an unpopulated or degraded read must never be mistaken for
+    /// <see cref="NeitherReferenceNorValue"/>, which is a positive finding.
+    /// </summary>
+    Undetermined = 0,
+
+    /// <summary>
+    /// Every constraint was classified and none proves the parameter is a reference or
+    /// a value type — an unconstrained parameter, or one constrained only by interfaces,
+    /// <c>notnull</c>, <c>new()</c> or <c>System.Enum</c>.
+    /// </summary>
+    NeitherReferenceNorValue,
+
+    /// <summary>Proven a reference type, by the constraint flag or a class constraint.</summary>
+    ReferenceType,
+
+    /// <summary>Proven a value type, by the constraint flag (<c>struct</c> or <c>unmanaged</c>).</summary>
+    ValueType,
+}
 
 public class ApiSignature
 {
@@ -301,6 +423,14 @@ public class ApiType
     /// Null in older serialized surfaces.
     /// </summary>
     public string? MetadataName { get; set; }
+
+    /// <summary>
+    /// Exact structured metadata lookup name retained for in-process
+    /// definition resolution. It is omitted from serialized API surfaces,
+    /// which predate the structured resolution model.
+    /// </summary>
+    [JsonIgnore]
+    public MetadataTypeDefinitionName? DefinitionName { get; set; }
     
     /// <summary>
     /// Access level for non-public types. Null means public, including for older
@@ -393,7 +523,18 @@ public class ApiMember
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
 
+    /// <summary>
+    /// Display spelling of the member's type. Deliberately raw: after a JSON
+    /// round-trip <see cref="SignatureModel"/> is absent, and
+    /// <c>ApiMemberIdentity.GetCanonicalSignature</c> falls back to parsing
+    /// <see cref="Signature"/> to rebuild canonical identity — so containing it
+    /// here would make a round-tripped member's identity diverge from the same
+    /// member read live (issue #3319, found in adversarial review). Containment
+    /// for these belongs at the rendering sites, never on the transfer object.
+    /// </summary>
     public string? ReturnType { get; set; }
+
+    /// <inheritdoc cref="ReturnType"/>
     public string? Signature { get; set; }
 
     /// <summary>

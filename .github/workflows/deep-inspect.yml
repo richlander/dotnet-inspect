@@ -58,8 +58,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p artifacts/package-sweep
+          # --resolve-latest on purpose: this lane is current-package discovery
+          # evidence, so it wants what ships today, not the pinned pool the EVIL
+          # corpus measures. The pin exists to make the corpus reproducible
+          # (#3353); honoring it here would quietly turn discovery into a replay.
           dotnet run eng/prepare-decompiler-package-sweep.cs -- \
-            artifacts/package-sweep 1 10 \
+            artifacts/package-sweep 1 10 --resolve-latest \
             | tee artifacts/package-sweep/acquisition.txt
 
       - name: Run bounded library report
@@ -115,26 +119,7 @@ jobs:
       - name: Install ilasm/ildasm
         continue-on-error: true
         shell: bash
-        run: |
-          RID=linux-x64
-          VERSION=11.0.0-preview.1.26104.118
-          PACKAGES_DIR=$(mktemp -d)
-          PROJ_DIR=$(mktemp -d)
-          cat > "$PROJ_DIR/iltools.csproj" <<EOF
-          <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup>
-            <ItemGroup>
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILAsm" Version="[${VERSION}]" />
-              <PackageDownload Include="runtime.${RID}.Microsoft.NETCore.ILDAsm" Version="[${VERSION}]" />
-            </ItemGroup>
-          </Project>
-          EOF
-          dotnet restore "$PROJ_DIR/iltools.csproj" --packages "$PACKAGES_DIR" --source https://dnceng.pkgs.visualstudio.com/public/_packaging/dotnet11/nuget/v3/index.json --source https://api.nuget.org/v3/index.json
-          ILASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ilasm/$VERSION/runtimes/$RID/native"
-          ILDASM_DIR="$PACKAGES_DIR/runtime.$RID.microsoft.netcore.ildasm/$VERSION/runtimes/$RID/native"
-          chmod +x "$ILASM_DIR"/* "$ILDASM_DIR"/* 2>/dev/null || true
-          echo "$ILASM_DIR" >> "$GITHUB_PATH"
-          echo "$ILDASM_DIR" >> "$GITHUB_PATH"
+        run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
 
       - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
@@ -489,7 +474,7 @@ jobs:
           if-no-files-found: warn
 
   authored-corpus-ratchet:
-    name: Authored-corpus integrity lane
+    name: Authored-corpus ratchet lane
     # The first caller this benchmark has ever had. Before this job nothing ran it:
     # no workflow referenced it, so its exit code — the headline quality metric —
     # was never read by anything (#3245).
@@ -498,23 +483,25 @@ jobs:
     # corpus (an orphan branch) plus a 100-package NuGet sweep, so it is far too
     # expensive for the PR lane.
     #
-    # This lane deliberately does NOT pass --ratchet-baseline. docs/data/nuget-top-packages.json
-    # records no versions, so the sweep resolves *latest* and a fresh pool can never
-    # match a recorded baseline's pool identity — the ratchet would skip, and a skip
-    # fails, so the job would be red by construction. Pinning the pool is tracked
-    # separately (#3353); until then this lane is the integrity gate and the artifact
-    # source, and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    # This lane passes --ratchet-baseline, which it could not do until now. The pool is
+    # pinned (docs/data/nuget-top-packages.lock.json, #3353) so a fresh sweep reproduces
+    # the same assemblies and its pool identity is stable, and the trend store now holds
+    # two rows measured over that pinned pool — the first pair a run can be compared
+    # against. Before them every recorded row predated the pin, nothing was comparable,
+    # and the ratchet would skip; a skip fails.
     #
-    # It passes --integrity-only to say that in the exit code. Merely omitting
-    # --ratchet-baseline is NOT enough: that selects the historical perfection
-    # contract (invalid == 0), which this ~5,200-invalid corpus cannot satisfy, so the
-    # job would fail every week and file a scheduled-failure issue every time.
-    # Permanently red reports exactly as much as permanently green.
+    # Note what must NOT be done instead: merely omitting --ratchet-baseline selects the
+    # historical perfection contract (invalid == 0), which this ~5,200-invalid corpus
+    # cannot satisfy, so the job would fail every week and file a scheduled-failure
+    # issue every time. Permanently red reports exactly as much as permanently green.
+    # --integrity-only, which this lane carried until the bootstrap was crossed, claims
+    # only that the measurement was sound and declines to judge quality at all.
     #
-    # What it still catches: unmatched rows, malformed corpus rows, a non-closing
-    # partition, drift, unsupported targets, and unrecognized outcomes — all of which
-    # mean the run is untrustworthy and want a corpus refresh, not a product fix. It
-    # also archives the run JSON, which is the input to appending a trend-store row.
+    # The integrity half still applies underneath the ratchet: unmatched rows, malformed
+    # corpus rows, a non-closing partition, drift, unsupported targets, and unrecognized
+    # outcomes all fail regardless of movement, because they mean the run measured less
+    # than it claimed and a quality metric on such a run is meaningless. It also archives
+    # the run JSON, which is the input to appending a trend-store row.
     if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
@@ -547,7 +534,7 @@ jobs:
       - name: Prepare the EVIL assembly pool
         run: bash eng/prepare-evil-corpus.sh evil-pool
 
-      - name: Run the authored-corpus benchmark (measurement-integrity gate)
+      - name: Run the authored-corpus benchmark (regression ratchet)
         shell: bash
         run: |
           set -euo pipefail
@@ -555,7 +542,7 @@ jobs:
           mapfile -t assemblies < evil-pool/assemblies.txt
           dotnet run --project tools/DecompilerHarness -c Release -- \
             --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
-            --integrity-only \
+            --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
             --json "${assemblies[@]}" \
             > artifacts/deep-inspect/authored-corpus-run.json
 

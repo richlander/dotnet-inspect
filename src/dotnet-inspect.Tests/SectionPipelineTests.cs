@@ -1,6 +1,7 @@
 using ILInspector.Metadata;
 using ILInspector.Findings;
 using ILInspector.Research;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
@@ -1343,6 +1344,924 @@ public class SectionPipelineTests
             registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    // ===== Scanner prerequisite tests =====
+
+    [Fact]
+    public void RunScanners_RunsPrerequisitesFirstAndEachScannerOnce()
+    {
+        // The property that replaced the fan-out: a scanner declares what it reads, and the
+        // registry runs that prerequisite before it and exactly once for the whole run, however
+        // many other scanners also require it. Without this, deduping is impossible and a
+        // scanner has to defensively re-scan.
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => order.Add("leaf"))
+            .Add("mid", _ => order.Add("mid"), "leaf")
+            .Add("top", _ => order.Add("top"), "mid", "leaf");
+
+        registry.RunScanners(["top"], NullScannerContext());
+
+        Assert.Equal(["leaf", "mid", "top"], order);
+    }
+
+    [Fact]
+    public void RunScanners_SharedPrerequisiteRunsOnceAcrossRequestedScanners()
+    {
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => order.Add("leaf"))
+            .Add("a", _ => order.Add("a"), "leaf")
+            .Add("b", _ => order.Add("b"), "leaf");
+
+        registry.RunScanners(["a", "b"], NullScannerContext());
+
+        Assert.Equal(["leaf", "a", "b"], order);
+    }
+
+    [Fact]
+    public void AddBundle_RunsItsPrerequisitesAndNoWorkOfItsOwn()
+    {
+        // A bundle exists only because ISectionDescriptor.ScannerKey names a single key, so a
+        // section fed by several scanners needs one key that stands for all of them.
+        List<string> order = [];
+        var registry = new ScannerRegistry()
+            .Add("a", _ => order.Add("a"))
+            .Add("b", _ => order.Add("b"))
+            .AddBundle("bundle", "a", "b");
+
+        registry.RunScanners(["bundle"], NullScannerContext());
+
+        Assert.Equal(["a", "b"], order);
+    }
+
+    [Fact]
+    public void ExpandRequired_IncludesTransitivePrerequisites()
+    {
+        // Callers that reason about the work a run will do — body-analysis feature selection in
+        // particular — must see prerequisites, or they narrow away work the run still performs.
+        var registry = new ScannerRegistry()
+            .Add("leaf", _ => { })
+            .Add("mid", _ => { }, "leaf")
+            .Add("top", _ => { }, "mid");
+
+        Assert.Equal(
+            ["leaf", "mid", "top"],
+            registry.ExpandRequired(["top"]).OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ExpandRequired_ThrowsOnUnregisteredPrerequisite()
+    {
+        // A prerequisite naming a scanner that does not exist is a typo or a stale rename, and it
+        // silently drops a dependency: the scanner runs without the data it declared it needs and
+        // produces output that looks correct. Requested keys are different -- callers derive those
+        // from descriptors across registries and an unknown one is skipped on purpose -- so only
+        // the prerequisite edge is validated here.
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "typo");
+
+        var expand = Assert.Throws<InvalidOperationException>(
+            () => registry.ExpandRequired(["a"]));
+        Assert.Contains("typo", expand.Message, StringComparison.Ordinal);
+
+        // RunScanners is reachable without expanding first, so it enforces the same rule.
+        var run = Assert.Throws<InvalidOperationException>(
+            () => registry.RunScanners(["a"], NullScannerContext()));
+        Assert.Contains("typo", run.Message, StringComparison.Ordinal);
+
+        // Non-vacuity: an unregistered key that was merely REQUESTED must still be skipped, or
+        // this test would be passing for the wrong reason.
+        var ran = false;
+        var tolerant = new ScannerRegistry().Add("a", _ => ran = true);
+        tolerant.RunScanners(["a", "not-registered"], NullScannerContext());
+        Assert.True(ran);
+    }
+
+    [Fact]
+    public void RunScanners_ThrowsOnPrerequisiteCycle()
+    {
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "b")
+            .Add("b", _ => { }, "a");
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => registry.RunScanners(["a"], NullScannerContext()));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ExpandRequired_ThrowsOnPrerequisiteCycle()
+    {
+        // Regression: ExpandRequired used to short-circuit on an already-added key, so a cycle
+        // terminated quietly and returned a plausible closure. That made the acyclicity half of
+        // LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic vacuous.
+        var registry = new ScannerRegistry()
+            .Add("a", _ => { }, "b")
+            .Add("b", _ => { }, "a");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired(["a"]));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ExpandRequired_AllowsDiamondPrerequisites()
+    {
+        // A shared prerequisite reached by two paths is not a cycle. Guards against a cycle check
+        // that keys off "already seen" rather than "currently being visited".
+        var registry = new ScannerRegistry()
+            .Add("d", _ => { })
+            .Add("b", _ => { }, "d")
+            .Add("c", _ => { }, "d")
+            .Add("a", _ => { }, "b", "c");
+
+        Assert.Equal(
+            ["a", "b", "c", "d"],
+            registry.ExpandRequired(["a"]).OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic()
+    {
+        // Derived from the registry rather than restated, so a new prerequisite naming a key that
+        // does not exist fails here instead of silently never running. RunScanners skips an
+        // unregistered prerequisite, so nothing else would notice.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var registered = registry.RegisteredKeys.ToHashSet(StringComparer.Ordinal);
+
+        foreach (var key in registered)
+        {
+            foreach (var required in registry.RequirementsOf(key))
+                Assert.Contains(required, registered);
+        }
+
+        // ExpandRequired throws on a cycle, so this both closes the graph and proves it acyclic.
+        // It used to short-circuit instead, which made the acyclicity claim vacuous; see
+        // ExpandRequired_ThrowsOnPrerequisiteCycle.
+        Assert.Equal(registered, registry.ExpandRequired(registered));
+    }
+
+    [Fact]
+    public void IntegrationOpportunities_DeclaresIntegrationsPrerequisite()
+    {
+        // This pins the declaration, not the behavior, and that is a deliberate weakening.
+        // LibrarySections_RenderIdenticallyAloneAndTogether covers every other prerequisite
+        // behaviorally, but it cannot cover this one.
+        //
+        // Not because the section never renders offline — it does; System.Data.Common yields two
+        // rows (DbDataSource under Aspire and Health Checks). It is because the failure mode is
+        // EXTRA rows rather than missing ones: without Integrations the existing-integration set
+        // is empty, so already-integrated categories stop being suppressed. Distinguishing the
+        // two therefore needs an assembly that both renders opportunities AND carries an existing
+        // integration in one of those same categories, so that dropping the prerequisite makes a
+        // suppressed row reappear. No assembly available offline does both.
+        //
+        // Closing the gap properly needs a purpose-built fixture with that combination. Until
+        // then this catches the realistic failure — someone deleting the declaration — and
+        // nothing more.
+        var registry = LibrarySections.CreateScannerRegistry();
+
+        Assert.Contains(
+            LibrarySections.ScannerIntegrations,
+            registry.RequirementsOf(LibrarySections.ScannerIntegrationOpportunities));
+    }
+
+    [Fact]
+    public void SharedSessionScanners_AllObserveOneSession()
+    {
+        // Named by ScannerContext.SharedScanCount as the gate for its atomicity claim.
+        //
+        // Each of the three fan-out sites this change deleted held its callees inside ONE open, so
+        // a run could not mix two assemblies. Prerequisites restore the ordering but not, by
+        // themselves, the single open: a registration that calls the path overload reopens the
+        // file, and retargeting the path between opens (symlink swap, or a build replacing the
+        // file) then yields an incoherent result with exit code 0.
+        //
+        // That regression is invisible to every other test — the output still looks correct — so
+        // it needs its own gate. The set below is pinned rather than derived because the property
+        // is historical: it is exactly what the deleted fan-out covered. Reverting any one of
+        // these registrations to LibraryMetadataService.ScanX(ctx.AssemblyPath, ...) drops the
+        // count and fails here.
+        //
+        // What this does NOT do is simulate a concurrent retarget. AssemblyImage.Open uses
+        // File.OpenRead (FileShare.Read), so a live session blocks delete and rename on Windows,
+        // and directory symlinks need Developer Mode. Routing through the shared session is the
+        // observable that stands in for it.
+        string[] sharedSessionScanners =
+        [
+            // was ScanInfoCounts's five-way fan-out
+            LibrarySections.ScannerExtensionMethods,
+            LibrarySections.ScannerClassifiedMethods,
+            LibrarySections.ScannerResources,
+            LibrarySections.ScannerCustomAttributes,
+            LibrarySections.ScannerTypeForwarders,
+            // was ScanIntegrationOpportunities re-running ScanIntegrations
+            LibrarySections.ScannerIntegrations,
+            LibrarySections.ScannerIntegrationOpportunities,
+            // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
+            LibrarySections.ScannerAuditSignals,
+        ];
+
+        var registry = LibrarySections.CreateScannerRegistry();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        registry.RunScanners(registry.ExpandRequired(sharedSessionScanners), context);
+
+        Assert.Equal(sharedSessionScanners.Length, context.SharedScanCount);
+        Assert.NotNull(context.Session());
+    }
+
+    [Fact]
+    public void SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened()
+    {
+        // The shared session returns null rather than throwing so each scanner keeps its own
+        // open-failure mapping. Without this, SharedSessionScanners_AllObserveOneSession could be
+        // satisfied by a Session() that throws, and an unopenable assembly would surface as one
+        // generic failure instead of a typed failed inspection per scanner.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var model = new LibraryInspection();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
+            Model = model,
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        registry.RunScanners([LibrarySections.ScannerResources], context);
+
+        Assert.Null(context.Session());
+        Assert.Equal(0, context.SharedScanCount);
+        Assert.NotNull(model.ResourceInspection);
+        Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(model.ResourceInspection!.Value);
+    }
+
+    [Fact]
+    public void Trace_RecordsWhatRan_AndMarksBundlesAsDoingNoWorkOfTheirOwn()
+    {
+        // InfoCounts is a bundle: it does no work itself and exists only to pull in five scanners.
+        // A trace that reported it as an ordinary scanner would attribute the bundle's dispatch
+        // cost to a step that has none, and hide that the real work belongs to its prerequisites.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            Trace = trace,
+        };
+
+        var closure = registry.ExpandRequired([LibrarySections.ScannerInfoCounts]);
+        registry.RunScanners(closure, context);
+
+        Assert.Equal(
+            closure.OrderBy(k => k, StringComparer.Ordinal),
+            trace.Executions.Select(e => e.Key).OrderBy(k => k, StringComparer.Ordinal));
+
+        var bundles = trace.Executions.Where(e => e.IsBundle).Select(e => e.Key).ToArray();
+        Assert.Equal([LibrarySections.ScannerInfoCounts], bundles);
+    }
+
+    [Fact]
+    public void Trace_SeparatesDirectDemandFromPrerequisiteExpansion()
+    {
+        // The distinction is the point of the report: a key in the closure but not in the request
+        // is work no section asked for by name, which is where an unintended cost creeps in.
+        var pipeline = LibrarySections.CreatePipeline();
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+
+        var requested = pipeline.GetRequiredScanners(Verbosity.Minimal, trace: trace);
+        trace.RecordClosure(registry.ExpandRequired(requested));
+
+        // Minimal selects the target section only, and it demands exactly the bundle.
+        Assert.Equal([LibrarySections.ScannerInfoCounts], trace.Requested);
+        Assert.All(trace.Demand, d => Assert.Equal(LibrarySections.ScannerInfoCounts, d.Scanner));
+
+        // Everything the bundle names is expansion, not demand.
+        var added = trace.Closure.Except(trace.Requested, StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+        Assert.Equal(
+            registry.RequirementsOf(LibrarySections.ScannerInfoCounts).ToHashSet(StringComparer.Ordinal),
+            added);
+    }
+
+    [Fact]
+    public void Trace_ExplainsEveryScannerThatRan()
+    {
+        // The report attributes each scanner to one of three mechanisms: a section named it, the
+        // command named it, or a declared prerequisite pulled it in. That attribution is the report's
+        // entire value, and it is the part with no other check on it -- a wrong bucket still renders
+        // a plausible-looking report and sends whoever chases an unexpected scan to a declaration
+        // that does not exist. Discovery mode's Metadata scan was exactly that bug.
+        //
+        // The asymmetry is what makes this a gate rather than a restatement: the closure comes from
+        // what the run actually *did* (ExpandRequired over the returned set), while reachability is
+        // seeded from what the trace *claims* (recorded section and command demands). Seeding from
+        // trace.Requested instead would re-derive ExpandRequired's own input and assert X is a subset
+        // of X -- which an earlier version of this test did, and which stayed green under tampering.
+        var registry = LibrarySections.CreateScannerRegistry();
+        (string, string)[] discoveryDemand = [("discovery catalog", LibrarySections.ScannerMetadata)];
+
+        foreach (var commandDemand in new[] { null, discoveryDemand })
+        {
+            var pipeline = LibrarySections.CreatePipeline();
+            var trace = new InspectionTrace();
+            var requested = pipeline.GetRequiredScanners(
+                Verbosity.Detailed, trace: trace, commandDemand: commandDemand);
+
+            trace.RecordClosure(registry.ExpandRequired(requested));
+
+            var claimed = trace.Demand.Select(d => d.Scanner)
+                .Concat(trace.CommandDemand.Select(c => c.Scanner))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var reachable = new HashSet<string>(claimed, StringComparer.Ordinal);
+            var queue = new Queue<string>(claimed);
+            while (queue.Count > 0)
+            {
+                foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
+                {
+                    if (reachable.Add(requirement))
+                        queue.Enqueue(requirement);
+                }
+            }
+
+            Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
+        }
+
+        // Non-vacuity: the discovery case has to actually pull in a scanner no section named, or the
+        // second iteration proves nothing the first did not.
+        var plain = LibrarySections.CreatePipeline().GetRequiredScanners(Verbosity.Detailed);
+        var withDiscovery = LibrarySections.CreatePipeline()
+            .GetRequiredScanners(Verbosity.Detailed, commandDemand: discoveryDemand);
+        Assert.Equal([LibrarySections.ScannerMetadata], withDiscovery.Except(plain, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Trace_RecordsNoBodyIndexForAScanThatDoesNotNeedOne()
+    {
+        // The negative half of the minimum-work claim, and the one worth gating. A regression that
+        // makes a metadata-only scan open the whole-assembly IL index costs seconds and changes no
+        // output at all, so no other test in the suite would notice. Its absence from the resource
+        // list is the observable.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var metadataContext = PdbContext.Open(typeof(SectionPipelineTests).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+            Trace = trace,
+        };
+
+        registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerInfoCounts]), context);
+
+        Assert.Contains(trace.Resources, r => r.Resource == "metadata session");
+        Assert.DoesNotContain(trace.Resources, r => r.Resource == "body index");
+        Assert.DoesNotContain(trace.Resources, r => r.Resource == "drill map");
+    }
+
+    [Fact]
+    public void Trace_RecordsTheBodyIndexWhenAScannerActuallyBuildsIt()
+    {
+        // Paired positive. Without it the negative above is satisfied by a trace that never
+        // records a body index under any circumstances, which would pass while observing nothing.
+        // The index needs the prefetched image the command opens for exactly this reason; a plain
+        // PdbContext.Open cannot back it, and the scanner would swallow the failure and render an
+        // empty section. Opening it the way InspectAsync does is what makes this a real positive.
+        var registry = LibrarySections.CreateScannerRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            Trace = trace,
+        };
+
+        registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerUnsafeMembers]), context);
+
+        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
+        Assert.StartsWith("built in", bodyIndex.Detail);
+    }
+
+    [Fact]
+    public void Trace_RecordsAScannerThatThrew()
+    {
+        // The report is written in a finally, so a run that failed still says what it had done by
+        // the time it failed. If the throwing scanner were dropped from the record, the trace would
+        // implicate whichever scanner ran last before it.
+        var registry = new ScannerRegistry()
+            .Add("Boom", _ => throw new InvalidOperationException("boom"));
+        var trace = new InspectionTrace();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            Trace = trace,
+        };
+
+        Assert.Throws<InvalidOperationException>(() => registry.RunScanners(["Boom"], context));
+
+        Assert.Equal(["Boom"], trace.Executions.Select(e => e.Key));
+    }
+
+    [Fact]
+    public void Tracing_DoesNotChangeTheWorkTheRunDoes()
+    {
+        // A diagnostic that perturbs what it measures is worse than none. Held against the shared
+        // scan count, which is the observable the atomicity gates already rely on.
+        static int RunAndCountSharedScans(InspectionTrace? trace)
+        {
+            var registry = LibrarySections.CreateScannerRegistry();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+                Model = new LibraryInspection(),
+                Logger = new Output.VerboseLogger(false),
+                Trace = trace,
+            };
+
+            registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+            return context.SharedScanCount;
+        }
+
+        Assert.Equal(RunAndCountSharedScans(trace: null), RunAndCountSharedScans(new InspectionTrace()));
+    }
+
+    [Fact]
+    public void SharedSessionScanners_MapTheirOwnFailuresRatherThanThrowing()
+    {
+        // Routing a scanner through the shared session means it runs its SESSION overload where it
+        // used to run its PATH overload. The path overloads all wrap their work in try/catch and
+        // produce a typed per-scanner failure; the session overloads have to do the same, or a
+        // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
+        // command degrades to one generic "Could not read library".
+        //
+        // ScanIntegrationOpportunities' session overload did NOT catch, so the shared-session
+        // change silently dropped that mapping for it. This gate is why that was found.
+        //
+        // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
+        // ObjectDisposedException on every facet, so it faults each scanner at the point where it
+        // touches metadata, deterministically and on every platform.
+        var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+
+        var logger = new Output.VerboseLogger(false);
+        const string Path = "disposed.dll";
+
+        // Each scanner runs against its OWN model and is asserted on the exact field it alone must
+        // populate. Found by review: a single shared model let a typed failure written by an
+        // earlier scanner satisfy an assertion nominally about a later one -- deleting
+        // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
+        // green, because ScanIntegrations had already set the same two fields and the mapping uses
+        // ??=.
+        var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
+        {
+            ("ExtensionMethods",
+                m => m.Apply(LibraryMetadataService.ScanExtensionMembers(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
+                    m.ExtensionMemberInspection!.Value)),
+
+            ("ClassifiedMethods",
+                m => m.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
+                    m.ClassifiedMethodInspection!.Value)),
+
+            ("Resources",
+                m => m.ResourceInspection = LibraryMetadataService.ScanResources(session, Path, logger),
+                m => Xunit.Assert.IsType<FindingInspection<ManifestResourceInfo>.Failed>(
+                    m.ResourceInspection!.Value)),
+
+            ("CustomAttributes",
+                m => m.Apply(LibraryMetadataService.ScanCustomAttributes(session, Path, logger)),
+                m => Xunit.Assert.IsType<FindingInspection<AssemblyAttributeInfo>.Failed>(
+                    m.AssemblyAttributeInspection!.Value)),
+
+            ("TypeForwarders",
+                m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
+                m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
+                    m.TypeForwarderInspection!.Value)),
+
+            ("Integrations",
+                m => LibraryMetadataService.ScanIntegrations(session, Path, m, logger),
+                m =>
+                {
+                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
+                        m.OpenTelemetryInspection!.Value);
+                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
+                        m.EcosystemIntegrationInspection!.Value);
+                }),
+
+            ("IntegrationOpportunities",
+                m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
+                m =>
+                {
+                    // Nothing else ran against this model, so these can only come from the
+                    // opportunity scanner's own catch.
+                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
+                        m.OpenTelemetryInspection!.Value);
+                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
+                        m.EcosystemIntegrationInspection!.Value);
+                }),
+
+            ("AuditSignals",
+                m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
+                m =>
+                {
+                    // A failed audit scan must not cache metadata, or RefreshLibraryAudit would
+                    // reuse a value the scan never produced instead of falling back.
+                    Xunit.Assert.Null(m.AuditMetadata);
+                    Xunit.Assert.NotNull(m.AuditSignals);
+                }),
+        };
+
+        foreach (var (name, run, assert) in scans)
+        {
+            var model = new LibraryInspection();
+
+            var ex = Record.Exception(() => run(model));
+            Assert.True(ex is null, $"{name} let {ex?.GetType().Name} escape its session overload.");
+
+            // Not just "did not throw": the fault has to be visible as a typed failure, otherwise a
+            // scanner could satisfy this test by swallowing the error into success-shaped empty
+            // output.
+            var mapping = Record.Exception(() => assert(model));
+            Assert.True(mapping is null, $"{name} did not map its own failure: {mapping?.Message}");
+        }
+    }
+
+    [Fact]
+    public void SharedSessionScanners_DoNotObserveAPathRetargetedMidRun()
+    {
+        // The actual attack, run in-process rather than described in a comment.
+        //
+        // A directory link points at assembly A. One scanner runs, which opens the shared session.
+        // The link is then retargeted to assembly B and the remaining scanners run. Every scanner
+        // must still report A: an open handle keeps reading its original target, so sharing one
+        // open is what makes the run coherent. Without it each scanner reopens through the link
+        // and picks up B, and the command still exits 0 with output that looks correct.
+        //
+        // The counter in SharedSessionScanners_AllObserveOneSession cannot see this, because
+        // anything that lives inside ScannerContext.Scan can be defeated by editing Scan. This
+        // test observes only scanner OUTPUT, so no edit to the plumbing can fake it.
+        var pathA = typeof(SectionPipelineTests).Assembly.Location;
+        var pathB = typeof(AssemblyInspectionSession).Assembly.Location;
+
+        var root = Path.Combine(Path.GetTempPath(), $"retarget-{Guid.NewGuid():N}");
+        var dirA = Path.Combine(root, "a");
+        var dirB = Path.Combine(root, "b");
+        var link = Path.Combine(root, "active");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+        File.Copy(pathA, Path.Combine(dirA, "lib.dll"));
+        File.Copy(pathB, Path.Combine(dirB, "lib.dll"));
+
+        try
+        {
+            if (!TryLinkDirectory(link, dirA))
+            {
+                // Deliberately not Assert.Skip: a silent skip here would retire the gate. Windows
+                // needs Developer Mode or admin for symbolic links; the junction fallback covers
+                // the rest. If both fail the environment cannot host this test at all.
+                throw new InvalidOperationException(
+                    $"Could not create a directory link at '{link}'. On Windows this needs " +
+                    "Developer Mode, admin, or working `mklink /J`.");
+            }
+
+            var linkedAssembly = Path.Combine(link, "lib.dll");
+
+            // Control: what each assembly looks like when nothing moves underneath it.
+            var expectedA = CensusSignature(pathA);
+            var expectedB = CensusSignature(pathB);
+
+            // Non-vacuity: if the two fixtures censused the same, the retarget could not be seen
+            // and this test would pass no matter what the product did.
+            Assert.NotEqual(expectedA.Full, expectedB.Full);
+
+            // The action-based scanners must distinguish the fixtures on their own. Found by
+            // review: asserting only the combined signature let the five value-returning census
+            // scanners carry the whole assertion, so a tamper confined to the void Scan overload
+            // -- which is how Audit Signals, Integrations and Integration Opportunities run --
+            // left this gate green while three scanners reopened the path.
+            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
+
+            var registry = LibrarySections.CreateScannerRegistry();
+            var model = new LibraryInspection();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = linkedAssembly,
+                Model = model,
+                Logger = new Output.VerboseLogger(false),
+            };
+
+            // First scanner opens the shared session against A.
+            registry.RunScanners([LibrarySections.ScannerExtensionMethods], context);
+
+            Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
+
+            registry.RunScanners(
+                registry.ExpandRequired(
+                    SharedSessionScannerKeys
+                        .Where(key => key != LibrarySections.ScannerExtensionMethods)),
+                context);
+
+            Assert.Equal(expectedA.Full, SignatureOf(model));
+        }
+        finally
+        {
+            // Delete the link before the tree so the target is not followed.
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened()
+    {
+        // The wider half of the same attack, and the reason the shared session borrows instead of
+        // opening. A command opens the assembly once for identity, presence flags, and debug
+        // directory facts, then hands that PdbContext to the scanners. If the scanner session
+        // opened AssemblyPath again, everything between the two opens would be a window in which
+        // the path can be retargeted, and the command would report one assembly's identity beside
+        // another assembly's counts -- with a zero exit code.
+        //
+        // Sharing one session among the scanners does not close that window; it only moves it
+        // earlier. Borrowing the already-open image removes it, because there is nothing left to
+        // race: no second open of the path happens at all.
+        var pathA = typeof(SectionPipelineTests).Assembly.Location;
+        var pathB = typeof(AssemblyInspectionSession).Assembly.Location;
+
+        var root = Path.Combine(Path.GetTempPath(), $"borrow-{Guid.NewGuid():N}");
+        var dirA = Path.Combine(root, "a");
+        var dirB = Path.Combine(root, "b");
+        var link = Path.Combine(root, "active");
+        Directory.CreateDirectory(dirA);
+        Directory.CreateDirectory(dirB);
+        File.Copy(pathA, Path.Combine(dirA, "lib.dll"));
+        File.Copy(pathB, Path.Combine(dirB, "lib.dll"));
+
+        try
+        {
+            if (!TryLinkDirectory(link, dirA))
+            {
+                throw new InvalidOperationException(
+                    $"Could not create a directory link at '{link}'. On Windows this needs " +
+                    "Developer Mode, admin, or working `mklink /J`.");
+            }
+
+            var linkedAssembly = Path.Combine(link, "lib.dll");
+
+            var expectedA = CensusSignature(pathA);
+            var expectedB = CensusSignature(pathB);
+            Assert.NotEqual(expectedA.Full, expectedB.Full);
+
+            // The action-based scanners must distinguish the fixtures on their own, or a tamper
+            // confined to the void Scan overload would be invisible here.
+            Assert.NotEqual(expectedA.Actions, expectedB.Actions);
+
+            // Stand in for the command's own open: identity is read here, scanners run later.
+            using var metadataContext = PdbContext.Open(linkedAssembly);
+            var identity = metadataContext.ExtractAssemblyInfo();
+
+            // Everything between the command's open and the scanner run is the window under test.
+            Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
+
+            var model = new LibraryInspection();
+            using var context = new ScannerContext
+            {
+                AssemblyPath = linkedAssembly,
+                Model = model,
+                Logger = new Output.VerboseLogger(false),
+                MetadataContext = metadataContext,
+            };
+
+            var registry = LibrarySections.CreateScannerRegistry();
+            registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+
+            // Identity and counts have to describe the same assembly, not merely each be valid.
+            Assert.Equal(
+                Path.GetFileNameWithoutExtension(pathA),
+                identity.AssemblyName);
+            Assert.Equal(expectedA.Full, SignatureOf(model));
+        }
+        finally
+        {
+            if (Directory.Exists(link))
+                Directory.Delete(link);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed()
+    {
+        // A borrow that outlives its lender must fail with an exception a caller can map, not by
+        // reading unmapped memory. The dangerous shape is a MethodBodySource obtained WHILE the
+        // lender was alive: it captures the reader and its liveness check, so it survives the
+        // borrow's own disposal flag being false and reads through a released handle. That is an
+        // AccessViolationException, which is uncatchable and kills the process -- so if the
+        // liveness check on AssemblyImage stops consulting the lender, this test does not merely
+        // fail, it takes the test host down. Either way it stops the build.
+        //
+        // Found by review: an earlier version of this gate touched MethodBodies only AFTER
+        // disposal, so the cold property threw from the disposed PEReader and the missing lender
+        // check went unnoticed. Warming it first is the whole point.
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+
+        foreach (var prefetched in new[] { false, true })
+        {
+            // SourceLinkService is how commands open an assembly, and it owns the PdbContext the
+            // scanners borrow. Both open modes are covered because they map the image differently.
+            var service = prefetched
+                ? SourceLinkService.OpenPrefetched(path)
+                : SourceLinkService.Open(path);
+            var lender = service.Context;
+
+            var borrowed = AssemblyInspectionSession.Borrow(lender);
+
+            // Warm the body source while the lender is still alive.
+            var bodies = borrowed.MethodBodies;
+            Assert.NotEmpty(bodies.EnumerateMethods());
+
+            service.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => bodies.EnumerateMethods());
+            Assert.Throws<ObjectDisposedException>(() => borrowed.MethodBodies);
+
+            // Borrowing from an already-disposed lender is refused rather than deferred.
+            Assert.Throws<ObjectDisposedException>(() => AssemblyInspectionSession.Borrow(lender));
+
+            borrowed.Dispose();
+        }
+    }
+
+    [Fact]
+    public void BorrowedSession_DoesNotDisposeTheOwningContext()
+    {
+        // A borrow that disposed the shared reader would break the command that lent it. The
+        // opposite direction -- a borrow outliving its lender -- is
+        // BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed.
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var metadataContext = PdbContext.Open(path);
+
+        var borrowed = AssemblyInspectionSession.Borrow(metadataContext);
+        var attributeCount = borrowed.CustomAttributes().Count;
+        borrowed.Dispose();
+
+        // The lender is unaffected by the borrow ending.
+        Assert.NotNull(metadataContext.ExtractAssemblyInfo().AssemblyName);
+
+        using var second = AssemblyInspectionSession.Borrow(metadataContext);
+        Assert.Equal(attributeCount, second.CustomAttributes().Count);
+        Assert.NotEmpty(second.MethodBodies.EnumerateMethods());
+    }
+
+    /// <summary>
+    /// Runs the shared-session scanners over an untouched path and returns their signature, split
+    /// so a caller can assert that the action-based scanners on their own distinguish the two
+    /// fixtures. Without that split, the five value-returning census scanners could carry the whole
+    /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
+    /// </summary>
+    private static (string Full, string Actions) CensusSignature(string assemblyPath)
+    {
+        var model = new LibraryInspection();
+        using var context = new ScannerContext
+        {
+            AssemblyPath = assemblyPath,
+            Model = model,
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        var registry = LibrarySections.CreateScannerRegistry();
+        registry.RunScanners(registry.ExpandRequired(SharedSessionScannerKeys), context);
+
+        return (SignatureOf(model), ActionSignatureOf(model));
+    }
+
+    /// <summary>
+    /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
+    /// so the three action-based scanners are covered, not just the five that return a value.
+    /// </summary>
+    private static readonly string[] SharedSessionScannerKeys =
+    [
+        LibrarySections.ScannerExtensionMethods,
+        LibrarySections.ScannerClassifiedMethods,
+        LibrarySections.ScannerResources,
+        LibrarySections.ScannerCustomAttributes,
+        LibrarySections.ScannerTypeForwarders,
+        LibrarySections.ScannerIntegrations,
+        LibrarySections.ScannerIntegrationOpportunities,
+        LibrarySections.ScannerAuditSignals,
+    ];
+
+    private static string SignatureOf(LibraryInspection model) => string.Join(
+        "|",
+        $"ext={model.ExtensionMethods?.Count}",
+        $"attrs={model.CustomAttributes?.Count}",
+        $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
+        $"resources={PayloadCount(model.ResourceInspection)}",
+        $"forwarders={PayloadCount(model.TypeForwarderInspection)}",
+        ActionSignatureOf(model));
+
+    /// <summary>
+    /// Output of the scanners that run through the void <c>Scan</c> overload. Audit signals are
+    /// compared by VALUE, not by count: the signal rows are a fixed catalog, so two different
+    /// assemblies produce the same number of them and a count would make this signature identical
+    /// for every input — which is exactly how the first version of this gate lost its coverage.
+    /// </summary>
+    private static string ActionSignatureOf(LibraryInspection model) => string.Join(
+        "|",
+        $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
+        $"otel={PayloadCount(model.OpenTelemetryInspection)}",
+        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}",
+        $"opportunities=[{string.Join(",", model.IntegrationOpportunities?.Select(o => $"{o.Integration}:{o.Api}") ?? [])}]");
+
+    private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
+        => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;
+
+    /// <summary>
+    /// Points <paramref name="link"/> at <paramref name="target"/>, replacing any existing link.
+    /// Prefers a symbolic link and falls back to a Windows junction, which needs no privilege.
+    /// </summary>
+    private static bool TryLinkDirectory(string link, string target)
+    {
+        if (Directory.Exists(link))
+            Directory.Delete(link);
+
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return true;
+        }
+        catch (Exception) when (OperatingSystem.IsWindows())
+        {
+            var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+
+            process!.WaitForExit();
+            return process.ExitCode == 0 && Directory.Exists(link);
+        }
+    }
+
+    [Fact]
+    public void AuditSignalRefresh_DoesNotReopenTheAssembly()
+    {
+        // GPT's finding: the Signals section was NOT protected by the shared session. InspectAsync
+        // recomputes audit signals after the source-audit and integrity passes, and each recompute
+        // used to call PopulateLibraryAudit(path, ...) — a fresh open, AFTER the ScannerContext was
+        // disposed. So Signals could still mix two assemblies (proved out-of-process by retargeting
+        // a junction during the recompute), and a healthy run opened the assembly up to four times.
+        //
+        // Only the model-derived half of the computation changes between recomputes, so the
+        // assembly-derived half is captured once and reused. Refresh must therefore work against a
+        // path that can no longer be opened at all: if it still reopens, this fails.
+        var model = new LibraryInspection();
+        AuditSignalBuilder.PopulateLibraryAudit(
+            typeof(SectionPipelineTests).Assembly.Location,
+            model,
+            new Output.VerboseLogger(false));
+
+        Assert.NotNull(model.AuditMetadata);
+        var captured = model.AuditMetadata;
+        var signals = model.AuditSignals;
+        Assert.NotNull(signals);
+
+        // A path that cannot be opened. A reopen would null out the metadata and change signals.
+        AuditSignalBuilder.RefreshLibraryAudit(
+            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll"),
+            model,
+            new Output.VerboseLogger(false));
+
+        Assert.Same(captured, model.AuditMetadata);
+        Assert.Equal(signals!.Count, model.AuditSignals!.Count);
+    }
+
+    private static ScannerContext NullScannerContext() => new()
+    {
+        AssemblyPath = "unused.dll",
+        Model = new LibraryInspection(),
+        Logger = new Output.VerboseLogger(false),
+    };
+
     // ===== Presence flag / CanRender discovery tests =====
 
     [Fact]
@@ -2126,7 +3045,7 @@ public class SectionPipelineTests
     public void ApiTypePipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        Assert.Equal(5, pipeline.AllSectionNames.Length);
+        Assert.Equal(6, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -2135,6 +3054,7 @@ public class SectionPipelineTests
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
+        Assert.Contains(SectionNames.ApiInfo, names);
         Assert.Contains("Classes", names);
         Assert.Contains("Structs", names);
         Assert.Contains("Interfaces", names);
@@ -2192,7 +3112,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(30, pipeline.AllSectionNames.Length);
+        Assert.Equal(31, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -2209,6 +3129,7 @@ public class SectionPipelineTests
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
         var names = pipeline.AllSectionNames;
 
+        Assert.Contains("Type Info", names);
         Assert.Contains("Values", names);
         Assert.Contains("Type Parameters", names);
         Assert.Contains("Interfaces", names);

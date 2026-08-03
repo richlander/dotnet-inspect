@@ -119,6 +119,21 @@ public class LibraryInspection
     public bool? IsFacadeAssembly { get; set; }
 
     /// <summary>
+    /// Typed classification evidence for platform assemblies. Presentation
+    /// continues to project the compatible nullable facade field.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    /// <summary>
+    /// Finding projection of <see cref="SurfaceClassification"/> for composed
+    /// inspection and failure reporting.
+    /// </summary>
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
+
+    /// <summary>
     /// File last modified timestamp.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -703,6 +718,18 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AuditSignal>? AuditSignals { get; set; }
 
+    /// <summary>
+    /// Assembly-derived audit metadata, cached from the one session the audit scanner ran in.
+    ///
+    /// Audit signals are recomputed after the source-audit and integrity passes fold in evidence
+    /// those passes produce. Recomputing them used to reopen the assembly each time — up to four
+    /// opens per run, and a window in which a retargeted path could mix two assemblies into one
+    /// Signals section. Only the model-derived half actually changes, so the assembly-derived half
+    /// is captured once here and reused. Never serialized; it is an intermediate, not output.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyAuditMetadata? AuditMetadata { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderInfo>? TypeForwarders =>
         GetOrCreate(
@@ -1185,6 +1212,12 @@ public sealed record ResourceBoundarySummary(
 public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
 
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
+
+/// <summary>
+/// One version of a package as carried by one feed. A version present on two feeds
+/// produces two of these.
+/// </summary>
+public sealed record VersionFeedJson(string Version, string Feed, bool Listed);
 
 public sealed record LibraryIntegrationSignalJson(
     string Kind,

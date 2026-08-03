@@ -197,10 +197,15 @@ public sealed class MetadataSourceFindingsTests
         var wildcard = SourceDocumentPath.Resolve("/repo/src/Widget.cs", sourceLink);
         var exact = SourceDocumentPath.Resolve("/exact/Widget.cs", sourceLink);
 
-        Assert.True(wildcard.IsMapped);
-        Assert.Equal("src/Widget.cs", wildcard.CanonicalPath);
+        // A malformed entry is rejected by the map's owner rather than kept as a key that matches
+        // and yields no URL: such an entry outranked valid, less specific entries and swallowed
+        // the URLs they would have produced. The document is therefore unmapped, and
+        // canonicalization falls back to the document's own path -- a visible degradation of a
+        // cosmetic value in exchange for not silently losing a real one.
+        Assert.False(wildcard.IsMapped);
+        Assert.Equal("/repo/src/Widget.cs", wildcard.CanonicalPath);
         Assert.Null(wildcard.ResolvedUrl);
-        Assert.True(exact.IsMapped);
+        Assert.False(exact.IsMapped);
         Assert.Equal("/exact/Widget.cs", exact.CanonicalPath);
         Assert.Null(exact.ResolvedUrl);
     }

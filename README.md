@@ -378,6 +378,22 @@ dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --columns Name --tsv
 dotnet-inspect library MyLib.dll -S "Metadata: MethodDef" --tsv --rows 100..199
 ```
 
+A table can also be named by its ECMA-335 index, since this tool's own output
+prints hex tokens and a reader following a `0x02000015` reference already has
+the index in hand:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Metadata: 0x02"   # same as "Metadata: TypeDef"
+```
+
+The two spellings are one section, not two: the hex form is an input alias, so
+the heading, section order, `--count`, and `-D` all answer in the canonical
+name. Hex must carry its `0x` — a bare `02` is a table *name* position — and
+only projected tables resolve, so an index outside the projection is an error
+naming what is available rather than an empty section. A table index is one
+byte, so it is one or two hex digits; a full metadata token such as
+`0x02000015` or `0x00000001` addresses a row, not a table, and is rejected.
+
 ### Heaps
 
 The four ECMA-335 heaps get sections of their own (`Metadata: #Strings`,
@@ -433,7 +449,7 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
 ## Common examples
 

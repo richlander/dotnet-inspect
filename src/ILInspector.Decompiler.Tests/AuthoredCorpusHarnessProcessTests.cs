@@ -164,9 +164,36 @@ public class AuthoredCorpusHarnessProcessTests
     /// flags were accepted and dispatch got as far as the gate, which is the part that
     /// regressed. Pointing it at a real corpus would test the benchmark instead, which
     /// `AuthoredCorpusRatchetTests` already does in-process.</para>
+    ///
+    /// <para>The lane carried `--integrity-only` until the trend store crossed its
+    /// identity bootstrap (#3353); it now ratchets against the committed history, so
+    /// this pins the combination the workflow actually passes. The `--integrity-only`
+    /// combination is still supported and is covered separately below — a test named
+    /// for the scheduled lane that exercises flags the lane no longer passes would
+    /// report coverage it does not have.</para>
     /// </summary>
     [Fact]
-    public void Harness_LetsTheScheduledIntegrityLaneRun()
+    public void Harness_LetsTheScheduledRatchetLaneRun()
+    {
+        string history = AuthoredCorpusHistoryCardTests.TrackedHistoryPath();
+
+        var run = RunHarness(
+            "--benchmark-authored-corpus", "/does-not-exist.jsonl",
+            "--ratchet-baseline", history,
+            "--json");
+
+        Assert.DoesNotContain("runs instead of", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("does not run a gate", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("applies to", run.Output, StringComparison.Ordinal);
+        Assert.Contains("Corpus file not found", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// `--integrity-only` remains a supported contract, so its dispatch stays covered
+    /// even though the scheduled lane no longer selects it.
+    /// </summary>
+    [Fact]
+    public void Harness_LetsTheIntegrityOnlyCombinationRun()
     {
         var run = RunHarness(
             "--benchmark-authored-corpus", "/does-not-exist.jsonl", "--integrity-only", "--json");

@@ -118,7 +118,9 @@ public static class CoreCache
     {
         if (!IsPathInCacheContext(path))
         {
-            Console.Error.WriteLine($"Warning: refusing to delete path outside dotnet-inspect cache: {path}");
+            // The throw carries the same text, and the CLI renders it through
+            // the one writer that contains it. Writing here as well produced a
+            // second, uncontained copy of the path.
             throw new InvalidOperationException($"Refusing to delete path outside dotnet-inspect cache: {path}");
         }
     }

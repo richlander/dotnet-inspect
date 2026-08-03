@@ -42,7 +42,7 @@ public static class TypeCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
 
@@ -85,7 +85,7 @@ public static class TypeCommand
                     apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
+                    CommandError.Write("Could not extract API from library.");
                     return 1;
                 }
 
@@ -152,7 +152,7 @@ public static class TypeCommand
                     apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
                 if (loaded == null)
                 {
-                    Console.Error.WriteLine("Error: Could not extract API from library.");
+                    CommandError.Write("Could not extract API from library.");
                     return 1;
                 }
 
@@ -165,13 +165,18 @@ public static class TypeCommand
                 {
                     var apiType = lookupResult.Type!;
 
+                    // The type resolved after all, so a select the preamble deferred was never a
+                    // listing request. Report it against the pipeline that is rendering.
+                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                        return 1;
+
                     // Check each member filter before producing output
                     if (options.MemberFilter.Count > 0)
                     {
                         var memberValidation = ApiTypeLookupService.ValidateMemberFilters(apiType, options.MemberFilter);
                         if (!memberValidation.IsValid)
                         {
-                            memberValidation.WriteError(Console.Error);
+                            memberValidation.WriteError();
                             return 1;
                         }
                     }
@@ -202,8 +207,8 @@ public static class TypeCommand
 
                     if (ShouldRejectQuietShape(effectiveOptions))
                     {
-                        Console.Error.WriteLine("Error: -v:q is not supported by the type shape renderer.");
-                        Console.Error.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
+                        CommandError.Write("-v:q is not supported by the type shape renderer.");
+                        CommandError.WriteLine("Use -v:m, -v:n, or -v:d for tree output, or add --markdown -v:q for compact section output.");
                         return 1;
                     }
 
@@ -216,7 +221,7 @@ public static class TypeCommand
                     // Explicit --shape cannot honor a section/projection query; warn rather than
                     // silently dropping the selection.
                     if (effectiveOptions is { ShapeOutput: true, HasSectionQuery: true, Count: false })
-                        Console.Error.WriteLine("Warning: --shape does not support -S/--columns/--fields; selection was ignored.");
+                        CommandError.WriteWarning("--shape does not support -S/--columns/--fields; selection was ignored.");
 
                     // Enrich with local XML docs only (source info is in the source command)
                     {
@@ -227,7 +232,10 @@ public static class TypeCommand
 
                     if (effectiveOptions.EffectiveDiscovery)
                     {
-                        return ApiCommand.ExecuteEffectiveDiscovery(apiType, memberPipeline, effectiveOptions);
+                        return ApiCommand.ExecuteEffectiveDiscovery(
+                            apiType, memberPipeline, effectiveOptions,
+                            new ApiCommand.TypeAcquisitionContext(
+                                foundIn, packageName, packageVersion, apiSource, selectedTfm));
                     }
 
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath
@@ -262,7 +270,7 @@ public static class TypeCommand
                     {
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
-                        var sw = new StringWriter();
+                        var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
                         if (writeExitCode != 0)
                             return writeExitCode;
@@ -324,6 +332,15 @@ public static class TypeCommand
                 }
                 else if (options.EffectiveDiscovery)
                 {
+                    // A deferred select belongs to this listing, and discovery filters by it, so it
+                    // has to be resolved before the filter is applied rather than after.
+                    if (options.SelectDeferredToListing)
+                    {
+                        if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
+                            return 1;
+                        options = discoveryOptions;
+                    }
+
                     // Discovery is a schema query about the surface's sections; it is independent
                     // of which (unmatched) type was requested. The main listing and platform-prefix
                     // routes already dispatch it before rendering, so the glob and prefix-browse
@@ -358,6 +375,13 @@ public static class TypeCommand
                     if (widePrefixExitCode.HasValue)
                         return widePrefixExitCode.Value;
 
+                    // Nothing below renders a listing -- the glob branch is unreachable with a
+                    // deferred select, because a glob never enters the preamble as a single type --
+                    // so a deferred select has no listing to belong to and is reported the way the
+                    // preamble would have reported it.
+                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                        return 1;
+
                     if (lookupResult.Suggestions.Count > 0)
                     {
                         bool isGlob = typeName.Contains('*') || typeName.Contains('?');
@@ -378,13 +402,13 @@ public static class TypeCommand
                         }
                         else
                         {
-                            lookupResult.WriteNotFoundError(Console.Error);
+                            lookupResult.WriteNotFoundError();
                             return 1;
                         }
                     }
                     else
                     {
-                        lookupResult.WriteNotFoundError(Console.Error);
+                        lookupResult.WriteNotFoundError();
                         return 1;
                     }
                 }
@@ -394,7 +418,7 @@ public static class TypeCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
         finally
@@ -467,7 +491,7 @@ public static class TypeCommand
         if (resolution.Status == TypeFindIfMissStatus.Found)
         {
             var match = resolution.Match!;
-            Console.Error.WriteLine($"Note: Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
+            CommandError.WriteNote($"Type '{query}' resolved via platform find to {match.FullName} in {match.Library}.");
             return await ExecuteAsync(resolution.ApplyTo(options));
         }
 
@@ -502,8 +526,18 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        Console.Error.WriteLine($"Note: Showing best-effort platform prefix matches for '{query}'.");
-        Console.Error.WriteLine($"Note: Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
+        // This renders a listing for what entered as a single-type request, so a select the
+        // preamble deferred resolves here, against the pipeline doing the rendering. Without this
+        // the deferred select would be dropped and the listing would ignore -S entirely.
+        if (browseOptions.SelectDeferredToListing)
+        {
+            if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
+                return 1;
+            browseOptions = resolvedBrowseOptions;
+        }
+
+        CommandError.WriteNote($"Showing best-effort platform prefix matches for '{query}'.");
+        CommandError.WriteNote($"Use `find \"{ToFindPrefixPattern(query)}\" --platform` to see source libraries.");
 
         if (browseOptions.EffectiveDiscovery)
         {
@@ -525,7 +559,9 @@ public static class TypeCommand
 
     private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
     {
-        if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+        if (NuGetCache.TryGetLatestCachedVersion(
+                packageName,
+                NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
             return true;
 
         try
@@ -595,7 +631,7 @@ public static class TypeCommand
                 framework);
             if (assemblyPath == null || error != null)
             {
-                logger.Log($"Warning: Could not resolve platform library '{assembly}' in {framework}: {error}");
+                logger.LogWarning($"Could not resolve platform library '{assembly}' in {framework}: {error}");
                 continue;
             }
 
@@ -603,11 +639,17 @@ public static class TypeCommand
             if (api == null)
                 continue;
 
-            ApiServices.ResolveForwardedTypes(api, assemblyPath, logger, options.IncludeAll);
+            ApiServices.ResolveForwardedTypes(
+                api,
+                assemblyPath,
+                logger,
+                options.IncludeAll,
+                isPlatformAssembly: true,
+                options);
 
             foreach (var type in api.Types.Where(t => fullNames.Contains(t.FullName)))
             {
-                type.SourceAssemblyPath = assemblyPath;
+                type.SourceAssemblyPath ??= assemblyPath;
                 merged.Types.Add(type);
             }
         }
@@ -653,8 +695,17 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        Console.Error.WriteLine($"Note: Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
-        return ApiCommand.WriteFullApiOutput(api, browseOptions, selectedTfm);
+        CommandError.WriteNote($"Type '{resolvedTypeName}' not found. Showing best-effort prefix matches for '{originalTypeQuery}'.");
+
+        // The preamble resolved -S against the single-type pipeline because the argument shape
+        // looked like one type. It is not: this renders a listing, so the section names have to be
+        // re-resolved against the pipeline that will actually render them. Ordered after the note
+        // so a rejected section name still says which view rejected it.
+        var resolved = ApiCommand.ReresolveSectionsForListing(browseOptions);
+        if (resolved == null)
+            return 1;
+
+        return ApiCommand.WriteFullApiOutput(api, resolved, selectedTfm);
     }
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)

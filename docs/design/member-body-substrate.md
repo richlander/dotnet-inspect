@@ -1,5 +1,9 @@
 # Member body substrate
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 How the product renders a type and its member bodies through **one producer
 contract** repeated at each layer, so that skeleton source, full source, the
 merged IL+C# view, and the implementation diff are built from parallel
@@ -318,7 +322,7 @@ carried as structure:
   `ILInstructionText` from the `Metadata` disassembler as a `SourceLine` (text +
   IL offset) before joining, adopting the currency without pulling the
   decompiler-pipeline decoder into the raw view.
-- **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
+- **`BoundSourceLine(string Text, int Offset, SourceLineKind Kind,
   IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
   its annotations as *structure* (not baked into `Text`) so the merge printer has
   placement freedom, plus a `Kind`.
@@ -348,12 +352,12 @@ difference is the intermediate — a producer *filters* to one lane, Research
 *correlates* several — and **both end in the same currency**: an ordered line
 stream that a dumb printer renders to text. The interleave is the landed instance —
 `ResearchViews.CorrelateMixedSource` folds the C# body, its statement-line map, the
-annotations, and the IL lines into one ordered `AnnotatedSourceLine` stream (owning
+annotations, and the IL lines into one ordered `BoundSourceLine` stream (owning
 the range-containment bucketing), and `RenderMixedStream` frames each line by
 `Kind`, reading indent straight from the C# line's leading whitespace. The
 cost/semantics/annotated-source **overlays** are the degenerate single-medium case
 of the same join: `ResearchViews.CorrelateOverlay` anchors the fact groups onto
-their printed C# lines and emits a C#-only `AnnotatedSourceLine` stream (empty IL
+their printed C# lines and emits a C#-only `BoundSourceLine` stream (empty IL
 operand), which `RenderOverlayStream` renders by splicing a trailing `// …` comment
 onto each annotated line — the same `correlate → render` shape as the interleave,
 one medium instead of two. Three

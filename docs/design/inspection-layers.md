@@ -94,7 +94,7 @@ interchangeably.
 | **Query** | a typed inspection request producing a typed result | — | L1 |
 | **Section** | the named, selectable unit | table \| fields \| list \| blob \| tree | L2 |
 | **Shape** | the narrowing rung | Document \| Table \| Vector \| Scalar | L2 (Markout-defined) |
-| **Format** | presentation of a selected payload | markdown \| json \| tsv \| jsonl \| plaintext | L3 |
+| **Format** | presentation of a selected payload | markdown \| plaintext \| table \| tsv \| jsonl \| json \| mermaid | L3 (selection) |
 
 A **query** may run one or more **scanners**. A **section** presents the result
 of a query at some **shape**, rendered in some **format**.
@@ -124,6 +124,17 @@ graph, and all of them are still "one section". Trees and tables are siblings
 **JSON is a format, not a shape and not a section.** `--json`, `--tsv`, and
 `--jsonl` are presentation modifiers: they change how a selected payload is
 rendered without changing the shape.
+
+**Format is owned as *selection*, not as rendering.** The L3 description above
+is deliberate: L3 owns output format *selection*. Deciding which format a
+request produces is a CLI concern; turning a payload into bytes largely is not.
+Markout renders markdown, tsv, and jsonl, so most of the format axis is
+implemented below L3 even though L3 names the value. Read the owner column as
+"who chooses", not "who writes the characters" — the same distinction the Shape
+row makes by crediting Markout with defining the ladder that L2 selects a rung
+from. A renderer that lives in `src/dotnet-inspect/Output/` is not evidence that
+rendering is an L3 responsibility; it is either genuinely
+dotnet-inspect-specific or a candidate to move.
 
 **Query** has a typed precedent and two senses to keep clear of. The typed
 precedent is small but exact:

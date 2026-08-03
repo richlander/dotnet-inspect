@@ -7,13 +7,12 @@
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
     <RollForward>LatestMajor</RollForward>
-  </PropertyGroup>
 
-  <!-- Native AOT size optimizations (only apply when publishing with AOT) -->
-  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
-    <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <OptimizationPreference>Size</OptimizationPreference>
+    <!-- mdi is a separate entry point with its own diagnostics; it cannot reach
+         dotnet-inspect's CommandError, so the stderr-ownership rule (#3319) does
+         not apply here. That it reads untrusted metadata and writes it to its own
+         stderr is the declared residual #3444. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,6 +32,16 @@
     <PublishAot>true</PublishAot>
     <!-- Keep debug symbols out of the published tool package. -->
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <!-- Native AOT publish settings. Must come after PublishAot is set above; see the
+       matching comment in dotnet-inspect.csproj for why the ordering matters.
+       mdi ships from the same RID list as dotnet-inspect, so the two tools carry the
+       same codegen settings. Rationale: issue #3675. -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">

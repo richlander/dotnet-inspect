@@ -16,6 +16,7 @@ public static class HttpClientFactory
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
     private static IDisposable? _networkTrafficLoggingSubscription;
+    private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
     /// <summary>
     /// Configure the factory before first use. Safe to call multiple times;
@@ -29,9 +30,35 @@ public static class HttpClientFactory
     public static bool IsOffline => _offline;
 
     /// <summary>
+    /// Installs a decorator around the outermost handler of shared clients, so that a source
+    /// answering 401 can have credentials supplied and its request replayed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This layer knows nothing about NuGet credential plugins on purpose: it sits below
+    /// NuGetFetch and cannot reference it. The composition root installs
+    /// <c>NuGetFetch.Plugins.PluginAuthenticationHandler</c> through this seam.
+    /// </para>
+    /// <para>
+    /// The decorator is captured when a client is constructed, so it must be set before first
+    /// use of <see cref="Shared"/>. It is deliberately not applied to
+    /// <see cref="SharedUntrustedFetch"/>: that client fetches URLs that originate in untrusted
+    /// artifacts, and feed credentials have no business being offered to them.
+    /// </para>
+    /// </remarks>
+    public static void SetAuthenticationDecorator(Func<HttpMessageHandler, HttpMessageHandler>? decorator) =>
+        _authenticationDecorator = decorator;
+
+    /// <summary>
     /// Enables logging for managed HTTP request observations. Requests are still
     /// allowed to proceed; use offline mode to block network access.
     /// </summary>
+    /// <param name="contain">
+    /// Applied to every composed line before it reaches the sink. Required, not
+    /// defaulted: the logged URL carries the package id from argv, so a line
+    /// terminator in it would forge an unindented stderr line, and a seam a caller
+    /// can omit is one a caller will omit.
+    /// </param>
     /// <param name="sink">
     /// Where to write the log. The default (<c>null</c>) binds <see cref="Console.Error"/>
     /// once, as a process-lifetime subscription kept in a static field. Pass an explicit
@@ -39,13 +66,18 @@ public static class HttpClientFactory
     /// unsubscribe. The sink is captured here, not read at publish time, so logging never
     /// follows a later <see cref="Console.Error"/> swap (issue #705).
     /// </param>
-    public static IDisposable EnableNetworkTrafficLogging(System.IO.TextWriter? sink = null)
+    public static IDisposable EnableNetworkTrafficLogging(
+        Func<string, string> contain, System.IO.TextWriter? sink = null)
     {
+        ArgumentNullException.ThrowIfNull(contain);
+
         if (sink is not null)
-            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink));
+            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink, contain));
 
         return _networkTrafficLoggingSubscription ??=
-            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error));
+#pragma warning disable RS0030 // An accounted stderr sink: NetworkTrafficLogConsumer applies `contain` to every line before writing it (issue #3319).
+            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error, contain));
+#pragma warning restore RS0030
     }
 
     /// <summary>
@@ -110,6 +142,13 @@ public static class HttpClientFactory
             handler = new CountingHandler(handler);
 
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
+
+        // Outermost, so each replayed attempt is observed by the telemetry and counting
+        // handlers below it. A 401 followed by an authenticated retry really is two requests.
+        if (_authenticationDecorator is not null)
+        {
+            handler = _authenticationDecorator(handler);
+        }
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);

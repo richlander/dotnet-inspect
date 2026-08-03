@@ -52,6 +52,19 @@ public class SourceLinkService : IDisposable
     }
 
     /// <summary>
+    /// Opens an acquisition descriptor through its authoritative stream factory.
+    /// </summary>
+    public static SourceLinkService Open(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var context = PdbContext.Open(assembly, log);
+        return new SourceLinkService(context, cache ?? DefaultCache);
+    }
+
+    /// <summary>
     /// Opens an assembly with its complete PE image prefetched for shared
     /// parallel body analysis.
     /// </summary>
@@ -99,8 +112,8 @@ public class SourceLinkService : IDisposable
     public string? RepositoryUrl => _context.ExtractRepositoryUrl();
 
     /// <summary>
-    /// The commit hash extracted from SourceLink URL patterns.
-    /// Returns null if no SourceLink data or the commit hash cannot be determined.
+    /// The revision source is served at. Returns null if no SourceLink data, or if no single
+    /// origin describes every document the assembly resolves.
     /// </summary>
     public string? CommitHash => ExtractCommitHash();
 
@@ -122,29 +135,6 @@ public class SourceLinkService : IDisposable
     public IReadOnlyList<SourceDocument> GetEmbeddedFiles()
     {
         return GetTrackedFiles().Where(d => d.IsEmbedded).ToList();
-    }
-
-    // --- Type resolution ---
-
-    /// <summary>
-    /// Resolves the assembly path that actually implements a type, following type forwarders.
-    /// Returns null if the type is defined in this assembly (not forwarded).
-    /// </summary>
-    public string? ResolveImplementationAssemblyPath(string typeName)
-        => _context.ResolveImplementationAssemblyPath(typeName);
-
-    /// <summary>
-    /// Opens a new SourceLinkService for the assembly that implements the given type,
-    /// following type forwarders. Returns null if the type is not forwarded.
-    /// The caller is responsible for disposing the returned service and acquiring its PDB.
-    /// </summary>
-    public SourceLinkService? OpenImplementation(string typeName)
-    {
-        var implPath = _context.ResolveImplementationAssemblyPath(typeName);
-        if (implPath == null)
-            return null;
-
-        return Open(implPath, _context.Log);
     }
 
     /// <summary>
@@ -190,11 +180,15 @@ public class SourceLinkService : IDisposable
         if (_typeFileIndex != null)
             return _typeFileIndex;
 
-        // Try loading from disk cache
-        var commitHash = CommitHash;
-        if (commitHash != null)
+        // Try loading from disk cache. The key names both the origin and this assembly's symbols.
+        // The origin is not enough on its own in either direction: a bare revision is shared by
+        // every fork containing that commit, and a full origin is shared by every assembly built
+        // from that repository at that revision -- and the index being cached is built from one
+        // assembly's PDB, so origin alone serves one assembly's source files for another's types.
+        var cacheKey = BuildIndexCacheKey();
+        if (cacheKey != null)
         {
-            var cached = _cache?.TryGet(commitHash);
+            var cached = _cache?.TryGet(cacheKey);
             if (cached != null)
             {
                 try
@@ -213,12 +207,12 @@ public class SourceLinkService : IDisposable
         _typeFileIndex = BuildTypeFileIndex();
 
         // Persist to disk
-        if (commitHash != null && _typeFileIndex.Count > 0)
+        if (cacheKey != null && _typeFileIndex.Count > 0)
         {
             try
             {
                 var json = JsonSerializer.Serialize(_typeFileIndex, SourceLinkJsonContext.Default.DictionaryStringStringArray);
-                _cache?.Set(commitHash, json);
+                _cache?.Set(cacheKey, json);
             }
             catch
             {
@@ -227,6 +221,41 @@ public class SourceLinkService : IDisposable
         }
 
         return _typeFileIndex;
+    }
+
+    /// <summary>
+    /// The cache key for this assembly's type-to-file index, or null when the assembly cannot be
+    /// identified precisely enough to share one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The debug directory's CodeView identity — the PDB GUID and age — names the exact symbols
+    /// this index was built from, which is what the index actually depends on. Parts are joined
+    /// with the same length-prefixed encoding <see cref="SLF.SourceLinkOrigin.Identity"/> uses, so
+    /// no combination of values can spell another combination's key.
+    /// </para>
+    /// <para>
+    /// Returning null when either part is missing declines the cache rather than falling back to
+    /// a weaker key. A cache miss costs one index rebuild; a key that does not name the assembly
+    /// hands back another assembly's source files, which is wrong output rather than slow output.
+    /// </para>
+    /// </remarks>
+    private string? BuildIndexCacheKey()
+        => BuildIndexCacheKey(_context.Provenance().Origin?.Identity, _context.PdbId);
+
+    /// <summary>
+    /// Composes the key from the two identities, so the composition can be gated without a build
+    /// that carries SourceLink data. Internal for that reason only.
+    /// </summary>
+    internal static string? BuildIndexCacheKey(string? originIdentity, CodeViewInfo? pdbId)
+    {
+        if (originIdentity is null || pdbId is null)
+        {
+            return null;
+        }
+
+        string symbols = $"{pdbId.Guid:N}-{pdbId.Age}";
+        return $"{originIdentity}{symbols.Length}:{symbols}|";
     }
 
     private Dictionary<string, string[]> BuildTypeFileIndex()
@@ -298,11 +327,7 @@ public class SourceLinkService : IDisposable
         return existing;
     }
 
-    private string? ExtractCommitHash()
-    {
-        var resolver = _context.GetResolver();
-        return resolver?.ExtractCommitHash();
-    }
+    private string? ExtractCommitHash() => _context.Provenance().Origin?.Revision;
 
     public void Dispose()
     {

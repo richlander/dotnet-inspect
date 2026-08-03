@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -27,8 +28,19 @@ public static class MetadataImageInspector
     /// Returns <see langword="null"/> when the image carries no metadata, which
     /// is the same "not applicable" signal
     /// <see cref="MetadataTableProjector.ProjectRow"/> uses.
+    ///
+    /// The metadata root's version stamp is a counted string read straight out of
+    /// the image, so it is attacker-controlled in exactly the way heap strings
+    /// are — and unlike them it reaches presentation without passing through the
+    /// row projection, so it inherits none of that path's containment. It is
+    /// neutralized here, with the projector's own escaper rather than a parallel
+    /// one, so that every consumer inherits the containment instead of each
+    /// renderer having to remember. A value that skips the projection must still
+    /// not skip its containment.
     /// </summary>
-    public static MetadataImageOverview? Describe(PEReader peReader)
+    public static MetadataImageOverview? Describe(
+        PEReader peReader,
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
@@ -41,8 +53,14 @@ public static class MetadataImageInspector
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
-        return new MetadataImageOverview(
+        InertString version = MetadataTableProjector.ContainCellText(
             reader.MetadataVersion,
+            MetadataVersionBudget,
+            untrustedText,
+            TextOrigin.Named("the metadata root version stamp"));
+
+        return new MetadataImageOverview(
+            version,
             reader.MetadataKind,
             reader.IsAssembly,
             headers.MetadataStartOffset,
@@ -51,6 +69,23 @@ public static class MetadataImageInspector
             DescribeTables(reader),
             DescribeHeaders(headers));
     }
+
+    /// <summary>
+    /// Bounds the neutralized version stamp. ECMA-335 II.24.2.1 bounds the field
+    /// at 255 bytes and neutralization expands a control character to six
+    /// characters, so 255 * 6 is the widest a conforming stamp can become and the
+    /// budget never binds on one. It exists for the non-conforming case, because
+    /// the stamp is a counted string read straight out of the image and this code
+    /// does not get to assume the image conforms.
+    ///
+    /// When the budget does bind, the clipped stamp says so itself: the value is
+    /// an <see cref="InertString"/>, and the character budget is the only way it
+    /// can become partial, so <c>IsTruncated</c> carries the fact rather than a
+    /// separate flag a caller could read without. A prefix is never mistaken for
+    /// a whole stamp — the same rule every other contained value in this layer
+    /// follows.
+    /// </summary>
+    const int MetadataVersionBudget = 255 * 6;
 
     static ImmutableArray<MetadataHeapSummary> DescribeHeaps(MetadataReader reader)
     {

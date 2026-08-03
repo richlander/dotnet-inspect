@@ -50,7 +50,8 @@ public class ApiCommand
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
-            Select = options.Select, Columns = options.Columns, Fields = options.Fields,
+            Select = options.Select, SelectDefault = options.SelectDefault,
+            Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RequestAllTaste = options.RequestAllTaste,
@@ -58,7 +59,143 @@ public class ApiCommand
         })
     };
 
+    /// <summary>
+    /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,
+    /// and the pipeline publishes no overview sections -- the state that would otherwise render the
+    /// full default view instead of a bounded one. Extracted so the decision is directly testable.
+    /// </summary>
+    internal static bool HasNoBareSelectOverview(ApiOptions options, string[] bareSelectSections)
+        => options.SelectDefault
+            && options.Select is not { Length: > 0 }
+            && bareSelectSections.Length == 0;
+
+    /// <summary>
+    /// Re-resolves <c>-S</c> against the type-listing pipeline for a query that entered the
+    /// preamble as a single-type request but renders a listing.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="RunPreamble"/> picks its pipeline from the argument shape, so a dotted prefix
+    /// that fails to resolve to a type validated its sections against the single-type pipeline
+    /// while <see cref="TypeCommand"/> goes on to render a listing. The two disagree about every
+    /// name: <c>-D</c> advertises <c>Classes</c> and <c>Structs</c>, and <c>-S Classes</c> is
+    /// rejected. Returns <c>null</c> when resolution failed and the caller should stop with an
+    /// error.
+    /// </remarks>
+    internal static TypeOptions? ReresolveSectionsForListing(TypeOptions options)
+    {
+        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var bareSelectSections = typePipeline.FixedOverviewSectionNames;
+
+        if (HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return null;
+        }
+
+        var selectResult = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            typePipeline.SelectableSectionNames,
+            bareSelectSections,
+            typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        if (SelectOutput.WriteUnresolved(selectResult))
+            return null;
+
+        var listingOptions = selectResult.Sections != null
+            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            : options with { SelectDeferredToListing = false };
+
+        // The preamble skips the selection-arity checks for a deferred select because it cannot yet
+        // know which pipeline will render. Now it is known, so they run here against the sections
+        // the listing actually resolved. The payload projections are deliberately not re-checked:
+        // the listing refuses them outright further down, and that reason is the useful one.
+        if (options.SelectDeferredToListing)
+        {
+            if (listingOptions.Discover == null && listingOptions.Count
+                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+                return null;
+
+            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+                    listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
+                return null;
+        }
+
+        return listingOptions;
+    }
+
     // ===== Shared Preamble =====
+
+    /// <summary>
+    /// True when <c>-S</c> failed against the single-type pipeline but resolves against the type
+    /// listing, so the preamble must carry the decision forward instead of rejecting it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This deliberately only intercepts the <em>total</em> failure that would otherwise return 1,
+    /// mirroring <see cref="SelectOutput.WriteUnresolved"/>'s own definition of that state. Nothing
+    /// that succeeds today can reach the deferral, which bounds the change to invocations that
+    /// already exit 1: a partial match still warns and proceeds exactly as before.
+    /// </para>
+    /// <para>
+    /// A name valid for neither pipeline is a plain typo and still fails here, keeping the fast
+    /// rejection -- and the single-type suggestions -- for the case that cannot be a listing.
+    /// </para>
+    /// </remarks>
+    internal static bool ShouldDeferSelectToListing(
+        ApiOptions options,
+        bool singleTypeMode,
+        SelectResult singleTypeResult,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        // Only `type` falls back from a single-type request to a listing. `member` renders a member
+        // view or nothing, and the `api` shim renders nothing at all.
+        if (options is not TypeOptions || !singleTypeMode || options.Select is not { Length: > 0 })
+            return false;
+
+        bool totalFailure = singleTypeResult.Unresolved.Count > 0
+            && singleTypeResult.Sections is null or { Count: 0 };
+        if (!totalFailure)
+            return false;
+
+        return ResolveSelectForListing(options, typePipeline).Sections is { Count: > 0 };
+    }
+
+    private static SelectResult ResolveSelectForListing(ApiOptions options, SectionPipeline<ApiSurface> typePipeline)
+        => SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            typePipeline.SelectableSectionNames,
+            typePipeline.FixedOverviewSectionNames,
+            typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+
+    /// <summary>
+    /// Reports a deferred <c>-S</c> against the single-type pipeline for a query that turned out to
+    /// render a single type after all, restoring the rejection the preamble held back. Returns true
+    /// when the caller should stop.
+    /// </summary>
+    /// <remarks>
+    /// Resolution is repeated against the same three inputs the preamble used, so it reproduces the
+    /// same total failure and the same message. It reports unconditionally rather than forwarding
+    /// <see cref="SelectOutput.WriteUnresolved"/>'s partial-match result: a deferral is only ever
+    /// created from a total failure, and treating a hypothetical partial as "carry on" would render
+    /// the single-type view with the selector silently dropped.
+    /// </remarks>
+    internal static bool RejectDeferredSelectForSingleType(ApiOptions options, SectionPipeline<ApiType> memberPipeline)
+    {
+        if (!options.SelectDeferredToListing)
+            return false;
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            memberPipeline.SelectableSectionNames,
+            memberPipeline.FixedOverviewSectionNames,
+            memberPipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        SelectOutput.WriteUnresolved(result);
+        return true;
+    }
 
     internal record PreambleResult(
         ApiOptions Options,
@@ -105,24 +242,81 @@ public class ApiCommand
                 projection: options));
         }
 
+        // Bare -S renders the fixed overview: the sections whose length does not depend on which
+        // type you are looking at. For a single type that is Type Info, so `type X -S` reports the
+        // same shape for a 250-member class and an 8-member enum, where the member sections it used
+        // to render varied from one section to eight.
+        //
+        // Two neighbours are deliberately left alone. `member` shares this preamble but is a
+        // different command with its own overview (decompiled source, signature, learn order), so it
+        // is converted on its own. The deprecated `api` shim reaches this preamble too but renders
+        // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
+        // convert. See #3547.
+        //
+        // Type listing joins here as of this slice. It previously had no Fixed section to offer --
+        // every section it published was a per-kind member table that grows with the assembly -- so
+        // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
+        // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
+        // mean the same thing here that it means everywhere else.
+        var usesFixedOverview = options is TypeOptions;
+        var bareSelectSections = usesFixedOverview
+            ? singleTypeMode
+                ? memberPipeline.FixedOverviewSectionNames
+                : typePipeline.FixedOverviewSectionNames
+            : singleTypeMode
+                ? memberPipeline.InfoSectionNames
+                : typePipeline.InfoSectionNames;
+
+        // A fixed-overview bare -S that resolves to no sections has to fail loudly. SelectResolver
+        // hands back an empty-but-non-null set, and IsRequested's `include is { Count: > 0 }` reads
+        // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
+        // for a bounded overview into the widest output the command has, with the scanner
+        // backpressure -S exists to apply switched off.
+        if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
+        {
+            CommandError.Write(
+                "this view publishes no bare -S overview sections.",
+                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+            return (null!, 1);
+        }
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select,
             knownSections,
-            singleTypeMode ? memberPipeline.InfoSectionNames : typePipeline.InfoSectionNames,
-            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap());
-        if (SelectOutput.WriteUnresolved(selectResult))
-            return (null!, 1);
-        if (selectResult.Sections != null)
-            options = options with { IncludeSections = selectResult.Sections };
+            bareSelectSections,
+            singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+            selectDefault: options.SelectDefault);
+        if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+        {
+            // `-D` advertised these names and `-S` rejected them, on the same command line: the
+            // preamble was answering for the single-type pipeline while the render is a listing.
+            // Hold the rejection rather than resolving it here, because which pipeline is right is
+            // not known until the type lookup runs.
+            options = options with { SelectDeferredToListing = true };
+        }
+        else
+        {
+            if (SelectOutput.WriteUnresolved(selectResult))
+                return (null!, 1);
+            if (selectResult.Sections != null)
+                options = options with { IncludeSections = selectResult.Sections };
+        }
 
-        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
+        // listing or the single-type view will render, so every selection check below has to stand
+        // down: judging the empty set reports a requirement to narrow -S that is neither true nor
+        // actionable, and judging the listing's sections preempts the single-type view's own, more
+        // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
+        var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        if (options.Discover == null && options.Count && !options.SelectDeferredToListing
+            && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
         {
-            Console.Error.WriteLine("Error: specify only one of --value, --urls, or --paths.");
+            CommandError.Write("specify only one of --value, --urls, or --paths.");
             return (null!, 1);
         }
 
@@ -131,48 +325,51 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // Discovery renders its own payload and refuses the shape projections itself with
             // an accurate reason; demanding -S first reports a requirement that is not the problem.
-            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            if (options.Discover == null && !options.SelectDeferredToListing
+                && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
+                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return (null!, 1);
             }
             if (options.Rows is not null)
             {
-                Console.Error.WriteLine($"Error: --rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
                 return (null!, 1);
             }
         }
 
         if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
+            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
             return (null!, 1);
         }
 
         if (options.JsonArray && (options.JsonOutput || options.Jsonl))
         {
-            Console.Error.WriteLine("Error: --json-array cannot be combined with --json or --jsonl.");
+            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
             return (null!, 1);
         }
 
-        if (options.Print && options.Discover == null && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && options.Discover == null && !options.SelectDeferredToListing
+            && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
 
         if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
         if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
-            Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
+            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
             return (null!, 1);
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+        if (!options.SelectDeferredToListing
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
         // Auto-promote verbosity when -S targets specific sections
@@ -247,7 +444,7 @@ public class ApiCommand
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
+        CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -293,7 +490,7 @@ public class ApiCommand
     {
         if (options.IncludeSections is not { Count: > 0 })
             return;
-        if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
             return;
 
@@ -307,9 +504,9 @@ public class ApiCommand
         var suffix = filtersActive ? " after filters" : "";
 
         if (empty.Count == 1)
-            Console.Error.WriteLine($"Note: section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+            CommandError.WriteNote($"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
         else
-            Console.Error.WriteLine($"Note: {empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+            CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
@@ -337,10 +534,21 @@ public class ApiCommand
             // via ApiOutputFormatter.SameType (which prefers MetadataName over the
             // lossy '+'→'.' fallback) when it reaches the type-scope analysis path.
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Kind = type.Kind,
+            // Every identity fact carries over: this copy exists to narrow Members, and anything
+            // else it drops silently changes what sections and discovery see. Omitting the two
+            // struct modifiers made `-D "Type Info"` hide the Modifiers row that `-S` rendered for
+            // every readonly/ref struct, because discovery builds its manifest from this copy.
+            Accessibility = type.Accessibility,
+            Attributes = type.Attributes,
+            EnumUnderlyingType = type.EnumUnderlyingType,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            SourceAssemblyPath = type.SourceAssemblyPath,
             BaseType = type.BaseType,
             Interfaces = type.Interfaces,
             DerivedTypes = type.DerivedTypes,
@@ -510,8 +718,8 @@ public class ApiCommand
                 || options.Tabular
                 || options.Verbosity < Verbosity.Normal))
         {
-            Console.Error.WriteLine(
-                $"Warning: API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
+            CommandError.WriteWarning(
+                $"API inspection rejected {api.InspectionFailures.Count} metadata row(s); "
                 + "use normal verbosity or JSON for failure details.");
         }
 
@@ -531,17 +739,40 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(markdown, options))
+                return 1;
             markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.Tabular)
         {
+            if (ApiOutputFormatter.ShouldRenderSurfaceFactTableView(options))
+            {
+                // Deliberately the same machinery as the fall-through below -- projection,
+                // diagnostics, and row limiting all included -- differing only in WHAT is
+                // serialized. Writing straight to the console here instead skipped
+                // DiagnoseRendered, so `--fields Value` produced empty output and exit 0 while
+                // the same projection against `Type Info` and `Library Info` reported that the
+                // field does not exist.
+                var factRows = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
+                    options.Columns, options.Fields,
+                    (writer, formatter, writerOptions) =>
+                        MarkoutSerializer.Serialize(view.ApiInfo!, writer, formatter, ApiViewContext.Default, writerOptions));
+                ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
+                if (!TryReportEmptyProjection(factRows, options))
+                    return 1;
+                Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
+                return 0;
+            }
+
             var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions));
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
+            if (!TryReportEmptyProjection(rendered, options))
+                return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
         }
         else
@@ -549,16 +780,122 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             if (options.PlainText)
             {
-                MarkoutSerializer.Serialize(view, Console.Out, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                // Buffered rather than written straight to the console so the empty-render gate
+                // can see the result. Writing directly is what let an emptying projection print
+                // nothing and exit 0 here while every sibling path reported it.
+                var plain = new StringWriter();
+                MarkoutSerializer.Serialize(view, plain, options.CreateFormatter(), ApiViewContext.Default, writerOptions);
+                var plainText = plain.ToString();
+                if (!TryReportEmptyProjection(plainText, options))
+                    return 1;
+                Console.Out.Write(plainText);
             }
             else
             {
-                OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                    MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions), options.Rows);
+                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                if (!TryReportEmptyProjection(markdown, options))
+                    return 1;
+                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
             }
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Fails a projection that rendered nothing at all, rather than exiting 0 having printed
+    /// nothing. Returns false when the caller should stop.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for "a projection that matches nothing must not look like success".
+    /// <see cref="CommandExecutionTests.Type_Listing_UnmatchedProjection_FailsByNameRatherThanRenderingNothing"/>
+    /// is the non-vacuity test: it fails if this check stops firing, and
+    /// <c>Type_Listing_LegitimateProjections_SurviveTheEmptyRenderGate</c> is the companion that
+    /// fails if it starts firing too widely. Both conditions below are load-bearing and each was
+    /// added because its absence produced a real false positive:
+    ///
+    /// <list type="number">
+    /// <item>A projection must actually be active. An empty render with no <c>--fields</c> or
+    /// <c>--columns</c> is an honest empty answer -- <c>-S Interfaces</c> against a library that
+    /// has no interfaces -- and reporting it as failure would turn a valid zero-row query into an
+    /// error, and only in some output formats.</item>
+    /// <item>Every projected name must resolve nowhere. Emptiness alone cannot tell an unknown
+    /// name from a known field that happens to hold no value: <c>-S "API Info" --fields Version</c>
+    /// against a local .dll renders nothing because that assembly has no version, and <c>Version</c>
+    /// is a perfectly valid field that <c>-D "API Info"</c> advertises.</item>
+    /// <item>The name must resolve as the KIND being projected. "Valid somewhere in the document"
+    /// is too weak on its own: <c>Type</c> is a column of the <c>Classes</c> table and is a field
+    /// nowhere, so <c>-S "API Info" --fields Type</c> would be validated by an unrelated section's
+    /// column and print nothing at exit 0 -- the success-shaped empty output this gate exists to
+    /// prevent.</item>
+    /// </list>
+    ///
+    /// The name check is deliberately a NARROWING condition on an already-empty render, never a
+    /// pre-check. Two earlier attempts validated names up front and both produced false negatives,
+    /// because the set of legitimately projectable names is wider than any one section's schema:
+    /// <c>-S "API Info" --columns Field</c> names a column the fact-table renderer synthesizes and
+    /// the schema never lists, and <c>-S Classes --fields Types</c> names a document-level field
+    /// that survives regardless of which section is selected. Both of those RENDER, so ordering
+    /// emptiness first puts the schema's blind spots out of reach.
+    /// </remarks>
+    private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(rendered))
+            return true;
+
+        var names = options.Fields ?? options.Columns;
+        if (names is not { Length: > 0 })
+            return true;
+
+        // Resolved by KIND across EVERY section, not against the selected sections. Two
+        // independent corrections are folded in here, and dropping either one reopens a real
+        // false positive found in review:
+        //
+        // Across all sections, because a document-level field belongs to no section in
+        // particular -- `Version` is advertised under `API Info` but survives whichever section
+        // is selected -- so checking only the selection reports it unresolved. That is normally
+        // unreachable because the document fields keep the render non-empty, but filtering the
+        // selected table to zero rows (`-t "NoSuchType*" -S Classes --fields Version`) empties
+        // the render and exposes it.
+        //
+        // By kind, because "valid somewhere" is too weak on its own: `Type` is a Classes COLUMN
+        // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
+        // unrelated section's column and silently succeed while printing nothing. `--fields` can
+        // only be satisfied by a field and `--columns` only by a column.
+        var wantedKind = options.Fields is { Length: > 0 } ? "field" : "column";
+        var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
+        var candidates = new List<string>();
+        foreach (var section in schema.SectionNames)
+        {
+            foreach (var item in schema.Discover(section) ?? [])
+            {
+                if (!string.Equals(item.Kind, wantedKind, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Name only, never StableName. The stable name is the schema's internal
+                // identifier and markout does not project by it -- `--fields Assembly`, the
+                // stable name of `Library`, renders nothing on base and on head. Accepting it
+                // here would let a name the user cannot actually project by satisfy the gate
+                // (found by MAI-Code). Of the whole schema only `Library`/`Assembly`,
+                // `TFM`/`Tfm`, and `Target Library`/`TargetLibrary` differ at all.
+                candidates.Add(item.Name);
+            }
+        }
+
+        // Matched by markout's own projection matcher rather than by set membership, because
+        // projection names may be wildcards: `--fields "Ver*"` legitimately selects `Version`,
+        // and an exact comparison rejects it (found by GPT-5.6). Collecting the wanted-kind
+        // names into a throwaway single-section schema is what lets markout answer "does this
+        // pattern match anything of this kind" -- reimplementing the glob here would be a second
+        // matcher that could drift from the one that actually performs the projection.
+        const string ProbeSection = "probe";
+        var probe = new DocumentSchema().Add(ProbeSection, wantedKind, [.. candidates]);
+        if (probe.ValidateProjection(ProbeSection, names).Resolved.Length > 0)
+            return true;
+
+        var kind = options.Fields is { Length: > 0 } ? "fields" : "columns";
+        CommandError.Write($"No {kind} matched projection: {string.Join(", ", names)}");
+        return false;
     }
 
     // ===== Method Source Resolution =====
@@ -666,7 +1003,7 @@ public class ApiCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
         }
     }
@@ -692,8 +1029,8 @@ public class ApiCommand
         var hint = suggestPayloadProjection
             ? " Use --tsv, --jsonl, or --table to project columns, or add --value/--print to project a payload."
             : " Use --tsv, --jsonl, or --table to project columns.";
-        Console.Error.WriteLine(
-            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+        CommandError.Write(
+            "--fields/--columns select table columns and cannot be combined with --json, "
             + "which renders the whole document." + hint);
         return 1;
     }
@@ -704,8 +1041,8 @@ public class ApiCommand
             : options.Value ? "--value"
             : options.Urls ? "--urls"
             : "--paths";
-        Console.Error.WriteLine(
-            $"Error: {flag} is not supported when listing types; the listing exposes no printable "
+        CommandError.Write(
+            $"{flag} is not supported when listing types; the listing exposes no printable "
             + "payload. Inspect a single type (for example `type <Name>`) to project a member payload.");
         return 1;
     }
@@ -933,7 +1270,7 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
-            var sw = new StringWriter();
+            var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -948,10 +1285,12 @@ public class ApiCommand
         {
             if (!TryGetBareApiPayload(view, options, out var raw, out var error))
             {
-                Console.Error.WriteLine(error);
+                CommandError.Write(error);
                 return 1;
             }
-            sink.WriteLine(raw.TrimEnd());
+            // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
+            // it with LF too so --bare stays byte-stable for machine consumers.
+            OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
             return 0;
         }
 
@@ -994,7 +1333,7 @@ public class ApiCommand
             }
             else
             {
-                var sw = new StringWriter();
+                var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
@@ -1006,15 +1345,15 @@ public class ApiCommand
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
                 }
-                else if (SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections))
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
                 {
                     var pipeline = ApiMemberSectionPipelines.Create(options);
                     markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
                 }
-                sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view);
         return 0;
     }
 
@@ -1051,7 +1390,7 @@ public class ApiCommand
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations or SectionNames.OriginalSource
                 or SectionNames.DecompiledSource or SectionNames.AnnotatedSource or SectionNames.SourceDiff or SectionNames.IL))
         {
-            Console.Error.WriteLine($"Error: section '{section}' is not printable.");
+            CommandError.Write($"section '{section}' is not printable.");
             return 1;
         }
 
@@ -1080,7 +1419,7 @@ public class ApiCommand
         if (rows.Count == 0
             && section is not (SectionNames.SourceFiles or SectionNames.SourceLocations))
         {
-            Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
+            CommandError.Write($"section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
         }
 
@@ -1193,13 +1532,13 @@ public class ApiCommand
         error = "";
         if (rows.Count == 0)
         {
-            error = "Error: selected section has no rows.";
+            error = "selected section has no rows.";
             return null;
         }
 
         if (selector is null && rows.Count != 1)
         {
-            error = $"Error: selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
+            error = $"selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
             return null;
         }
 
@@ -1208,14 +1547,14 @@ public class ApiCommand
         var position = RowNumbering.IndexOf(rowNumbers, targetRow);
         if (position < 0)
         {
-            error = $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
+            error = $"row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
             return null;
         }
 
         var selected = rows[position];
         if (string.IsNullOrWhiteSpace(selected.Url))
         {
-            error = $"Error: row {targetRow} has no printable document.";
+            error = $"row {targetRow} has no printable document.";
             return null;
         }
 
@@ -1230,7 +1569,7 @@ public class ApiCommand
         var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
         if (selection is not { } selectedRow)
         {
-            Console.Error.WriteLine(selectionError);
+            CommandError.Write(selectionError);
             return 1;
         }
 
@@ -1239,7 +1578,7 @@ public class ApiCommand
         var content = await fetcher.FetchSourceAsync(rawUrl);
         if (content == null)
         {
-            Console.Error.WriteLine($"Error: failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
+            CommandError.Write($"failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
             return 1;
         }
 
@@ -1269,7 +1608,7 @@ public class ApiCommand
 
         if (options.IncludeSections is not { Count: 1 } included)
         {
-            error = "Error: --bare requires exactly one -S section.";
+            error = "--bare requires exactly one -S section.";
             return false;
         }
 
@@ -1292,7 +1631,7 @@ public class ApiCommand
             return true;
 
         if (error.Length == 0)
-            error = "Error: --bare requires a single selected payload with content.";
+            error = "--bare requires a single selected payload with content.";
         return false;
     }
 
@@ -1307,7 +1646,7 @@ public class ApiCommand
         if (values.Count > 0)
             return string.Join('\n', values);
 
-        error = $"Error: --bare found no URL in section '{section}'.";
+        error = $"--bare found no URL in section '{section}'.";
         return "";
     }
 
@@ -1338,12 +1677,36 @@ public class ApiCommand
     /// <item>Column gate: <see cref="DiscoverOutput.FilterSchemaToRenderedColumns"/> renders the
     /// type at the active options and keeps only columns that appear, dropping columns the
     /// active options never surface and columns with no data
-    /// (e.g. Obsolete when no member is obsolete).</item>
+    /// (e.g. Obsolete when no member is obsolete). Sections in
+    /// <see cref="TypeFieldLayoutSections"/> are matched on rendered field rows instead, because
+    /// their table columns are literally "Field" and "Value".</item>
     /// </list>
     /// This keeps effective discovery consistent with what the user can actually query and see.
     /// </summary>
+    /// <summary>
+    /// Type-view sections rendered as a <c>Field</c>/<c>Value</c> fact table rather than one
+    /// column per schema item. Effective discovery must match these on rendered field rows, not
+    /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
+    /// </summary>
+    private static readonly HashSet<string> TypeFieldLayoutSections =
+        new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+
+    /// <summary>
+    /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be
+    /// carried in from the command that resolved it. Effective discovery needs it because
+    /// <c>Type Info</c> reports these as identity facts; without it the render manifest cannot
+    /// observe them and <c>-D</c> under-reports fields that <c>-S</c> visibly renders.
+    /// </summary>
+    internal sealed record TypeAcquisitionContext(
+        string? FoundIn,
+        string? PackageName,
+        string? PackageVersion,
+        string? ApiSource,
+        string? SelectedTfm);
+
     internal static int ExecuteEffectiveDiscovery(
-        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options)
+        ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
+        TypeAcquisitionContext? acquisition = null)
     {
         var fullSchema = GetTypeDocumentSchema(options);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
@@ -1356,7 +1719,7 @@ public class ApiCommand
                 ? [.. effective.Where(s => !unprobed.Contains(s))]
                 : [.. effective.Where(memberPipeline.GetCostAnnotations().ContainsKey)]
             : (IReadOnlyCollection<string>?)null;
-        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections);
+        var renderManifest = BuildTypeRenderManifest(filteredType, options, discoveryRenderSections, acquisition);
         // Unprobed sections may render empty and must be opt-in by policy, so the
         // normal opt-in annotation is sufficient and avoids double labels.
         var displayAnnotations = memberPipeline.GetCostAnnotations();
@@ -1376,7 +1739,8 @@ public class ApiCommand
             }
             queryEffective = effective.Where(keep.Contains).ToList();
         }
-        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(queryEffective, fullSchema, renderManifest);
+        var schema = DiscoverOutput.FilterSchemaToRenderedColumns(
+            queryEffective, fullSchema, renderManifest, TypeFieldLayoutSections);
         return DiscoverOutput.ExecuteEffective(options.Discover, queryEffective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
@@ -1391,7 +1755,7 @@ public class ApiCommand
     internal static string RenderTypeSectionsMarkdown(ApiType type, ApiOptions options, IReadOnlyCollection<string>? discoverySections = null)
     {
         var documents = BuildTypeRenderDocuments(type, options, discoverySections);
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         for (int i = 0; i < documents.Count; i++)
         {
             if (i > 0)
@@ -1413,10 +1777,11 @@ public class ApiCommand
     internal static RenderedSectionManifest BuildTypeRenderManifest(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections = null)
+        IReadOnlyCollection<string>? discoverySections = null,
+        TypeAcquisitionContext? acquisition = null)
     {
         var formatter = new RenderManifestFormatter(GetTypeDocumentSchema(options));
-        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections))
+        foreach (var document in BuildTypeRenderDocuments(type, options, discoverySections, acquisition))
         {
             formatter.BeginDocument(document.WriterOptions);
             var writer = new MarkoutWriter(TextWriter.Null, formatter, document.WriterOptions);
@@ -1430,23 +1795,25 @@ public class ApiCommand
     private static IReadOnlyList<TypeRenderDocument> BuildTypeRenderDocuments(
         ApiType type,
         ApiOptions options,
-        IReadOnlyCollection<string>? discoverySections)
+        IReadOnlyCollection<string>? discoverySections,
+        TypeAcquisitionContext? acquisition = null)
     {
         if (discoverySections is not { Count: > 0 })
-            return [BuildTypeRenderDocument(type, options)];
+            return [BuildTypeRenderDocument(type, options, acquisition)];
 
         return
         [
-            BuildTypeRenderDocument(type, options with { Discover = null }),
+            BuildTypeRenderDocument(type, options with { Discover = null }, acquisition),
             BuildTypeRenderDocument(type, options with
             {
                 Discover = null,
                 IncludeSections = new HashSet<string>(discoverySections, StringComparer.OrdinalIgnoreCase),
-            })
+            }, acquisition)
         ];
     }
 
-    private static TypeRenderDocument BuildTypeRenderDocument(ApiType type, ApiOptions options)
+    private static TypeRenderDocument BuildTypeRenderDocument(
+        ApiType type, ApiOptions options, TypeAcquisitionContext? acquisition = null)
     {
         var renderOptions = options with
         {
@@ -1471,7 +1838,9 @@ public class ApiCommand
             }
         }
 
-        var view = ApiOutputFormatter.BuildTypeView(type, null, null, null, null, null, renderOptions);
+        var view = ApiOutputFormatter.BuildTypeView(
+            type, acquisition?.FoundIn, acquisition?.PackageName, acquisition?.PackageVersion,
+            acquisition?.ApiSource, acquisition?.SelectedTfm, renderOptions);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
@@ -1724,6 +2093,7 @@ public class ApiCommand
                 Namespace = type.Namespace,
                 Name = type.Name,
                 MetadataName = type.MetadataName,
+                DefinitionName = type.DefinitionName,
                 Kind = type.Kind,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
@@ -1810,6 +2180,7 @@ public class ApiCommand
             Namespace = type.Namespace,
             Name = type.Name,
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Kind = type.Kind,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,

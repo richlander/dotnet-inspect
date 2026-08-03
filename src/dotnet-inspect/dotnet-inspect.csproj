@@ -9,13 +9,6 @@
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
-  <!-- Native AOT size optimizations (only apply when publishing with AOT) -->
-  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
-    <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <OptimizationPreference>Size</OptimizationPreference>
-  </PropertyGroup>
-
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
@@ -37,6 +30,23 @@
     <!-- Keep debug symbols (.pdb/.dbg and the macOS .dSYM bundle) out of the
          published tool package. -->
     <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <!-- Native AOT publish settings. This group must come after PublishAot is set
+       above: MSBuild evaluates properties top to bottom, so a group conditioned on
+       PublishAot that sits earlier in the file is silently inert for a plain
+       `dotnet publish -r <rid>` (where PublishAot comes from this file rather than
+       from a global property or OfficialAotBuild). -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Speed, not Size. Worth a measured 6-7% on real commands for about 9% more
+         binary size (issue #3675). The setting moves scalar codegen, which is what
+         this tool is: metadata walking is small reads, integer decoding and
+         dictionary lookups. Raising the x64 instruction-set baseline was measured
+         alongside it and deliberately not taken: it moves vectorized codegen
+         only, which is a null result here and would have cost pre-2013 hardware. -->
+    <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">

@@ -14,15 +14,23 @@ namespace ILInspector.Metadata;
 /// </summary>
 public sealed class AssemblyImage : IDisposable
 {
-    readonly Stream _stream;
+    readonly Stream? _stream;
+    readonly Action? _ensureLenderAlive;
+    readonly bool _ownsReader;
     bool _disposed;
 
     internal PEReader PEReader { get; }
 
-    AssemblyImage(Stream stream, PEReader peReader)
+    AssemblyImage(
+        Stream? stream,
+        PEReader peReader,
+        bool ownsReader,
+        Action? ensureLenderAlive = null)
     {
         _stream = stream;
         PEReader = peReader;
+        _ownsReader = ownsReader;
+        _ensureLenderAlive = ensureLenderAlive;
     }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
@@ -32,10 +40,57 @@ public sealed class AssemblyImage : IDisposable
     public static AssemblyImage Open(string path) => FromStream(File.OpenRead(path));
 
     /// <summary>
+    /// Wraps an image another component already opened, without taking ownership of it. Use this
+    /// to give the facet surface a second reader over the <em>same bytes</em> rather than a second
+    /// open of the same path: two opens of one path are two different files whenever the path is
+    /// retargeted between them, and the result mixes two assemblies while exiting zero.
+    ///
+    /// <paramref name="ensureLenderAlive"/> is the lender's liveness check, and it is load-bearing
+    /// rather than defensive. A borrow does not control its reader's lifetime, and its own
+    /// <c>_disposed</c> flag says nothing about the lender's. Most facets happen to fail loudly
+    /// anyway because the disposed <see cref="PEReader"/> throws, but a
+    /// <see cref="MethodBodySource"/> handed out <em>before</em> the lender was disposed holds
+    /// pointers into the unmapped image and reads freed memory: an
+    /// <see cref="AccessViolationException"/> that kills the process rather than an exception a
+    /// caller can map. Checking the lender is what turns that into
+    /// <see cref="ObjectDisposedException"/>.
+    ///
+    /// <see cref="Dispose"/> releases only the borrow.
+    ///
+    /// Gate: <c>BorrowedSession_FailsLoudlyAfterTheLenderIsDisposed</c>.
+    /// </summary>
+    internal static AssemblyImage Borrow(PEReader peReader, Action ensureLenderAlive)
+        => new(stream: null, peReader, ownsReader: false, ensureLenderAlive);
+
+    /// <summary>
     /// Opens an image from a resolved assembly reference, using its stream opener. This is the
     /// descriptor-based entry point that keeps callers off bare paths.
     /// </summary>
     public static AssemblyImage Open(ResolvedAssemblyReference reference) => FromStream(reference.OpenRead());
+
+    internal static AssemblyImage OpenPrefetched(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+            stream.Dispose();
+            return new AssemblyImage(
+                stream: null,
+                peReader,
+                ownsReader: true);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            stream.Dispose();
+            throw;
+        }
+    }
 
     static AssemblyImage FromStream(Stream stream)
     {
@@ -43,7 +98,10 @@ public sealed class AssemblyImage : IDisposable
         {
             // LeaveOpen: this AssemblyImage is the sole owner of the stream and disposes it
             // explicitly in Dispose(), so the PEReader must not also take ownership.
-            return new AssemblyImage(stream, new PEReader(stream, PEStreamOptions.LeaveOpen));
+            return new AssemblyImage(
+                stream,
+                new PEReader(stream, PEStreamOptions.LeaveOpen),
+                ownsReader: true);
         }
         catch
         {
@@ -55,14 +113,21 @@ public sealed class AssemblyImage : IDisposable
     internal MetadataReader GetMetadataReader() => PEReader.GetMetadataReader();
 
     internal void EnsureAlive()
-        => ObjectDisposedException.ThrowIf(_disposed, this);
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        // A borrow's own flag says nothing about whether the lender still holds the image open.
+        _ensureLenderAlive?.Invoke();
+    }
 
     public void Dispose()
     {
         if (_disposed)
             return;
         _disposed = true;
-        PEReader.Dispose();
-        _stream.Dispose();
+
+        if (_ownsReader)
+            PEReader.Dispose();
+        _stream?.Dispose();
     }
 }

@@ -4,6 +4,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
+using InertText;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 
@@ -104,15 +105,23 @@ public static class PackageExtractor
 
         while (true)
         {
-            var outcome = await DownloadAndExtractPackageAsync(
-                client,
-                currentPackageSource,
-                log,
-                tempDirPrefix,
-                sourceOptions,
-                currentVersion,
-                currentForceLatest,
-                currentIncludePrerelease).ConfigureAwait(false);
+            // Scoped per hop, not per acquisition: each hop resolves a different package id,
+            // and a source failure recorded while resolving one package must not be offered
+            // as the explanation for the next one going missing.
+            PackageExtractionOutcome outcome;
+            using (FeedFailureTelemetry.Scope())
+            {
+                outcome = await DownloadAndExtractPackageAsync(
+                    client,
+                    currentPackageSource,
+                    log,
+                    tempDirPrefix,
+                    sourceOptions,
+                    currentVersion,
+                    currentForceLatest,
+                    currentIncludePrerelease).ConfigureAwait(false);
+            }
+
             if (!outcome.IsSuccess)
                 return outcome;
 
@@ -225,7 +234,10 @@ public static class PackageExtractor
                 if (HttpClientFactory.IsOffline)
                     return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
 
-                return PackageExtractionOutcome.Error($"Package '{packageName}' not found.");
+                return PackageExtractionOutcome.Error(
+                    (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                        ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                        .ToString());
             }
         }
 
@@ -234,10 +246,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         var request = new PackageAcquisitionRequest(
-            Path.GetFullPath(
-                NuGetCache.GetPackageCachePath(
-                    normalizedName,
-                    normalizedVersion)));
+            $"{normalizedName}@{normalizedVersion}",
+            string.Join(
+                '|',
+                sources.Select(source => NuGetCache.GetSourceKey(source.Url))));
         return await s_packageRequests.GetOrAddAsync(
             request,
             _ => AcquireResolvedPackageAsync(
@@ -270,6 +282,7 @@ public static class PackageExtractor
         IPackageContent? cached = s_packageStore.TryGetCached(
             normalizedName,
             normalizedVersion,
+            NuGetSourceResolver.SourceKeys(sources),
             log);
         if (cached != null)
         {
@@ -289,7 +302,7 @@ public static class PackageExtractor
             string nupkgPath = Path.Combine(
                 tempDir,
                 $"{packageName}.{version}.nupkg");
-            string? successfulSource = null;
+            NuGetSource? successfulSource = null;
 
             foreach (var source in sources)
             {
@@ -312,12 +325,12 @@ public static class PackageExtractor
                         nupkgUrl,
                         nupkgPath,
                         log: log,
-                        auth: source.GetAuthHeader(),
+                        auth: NuGetCredentialScope.AuthFor(source, nupkgUrl, log),
                         trafficKind: NetworkTrafficKind.PackageDownload)
                         .ConfigureAwait(false);
                     if (ok)
                     {
-                        successfulSource = source.Name;
+                        successfulSource = source;
                         break;
                     }
                 }
@@ -340,14 +353,16 @@ public static class PackageExtractor
                 if (knownVersions == null || knownVersions.Count == 0)
                 {
                     return PackageExtractionOutcome.Error(
-                        $"Package '{packageName}' not found.");
+                        (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
+                            ?? InertString.Format(TextPolicy.Field, $"Package '{packageName}' not found."))
+                            .ToString());
                 }
 
                 return PackageExtractionOutcome.Error(
                     $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            log?.Invoke($"Package downloaded successfully from {successfulSource}.");
+            log?.Invoke($"Package downloaded successfully from {successfulSource.Name}.");
 
             // Persist the downloaded nupkg through the package store. The
             // filesystem store extracts and transactionally commits it to the
@@ -359,6 +374,7 @@ public static class PackageExtractor
                 content = await s_packageStore.CommitAsync(
                     packageName,
                     version,
+                    NuGetCache.GetSourceKey(successfulSource.Url),
                     nupkgStream).ConfigureAwait(false);
             }
             log?.Invoke($"Cached to: {content.RootPath}");
@@ -402,7 +418,14 @@ public static class PackageExtractor
         }
     }
 
-    private readonly record struct PackageAcquisitionRequest(string CachePath);
+    /// <summary>
+    /// Identifies one in-flight acquisition. The source scope is part of the
+    /// identity, not just the coordinate: callers configured for different
+    /// sources must not share a download, or one would receive bytes the other
+    /// was entitled to. Callers with the same ordered source list resolve
+    /// identically and can safely share.
+    /// </summary>
+    private readonly record struct PackageAcquisitionRequest(string CachePath, string SourceScope);
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.
@@ -478,7 +501,10 @@ public static class PackageExtractor
         string normalizedVersion = version.ToLowerInvariant();
 
         // Cache hit: read the nuspec straight from the already-extracted package.
-        var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+        var cachedPath = NuGetCache.TryGetCachedPackage(
+            normalizedName,
+            normalizedVersion,
+            NuGetSourceResolver.ResolveSourceKeys(sourceOptions));
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             var cachedNuspec = Directory
@@ -497,7 +523,7 @@ public static class PackageExtractor
             try
             {
                 var xml = await HttpRetryHelper.GetStringWithRetryAsync(
-                    client, url, log: log, auth: source.GetAuthHeader(),
+                    client, url, log: log, auth: NuGetCredentialScope.AuthFor(source, url, log),
                     trafficKind: NetworkTrafficKind.PackageManifest).ConfigureAwait(false);
                 if (xml != null)
                     return xml;
@@ -524,9 +550,32 @@ public static class PackageExtractor
     /// <summary>
     /// Discovers the PackageBaseAddress (flat-container) endpoint from a V3 service index.
     /// </summary>
-    private static async Task<string?> GetPackageBaseAddressAsync(
+    private static Task<string?> GetPackageBaseAddressAsync(
         HttpClient client,
         NuGetSource source,
+        Action<string>? log)
+        => GetServiceIndexResourceAsync(client, source, "PackageBaseAddress", log);
+
+    /// <summary>
+    /// Discovers the SearchQueryService endpoint from a V3 service index. Returns null when the
+    /// source is not an HTTP feed, its service index cannot be read, or it advertises no search
+    /// resource (a valid state — flat-container-only feeds exist and simply cannot be searched).
+    /// </summary>
+    public static Task<string?> GetSearchQueryServiceAsync(
+        HttpClient client,
+        NuGetSource source,
+        Action<string>? log = null)
+        => GetServiceIndexResourceAsync(client, source, "SearchQueryService", log);
+
+    /// <summary>
+    /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose
+    /// <c>@type</c> starts with <paramref name="resourceTypePrefix"/>. Service-index types are
+    /// versioned by suffix (<c>SearchQueryService/3.5.0</c>), so matching is by prefix.
+    /// </summary>
+    private static async Task<string?> GetServiceIndexResourceAsync(
+        HttpClient client,
+        NuGetSource source,
+        string resourceTypePrefix,
         Action<string>? log)
     {
         // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
@@ -553,7 +602,7 @@ public static class PackageExtractor
         log?.Invoke($"Querying service index: {indexUrl}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
-            client, indexUrl, auth: source.GetAuthHeader(),
+            client, indexUrl, auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
         if (json == null)
             return null;
@@ -566,7 +615,7 @@ public static class PackageExtractor
             foreach (var resource in resources.EnumerateArray())
             {
                 var type = resource.GetProperty("@type").GetString();
-                if (type != null && type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
+                if (type != null && type.StartsWith(resourceTypePrefix, StringComparison.OrdinalIgnoreCase))
                 {
                     return resource.GetProperty("@id").GetString();
                 }
@@ -670,38 +719,70 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         string cacheKey = includePrerelease ? $"{normalizedName}-prerelease" : normalizedName;
 
-        // Cache nuget.org results even when additional custom sources are configured.
+        // Cache nuget.org results even when additional custom sources are configured. The cached
+        // value is nuget.org's own latest, not the overall answer: only nuget.org results are ever
+        // written here, so a hit lets that one source be answered without a request while the
+        // remaining sources are still consulted.
         bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
+        string? cachedNuGetOrgVersion = null;
         if (canCache)
         {
-            string? cached;
             using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList))
             {
-                cached = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
+                cachedNuGetOrgVersion = CoreCache.TryGet(VersionCacheCategory, cacheKey, VersionCacheTtl, extension: "txt");
             }
-            if (cached != null)
-            {
-                log?.Invoke($"Using cached version: {cached}");
-                return cached;
-            }
+            if (cachedNuGetOrgVersion != null)
+                log?.Invoke($"Using cached version: {cachedNuGetOrgVersion}");
         }
+
+        // Every source is consulted and the highest version wins. Source order does not decide the
+        // answer: a feed carries the versions nuget.org does not have, and those are usually the
+        // higher ones, so stopping at the first source that happened to know the package would hide
+        // them whenever nuget.org is listed first -- which is the usual way to write a nuget.config.
+        // This matches GetVersionsAsync and ResolveVersionPatternAsync, which already aggregate, and
+        // it matches NuGet itself, where source order is not precedence (that is what package source
+        // mapping is for).
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestOriginal = null;
 
         foreach (var source in sources)
         {
-            var version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
-            if (version != null)
+            string? version;
+            if (source.IsNuGetOrg && cachedNuGetOrgVersion != null)
             {
-                if (canCache && source.IsNuGetOrg)
+                version = cachedNuGetOrgVersion;
+            }
+            else
+            {
+                version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
+                if (version != null && canCache && source.IsNuGetOrg)
                 {
                     using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
                     CoreCache.Set(VersionCacheCategory, cacheKey, version, extension: "txt");
                 }
-                return version;
+            }
+
+            if (version == null)
+                continue;
+
+            if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+            {
+                if (best == null || parsed > best)
+                {
+                    best = parsed;
+                    bestOriginal = version;
+                }
+            }
+            else if (bestOriginal == null)
+            {
+                // Unparseable version strings cannot be ordered; keep the first as a last resort so
+                // an odd feed still yields an answer rather than none.
+                bestOriginal = version;
             }
         }
 
-        return null;
+        return bestOriginal;
     }
 
     /// <summary>
@@ -764,14 +845,12 @@ public static class PackageExtractor
         NuGetSource source,
         Action<string>? log)
     {
-        var auth = source.GetAuthHeader();
-
         // Try flat-container index first
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -784,7 +863,7 @@ public static class PackageExtractor
                 baseAddress += "/";
 
             string indexUrl = $"{baseAddress}{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, auth).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -994,8 +1073,6 @@ public static class PackageExtractor
         Action<string>? log,
         bool includePrerelease)
     {
-        var auth = source.GetAuthHeader();
-
         // For nuget.org, use the search API — returns latest version directly without listing all versions
         if (source.IsNuGetOrg && !includePrerelease)
         {
@@ -1026,7 +1103,7 @@ public static class PackageExtractor
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -1041,7 +1118,7 @@ public static class PackageExtractor
             string indexUrl = $"{baseAddress}{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, auth, includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -1265,23 +1342,155 @@ public static class PackageExtractor
         return ([.. parseable.Select(p => p.Original), .. unparseable], authoritative);
     }
 
+    /// <summary>
+    /// Lists versions together with the feed each one came from, newest version first.
+    /// </summary>
+    /// <remarks>
+    /// A version carried by more than one feed produces one row per feed, in source order, so that
+    /// duplication across feeds is visible rather than silently collapsed. This is the only way to
+    /// see that two feeds both publish a given version, which matters because the rest of the tool
+    /// identifies a package by name and version alone.
+    /// <para>
+    /// Listing status is applied per feed rather than merged, so a version unlisted on nuget.org
+    /// but also carried by a private feed is hidden for the nuget.org row and shown for the private
+    /// one. The merged views cannot express that split and report such a version as listed.
+    /// </para>
+    /// </remarks>
+    /// <param name="limit">Maximum number of distinct versions, not rows. A limit of 3 returns the
+    /// newest three versions along with every feed that carries them.</param>
+    public static async Task<List<PackageVersionSourceInfo>?> GetVersionListingsWithSourceAsync(
+        HttpClient client, string packageName, bool includePrerelease, bool includeUnlisted,
+        int? limit, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        var perSource = await FetchListingsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (perSource == null)
+            return null;
+
+        // Feeds that carry each version, keeping source order and dropping duplicates within a
+        // single feed. Identity is the source URL, because a source requested on the command line
+        // that matches nothing in configuration is named "explicit", and every such source shares
+        // that name — two of them would otherwise collapse into one row.
+        var labels = BuildFeedLabels(perSource.Select(p => p.Source).ToList());
+        var rowsByVersion = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (source, listings) in perSource)
+        {
+            string label = labels[source.Url];
+            foreach (var listing in listings)
+            {
+                if (!includePrerelease && listing.Version.Contains('-', StringComparison.Ordinal))
+                    continue;
+                if (!includeUnlisted && !listing.Listed)
+                    continue;
+
+                if (!rowsByVersion.TryGetValue(listing.Version, out var rows))
+                {
+                    rows = [];
+                    rowsByVersion[listing.Version] = rows;
+                }
+
+                if (!rows.Any(r => string.Equals(r.Feed, label, StringComparison.Ordinal)))
+                    rows.Add(new PackageVersionSourceInfo(listing.Version, label, listing.Listed));
+            }
+        }
+
+        var parseable = new List<(NuGet.Versioning.NuGetVersion Parsed, string Original)>();
+        var unparseable = new List<string>();
+        foreach (string version in rowsByVersion.Keys)
+        {
+            if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+                parseable.Add((parsed, version));
+            else
+                unparseable.Add(version);
+        }
+
+        parseable.Sort((a, b) => b.Parsed.CompareTo(a.Parsed));
+
+        List<PackageVersionSourceInfo> result = [];
+        int versionCount = 0;
+        foreach (string version in parseable.Select(p => p.Original).Concat(unparseable))
+        {
+            if (limit.HasValue && versionCount >= limit.Value)
+                break;
+
+            versionCount++;
+            result.AddRange(rowsByVersion[version]);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Chooses a short, unambiguous label for each source, keyed by source URL.
+    /// </summary>
+    /// <remarks>
+    /// Configured sources have useful names, but a source named on the command line that matches
+    /// nothing in configuration is called "explicit", and every such source shares that name. A
+    /// label must distinguish feeds, so the name is used only when it is meaningful, the host is
+    /// used otherwise, and the full URL is used when even that would collide.
+    /// </remarks>
+    private static Dictionary<string, string> BuildFeedLabels(List<NuGetSource> sources)
+    {
+        static string Candidate(NuGetSource source)
+        {
+            if (!string.IsNullOrEmpty(source.Name)
+                && !string.Equals(source.Name, "explicit", StringComparison.Ordinal))
+            {
+                return source.Name;
+            }
+
+            if (source.IsNuGetOrg)
+                return "nuget.org";
+
+            return Uri.TryCreate(source.Url, UriKind.Absolute, out var uri) ? uri.Host : source.Url;
+        }
+
+        var byUrl = new Dictionary<string, string>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var source in sources)
+        {
+            if (byUrl.ContainsKey(source.Url))
+                continue;
+
+            string candidate = Candidate(source);
+            byUrl[source.Url] = candidate;
+            counts[candidate] = counts.GetValueOrDefault(candidate) + 1;
+        }
+
+        foreach (var source in sources)
+        {
+            if (byUrl.TryGetValue(source.Url, out var candidate) && counts[candidate] > 1)
+                byUrl[source.Url] = source.Url;
+        }
+
+        return byUrl;
+    }
+
     private const string ListingsCacheSuffix = "-listings";
 
     /// <summary>
-    /// Produces the full annotated version list (listed and unlisted) across sources, ascending by
-    /// SemVer. Mirrors <see cref="GetAllVersionsWithCacheAsync"/> but carries the listing bit. Only
-    /// nuget.org's own annotated list is cached (keyed by package name); private feeds are always
-    /// re-queried. A version listed on any source is reported as listed.
+    /// Runs the per-source listing fetch once, preserving which source produced each list.
+    /// Callers that only need the union merge the result; callers that report provenance keep it.
+    /// Only nuget.org's own annotated list is cached (keyed by package name); private feeds are
+    /// always re-queried, so a version present only on a secondary feed is never missed.
     /// </summary>
-    private static async Task<List<PackageVersionInfo>?> GetAllVersionListingsWithCacheAsync(
+    /// <returns>
+    /// One entry per source that produced a list, in source order, or <see langword="null"/> when
+    /// no source carried the package at all.
+    /// </returns>
+    private static async Task<List<(NuGetSource Source, List<PackageVersionInfo> Listings)>?> FetchListingsPerSourceAsync(
         HttpClient client,
         string normalizedName,
         List<NuGetSource> sources,
         Action<string>? log)
     {
         bool canCacheNuGetOrg = sources.Any(s => s.IsNuGetOrg);
-        var merged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        bool anyFound = false;
+        var perSource = new List<(NuGetSource Source, List<PackageVersionInfo> Listings)>();
 
         foreach (var source in sources)
         {
@@ -1303,14 +1512,7 @@ public static class PackageExtractor
             if (listings == null)
                 continue;
 
-            anyFound = true;
-            foreach (var listing in listings)
-            {
-                // A version listed on any source counts as listed.
-                merged[listing.Version] = merged.TryGetValue(listing.Version, out var existing)
-                    ? existing || listing.Listed
-                    : listing.Listed;
-            }
+            perSource.Add((source, listings));
 
             // Only cache a freshly fetched, authoritatively annotated list: a fail-open snapshot
             // taken while the registration index was unavailable marks every version listed, so
@@ -1320,8 +1522,36 @@ public static class PackageExtractor
                 CoreCache.Set(VersionCacheCategory, $"{normalizedName}{ListingsCacheSuffix}", SerializeListings(listings), extension: "txt");
         }
 
-        if (!anyFound)
+        return perSource.Count == 0 ? null : perSource;
+    }
+
+    /// <summary>
+    /// Produces the full annotated version list (listed and unlisted) across sources, ascending by
+    /// SemVer. Mirrors <see cref="GetAllVersionsWithCacheAsync"/> but carries the listing bit. Only
+    /// nuget.org's own annotated list is cached (keyed by package name); private feeds are always
+    /// re-queried. A version listed on any source is reported as listed.
+    /// </summary>
+    private static async Task<List<PackageVersionInfo>?> GetAllVersionListingsWithCacheAsync(
+        HttpClient client,
+        string normalizedName,
+        List<NuGetSource> sources,
+        Action<string>? log)
+    {
+        var perSource = await FetchListingsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (perSource == null)
             return null;
+
+        var merged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, listings) in perSource)
+        {
+            foreach (var listing in listings)
+            {
+                // A version listed on any source counts as listed.
+                merged[listing.Version] = merged.TryGetValue(listing.Version, out var existing)
+                    ? existing || listing.Listed
+                    : listing.Listed;
+            }
+        }
 
         // Sort ascending by SemVer (newest last); unparseable entries sort last.
         var parseable = new List<(NuGet.Versioning.NuGetVersion Parsed, PackageVersionInfo Info)>();

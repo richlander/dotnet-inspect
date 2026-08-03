@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Metadata;
+using ILInspector.Text;
 
 namespace ILInspector.CSharp;
 
@@ -112,18 +113,18 @@ public sealed class CSharpTypePrinter
     {
         var sb = new System.Text.StringBuilder();
         if (options.EmitPragmaWarningDisable)
-            sb.AppendLine("#pragma warning disable");
+            sb.AppendLf("#pragma warning disable");
         foreach (var attribute in options.AssemblyAttributes)
-            sb.AppendLine($"[assembly: {attribute}]");
+            sb.AppendLf($"[assembly: {attribute}]");
         foreach (var attribute in options.ModuleAttributes)
-            sb.AppendLine($"[module: {attribute}]");
+            sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {
             foreach (var ns in options.Usings.Concat(derivedUsings).Select(CSharpFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                sb.AppendLine($"using {ns};");
+                sb.AppendLf($"using {ns};");
         }
         foreach (var unit in units)
-            sb.AppendLine(unit.Source);
+            sb.AppendLf(unit.Source);
 
         return sb.ToString();
     }
@@ -546,6 +547,7 @@ public sealed class CSharpTypePrinter
             Namespace = type.Namespace,
             Name = type.Name,
             MetadataName = type.MetadataName,
+            DefinitionName = type.DefinitionName,
             Accessibility = type.Accessibility,
             Kind = type.Kind,
             Attributes = attributes?.ToList()!,
@@ -618,7 +620,11 @@ public sealed class CSharpTypePrinter
             Name = parameter.Name,
             Variance = parameter.Variance,
             Constraints = constraints?.ToList()!,
-            StructuredConstraints = parameter.StructuredConstraints
+            StructuredConstraints = parameter.StructuredConstraints,
+            // Carried like StructuredConstraints: the snapshot feeds the declaration
+            // writer, which cannot restate the constraint an inheriting member requires
+            // without it, and losing it renders an override that does not compile.
+            TypeKind = parameter.TypeKind
         };
     }
 
