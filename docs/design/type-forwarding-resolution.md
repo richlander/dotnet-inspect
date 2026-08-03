@@ -6,15 +6,16 @@
 
 ## Status
 
-Design and staged implementation plan for replacing the current collection of
+Design and staged implementation plan for replacing the former collection of
 type-forwarder helpers and spelling-based caller matching with one structured
 reference-to-definition system.
 
-The first implementation slice provides the structured lookup name, validated
-row tokens, closed declaration outcomes, and bounded single-image metadata
-probe. It migrates no production caller. That boundary follows the
-primitive-first approach used by `InertString` in
-[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish the
+Slices 1 through 4 are implemented: declaration, acquisition, resolution,
+definition consumers, source/API consumers, platform lookup, and facade
+classification now use structured contracts. Direct caller correspondence and
+graph cleanup remain. The delivery continues to follow the primitive-first
+approach used by `InertString` in
+[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
 ## The problem
@@ -2312,11 +2313,12 @@ Source and API consumers receive `ResolvedAssemblyReference` or
 - `SourceEnricher` and `SourceFileCollector` do not construct sibling paths.
 - `ApiServices.ResolveForwardedTypes` resolves each structured type through the
   engine and opens the returned descriptor.
-- `PlatformResolver.FindLibraryContainingType` becomes a typed platform-catalog
+- The former `PlatformResolver.FindLibraryContainingType` is replaced by a
+  typed platform-catalog
   query. Its trusted ref-pack index returns all defining and forwarding
   candidates deterministically; explicit platform source policy selects one or
   reports ambiguity. It never returns a first-enumerated simple-name string.
-- `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
+- The former `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
   classification that consumes typed declaration inventory. Classification is
   not cross-assembly resolution, but Services may not interpret raw forwarder
   rows after the architecture gate lands.
@@ -2512,6 +2514,13 @@ This slice lands as two independently complete consumer migrations:
   `LibraryMetadataService`, and `RouterCommandDefinition`; replace
   `PlatformResolver.FindLibraryContainingType` with the typed platform catalog
   and move `IsFacadeOnlyAssembly` to Metadata-owned classification.
+
+Both 4a and 4b are delivered. The platform catalog retains structured names,
+declaration kind, assembly identity, provenance, and descriptors; its explicit
+policy prefers definitions and reports multiple preferred candidates as
+ambiguity. Surface classification is derived from the same Metadata-produced
+declaration inventory and projects rejection as a failed Finding rather than a
+non-facade answer.
 
 Claim: forwarded source and API resolution consume descriptors and cannot turn
 an inspected assembly name into a path.

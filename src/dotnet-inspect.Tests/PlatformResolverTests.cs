@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using DotnetInspector.Services;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -173,7 +174,7 @@ public class PlatformResolverTests
     }
 
     [Fact]
-    public void IsFacadeOnlyAssembly_UnsafeFacade_ReturnsTrue()
+    public void ClassifyAssemblySurface_UnsafeFacade_ReturnsFacade()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
         if (assemblyPath == null || error != null)
@@ -182,11 +183,18 @@ public class PlatformResolverTests
             return;
         }
 
-        Assert.True(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        var classified = Assert.IsType<
+            AssemblySurfaceClassificationOutcome.Classified>(
+                PlatformResolver.ClassifyAssemblySurface(assemblyPath));
+        Assert.Equal(
+            AssemblySurfaceKind.Facade,
+            classified.Classification.Kind);
+        Assert.True(classified.Classification.ForwarderCount > 0);
+        Assert.Equal(0, classified.Classification.MeaningfulPublicTypeCount);
     }
 
     [Fact]
-    public void IsFacadeOnlyAssembly_SystemTextJson_ReturnsFalse()
+    public void ClassifyAssemblySurface_SystemTextJson_ReturnsImplementation()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
         if (assemblyPath == null || error != null)
@@ -195,7 +203,91 @@ public class PlatformResolverTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        var classified = Assert.IsType<
+            AssemblySurfaceClassificationOutcome.Classified>(
+                PlatformResolver.ClassifyAssemblySurface(assemblyPath));
+        Assert.Equal(
+            AssemblySurfaceKind.Implementation,
+            classified.Classification.Kind);
+        Assert.True(
+            classified.Classification.MeaningfulPublicTypeCount > 0);
+    }
+
+    [Theory]
+    [InlineData("Dictionary<TKey,TValue>", "System.Collections")]
+    [InlineData("System.Collections.Generic.Dictionary`2", "System.Collections")]
+    [InlineData("FrozenDictionary", "System.Collections.Immutable")]
+    [InlineData("int", "System.Runtime")]
+    public void LookupType_ResolvesDefinitionDeterministically(
+        string pattern,
+        string expectedAssembly)
+    {
+        var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupType(pattern));
+
+        Assert.Equal(
+            expectedAssembly,
+            resolved.Candidate.Assembly.Identity.Name);
+        Assert.Equal(
+            PlatformTypeDeclarationKind.Definition,
+            resolved.Candidate.DeclarationKind);
+    }
+
+    [Fact]
+    public void LookupType_MissingPattern_ReturnsMissing()
+    {
+        Assert.IsType<PlatformTypeLookupOutcome.Missing>(
+            PlatformResolver.LookupType(
+                $"Definitely.Missing.Type{Guid.NewGuid():N}"));
+    }
+
+    [Fact]
+    public void LookupType_UnqualifiedCollision_ReturnsOrderedAmbiguity()
+    {
+        var ambiguous = Assert.IsType<PlatformTypeLookupOutcome.Ambiguous>(
+            PlatformResolver.LookupType("Enumerator"));
+
+        Assert.True(ambiguous.Candidates.Length > 1);
+        Assert.Equal(
+            ambiguous.Candidates
+                .OrderBy(
+                    candidate => candidate.Assembly.Identity.Name,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    candidate => candidate.Type.ToMetadataFullName(),
+                    StringComparer.Ordinal)
+                .ThenBy(candidate => candidate.DeclarationKind)
+                .ThenBy(
+                    candidate => candidate.Assembly.Path,
+                    StringComparer.Ordinal),
+            ambiguous.Candidates);
+    }
+
+    [Fact]
+    public void LookupType_NestedSeparatorsAreEquivalent()
+    {
+        var dotted = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupType(
+                "System.Collections.Generic.Dictionary`2.Enumerator"));
+        var plus = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupType(
+                "System.Collections.Generic.Dictionary`2+Enumerator"));
+
+        Assert.Equal(dotted.Candidate.Type, plus.Candidate.Type);
+        Assert.Equal(
+            "System.Collections",
+            plus.Candidate.Assembly.Identity.Name);
+    }
+
+    [Fact]
+    public void LookupType_EmptyPattern_ReturnsRejected()
+    {
+        var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+            PlatformResolver.LookupType(""));
+
+        Assert.Equal(
+            PlatformTypeLookupFailureKind.InvalidPattern,
+            rejected.Failure.Kind);
     }
 
     [Fact]

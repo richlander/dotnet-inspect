@@ -111,6 +111,28 @@ public class SourceResolverTests
     }
 
     [Fact]
+    public void TryResolveQualifiedTypeName_AmbiguousCatalogFallbackReportsFailure()
+    {
+        var (assemblyPath, _, _, error) =
+            PlatformResolver.ResolveAssembly("System.Numerics");
+        if (assemblyPath == null || error != null)
+        {
+            Assert.Skip($"System.Numerics not available: {error}");
+            return;
+        }
+
+        string? failure = null;
+        var probe = SourceResolver.TryResolveQualifiedTypeName(
+            "System.Numerics.Enumerator",
+            NoSourceKeys,
+            allowPlatformPrefixFallback: true,
+            message => failure = message);
+
+        Assert.Null(probe);
+        Assert.Contains("ambiguous", failure, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ResolveAsync_PackageTypeSyntax_DoesNotUseRootPlatformFallback()
     {
         var source = await SourceResolver.ResolveAsync(
