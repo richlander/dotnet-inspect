@@ -1,19 +1,7 @@
 using System.Diagnostics;
 
-string[] outputs =
-[
-    "code",
-    "csharpdiff",
-    "decompiler",
-    "docs",
-    "ildiff",
-    "ilroundtrip",
-    "packaging",
-    "shipped",
-];
-
 string repository = Environment.CurrentDirectory;
-string body = LoadDetectionBody(repository, outputs);
+(string body, string[] outputs) = LoadDetectionBody(repository);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
@@ -74,9 +62,7 @@ AssertDetectionFails(
 
 Console.WriteLine("CI change detection fail-safe and path canaries passed.");
 
-static string LoadDetectionBody(
-    string repository,
-    IReadOnlyCollection<string> expectedOutputs)
+static (string Body, string[] Outputs) LoadDetectionBody(string repository)
 {
     string workflow = Path.Combine(repository, ".github", "workflows", "ci.yml");
     string[] lines = File.ReadAllLines(workflow);
@@ -106,15 +92,47 @@ static string LoadDetectionBody(
         "outputs:",
         "jobs.changes.outputs");
     int outputsEnd = FindBlockEnd(lines, outputsLine, 4);
-    foreach (string name in expectedOutputs)
+    List<string> declaredOutputs = [];
+    for (int index = outputsLine + 1; index < outputsEnd; index++)
     {
-        FindUniqueDirectLine(
-            lines,
-            outputsLine + 1,
-            outputsEnd,
-            6,
-            name + ": ${{ steps.filter.outputs." + name + " }}",
-            $"jobs.changes.outputs.{name} binding");
+        string line = lines[index];
+        string trimmed = line.Trim();
+        if (trimmed.Length == 0 ||
+            trimmed.StartsWith('#') ||
+            CountIndent(line) != 6)
+        {
+            continue;
+        }
+
+        int separator = trimmed.IndexOf(':');
+        if (separator <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Invalid jobs.changes output on workflow line {index + 1}.");
+        }
+
+        string name = trimmed[..separator];
+        string expectedBinding =
+            name + ": ${{ steps.filter.outputs." + name + " }}";
+        if (trimmed != expectedBinding)
+        {
+            throw new InvalidOperationException(
+                $"Invalid jobs.changes.outputs.{name} binding.");
+        }
+
+        if (declaredOutputs.Contains(name, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Duplicate jobs.changes output: {name}.");
+        }
+
+        declaredOutputs.Add(name);
+    }
+
+    if (declaredOutputs.Count == 0)
+    {
+        throw new InvalidOperationException(
+            "jobs.changes must declare at least one output.");
     }
 
     int stepsLine = FindUniqueDirectLine(
@@ -194,7 +212,7 @@ static string LoadDetectionBody(
         throw new InvalidOperationException("Detect changes has an empty run block.");
     }
 
-    return string.Join('\n', body);
+    return (string.Join('\n', body), declaredOutputs.ToArray());
 }
 
 static Dictionary<string, string> RunDetection(
