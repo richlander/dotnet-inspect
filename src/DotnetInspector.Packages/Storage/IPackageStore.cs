@@ -27,7 +27,7 @@ public interface IPackageStore
     IPackageContent? TryGetCached(
         string packageName,
         string version,
-        IReadOnlyCollection<string>? allowedSourceKeys,
+        IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null);
 
     /// <summary>
@@ -51,5 +51,5 @@ public interface IPackageStore
     /// </summary>
     string? TryGetLatestCachedVersion(
         string packageName,
-        IReadOnlyCollection<string>? allowedSourceKeys);
+        IReadOnlyList<string>? allowedSourceKeys);
 }

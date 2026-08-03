@@ -133,15 +133,17 @@ public static class NuGetCache
     /// <param name="version">The package version</param>
     /// <param name="allowedSourceKeys">
     /// Keys (per <see cref="GetSourceKey"/>) of the sources the caller is
-    /// currently configured to read from. Cached content committed by a source
-    /// outside this set is treated as a miss. Pass <see langword="null"/> only
-    /// for content that was never attributed to a source.
+    /// currently configured to read from, in configured order. Cached content
+    /// committed by a source outside this set is treated as a miss. Order
+    /// matters: slots are consulted in it, so a higher-precedence source's
+    /// cached copy answers ahead of a lower one's, matching the order a cold
+    /// run would have tried the feeds in.
     /// </param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
     public static string? TryGetCachedPackage(
         string packageName,
         string version,
-        IReadOnlyCollection<string>? allowedSourceKeys)
+        IReadOnlyList<string>? allowedSourceKeys)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -168,9 +170,9 @@ public static class NuGetCache
 
         // Check app cache. A read happens before the tool knows which source
         // would serve the package, so it asks every source the caller is
-        // currently configured to read from. A slot belonging to any other
-        // source is not consulted: those bytes were fetched under an authority
-        // this caller no longer claims.
+        // currently configured to read from, in configured order. A slot
+        // belonging to any other source is not consulted: those bytes were
+        // fetched under an authority this caller no longer claims.
         var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
@@ -372,7 +374,7 @@ public static class NuGetCache
     /// </summary>
     public static string? TryGetLatestCachedVersion(
         string packageName,
-        IReadOnlyCollection<string>? allowedSourceKeys)
+        IReadOnlyList<string>? allowedSourceKeys)
     {
         var normalizedName = packageName.ToLowerInvariant();
 
@@ -528,11 +530,11 @@ public static class NuGetCache
     /// the cache can already see which packages were fetched. Protecting feed
     /// identity from a local reader would require cache permissions, not a hash.
     ///
-    /// Only scheme and host are case-insensitive. Path and query are compared
-    /// as written, because <c>/FeedA</c> and <c>/feeda</c> are different feeds
-    /// on a case-sensitive server — the same reason
-    /// <c>NuGetSourceResolver.FindConfiguredSourceFor</c> refuses to match
-    /// whole URLs case-insensitively.
+    /// Canonicalization is delegated to
+    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/> so a source has
+    /// one identity across the tool. Two feeds that method holds apart — such as
+    /// <c>/FeedA</c> and <c>/feeda</c>, which a case-sensitive server may serve
+    /// differently — get separate cache slots.
     /// </remarks>
     /// <param name="sourceUrl">The source URL, or a local folder path.</param>
     /// <returns>A short hex digest identifying the source.</returns>
@@ -546,19 +548,16 @@ public static class NuGetCache
 
         if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !uri.IsFile)
         {
-            // Scheme and host are case-insensitive by definition; the rest is
-            // not. A trailing slash is not a distinction any feed makes.
-            var origin = $"{uri.Scheme.ToLowerInvariant()}://{uri.Authority.ToLowerInvariant()}";
-            var rest = uri.GetComponents(
-                UriComponents.Path | UriComponents.Query,
-                UriFormat.UriEscaped);
-            normalized = $"{origin}/{rest}".TrimEnd('/');
+            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
         }
         else
         {
             // A local folder source. Resolve it so a relative and an absolute
-            // spelling of one directory share a slot, and respect the
-            // platform's own case rules rather than assuming.
+            // spelling of one directory share a slot. Case is preserved on
+            // every platform: case-insensitive volumes exist on all of them and
+            // case-sensitive ones do too, so the running OS does not answer
+            // whether two spellings name one directory. A spare slot costs a
+            // duplicate download; a folded one serves another directory's bytes.
             string resolved;
             try
             {
@@ -573,8 +572,8 @@ public static class NuGetCache
                 resolved = trimmed;
             }
 
-            resolved = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            normalized = OperatingSystem.IsLinux() ? resolved : resolved.ToLowerInvariant();
+            normalized = resolved.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));

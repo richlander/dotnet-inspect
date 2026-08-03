@@ -16,7 +16,7 @@ public sealed class FileSystemPackageStore : IPackageStore
     public IPackageContent? TryGetCached(
         string packageName,
         string version,
-        IReadOnlyCollection<string>? allowedSourceKeys,
+        IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
@@ -103,7 +103,7 @@ public sealed class FileSystemPackageStore : IPackageStore
     /// <inheritdoc />
     public string? TryGetLatestCachedVersion(
         string packageName,
-        IReadOnlyCollection<string>? allowedSourceKeys)
+        IReadOnlyList<string>? allowedSourceKeys)
         => NuGetCache.TryGetLatestCachedVersion(packageName, allowedSourceKeys);
 
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)

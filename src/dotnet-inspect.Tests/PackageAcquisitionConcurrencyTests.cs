@@ -558,6 +558,61 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void TryGetCachedPackage_PrefersTheHigherPrecedenceSourcesCopy()
+    {
+        // When two configured feeds both have the coordinate cached, the read
+        // must answer from the one a cold run would have downloaded from —
+        // the first in configured order. Consulting slots in an undefined
+        // order (a set rather than a list) would let cache layout decide which
+        // feed's bytes get inspected, which is the confusion this scoping
+        // exists to prevent, just moved from across configs to within one.
+        string packageName = $"precedence.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string firstKey = NuGetCache.GetSourceKey("https://feed-first.invalid/v3/index.json");
+        string secondKey = NuGetCache.GetSourceKey("https://feed-second.invalid/v3/index.json");
+
+        NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "precedence-first"), packageName, "first", payloadCount: 1),
+            nupkgPath: null, packageName, Version, firstKey);
+        NuGetCache.CommitPackage(
+            CreateExtractedPackage(
+                Path.Combine(_testRoot, "precedence-second"), packageName, "second", payloadCount: 1),
+            nupkgPath: null, packageName, Version, secondKey);
+
+        // Whichever source is listed first answers, regardless of which was
+        // cached first.
+        Assert.Equal(
+            firstKey,
+            Path.GetFileName(NuGetCache.TryGetCachedPackage(packageName, Version, [firstKey, secondKey])));
+        Assert.Equal(
+            secondKey,
+            Path.GetFileName(NuGetCache.TryGetCachedPackage(packageName, Version, [secondKey, firstKey])));
+    }
+
+    [Fact]
+    public void SourceKeys_PreservesConfiguredOrderAndDeduplicates()
+    {
+        // The ordering guarantee above is only worth anything if the keys reach
+        // the cache in configured order.
+        var sources = new List<NuGetFetch.PackageSource>
+        {
+            new("first", "https://feed-first.invalid/v3/index.json"),
+            new("second", "https://feed-second.invalid/v3/index.json"),
+            new("first-again", "https://feed-first.invalid/v3/index.json"),
+        };
+
+        var keys = NuGetSourceResolver.SourceKeys(sources);
+
+        Assert.Equal(
+            [
+                NuGetCache.GetSourceKey("https://feed-first.invalid/v3/index.json"),
+                NuGetCache.GetSourceKey("https://feed-second.invalid/v3/index.json"),
+            ],
+            keys);
+    }
+
+    [Fact]
     public void TryGetCachedPackage_DoesNotServeContentCommittedByAnotherSource()
     {
         // A private feed's bytes must not answer a request made under a
@@ -632,11 +687,72 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     [InlineData("https://pkgs.invalid/v3/index.json", "https://pkgs.invalid/v3/index.json/")]
     [InlineData("https://pkgs.invalid/v3/index.json", "HTTPS://PKGS.INVALID/v3/index.json")]
     [InlineData("https://pkgs.invalid/v3/index.json", "  https://pkgs.invalid/v3/index.json  ")]
+    [InlineData("https://pkgs.invalid/v3/index.json", "https://pkgs.invalid:443/v3/index.json")]
+    [InlineData("https://pkgs.invalid/a%2Fb/index.json", "https://pkgs.invalid/a%2fb/index.json")]
+    [InlineData("https://xn--bcher-kva.invalid/v3/index.json", "https://b\u00fccher.invalid/v3/index.json")]
+    [InlineData("https://pkgs.invalid/v3/?feed=A", "https://pkgs.invalid/v3?feed=A")]
     public void GetSourceKey_TreatsSpellingsOfOneFeedAsOneSource(string left, string right)
     {
         // Scheme, host and a trailing slash are not distinctions any feed makes.
         // Two configs naming one feed differently must share cached bytes.
+        // The default port, percent-escape hex casing and an IDN host written
+        // in unicode rather than punycode are equivalences the URI grammar
+        // itself defines, so they fold too.
         Assert.Equal(NuGetCache.GetSourceKey(left), NuGetCache.GetSourceKey(right));
+    }
+
+    [Fact]
+    public void GetSourceKey_TreatsATrailingSlashInsideAQueryAsAValue()
+    {
+        // A trailing slash folds because it terminates a *path*. Inside a query
+        // it is an ordinary character in a value, and two feeds whose tokens or
+        // parameters differ only by that character are two feeds. Trimming the
+        // recombined URL rather than its path alone folded these together.
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json?feed=a/"),
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json?feed=a"));
+    }
+
+    [Fact]
+    public void GetSourceKey_DerivesWebSourceIdentityFromTheSharedCanonicalizer()
+    {
+        // The cache identity and the credential-scope comparison must agree
+        // about what "the same endpoint" means. A second canonicalizer would be
+        // free to drift, and the two directions are not symmetric: folding a
+        // distinction NuGetCredentialScope preserves lets one feed's slot
+        // answer for another. This asserts they are the same function, so the
+        // cases proven for IsSameEndpoint hold for cache slots too.
+        string[] urls =
+        [
+            "https://pkgs.invalid/v3/index.json",
+            "https://pkgs.invalid/v3/index.json/",
+            "HTTPS://PKGS.INVALID:443/v3/index.json",
+            "https://pkgs.invalid/FeedA/v3/index.json",
+            "https://pkgs.invalid/v3/index.json?feed=a/",
+            "https://pkgs.invalid/v3/index.json?feed=a",
+        ];
+
+        foreach (var left in urls)
+        {
+            foreach (var right in urls)
+            {
+                Assert.Equal(
+                    NuGetCredentialScope.IsSameEndpoint(left, right),
+                    NuGetCache.GetSourceKey(left) == NuGetCache.GetSourceKey(right));
+            }
+        }
+    }
+
+    [Fact]
+    public void GetSourceKey_KeepsLocalFolderCaseOnEveryPlatform()
+    {
+        // Case-sensitive and case-insensitive volumes exist on every OS, so the
+        // running platform does not answer whether two spellings name one
+        // directory. A spare slot costs a duplicate download; a folded one
+        // serves another directory's bytes.
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey(Path.Combine(Path.GetTempPath(), "FeedA")),
+            NuGetCache.GetSourceKey(Path.Combine(Path.GetTempPath(), "feeda")));
     }
 
     [Theory]

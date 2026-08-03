@@ -21,7 +21,7 @@ public sealed class InMemoryPackageStore : IPackageStore
     public IPackageContent? TryGetCached(
         string packageName,
         string version,
-        IReadOnlyCollection<string>? allowedSourceKeys,
+        IReadOnlyList<string>? allowedSourceKeys,
         Action<string>? log = null)
     {
         foreach (var sourceKey in allowedSourceKeys ?? [])
@@ -60,7 +60,7 @@ public sealed class InMemoryPackageStore : IPackageStore
     /// <inheritdoc />
     public string? TryGetLatestCachedVersion(
         string packageName,
-        IReadOnlyCollection<string>? allowedSourceKeys)
+        IReadOnlyList<string>? allowedSourceKeys)
     {
         var prefix = packageName.ToLowerInvariant() + "@";
         NuGetVersion? best = null;
