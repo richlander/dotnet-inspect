@@ -68,6 +68,10 @@ public static class SourceResolver
 
         string? platformCandidate = null;
 
+        // Resolved once: this walks the directory tree for nuget.config files
+        // and parses each one, and the answer cannot change between candidates.
+        var sourceKeys = NuGetSourceResolver.ResolveSourceKeys(null);
+
         for (int i = name.Length - 1; i >= 0; i--)
         {
             if (name[i] != '.') continue;
@@ -95,7 +99,7 @@ public static class SourceResolver
             }
 
             // Space 2 & 3: dotnet-inspect cache + NuGet global cache
-            if (NuGetCache.TryGetLatestCachedVersion(candidate) != null)
+            if (NuGetCache.TryGetLatestCachedVersion(candidate, sourceKeys) != null)
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",

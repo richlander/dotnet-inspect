@@ -441,7 +441,7 @@ internal static class SourceEnricher
             // that doesn't encode the version. Check the cache directory instead.
             if (packageVersion == null)
             {
-                packageVersion = FindCachedPackageVersion(packageName);
+                packageVersion = FindCachedPackageVersion(packageName, options);
             }
         }
         return (packageName, packageVersion);
@@ -450,8 +450,10 @@ internal static class SourceEnricher
     /// <summary>
     /// Finds the latest cached version for a package by checking the cache directory.
     /// </summary>
-    private static string? FindCachedPackageVersion(string packageName)
-        => NuGetCache.TryGetLatestCachedVersion(packageName);
+    private static string? FindCachedPackageVersion(string packageName, ApiOptions options)
+        => NuGetCache.TryGetLatestCachedVersion(
+            packageName,
+            NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
 
     /// <summary>
     /// Enriches multiple types from a single XML doc file (loaded once).

@@ -293,7 +293,10 @@ public class PackageCommand
                 && !options.ForceLatest)
             {
                 if (!options.IncludeUnlisted
-                    && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                    && NuGetCache.TryGetCachedPackage(
+                        normalizedName,
+                        versionQueryPinned,
+                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -343,7 +346,9 @@ public class PackageCommand
             if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
                 && !options.IncludeUnlisted)
             {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
+                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
+                    normalizedName,
+                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
                 if (cachedVersion != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
