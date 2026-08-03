@@ -174,6 +174,31 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// The byte pin is compared in full, not by a prefix that merely looks identifying.
+    ///
+    /// <para>The pin differs from the assembly hash at one legal hex character after the
+    /// first eight. Both values therefore pass the pin-file shape validator, and a
+    /// comparison truncated to eight characters accepts the assembly. Only comparing the
+    /// complete SHA-256 can produce the refusal asserted here.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepComparesTheWholeSha256Pin()
+    {
+        using var world = SweepWorld.Create(sha256: DifferentSha256WithSameEightCharacterPrefix);
+        string pinnedSha256 = DifferentSha256WithSameEightCharacterPrefix(world.FixtureSha256);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a pin differing after its SHA-256 prefix"));
+        Assert.Contains(pinnedSha256, sweep.Output + sweep.Errors, StringComparison.Ordinal);
+        Assert.Contains(world.FixtureSha256, sweep.Output + sweep.Errors, StringComparison.Ordinal);
+        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
+
+        world.AssertOnlyTheLeadWasPooled(sweep);
+        world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
     /// A package pinned as shipping no library, which now ships one, is refused.
     ///
     /// <para>The other direction of the pin, and the one that is easy to miss. Nine of the
@@ -963,6 +988,9 @@ public class EvilPoolSweepGateTests
 
     static string Sha256Of(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
+    static string DifferentSha256WithSameEightCharacterPrefix(string sha256) =>
+        sha256[..8] + (sha256[8] == '0' ? '1' : '0') + sha256[9..];
+
     /// <summary>
     /// Plants a symlink at <paramref name="path"/>.
     ///
@@ -1160,16 +1188,19 @@ public class EvilPoolSweepGateTests
             ?? throw new InvalidOperationException("The cache has not been seeded yet.");
 
         /// <summary>
-        /// Builds the world. <paramref name="version"/>, <paramref name="tfm"/>, and
-        /// <paramref name="leadTfm"/> are what the <em>pin</em> claims; the packages in the
-        /// cache are always the real ones, so a case that changes them is changing the pin
-        /// alone.
+        /// Builds the world. <paramref name="version"/>, <paramref name="tfm"/>,
+        /// <paramref name="leadTfm"/>, and <paramref name="sha256"/> determine what the
+        /// <em>pin</em> claims; the packages in the cache are always the real ones, so a
+        /// case that changes them is changing the pin alone. The SHA-256 transform receives
+        /// the real fixture hash so a case can derive a legal mismatch without hard-coding
+        /// assembly-dependent bytes.
         /// </summary>
         public static SweepWorld Create(
             string? version = null,
             string? tfm = null,
             string? status = null,
-            string? leadTfm = null)
+            string? leadTfm = null,
+            Func<string, string>? sha256 = null)
         {
             string scratch = Directory.CreateTempSubdirectory("evil-sweep-gate").FullName;
             try
@@ -1185,7 +1216,8 @@ public class EvilPoolSweepGateTests
                     version ?? FixtureVersion,
                     tfm ?? FixtureTfm,
                     status ?? "pinned",
-                    leadTfm ?? FixtureTfm);
+                    leadTfm ?? FixtureTfm,
+                    sha256?.Invoke(world.FixtureSha256) ?? world.FixtureSha256);
                 return world;
             }
             catch
@@ -1290,7 +1322,8 @@ public class EvilPoolSweepGateTests
             string pinnedVersion,
             string pinnedTfm,
             string pinnedStatus,
-            string leadTfm)
+            string leadTfm,
+            string pinnedSha256)
         {
             string data = Path.Combine(FakeRoot, "docs", "data");
             Directory.CreateDirectory(data);
@@ -1304,7 +1337,7 @@ public class EvilPoolSweepGateTests
                 FixturePackage,
                 pinnedVersion,
                 pinnedTfm,
-                FixtureSha256,
+                pinnedSha256,
                 pinnedStatus,
                 leadTfm: leadTfm);
         }
