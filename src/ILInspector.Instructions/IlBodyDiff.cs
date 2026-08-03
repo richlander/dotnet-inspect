@@ -1069,7 +1069,9 @@ public static class IlBodyDiff
         // fall through to the per-side rewrite, which folds `<>9__N_K` to `<>9__#_K` on
         // strictly weaker evidence -- that key drops the containing method entirely, so it
         // merges every method's slot K. Declining is a false positive; folding there is a
-        // masked difference. Gated by LambdaCacheFields_AreNotLeftToThePerSideRewrite.
+        // masked difference. Gated by
+        // DeclinedLambdaCacheField_StaysOutOfThePerSideRewrite, which drives this function
+        // end to end through Compare and fails if it is reduced to the rewrite.
         string FieldNameOutsideCorrespondence(string raw)
             => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
                 && CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail(raw) is not null

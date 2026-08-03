@@ -1943,6 +1943,77 @@ public class CompilerGeneratedOrdinalTests
         Assert.Equal(IlBodyDiffOutcome.Exact, Compare(oldPe, newPe, IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).Outcome);
         Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, ComposedNormalization).Outcome);
     }
+
+    /// <summary>
+    /// The name a folded cache field is spelled with cannot be forged by a field that is
+    /// simply named that way in metadata.
+    /// </summary>
+    /// <remarks>
+    /// The composed name is substituted into the compared operand text, so it shares a
+    /// namespace with every raw name that text can carry. Before this was separated with
+    /// <c>KeySeparator</c> the composition was plain concatenation, so a field literally
+    /// named <c>&lt;&gt;9__&lt;Run&gt;b__0_0</c> rendered identically to the surrogate
+    /// built for <c>&lt;&gt;9__0_0</c> whose sibling is <c>&lt;Run&gt;b__0_0</c>, and two
+    /// assemblies that differ reported <c>Exact</c>. Roslyn does not emit such a name;
+    /// this file's contract is that hostile metadata cannot manufacture a false
+    /// <c>Exact</c> either.
+    /// </remarks>
+    [Fact]
+    public void LambdaCacheFieldName_CannotBeForgedByARawFieldName()
+    {
+        byte[] oldImage = BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"],
+            generatedTypeMethodNames: ["<Run>b__0_0"],
+            generatedTypeFieldNames: ["<>9__0_0"]);
+        byte[] newImage = BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"],
+            generatedTypeMethodNames: ["<Other>b__9_0"],
+            generatedTypeFieldNames: ["<>9__<Run>b__0_0"]);
+
+        Assert.Equal(["<>9__0_0"], ReadFieldNames(oldImage, "<>c"));
+        Assert.Equal(["<>9__<Run>b__0_0"], ReadFieldNames(newImage, "<>c"));
+
+        using var oldPe = new PEReader(new MemoryStream(oldImage));
+        using var newPe = new PEReader(new MemoryStream(newImage));
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, IlBodyDiffNormalization.None).Outcome);
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, ComposedNormalization).Outcome);
+    }
+
+    /// <summary>
+    /// A recognized cache field that the correspondence does not own still must not fall
+    /// through to the per-side rewrite.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate named by <c>FieldNameOutsideCorrespondence</c>, and it exists
+    /// because the gate previously named there could not see this path at all: reducing
+    /// that function to <c>NormalizeMemberName</c> left the whole suite green. The type
+    /// here carries no generated attribute, so the field never enters the correspondence
+    /// and the outside path is the only thing standing between two different containing
+    /// methods' slots and a common <c>&lt;&gt;9__#_0</c>.
+    /// </remarks>
+    [Fact]
+    public void DeclinedLambdaCacheField_StaysOutOfThePerSideRewrite()
+    {
+        byte[] Image(string method, string field) => BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"],
+            typesAttributed: false,
+            generatedTypeMethodNames: [method],
+            generatedTypeFieldNames: [field]);
+
+        using var oldPe = new PEReader(new MemoryStream(Image("<Run>b__0_0", "<>9__0_0")));
+        using var newPe = new PEReader(new MemoryStream(Image("<Run>b__4_0", "<>9__4_0")));
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, IlBodyDiffNormalization.None).Outcome);
+        Assert.Equal(IlBodyDiffOutcome.Exact, Compare(oldPe, newPe, IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).Outcome);
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, ComposedNormalization).Outcome);
+    }
     readonly record struct Member(
         string Name,
         bool CompilerGenerated,

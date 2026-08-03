@@ -351,7 +351,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 string siblingName = resolvedMethods.TryGetValue(sibling, out var elided)
                     ? elided
                     : reader.GetString(reader.GetMethodDefinition(sibling).Name);
-                named[fieldHandle] = LambdaCacheFieldPrefix + siblingName;
+
+                // KeySeparator, not bare concatenation, and for the reason spelled out on
+                // OrdinalPlaceholder: this string is substituted into the compared operand
+                // text, so it shares a namespace with every raw name that text can carry.
+                // Without an unspellable mark the composition is forgeable -- a field
+                // actually named `<>9__<Run>b__0_0` renders identically to the surrogate
+                // built for `<>9__0_0` whose sibling is `<Run>b__0_0`, and a real
+                // difference reports Exact. The folded branch already carries NUL inside
+                // OrdinalPlaceholder; it is the raw branch that is otherwise spellable.
+                // Gated by LambdaCacheFieldName_CannotBeForgedByARawFieldName.
+                named[fieldHandle] = LambdaCacheFieldPrefix + KeySeparator + siblingName;
             }
 
             return named;
