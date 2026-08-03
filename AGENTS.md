@@ -375,16 +375,20 @@ round:
   rather than read it as clear. For the gating runs, `gh pr checks <n>
   --required`, which on a PR targeting `main` resolves to `ci-required` — the
   only check the ruleset requires. Exit `0` is green; exit `8` means checks are
-  still running, so wait with `--watch`; exit `1` reporting *no* required checks
-  means the ruleset does not cover this base, which is the stacked-PR case
-  below, not a pass — fall back to plain `gh pr checks <n>` there. Do not read
+  still running, so wait with `--watch`. Exit `1` reporting *no* required
+  checks is inconclusive: the aggregate may not have registered yet, or the
+  ruleset may not cover the PR's base. Fall back to plain `gh pr checks <n>`
+  and inspect the base separately; a PR targeting `main` is not green until its
+  current-head `ci-required` has passed. Do not read
   `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
-  for a PR with no checks at all (#3706). `skipping` is terminal and does not block, but it is also not
-  evidence: never cite a skipped job as validation, and if a change should have
-  triggered a job that skipped, the path filter is the bug. After a push,
-  confirm the run you are reading is the one for the head you are handing out —
-  `gh pr checks --watch` can return exit `0` against the *previous* head's run
-  before the new one registers, so check the run's `headSha`.
+  for a PR with no checks at all (#3706). `skipping` is terminal and does not
+  block, but it is also not evidence: never cite a skipped job as validation,
+  and if a change should have triggered a job that skipped, the path filter is
+  the bug. After a push, compare `headRefOid` from `gh pr view <n> --json
+  headRefName,headRefOid` with `headSha` from `gh run list --branch
+  <headRefName> --event pull_request --json databaseId,headSha,status,conclusion`,
+  then watch that run by id. `gh pr checks --watch` can otherwise return exit
+  `0` against the previous head's run before the new one registers.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
@@ -402,16 +406,32 @@ a confirmation rather than a second full pass.
 
 ### Clean reviews are not spent by main moving
 
-When every reviewer the tier requires has come back clean at the current head
-and `origin/main` has since moved, **stop and ask.** Do not integrate main, and
-do not open another round on your own initiative.
+For a PR that targets `main` — including the bottom slice of a stack — when
+every reviewer the tier requires has come back clean at the current head and
+`origin/main` has since moved, **stop and ask.** Do not integrate main, and do
+not open another round on your own initiative. If any reviewer had a finding,
+the author changed the head, or an upper slice's parent moved, this exception
+does not apply: resolve or restack, integrate the effective base, and review the
+new head normally.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
 conflict a textual merge would resolve silently but wrongly. Say plainly when
 the answer is that nothing in the range interacts with this change — that is the
-common case and it is the most useful thing you can report. The user decides
-whether the integrated main warrants another round.
+common case and it is the most useful thing you can report.
+
+The user decides which continuation the evidence warrants:
+
+- If the range is non-interacting, the user may direct you to integrate main,
+  re-run the claimed validation and current-head CI, and carry the clean reviews
+  forward without another round. Record the reviewed head, old and new main
+  tips, the non-interaction analysis, and the user's decision on the PR.
+- If the range can affect the change, integrate main and run a new round at the
+  resulting head.
+
+The first continuation is the sole exception to the fixed-head review rule; it
+does not authorize carrying reviews across author changes, conflict-resolution
+changes, or a restack.
 
 This is the one place the settled-branch rule yields, and it has to, or the
 budget is unbounded: on a busy `main`, a round takes longer than the interval
@@ -433,8 +453,9 @@ the branch settles. When you cite its findings, say which it was.
 
 ### How many reviewers, and from which models
 
-**How much review a PR needs is a function of its triviality and risk alone —
-never the kind of change it makes.** If you are unsure whether a change is
+The review gate has one threshold: trivial changes may skip review; everything
+else gets the standard round. Risk scales how deeply the reviewers attack the
+change, not how the round is staffed. If you are unsure whether a change is
 trivial, escalate: default to review, not none.
 
 | Tier | Requirement |
@@ -463,10 +484,10 @@ deliberate pin rather than a "highest available" slot; when it should move, move
 it here.
 
 These tiers assume a harness — such as the GitHub Copilot CLI — that can
-delegate to any roster model. A harness exposing only its own vendor's models
-changes how reviewers are obtained, never the bar: run the reviewer it has and
-**request GPT-5.6 Sol from the user**, not marking the PR ready until that
-review arrives.
+delegate to the roster. A harness with only some roster models changes how the
+round is obtained, never the bar: run the roster reviewer it has and request
+every missing seat from the user. An out-of-roster model may provide a quick
+read but does not fill a seat.
 
 A **round** evaluates one settled head with every reviewer its tier requires.
 Two reviewers in the same round count as one round, not two.
