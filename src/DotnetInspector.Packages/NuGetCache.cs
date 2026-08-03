@@ -135,12 +135,11 @@ public static class NuGetCache
     /// Keys (per <see cref="GetSourceKey"/>) of the sources the caller is
     /// currently configured to read from, in configured order. Cached content
     /// committed by a source outside this set is treated as a miss, so an empty
-    /// or <see langword="null"/> list never hits the app cache. Content that
-    /// came from no NuGet source, such as a local <c>.nupkg</c>, is keyed
-    /// <c>local</c> and must be requested by including that key explicitly.
-    /// Order matters: slots are consulted in it, so a higher-precedence
-    /// source's cached copy answers ahead of a lower one's, matching the order
-    /// a cold run would have tried the feeds in.
+    /// or <see langword="null"/> list never hits the app cache. The reserved
+    /// <c>local</c> key must be included explicitly; <see langword="null"/> is
+    /// not shorthand for it. Order matters: slots are consulted in it, so a
+    /// higher-precedence source's cached copy answers ahead of a lower one's,
+    /// matching the order a cold run would have tried the feeds in.
     /// </param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
     public static string? TryGetCachedPackage(
@@ -516,9 +515,11 @@ public static class NuGetCache
         => $"{PackageContentCategory}:{packageName}@{version}:{sourceKey}";
 
     /// <summary>
-    /// Identity used for content that did not come from a NuGet source at all,
-    /// such as a local <c>.nupkg</c> path. It occupies its own cache slot like
-    /// any other source.
+    /// Identity used when a source URL is absent or blank. It occupies its own
+    /// cache slot like any other source and is only matched when a caller asks
+    /// for it by name. Note that a local <c>.nupkg</c> path does not reach this
+    /// slot: <c>PackageExtractor.ExtractLocalPackage</c> unpacks it to a
+    /// temporary directory and never commits it to the content cache.
     /// </summary>
     private const string LocalSourceKey = "local";
 
