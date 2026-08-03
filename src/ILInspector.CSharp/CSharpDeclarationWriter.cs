@@ -306,6 +306,7 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         string signature;
+        var renderedFromModel = false;
         if (member.Kind == "field" && member.Signature == null && !string.IsNullOrWhiteSpace(member.ReturnType))
         {
             signature = $"{member.ReturnType} {member.Name}";
@@ -313,6 +314,7 @@ internal static class CSharpDeclarationWriter
         else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
         {
             signature = modelSignature;
+            renderedFromModel = true;
         }
         else
         {
@@ -351,21 +353,27 @@ internal static class CSharpDeclarationWriter
             && !IsExplicitInterfaceEvent(member))
         {
             if (methodParameters is { Count: > 0 })
-            {
                 signature = AddMethodGenericParameters(signature, member.Name, methodParameters);
-                // TryRenderSignatureModel appends the `where` clauses itself, but it
-                // declines whenever a caller supplies its own generic-parameter names,
-                // so this text path has to recover them. Without this a constrained
-                // generic method renders as uncompilable C# (the body may rely on a
-                // constraint the declaration no longer states). The caller's names come
-                // from the same GenericParameter rows in the same order as the model's,
-                // so the two line up by construction; requiring equal arity keeps a
-                // mismatched pairing from spelling a clause for the wrong parameter.
-                if (member.SignatureModel?.TypeParameters is { Count: > 0 } modelTypeParameters
-                    && modelTypeParameters.Count == methodParameters.Count)
-                {
-                    signature = AppendMemberTypeParameterConstraints(signature, member, modelTypeParameters);
-                }
+
+            // TryRenderSignatureModel appends the `where` clauses itself, so only the
+            // text fallback has to recover them — and it is reached two different ways.
+            // A caller that supplies its own generic-parameter names makes the model
+            // path decline (the single-member view), and so does a member kind the
+            // model path does not render (an explicit interface implementation, in the
+            // whole-type view). Both used to lose the clauses, which renders a
+            // constrained generic member as uncompilable C#: the declaration stops
+            // stating a constraint its own signature and body still rely on.
+            //
+            // When the caller supplied names, they and the model's type parameters come
+            // from the same GenericParameter rows in the same order, so the two line up
+            // by construction; requiring equal arity keeps a mismatched pairing from
+            // spelling a clause for the wrong parameter. When the caller supplied none
+            // there is nothing to pair with, and the model's list stands alone.
+            if (!renderedFromModel
+                && member.SignatureModel?.TypeParameters is { Count: > 0 } modelTypeParameters
+                && (methodParameters is not { Count: > 0 } || methodParameters.Count == modelTypeParameters.Count))
+            {
+                signature = AppendMemberTypeParameterConstraints(signature, member, modelTypeParameters);
             }
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);

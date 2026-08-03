@@ -807,6 +807,29 @@ public class ApiOutputFormatterTests
         Assert.DoesNotContain("class?", typeSource, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// An explicit interface implementation reaches the text fallback by a second route:
+    /// the signature-model path renders only <c>method</c>, so this kind falls through it
+    /// even in the whole-type view, where no caller supplies a generic-parameter list.
+    /// The recovery has to fire on that route too — the rendered parameter is spelled
+    /// <c>Nullable&lt;T&gt;</c>, which is not even legal without the <c>struct</c> clause.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericExplicitImplementation_KeepsItsConstraintInTheWholeTypeView()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("Wrap<T>", typeSource, StringComparison.Ordinal);
+        Assert.Contains("where T : struct", typeSource, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1105,11 +1128,23 @@ public abstract class ConstraintFixtureBase
     public abstract T? Pick<T>(T? value) where T : class;
 }
 
-public class ConstraintFixture : ConstraintFixtureBase
+public class ConstraintFixture : ConstraintFixtureBase, IConstraintFixture
 {
     public static int Compare<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b);
 
     public override void Run<T>(T value) => value.ToString();
 
     public override T? Pick<T>(T? value) where T : class => value;
+
+    void IConstraintFixture.Wrap<T>(T? value) { }
+}
+
+/// <summary>
+/// The explicit implementation of <see cref="Wrap"/> is rendered by the text fallback in
+/// the whole-type view — the signature-model path declines the kind — so it is the case
+/// that reaches the constraint recovery without a caller-supplied parameter list.
+/// </summary>
+public interface IConstraintFixture
+{
+    void Wrap<T>(T? value) where T : struct;
 }
