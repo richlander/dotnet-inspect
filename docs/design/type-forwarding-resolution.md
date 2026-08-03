@@ -2501,12 +2501,17 @@ changing their successful results.
 
 ### Slice 4: source and API consumers
 
-- Migrate `PdbContext`, `SourceLinkService`, `SourceEnricher`,
-  `SourceFileCollector`, `ApiServices`, `SourceResolver`,
-  `LibraryMetadataService`, and `RouterCommandDefinition`.
-- Migrate `PlatformResolver.FindLibraryContainingType` to the typed platform
-  catalog and `IsFacadeOnlyAssembly` to Metadata-owned classification.
-- Delete forwarder-target sibling-path construction.
+This slice lands as two independently complete consumer migrations:
+
+- **4a -- descriptor opening and path-sink deletion:** teach `PdbContext` and
+  `SourceLinkService` to open acquisition descriptors through `OpenRead`;
+  migrate `SourceEnricher` and `ApiServices` to exact structured names and
+  resolved descriptors; delete `SourceFileCollector`'s unreachable forwarded
+  fallback and every forwarder-target sibling-path construction.
+- **4b -- platform lookup and classification:** migrate `SourceResolver`,
+  `LibraryMetadataService`, and `RouterCommandDefinition`; replace
+  `PlatformResolver.FindLibraryContainingType` with the typed platform catalog
+  and move `IsFacadeOnlyAssembly` to Metadata-owned classification.
 
 Claim: forwarded source and API resolution consume descriptors and cannot turn
 an inspected assembly name into a path.
