@@ -369,12 +369,17 @@ round:
   where the resolution is itself unreviewed. Once the reviews *are* clean, this
   reverses: see [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
-- **The PR is mergeable and green.** `gh pr view <n> --json
-  mergeable,mergeStateStatus` for conflicts; `gh pr checks <n> --required` for
-  the gating runs, falling back to plain `gh pr checks <n>` when the repository
-  marks none required, in which case `--required` reports none and exits
-  non-zero. Exit `0` is green; exit `8` means checks are still running — wait
-  with `--watch`. `skipping` is terminal and does not block, but it is also not
+- **The PR is mergeable and green** — two questions, two commands. For
+  conflicts, `gh pr view <n> --json mergeable`: `CONFLICTING` blocks, and
+  `UNKNOWN` means GitHub has not finished computing the merge, so re-query
+  rather than read it as clear. For the gating runs, `gh pr checks <n>
+  --required`, which on a PR targeting `main` resolves to `ci-required` — the
+  only check the ruleset requires. Exit `0` is green; exit `8` means checks are
+  still running, so wait with `--watch`; exit `1` reporting *no* required checks
+  means the ruleset does not cover this base, which is the stacked-PR case
+  below, not a pass — fall back to plain `gh pr checks <n>` there. Do not read
+  `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
+  for a PR with no checks at all (#3706). `skipping` is terminal and does not block, but it is also not
   evidence: never cite a skipped job as validation, and if a change should have
   triggered a job that skipped, the path filter is the bug. After a push,
   confirm the run you are reading is the one for the head you are handing out —
@@ -443,7 +448,6 @@ scenario docs should reference it rather than restating it:
 - **GPT-5.6 Sol** — the fixed seat, in every round
 - Claude Opus
 - Gemini Pro
-- GPT, other versions
 
 The second seat may be **any** of these, including the model you authored the
 change with. Reviewing with your own model is explicitly allowed: the fixed seat
