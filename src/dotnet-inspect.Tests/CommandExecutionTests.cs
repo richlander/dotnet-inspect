@@ -9020,8 +9020,10 @@ public partial class CommandExecutionTests
     /// plausibly be caused by the test assembly's PDB lacking a SourceLink blob.
     /// </summary>
     /// <remarks>
-    /// Two conditions must hold, and both were established by A/B-ing the built CLI against the
-    /// test assembly with and without the blob.
+    /// Two conditions must hold. UNVERIFIED BY ANY GATE: no test asserts this membership. It was
+    /// established by A/B-ing the built CLI against the test assembly with and without the blob,
+    /// by hand, at the commit that introduced it; a section that later gains or loses a SourceLink
+    /// dependency will not be caught here. Re-run that A/B when editing this set.
     ///
     /// The command must inspect the test assembly. <c>package</c> and <c>diff</c> reach other
     /// artifacts whose SourceLink is independent of this build, so a hint about the test

@@ -54,33 +54,50 @@ internal static class TestAssemblySourceLink
     /// The check is deliberately four clauses. `--path-format=absolute` is required because git
     /// answers `--git-common-dir` relatively when invoked below the repository root, which makes a
     /// naive string comparison read a primary checkout as linked; `show-ref --verify` separates a
-    /// packed ref from one that is simply gone. Each clause was validated against a matrix of
-    /// checkout shapes, and only the real defect reports a match.
+    /// packed ref from one that is simply gone.
     ///
     /// The repair renames the branch away and back rather than deleting and recreating it.
     /// Deleting the current branch discards its reflog and leaves HEAD pointing at a missing ref
     /// until the recreate lands; renaming carries the reflog across and keeps HEAD resolvable at
     /// every step, so an interruption is recoverable rather than broken.
+    ///
+    /// The repair is split by ref format because the defect outlives the packed-refs framing. A
+    /// `reftable` repository keeps a per-worktree stack, so a linked worktree is affected whether
+    /// or not anything was ever packed, no rename produces a loose ref, `gc.packRefs` means
+    /// nothing, and `git refs migrate` refuses outright while worktrees exist. Prescribing the
+    /// `files` repair there loops forever.
+    ///
+    /// UNVERIFIED BY ANY GATE: these are opaque command strings, so no test asserts that they
+    /// detect the defect, that the matrix reports one match, or that the repair is safe. They
+    /// were validated by hand — across primary and linked checkouts, at the root and below it,
+    /// loose, packed, detached, ref-deleted, and under both ref formats — at the commit that
+    /// introduced them, and nothing prevents them from drifting. Re-validate by hand when
+    /// editing them.
     /// </remarks>
     public static string FailureHint =>
         UnavailableReason is { } reason
             ? $" NOTE: this assertion needs SourceLink in the test assembly's PDB, and {reason}. "
               + "That points at the build environment rather than at a product regression, though "
               + "this check does not establish which cause applies. The known one under a .NET 11 "
-              + "SDK is issue #3658: when git has packed the branch ref of a linked worktree, "
-              + "`Microsoft.Build.Tasks.Git` looks for `packed-refs` in `$GIT_DIR` while it lives in "
+              + "SDK is issue #3658: in a linked worktree, `Microsoft.Build.Tasks.Git` looks for "
+              + "`packed-refs` and the reftable stack in `$GIT_DIR` while both live in "
               + "`$GIT_COMMON_DIR`, resolves no revision, and the build emits no SourceLink without "
               + "warning. Confirm — exit 0 means this is the cause: "
               + "`B=$(git symbolic-ref -q HEAD) && git show-ref --verify --quiet \"$B\" "
               + "&& [ \"$(git rev-parse --path-format=absolute --git-dir)\" "
               + "!= \"$(git rev-parse --path-format=absolute --git-common-dir)\" ] "
               + "&& ! test -f \"$(git rev-parse --path-format=absolute --git-common-dir)/$B\"`. "
-              + "Repair by renaming the branch away and back, which rewrites the ref loosely — note "
-              + "`git update-ref <branch> HEAD` is a no-op here, because the value is unchanged: "
+              + "Repair depends on `git rev-parse --show-ref-format`. Under `files`, rename the "
+              + "branch away and back, which rewrites the ref loosely — note `git update-ref "
+              + "<branch> HEAD` is a no-op here, because the value is unchanged: "
               + "`N=$(git symbolic-ref --short -q HEAD); git branch -m \"$N\" \"$N.unpack-tmp\" "
-              + "&& git branch -m \"$N.unpack-tmp\" \"$N\"`. "
-              + "Then `git config gc.packRefs false` prevents recurrence. Other causes — a source "
-              + "archive with no `.git`, or SourceLink explicitly disabled — need no repair."
+              + "&& git branch -m \"$N.unpack-tmp\" \"$N\"`, then `git config gc.packRefs false` to "
+              + "prevent recurrence. Under `reftable` no ref-layout repair applies — the stack is "
+              + "per-worktree by design, renaming produces no loose ref, `gc.packRefs` is "
+              + "meaningless, and `git refs migrate` refuses while worktrees exist — so build from "
+              + "the primary checkout, or use an SDK carrying the fix (10.0.302 does). Other "
+              + "causes — a source archive with no `.git`, or SourceLink explicitly disabled — "
+              + "need no repair."
             : string.Empty;
 
     /// <summary>
