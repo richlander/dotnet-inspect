@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -78,6 +79,25 @@ public class PayloadLensContainmentTests : IDisposable
         "intro" + Bidi + "MARKERBIDI\n"
         + "line" + Escape + "MARKERESC\n"
         + "line" + LineSeparator + "MARKERLS\n";
+
+    /// <summary>
+    /// Keeps payload subprocesses off the operator's real cache.
+    /// </summary>
+    /// <remarks>
+    /// This independently gates the cache environment on this class's
+    /// launcher; the diagnostic containment tests use a different launcher.
+    /// </remarks>
+    [Fact]
+    public void ChildCli_UsesThePerTestCache()
+    {
+        var (output, error) = RunCliCore(["cache", "--json", "-T:q"]);
+
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            _cacheDirectory,
+            document.RootElement.GetProperty("location").GetString());
+    }
 
     [Fact]
     public void ReadmeLens_ReproducesThePayloadByteForByte()
@@ -269,7 +289,10 @@ public class PayloadLensContainmentTests : IDisposable
         }
     }
 
-    private (string Output, string Error) RunCli(string[] args)
+    private (string Output, string Error) RunCli(string[] args) =>
+        RunCliCore(["package", .. args]);
+
+    private (string Output, string Error) RunCliCore(string[] args)
     {
         // The product copy in *this* project's output, matching
         // UntrustedArgumentDiagnosticContainmentTests: rebuilding the product
@@ -286,7 +309,6 @@ public class PayloadLensContainmentTests : IDisposable
             UseShellExecute = false,
         };
 
-        psi.ArgumentList.Add("package");
         foreach (string arg in args)
         {
             psi.ArgumentList.Add(arg);
