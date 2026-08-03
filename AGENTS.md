@@ -449,10 +449,13 @@ scenario docs should reference it rather than restating it:
 - Claude Opus
 - Gemini Pro
 
-The second seat may be **any** of these, including the model you authored the
-change with. Reviewing with your own model is explicitly allowed: the fixed seat
-already guarantees a second perspective, and refusing an otherwise-available
-reviewer cost more than it bought.
+**Strongly prefer a second seat from a different model family than the one that
+authored the change.** Two families fail differently, and an author reviewing
+its own work brings the same blind spot that produced the bug — the second seat
+exists for the perspective the first cannot have. Reuse of your own model is
+permitted rather than blocking, because the fixed seat already guarantees one
+independent perspective, but treat it as the fallback when no other roster
+reviewer is available, and say on the PR which case applied.
 
 **Use the highest version and quality level a model offers** in the second seat
 — given both Opus 4.8 and Opus 5, use Opus 5. The GPT-5.6 Sol seat is a
