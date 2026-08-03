@@ -145,7 +145,7 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// branches do not each balance, or that reaches below its own opening depth, or that contains a
 /// directive this scan could only skip because it believed itself inside a comment or literal,
 /// loses the place for the rest of the file. Measured over dotnet/runtime's libraries, the
-/// remaining loss is 1.46% of declarations, against 12.12% when any conditional poisoned the file
+/// remaining loss is 1.47% of declarations, against 12.12% when any conditional poisoned the file
 /// to its end. Those figures are an ungated point-in-time measurement, not a property: no test
 /// re-measures them, and they will drift as that corpus moves.
 /// </para>
@@ -168,7 +168,8 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// product's own numbers;
 /// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
 /// the other half by checking the product's numbers against each build.
-/// Both are only as good as the generator's reach, which rounds 7, 8 and 9 each falsified, so read
+/// Both are only as good as the generator's reach, which rounds 7 through 10 each falsified, so
+/// read
 /// that file's header before reading a clean run as proof. The per-site gates
 /// remain as regression pins:
 /// <c>AnInitializerReachingBackThroughAGroup_LosesTheDeclarationBeforeIt</c> and
@@ -176,8 +177,10 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// shapes, <c>AnInitializerMaskedByAnotherBranchsInitializer_LosesTheDeclarationBeforeIt</c> and
 /// <c>AnEnumInitializerReachingBackThroughAGroup_LosesTheMemberBeforeIt</c> for the round-8 pair,
 /// <c>ATrailingSemicolonAfterAGroup_LosesTheTypeItCouldBelongTo</c> for the round-9 forward
-/// direction,
-/// <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// direction, <c>ATrailingSemicolonShieldedByAConditionalMember_LosesTheTypeBeforeIt</c>,
+/// <c>ATrailingSemicolonBehindAConditionalFileScopedNamespace_LosesTheTypeAtTheOuterScope</c> and
+/// <c>ATrailingSemicolonAfterAConditionalBracelessDeclaration_LosesTheTypeBeforeIt</c> for the
+/// round-10 trio, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
 /// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
 /// Recovery after a balanced group is
 /// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over

@@ -76,7 +76,7 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 // over-vouch, but a clean run is evidence, not proof -- it cannot flag a defect
 // the generator never spells (it emits no #line and no #define/#undef).
 //
-// Three consecutive rounds have now found a defect in the generator's REACH
+// Four consecutive rounds have now found a defect in the generator's REACH
 // rather than in its case count, so treat that as the expected failure mode:
 //   - round 7: every group sat at file scope, so no member row was ever
 //     compared across 140,000 clean cases.
@@ -89,10 +89,19 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //     so were never compared at all; and no composition of the pools could
 //     place a bare ";" after a "}" that closed a type, which is where the
 //     twelfth way lived.
+//   - round 10: no case put a BRACE-LESS scope opener between a closed type
+//     and a trailing ";", and cases 19-21 spelled only "class" though the rule
+//     names six kinds. Both holes in the twelfth way's refusal set lived there.
 // Before citing a clean run, read the cmp1/cmp2 buckets it printed and check
 // that the rows you care about are actually in them. Note also that "fair"
 // means "parses", not "compiles": the oracle reads parse diagnostics, so
 // bind-time errors such as CS1520 still count as fair cases.
+//
+// And note which gate can see what. NoVouchedRowMovesBetweenBuilds needs TWO
+// configurations that each supply a unique match, so a file that parses in only
+// one configuration is invisible to it no matter how wrong the product is.
+// Round 10's two defects were both that shape, and only the product-mode gate
+// failed on them.
 // ---------------------------------------------------------------------------
 
 public class ConditionalRecoveryFuzzTests
@@ -133,11 +142,19 @@ public class ConditionalRecoveryFuzzTests
     ///
     /// Adversarial review round 8 (Gemini 3.1 Pro) proposed this to cover rows present in only one
     /// build, which the pairwise loop skips. Round 9 (Claude Opus 5) showed that rationale is
-    /// wrong and the set is empty by construction: a vouched row requires
+    /// wrong as stated and the set is empty by construction: a vouched row requires
     /// <c>pending.All(t =&gt; t.DepthKnown)</c>, so it lies outside every conditional group, so it
     /// exists in every configuration that parses. The <c>cmp1</c> and <c>cmp2</c> buckets confirm
-    /// it -- they are equal for every kind in every sweep. The test earns its place on the first
-    /// reason alone, which the round-8 note treated as incidental.
+    /// it — they are equal for every kind in every sweep.
+    ///
+    /// Round 10 then showed the instinct was right one level up: what the pairwise loop cannot see
+    /// is not a row present in one BUILD but a file with only one parsing CONFIGURATION. That loop
+    /// needs two configs each supplying a unique match, so a file whose other configs fail to parse
+    /// is invisible to it however wrong the product is. Both defects round 10 found in the
+    /// trailing-<c>;</c> refusal set are exactly that shape — <c>class Sr { }</c> then a group
+    /// containing <c>namespace Nr;</c> then <c>;</c> parses only with the group dropped — and this
+    /// gate is the only one of the two that fails on either. So the test now has three distinct
+    /// justifications, and the round-8 note stated the weakest of them.
     ///
     /// Round 9 (GPT-5.6 Sol) also found this gate reading only four of the six span fields:
     /// <c>DifferFromProduct</c> omitted <c>SignatureEndLine</c> and <c>BodyStartLine</c>, so
@@ -488,9 +505,9 @@ public class ConditionalRecoveryFuzzTests
             lines.Add("#endif");
         }
 
-        // Cases 16-21 are enum and type shapes, all legal at both scopes, so the non-member pick
+        // Cases 16-26 are enum and type shapes, all legal at both scopes, so the non-member pick
         // is remapped onto them rather than leaving them reachable only inside a type.
-        int pick = rnd.Next(inType ? 23 : 10);
+        int pick = rnd.Next(inType ? 28 : 15);
         if (!inType && pick >= 4) pick += 12;
         switch (pick)
         {
@@ -644,6 +661,57 @@ public class ConditionalRecoveryFuzzTests
                 // belongs to. It must stay vouched, and its span must include the ";".
                 lines.Add($"class Sv{a} {{ }}");
                 lines.Add(";");
+                return;
+            case 22:
+                // The thirteenth way, which SHIELDS the twelfth: a declaration written in a branch
+                // this build discards is still pending when the ";" arrives, so the trailing-";"
+                // rule -- which requires an empty pending run -- never fires, and the type before
+                // the group keeps a vouch that is wrong in the build without the branch. Case 19
+                // could not reach it: it emits a COMPLETE declaration in the group, which consumes
+                // its own terminator (adversarial review round 10, Gemini 3.1 Pro).
+                lines.Add($"class Su{a} {{ }}");
+                Group($"    int Fu{a} = 1");
+                lines.Add(";");
+                return;
+            case 23:
+                // The same shield spelled with a delegate, whose terminator is mandatory for a
+                // different reason than a field's, and which reaches the ";" through a different
+                // classification path.
+                lines.Add($"class St{a} {{ }}");
+                Group($"    delegate void Dt{a}()");
+                lines.Add(";");
+                return;
+            case 24:
+                // The refusal set for the twelfth way was too narrow: a file-scoped namespace
+                // inside the group opens a scope with no brace, re-parenting the row the ";"
+                // appears to follow, so the row it can actually reach at the outer scope was never
+                // visited. Nothing else in the generator puts a brace-less scope opener between a
+                // closed type and a trailing ";" (adversarial review round 10, Claude Opus 5).
+                lines.Add($"class Sr{a} {{ }}");
+                Group($"namespace Nr{a};");
+                lines.Add(";");
+                return;
+            case 25:
+                // Cases 19-24 spell only "class", yet the trailing-";" rule names Struct,
+                // Interface, Record, Enum and Namespace as well. Rotate the kind so the list is
+                // exercised rather than assumed (adversarial review round 10, Claude Opus 5).
+                lines.Add((a % 4) switch
+                {
+                    0 => $"struct Sp{a} {{ }}",
+                    1 => $"interface Sn{a} {{ }}",
+                    2 => $"enum Sm{a} {{ Ea{a} }}",
+                    _ => $"record Sl{a} {{ }}",
+                });
+                Group($"int Fl{a} = 1");
+                lines.Add(";");
+                return;
+            case 26:
+                // A delegate split by a group. No pool entry and no split case ever put one in a
+                // conditional position, and Classify has a dedicated delegate path (adversarial
+                // review round 10, Claude Opus 5).
+                lines.Add($"delegate void Dk{a}(");
+                Group($"    int pk{a}");
+                lines.Add(");");
                 return;
             default:
                 lines.Add($"    [System.Obsolete]");

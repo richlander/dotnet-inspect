@@ -110,6 +110,12 @@ internal static class DeclarationIndexBuilder
         var attributeLists = new List<LineRange>();
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
+
+        // The section of the terminator that last ended a declaration. A brace-less declaration
+        // ends without closing a block, so it clears lastClosed while leaving no closed row and --
+        // when it is a namespace inside a type -- no row at all. This is what lets the trailing-";"
+        // rule notice that the thing standing between it and its target was branch-dependent.
+        int lastTerminatorSection = 0;
         int namespaceScopeLostFrom = -1;
         bool inBlockComment = false;
         int commentOpenLine = 0;
@@ -212,6 +218,7 @@ internal static class DeclarationIndexBuilder
         {
             ResetHeader(terminator);
             lastTerminatorLine = terminator.Line + 1;
+            lastTerminatorSection = terminator.Section;
         }
 
         // Emits a declaration that has no scope of its own: a field, an enum member, an abstract
@@ -282,15 +289,73 @@ internal static class DeclarationIndexBuilder
             return -1;
         }
 
-        // Revokes the vouch for every row that an initializer tail could have bound to instead:
-        // the run of siblings under one parent ending at the last block this group closed, or at
-        // the most recent row when the group already consumed it.
+        // Whether the run under construction can be absent from a build in which the terminator
+        // that follows it is present. Both terms are needed and neither implies the other.
+        //
+        // DepthKnown is false exactly for a token inside a conditional group, so a run in which
+        // every token is unknown is a run that some build discards. If even one token sits outside
+        // every group, that token is in every build, a declaration is always under construction,
+        // and the terminator can never reach past it -- which is what keeps an ordinary member
+        // carrying only a CONDITIONAL INITIALIZER out of this rule.
+        //
+        // The section test then asks whether the terminator goes with them. A run and a terminator
+        // written in one branch vanish together and nothing reaches back; only a terminator written
+        // somewhere else can survive the run's disappearance. Sections are conservative in the safe
+        // direction only, so this raises false alarms and never misses.
+        bool PendingCanVanishBefore(int section)
+        {
+            if (pending.Count == 0) return false;
+
+            foreach (var p in pending)
+                if (p.DepthKnown || p.Section == section)
+                    return false;
+
+            return true;
+        }
+
+        // Revokes the vouch for every row that a terminator could have bound to instead: the run of
+        // siblings under one parent ending at the last block this group closed, or at the most
+        // recent row when the group already consumed it.
+        //
+        // The walk continues OUTWARD through any parent that is itself branch-dependent, and that
+        // is not decoration. A file-scoped namespace declared inside a group opens a scope with no
+        // brace, so it re-parents the row the terminator appears to follow while the row it can
+        // actually reach in the build WITHOUT the group sits at the outer scope, where a walk over
+        // one parent never looks:
+        //
+        //     class A
+        //     {
+        //     }
+        //     #if Y
+        //     namespace NS;
+        //     class B
+        //     {
+        //     }
+        //     #endif
+        //     ;
+        //
+        // Without Y the file is "class A {\n}\n;" -- a legal program, zero errors, in which A ends
+        // at the ";" on line 10 -- and A was vouched at 1..3. Stopping at a parent that is VOUCHED
+        // is what keeps this from being a blunt "refuse everything": a vouched parent exists
+        // identically in every build, so the scope it opens exists in every build and no terminator
+        // can escape it. Found by adversarial review round 10 (Claude Opus 5).
         void RefuseSiblingsAnInitializerCouldReach()
         {
             int parent = lastClosed >= 0 ? rows[lastClosed].ParentIndex : EnclosingIndex();
-            for (int i = lastClosed >= 0 ? lastClosed : rows.Count - 1; i >= 0; i--)
-                if (rows[i].ParentIndex == parent)
-                    rows[i].SpanKnown = false;
+            int from = lastClosed >= 0 ? lastClosed : rows.Count - 1;
+
+            while (true)
+            {
+                for (int i = from; i >= 0; i--)
+                    if (rows[i].ParentIndex == parent)
+                        rows[i].SpanKnown = false;
+
+                if (parent < 0 || rows[parent].SpanKnown)
+                    return;
+
+                from = parent;
+                parent = rows[parent].ParentIndex;
+            }
         }
 
         foreach (var tok in tokens)
@@ -753,10 +818,12 @@ internal static class DeclarationIndexBuilder
                 // Found by adversarial review round 9 (Claude Opus 5), which also established that
                 // this PR is what promotes the row to vouched: before balanced-group recovery the
                 // leading group poisoned the rest of the file and A was declined anyway.
-                if (pending.Count == 0 && lastClosed >= 0 && rows[lastClosed].Kind
+                bool trailerTarget = lastClosed >= 0 && rows[lastClosed].Kind
                         is DeclarationKind.Class or DeclarationKind.Struct
                         or DeclarationKind.Interface or DeclarationKind.Record
-                        or DeclarationKind.Enum or DeclarationKind.Namespace)
+                        or DeclarationKind.Enum or DeclarationKind.Namespace;
+
+                if (pending.Count == 0 && trailerTarget)
                 {
                     if (lastClosedSection == tok.Section && tok.DepthKnown)
                     {
@@ -765,15 +832,80 @@ internal static class DeclarationIndexBuilder
                     else
                     {
                         // The ";" and the "}" that produced the row are in different branches, so
-                        // every sibling the ";" could have attached to is a candidate and none of
-                        // their ends is provable. Do not extend: the extension itself is one
-                        // branch's answer.
+                        // the ";" could have attached to a declaration this build does not show,
+                        // and no candidate's end is provable. Do not extend: the extension itself
+                        // is one branch's answer. The candidate set is NOT simply the siblings of
+                        // the row the ";" appears to follow -- a brace-less scope opener inside the
+                        // group re-parents that row -- which is why the refusal walks outward
+                        // through branch-dependent parents. See
+                        // RefuseSiblingsAnInitializerCouldReach.
                         RefuseSiblingsAnInitializerCouldReach();
                     }
 
                     EndDeclaration(tok);
                     lastClosed = -1;
                     continue;
+                }
+
+                // The same hole one step further out, and the generator reached it before anyone
+                // could hand-write it. A file-scoped namespace ENDS a declaration without closing a
+                // block, so it leaves lastClosed at -1 and the test above does not run at all --
+                // not because the ";" has no target, but because the scan has forgotten it:
+                //
+                //     class Sr { }
+                //     #if X
+                //     namespace Nr;
+                //     #endif
+                //     ;
+                //
+                // Without X the file is "class Sr { }\n;" and Sr ends at the ";" on line 5. The
+                // build WITH X does not parse, so only one configuration is fair and the pairwise
+                // build-vs-build gate can never see this: it was the PRODUCT gate, comparing the
+                // product's own numbers against the single valid build, that caught it.
+                //
+                // The last row being unvouched is not a usable test: a namespace declared inside a
+                // type is not an allowed row at all, so the branch-dependent thing that cleared
+                // lastClosed can leave no trace among the rows. What it does leave is a terminator,
+                // so the test is whether THAT terminator was written in this branch. It was not,
+                // here, and in the build that drops it the ";" reaches further back than the scan
+                // now remembers. An ordinary stray ";" shares its predecessor's section and is
+                // unaffected, including in a file with unrelated groups earlier in it. Found by
+                // adversarial review round 10 (Claude Opus 5), who predicted this arm without being
+                // able to build a parsing case for it; the widened generator built one.
+                if (pending.Count == 0 && lastClosed < 0 && lastTerminatorSection != tok.Section)
+                {
+                    RefuseSiblingsAnInitializerCouldReach();
+                }
+
+                // The thirteenth way, and it SHIELDS the twelfth. The test above asks for an empty
+                // pending run, because a declaration under construction owns the ";" it reaches.
+                // But the scan lexes every branch, so a declaration written in a branch that this
+                // build discards is still pending here, and it hides the trailing ";" behind
+                // itself:
+                //
+                //     class C {
+                //         class Sy { }
+                //     #if X
+                //         int Field = 1
+                //     #endif
+                //         ;
+                //     }
+                //
+                // With X the ";" terminates Field and Sy ends at its brace on line 2; without X
+                // there is no Field, so the ";" is Sy's own optional trailer and Sy ends on line 6.
+                // Both builds parse with zero errors, and the row was vouched at 2..2. This is the
+                // same masking shape as the tenth and eleventh ways -- a real reach hidden behind
+                // another branch's text rather than a new direction -- which is the argument that
+                // masking, not direction, is the axis worth attacking next.
+                //
+                // The pending run can vanish only if a directive separates it from the ";", and only
+                // if every one of its tokens is inside a group; a member whose HEADER is written
+                // outside the group and carries a conditional initializer keeps its terminator in
+                // every build and is not this. Found by adversarial review round 10
+                // (Gemini 3.1 Pro).
+                if (trailerTarget && PendingCanVanishBefore(tok.Section))
+                {
+                    RefuseSiblingsAnInitializerCouldReach();
                 }
 
                 if (pending.Count > 0)

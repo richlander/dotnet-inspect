@@ -2605,6 +2605,248 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// The thirteenth way, and it shields the twelfth: the trailing-<c>;</c> rule requires an
+    /// empty pending run, but the scan lexes every branch, so a declaration written in a branch
+    /// this build discards is still pending when the <c>;</c> arrives and hides it. With <c>X</c>
+    /// the <c>;</c> terminates <c>Field</c> and <c>Sy</c> ends on line 2; without <c>X</c> there
+    /// is no <c>Field</c>, so the <c>;</c> is <c>Sy</c>'s own optional trailer and <c>Sy</c> ends
+    /// on line 6. Both builds parse with zero errors. Found by adversarial review round 10
+    /// (Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonShieldedByAConditionalMember_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                class Sy { }
+            #if X
+                int Field = 1
+            #endif
+                ;
+            }
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.False(sy.SpanKnown, "Sy ends on line 2 with X and line 6 without it");
+    }
+
+    /// <summary>
+    /// The same shield spelled with a delegate, which reaches the terminator through a different
+    /// classification path than a field does. At file scope, where the enclosing type cannot be
+    /// what supplies the refusal.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonShieldedByAConditionalDelegate_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Sy { }
+            #if X
+            delegate void D()
+            #endif
+            ;
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.False(sy.SpanKnown, "Sy ends on line 1 with X and line 5 without it");
+    }
+
+    /// <summary>
+    /// The twelfth way's refusal set was too narrow, and a brace-less scope opener is what
+    /// exposed it. A file-scoped namespace inside the group re-parents the row the <c>;</c>
+    /// appears to follow, so a walk over that row's siblings never visits <c>A</c> at the outer
+    /// scope. Without <c>Y</c> the file is <c>class A {\n}\n;</c> — a legal program with zero
+    /// errors in which <c>A</c> ends at the <c>;</c> on line 10 — and <c>A</c> was vouched at
+    /// 1..3. Found by adversarial review round 10 (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonBehindAConditionalFileScopedNamespace_LosesTheTypeAtTheOuterScope()
+    {
+        var index = DeclarationIndex.Build("""
+            class A
+            {
+            }
+            #if Y
+            namespace NS;
+            class B
+            {
+            }
+            #endif
+            ;
+            """);
+
+        var a = Assert.Single(index.Declarations, s => s.Name == "A");
+        Assert.False(a.SpanKnown, "A ends at the \";\" on line 10 in the build without Y");
+    }
+
+    /// <summary>
+    /// The same hole one step further out, and the arm round 10 predicted but could not build a
+    /// parsing case for. A file-scoped namespace ends a declaration without closing a block, so
+    /// <c>lastClosed</c> is <c>-1</c> and the trailing-<c>;</c> test does not run at all. Without
+    /// <c>X</c> the file is <c>class Sr { }\n;</c> and <c>Sr</c> ends on line 5; the build WITH
+    /// <c>X</c> does not parse, so only one configuration is fair and the pairwise build-vs-build
+    /// gate cannot see this at all — the product gate caught it. Found by the widened generator
+    /// (adversarial review round 10, Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterAConditionalBracelessDeclaration_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Sr { }
+            #if X
+            namespace Nr;
+            #endif
+            ;
+            """);
+
+        var sr = Assert.Single(index.Declarations, s => s.Name == "Sr");
+        Assert.False(sr.SpanKnown, "Sr ends at the \";\" on line 5 in the build without X");
+    }
+
+    /// <summary>
+    /// The same arm where the branch-dependent declaration leaves NO ROW AT ALL: a namespace
+    /// inside a type is not an allowed row, so a test on the last row's vouch cannot see it and
+    /// the rule reads the last terminator's section instead. This is the shape the widened
+    /// generator produced that the file-scope form did not cover.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonAfterABracelessDeclarationThatEmitsNoRow_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Outer
+            {
+            class Sr { }
+            #if X
+            namespace Nr;
+            #endif
+            ;
+            }
+            """);
+
+        var sr = Assert.Single(index.Declarations, s => s.Name == "Sr");
+        Assert.False(sr.SpanKnown, "Sr ends at the \";\" on line 7 in the build without X");
+    }
+
+    /// <summary>
+    /// The recall side of that arm, and the reason it compares sections rather than simply
+    /// refusing whenever <c>lastClosed</c> is <c>-1</c>. A stray <c>;</c> written in the same
+    /// branch as the terminator before it can reach nothing new, even in a file that has an
+    /// unrelated group earlier in it.
+    /// </summary>
+    [Fact]
+    public void AStraySemicolonInTheSameBranchAsItsPredecessor_KeepsItsNeighboursVouches()
+    {
+        var index = DeclarationIndex.Build("""
+            #if X
+            #endif
+            class C
+            {
+                int Keep;
+                ;
+            }
+            """);
+
+        var keep = Assert.Single(index.Declarations, s => s.Name == "Keep");
+        Assert.True(keep.SpanKnown, "the stray \";\" shares its predecessor's branch");
+    }
+
+    /// <summary>
+    /// The recall side of the outward walk, and the reason it stops at a VOUCHED parent.
+    /// <c>Outer</c>
+    /// exists identically in every build, so the scope it opens exists in every build and no
+    /// terminator inside it can reach a declaration outside it. <c>Before</c> must keep its vouch.
+    /// </summary>
+    [Fact]
+    public void ARefusalInsideAVouchedScope_DoesNotEscapeToTheScopeAboveIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Before { }
+            class Outer
+            {
+                class A { }
+            #if Y
+                class B { }
+            #endif
+                ;
+            }
+            """);
+
+        var before = Assert.Single(index.Declarations, s => s.Name == "Before");
+        Assert.True(before.SpanKnown, "Outer exists in every build, so the \";\" cannot escape it");
+    }
+
+    /// <summary>
+    /// The shield with the terminator in a DIFFERENT group, which is why the rule compares
+    /// sections instead of asking whether the <c>;</c> itself is at a known depth. With <c>X</c>
+    /// and <c>Y</c> the <c>;</c> terminates <c>F</c> and <c>Sy</c> ends on line 1; with <c>Y</c>
+    /// alone there is no <c>F</c>, so the <c>;</c> is <c>Sy</c>'s trailer and <c>Sy</c> ends on
+    /// line 6. Both parse cleanly. The <c>;</c> is inside a group here, so a <c>DepthKnown</c>
+    /// test on it would have let this through.
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonShieldedFromAnotherGroup_LosesTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Sy { }
+            #if X
+            int F = 1
+            #endif
+            #if Y
+            ;
+            #endif
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.False(sy.SpanKnown, "Sy ends on line 1 with X and Y, and line 6 with Y alone");
+    }
+
+    /// <summary>
+    /// The recall side of the same rule, and the reason it is not simply "a conditional member
+    /// precedes the <c>;</c>". A declaration and its terminator written in ONE branch vanish
+    /// together, so nothing can reach past them: <c>Sy</c> ends on line 1 in every build. This is
+    /// the overwhelmingly common shape of a conditional member, and refusing it would cost the
+    /// corpus far more than the defect it guards against.
+    /// </summary>
+    [Fact]
+    public void AConditionalMemberCarryingItsOwnTerminator_KeepsTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class Sy { }
+            #if X
+            int F = 1;
+            #endif
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.True(sy.SpanKnown, "F and its \";\" are in one branch and vanish together");
+    }
+
+    /// <summary>
+    /// The benign counterpart, and the gate on the <c>DepthKnown</c> term of the shield test.
+    /// <c>Field</c>'s header is written outside the group, so it exists in every build and owns
+    /// the <c>;</c> in every build; only a second declarator is conditional. <c>Sy</c> ends on
+    /// line 2 in both builds and must keep its vouch. Dropping the <c>DepthKnown</c> term and
+    /// leaving only the section comparison fails this test, because the header, the group and the
+    /// <c>;</c> are all in different sections.
+    /// </summary>
+    [Fact]
+    public void AConditionalDeclaratorOnAnUnconditionalMember_KeepsTheTypeBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                class Sy { }
+                int Field
+            #if X
+                    , Other
+            #endif
+                ;
+            }
+            """);
+
+        var sy = Assert.Single(index.Declarations, s => s.Name == "Sy");
+        Assert.True(sy.SpanKnown, "Field exists in every build, so the \";\" never reaches Sy");
+    }
+
+    /// <summary>
     /// A trivia poison that crosses no branch is spent once the declaration that raised it ends,
     /// and <c>ResetHeader</c> discharging it is what keeps the rest of the file vouched. With
     /// <c>X</c> the comment documents <c>s</c>; without <c>X</c> neither exists, so <c>Tail</c>
