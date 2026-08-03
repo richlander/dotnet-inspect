@@ -583,6 +583,13 @@ public class SourceLinkMapConformanceTests
     /// The last of those is the one that makes this a gate rather than a comment: it is the row
     /// that fails loudly if the two predicates are ever collapsed into one.
     /// </para>
+    /// <para>
+    /// The last two refuse rows are the two bypasses adversarial review found in the first
+    /// version of this rule, and they are here rather than only in their own tests because a
+    /// later relaxation of the discriminator has to keep failing them. Both worked by spelling a
+    /// component so that this reader and the host disagreed about what it said: a fully-qualified
+    /// host name, and a percent-encoded parameter name.
+    /// </para>
     /// </remarks>
     [Theory]
     // Refused: the substitution cannot select content on a host whose grammar is known.
@@ -591,10 +598,26 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=*"
         + "&versionType=commit&version=" + ConformanceSha + "&path=/One.cs",
         false)]
+    // Refused: a trailing dot is the DNS root label, so this names the host above and is served
+    // by it. Reading the two spellings as different hosts reopened #3599 exactly.
+    [InlineData("https://raw.githubusercontent.com./o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData(
+        "https://dev.azure.com./org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&inert=*",
+        false)]
+    // Refused: the host decodes parameter names, so '%70ath' is a 'path' that is served in
+    // preference to the later one carrying the substitution.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&%70ath=/One.cs&path=/*",
+        false)]
     // Accepted: unattributable, yet each fetches the document it matched.
     [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/*?foo=bar", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/main/*", true)]
     [InlineData("https://srclink.contoso.test/raw/*", true)]
+    // Accepted: the fully-qualified spelling of a correct map is still a correct map, so the
+    // canonicalization above cannot be a blanket refusal of the trailing dot.
+    [InlineData("https://raw.githubusercontent.com./o/r/" + ConformanceSha + "/*", true)]
     // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"

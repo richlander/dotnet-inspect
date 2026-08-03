@@ -423,15 +423,43 @@ public static class SourceLinkProvenance
             return true;
         }
 
-        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) || !IsRecognizedSourceHost(uri.Host))
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
+        {
+            return true;
+        }
+
+        string host = CanonicalHost(uri.Host);
+        if (!IsRecognizedSourceHost(host))
         {
             // An unrecognized host's grammar is unknown, so nothing here can say whether the
             // substitution selects. Silence is the answer that preserves a working deployment.
             return true;
         }
 
-        return TryCheckSubstitutionSelectsContent(url, uri.Host, offset, length, out rejection);
+        return TryCheckSubstitutionSelectsContent(url, host, offset, length, out rejection);
     }
+
+    /// <summary>
+    /// The DNS name a host string denotes, with the root label's trailing dot removed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Uri.Host"/> preserves a trailing dot, so <c>raw.githubusercontent.com.</c>
+    /// compares unequal to <c>raw.githubusercontent.com</c> while naming the same server and
+    /// being served by it — measured, that host returns the same bytes for a fully-qualified
+    /// spelling. Two independent adversarial reviews of the change that added
+    /// <see cref="CanSelectContent"/> found the same bypass through it: a hostile map spelled the
+    /// host fully-qualified, the content-selector rule read the host as unrecognized and stood
+    /// aside, and the map went back to serving one file for every document.
+    /// </para>
+    /// <para>
+    /// This is applied at the single point both readers derive a host from a URL, so that
+    /// attribution and resolution cannot disagree about which host a URL names. That disagreement
+    /// is the shape of defect issue #3391 fixed once already, and a host spelling is exactly the
+    /// kind of thing two readers drift apart on.
+    /// </para>
+    /// </remarks>
+    private static string CanonicalHost(string host) => host.TrimEnd('.');
 
     /// <summary>
     /// Whether this reader knows the URL grammar of a host, and can therefore say what a
@@ -440,7 +468,8 @@ public static class SourceLinkProvenance
     /// <remarks>
     /// This names the same set as the allow list in <see cref="TryReadOrigin"/>, and is
     /// deliberately the only other reader of it, so a host admitted there gains a content
-    /// selector here in the same change rather than silently resolving unchecked.
+    /// selector here in the same change rather than silently resolving unchecked. Both go through
+    /// <see cref="CanonicalHost"/>, so neither can be evaded by a spelling the other accepts.
     /// </remarks>
     internal static bool IsRecognizedSourceHost(string host) =>
         string.Equals(host, GitHubRawHost, StringComparison.Ordinal)
@@ -573,9 +602,24 @@ public static class SourceLinkProvenance
     /// Finds the span of a named query parameter's value in the URL's raw text.
     /// </summary>
     /// <remarks>
-    /// The caller has already refused a repeated parameter, so the first match is the only match.
+    /// <para>
     /// The span is measured in the raw string rather than a parsed collection because it is
     /// compared against a substitution offset into that same string.
+    /// </para>
+    /// <para>
+    /// The first occurrence wins, which is what these hosts serve, so the span is the one the
+    /// host reads even when the caller has not separately refused a repeat. The attribution
+    /// reader does refuse one; the content-selector reader does not, and relies on this.
+    /// </para>
+    /// <para>
+    /// Names are compared decoded, because the host decodes them: measured against a live Azure
+    /// DevOps endpoint, <c>%70ath=/README.md</c> returns that file, and
+    /// <c>%70ath=/README.md&amp;path=/nope.txt</c> returns it too rather than 404. Comparing the
+    /// raw text would leave the first pair invisible here while the host serves it — an
+    /// adversarial review found exactly that, turning <c>%70ath=/fixed.cs&amp;path=/*</c> into a
+    /// map whose wildcard this reader sees, the host never reads, and every document resolves
+    /// through to one file.
+    /// </para>
     /// </remarks>
     /// <param name="queryStart">The index of the <c>?</c> that begins the query.</param>
     private static bool TrySpanOfQueryValue(
@@ -597,8 +641,7 @@ public static class SourceLinkProvenance
             int pairEnd = amp < 0 || amp > limit ? limit : amp;
             int eq = url.IndexOf('=', i);
 
-            if (eq >= 0 && eq < pairEnd
-                && url.AsSpan(i, eq - i).Equals(name, StringComparison.OrdinalIgnoreCase))
+            if (eq >= 0 && eq < pairEnd && DecodedNameMatches(url.AsSpan(i, eq - i), name))
             {
                 valueStart = eq + 1;
                 valueEnd = pairEnd;
@@ -614,6 +657,58 @@ public static class SourceLinkProvenance
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether a raw query parameter name denotes <paramref name="name"/> once the percent-escapes
+    /// the host decodes have been applied.
+    /// </summary>
+    /// <remarks>
+    /// Decoding happens during the comparison rather than into a buffer so that a name cannot be
+    /// read one way here and another way by the caller. An escape that is not two hex digits is
+    /// left as the literal <c>'%'</c> it is, which is how these hosts read it.
+    /// </remarks>
+    private static bool DecodedNameMatches(ReadOnlySpan<char> raw, string name)
+    {
+        int matched = 0;
+        for (int i = 0; i < raw.Length; i++)
+        {
+            char c = raw[i];
+            if (c == '%'
+                && i + 2 < raw.Length
+                && TryReadHexDigit(raw[i + 1], out int high)
+                && TryReadHexDigit(raw[i + 2], out int low))
+            {
+                c = (char)((high << 4) | low);
+                i += 2;
+            }
+
+            // Case-insensitively for the same reason the parameter reader is: whether the host
+            // folds case is not stated by the URL, so a name that differs only in case has to be
+            // seen here and refused by the rule that owns it, not missed.
+            if (matched == name.Length
+                || char.ToUpperInvariant(c) != char.ToUpperInvariant(name[matched]))
+            {
+                return false;
+            }
+
+            matched++;
+        }
+
+        return matched == name.Length;
+    }
+
+    private static bool TryReadHexDigit(char c, out int value)
+    {
+        value = c switch
+        {
+            >= '0' and <= '9' => c - '0',
+            >= 'a' and <= 'f' => c - 'a' + 10,
+            >= 'A' and <= 'F' => c - 'A' + 10,
+            _ => -1,
+        };
+
+        return value >= 0;
     }
 
     /// <summary>
@@ -678,7 +773,7 @@ public static class SourceLinkProvenance
         // AbsolutePath has had dot segments removed, so traversal has already been applied and the
         // segments below name where content is really served from.
         string[] segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        string host = uri.Host;
+        string host = CanonicalHost(uri.Host);
 
         if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
         {

@@ -668,6 +668,98 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// A trailing dot is the DNS root label, so a fully-qualified spelling names the same host —
+    /// and both readers say so, rather than one of them treating it as a host it has never heard
+    /// of.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two independent adversarial reviews found the same bypass here: the content-selector rule
+    /// compared <c>Uri.Host</c> ordinally, <c>raw.githubusercontent.com.</c> is not
+    /// <c>raw.githubusercontent.com</c>, so the rule stood aside as if the grammar were unknown
+    /// and the map went back to resolving every document to one file. Measured by a reviewer with
+    /// <c>curl</c>: GitHub serves the fully-qualified host and returns identical bytes for two
+    /// different query values, so the bypass fetched real content. Azure answers 400 for the same
+    /// spelling, so only the GitHub row was live — the shape was accepted for both.
+    /// </para>
+    /// <para>
+    /// The first assertion is the one that matters and is not implied by the refusal: attribution
+    /// reads the same host as resolution. Two readers disagreeing about which host a URL names is
+    /// issue #3391's defect, and a host spelling is exactly where that would come back.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AFullyQualifiedHostSpelling_IsReadAsThatHostByBothReaders()
+    {
+        const string Bare =
+            $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
+        const string Fqdn =
+            $$$"""{"documents":{"*":"https://raw.githubusercontent.com./owner/repo/{{{Sha}}}/*"}}""";
+
+        var bare = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Bare), ["A.cs"]);
+        var fqdn = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Fqdn), ["A.cs"]);
+
+        Assert.True(bare.IsEstablished, bare.Reason);
+        Assert.True(fqdn.IsEstablished, fqdn.Reason);
+        Assert.Equal(bare.Origin!.Value.Identity, fqdn.Origin!.Value.Identity);
+
+        // And the spelling buys nothing: the query-confined wildcard is refused either way.
+        const string Hostile =
+            $$$"""{"documents":{"*":"https://raw.githubusercontent.com./o/r/{{{Sha}}}/fixed.cs?ignored=*"}}""";
+
+        var hostile = SLF.SourceLinkResolver.Parse(Hostile);
+
+        Assert.Equal(["*"], hostile.RejectedKeys);
+        Assert.False(hostile.TryResolve("A.cs", out _));
+    }
+
+    /// <summary>
+    /// A percent-encoded parameter name is the name it decodes to, because that is what the host
+    /// reads it as.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found in adversarial review. Comparing parameter names against the URL's raw text left
+    /// <c>%70ath=/fixed.cs</c> invisible to this reader while the host served it, so
+    /// <c>%70ath=/fixed.cs&amp;path=/*</c> presented a wildcard that appeared to select and never
+    /// could — one file for every document, which is #3599 again.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// <c>%70ath=/README.md</c> alone returns that file (200, 985 bytes), and
+    /// <c>%70ath=/README.md&amp;path=/nope.txt</c> returns it as well rather than 404. So the
+    /// host both decodes the name and serves the first occurrence, which is what makes the
+    /// encoded pair the served one.
+    /// </para>
+    /// <para>
+    /// The second half is the non-vacuity: the encoded spelling is not refused for being encoded.
+    /// A lone <c>%70ath=/*</c> is a working map, because the host reads the wildcard it carries.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void APercentEncodedParameterName_IsReadAsTheNameTheHostDecodesItTo()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        var shadowed = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/fixed.cs&path=/*\"}}");
+
+        Assert.Equal(["*"], shadowed.RejectedKeys);
+        Assert.False(shadowed.TryResolve("A.cs", out _));
+
+        var encoded = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/*\"}}");
+
+        Assert.Empty(encoded.RejectedKeys);
+        Assert.True(encoded.TryResolve("A.cs", out SLF.SourceLinkResolution a));
+        Assert.True(encoded.TryResolve("B.cs", out SLF.SourceLinkResolution b));
+        Assert.NotEqual(a.Url, b.Url);
+    }
+
+    /// <summary>
     /// An <c>api-version</c> this reader does not recognize is still attributable. The refusal
     /// rules are about a request having more than one reading, not about whether the host will
     /// answer it.
