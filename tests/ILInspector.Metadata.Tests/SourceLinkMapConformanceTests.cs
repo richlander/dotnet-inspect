@@ -605,19 +605,36 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com./org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&inert=*",
         false)]
+    // Refused: a Unicode full stop is a label separator the request folds to '.', so these are
+    // the same host again. Measured: GitHub returns byte-identical content for all of them.
+    [InlineData("https://raw.githubusercontent.com\u3002/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData("https://raw.githubusercontent.com\uFF0E/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData("https://raw.githubusercontent.com\uFF61/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
     // Refused: the host decodes parameter names, so '%70ath' is a 'path' that is served in
     // preference to the later one carrying the substitution.
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&%70ath=/One.cs&path=/*",
         false)]
+    // Refused: a valueless pair still binds the name, and it is the occurrence the host serves,
+    // so the wildcard in the later pair is never read.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path&path=/*",
+        false)]
     // Accepted: unattributable, yet each fetches the document it matched.
     [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/*?foo=bar", true)]
     [InlineData("https://raw.githubusercontent.com/o/r/main/*", true)]
     [InlineData("https://srclink.contoso.test/raw/*", true)]
-    // Accepted: the fully-qualified spelling of a correct map is still a correct map, so the
-    // canonicalization above cannot be a blanket refusal of the trailing dot.
+    // Accepted: the fully-qualified and Unicode-separator spellings of a correct map are still
+    // correct maps, so the canonicalization above cannot be a blanket refusal of the spelling.
     [InlineData("https://raw.githubusercontent.com./o/r/" + ConformanceSha + "/*", true)]
+    [InlineData("https://raw.githubusercontent.com\u3002/o/r/" + ConformanceSha + "/*", true)]
+    // Accepted: a valueless pair that is not a content selector says nothing about the wildcard.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&download&path=/*",
+        true)]
     // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
     [InlineData(
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"

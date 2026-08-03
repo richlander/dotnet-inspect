@@ -428,7 +428,7 @@ public static class SourceLinkProvenance
             return true;
         }
 
-        string host = CanonicalHost(uri.Host);
+        string host = CanonicalHost(uri);
         if (!IsRecognizedSourceHost(host))
         {
             // An unrecognized host's grammar is unknown, so nothing here can say whether the
@@ -440,17 +440,25 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// The DNS name a host string denotes, with the root label's trailing dot removed.
+    /// The DNS name a URL's authority denotes, in the ASCII form a request will actually use,
+    /// with the root label's trailing dot removed.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <see cref="Uri.Host"/> preserves a trailing dot, so <c>raw.githubusercontent.com.</c>
-    /// compares unequal to <c>raw.githubusercontent.com</c> while naming the same server and
-    /// being served by it — measured, that host returns the same bytes for a fully-qualified
-    /// spelling. Two independent adversarial reviews of the change that added
-    /// <see cref="CanSelectContent"/> found the same bypass through it: a hostile map spelled the
-    /// host fully-qualified, the content-selector rule read the host as unrecognized and stood
-    /// aside, and the map went back to serving one file for every document.
+    /// Three adversarial reviews found three spellings of one defect here: a host that names a
+    /// recognized server, compares unequal to it, and is served by it anyway. First
+    /// <see cref="Uri.Host"/> preserves the root label's dot, so
+    /// <c>raw.githubusercontent.com.</c> was read as a host this code had never heard of. Then
+    /// <see cref="Uri.Host"/> also preserves Unicode full stops, so <c>raw.githubusercontent.com</c>
+    /// followed by U+3002, U+FF0E, or U+FF61 did the same. Measured: all four spellings return
+    /// byte-identical content from GitHub, because the request is sent using the IDN form.
+    /// </para>
+    /// <para>
+    /// <see cref="Uri.IdnHost"/> is therefore the right reading — it is the name that goes on the
+    /// wire, with Unicode label separators folded to <c>'.'</c> and non-ASCII labels punycoded —
+    /// and the trailing dot it still carries is trimmed after. It throws for an authority that has
+    /// no IDN form, which is an authority no request can be sent to either, so the plain host is a
+    /// safe fallback there rather than a reason to refuse.
     /// </para>
     /// <para>
     /// This is applied at the single point both readers derive a host from a URL, so that
@@ -459,7 +467,28 @@ public static class SourceLinkProvenance
     /// kind of thing two readers drift apart on.
     /// </para>
     /// </remarks>
-    private static string CanonicalHost(string host) => host.TrimEnd('.');
+    private static string CanonicalHost(Uri uri)
+    {
+        string host;
+        try
+        {
+            host = uri.IdnHost;
+        }
+        catch (UriFormatException)
+        {
+            // What an authority with no IDN form raises -- a scalar IDNA forbids outright, such
+            // as U+2066. It derives from FormatException, not ArgumentException. Such a host
+            // cannot be requested at all, so reading it literally concedes nothing, and the
+            // caller's inertness rule refuses it on its own terms rather than by crashing here.
+            host = uri.Host;
+        }
+        catch (ArgumentException)
+        {
+            host = uri.Host;
+        }
+
+        return host.TrimEnd('.');
+    }
 
     /// <summary>
     /// Whether this reader knows the URL grammar of a host, and can therefore say what a
@@ -534,11 +563,30 @@ public static class SourceLinkProvenance
 
         foreach ((string name, string value) in components)
         {
-            if (value is null)
+            if (!TryCheckTextIsInert(value, name, out rejection))
             {
-                continue;
+                return false;
             }
+        }
 
+        rejection = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Whether one component's text carries nothing that can act on whatever displays it.
+    /// </summary>
+    /// <remarks>
+    /// Split out so that a component can be judged <em>as written</em>, before any
+    /// canonicalization rewrites it. <see cref="CanonicalHost"/> applies IDNA mapping, which
+    /// deletes a soft hyphen and a zero-width space outright — so a host checked only after
+    /// canonicalization would be sanitized rather than refused, and
+    /// <c>docs/design/untrusted-data-threat-model.md</c> settles on reject-don't-sanitize.
+    /// </remarks>
+    private static bool TryCheckTextIsInert(string value, string name, out string rejection)
+    {
+        if (value is not null)
+        {
             int index = 0;
 
             foreach (Rune scalar in value.EnumerateRunes())
@@ -640,10 +688,17 @@ public static class SourceLinkProvenance
             int amp = url.IndexOf('&', i);
             int pairEnd = amp < 0 || amp > limit ? limit : amp;
             int eq = url.IndexOf('=', i);
+            bool hasValue = eq >= 0 && eq < pairEnd;
 
-            if (eq >= 0 && eq < pairEnd && DecodedNameMatches(url.AsSpan(i, eq - i), name))
+            if (DecodedNameMatches(url.AsSpan(i, (hasValue ? eq : pairEnd) - i), name))
             {
-                valueStart = eq + 1;
+                // A pair written without '=' still binds the name: measured, Azure DevOps reads
+                // "&path&path=/*" as a path of "" and serves the repository root listing for
+                // every document, ignoring the second pair entirely. Skipping the valueless pair
+                // as if it were not there left the wildcard in the occurrence the host never
+                // reads -- issue #3599 again, found in review. Its value is the empty span, which
+                // no substitution can land inside, so the entry is refused.
+                valueStart = hasValue ? eq + 1 : pairEnd;
                 valueEnd = pairEnd;
                 return true;
             }
@@ -770,10 +825,20 @@ public static class SourceLinkProvenance
             return false;
         }
 
+        // The host is judged as written, before CanonicalHost applies IDNA mapping. That mapping
+        // deletes a soft hyphen and a zero-width space rather than preserving them, so a check
+        // made only on the canonical form would silently sanitize a hostile host into a clean one
+        // and attribute it -- the opposite of the reject-don't-sanitize rule the threat model
+        // settles on, and a regression of the round-17 refusal this restates.
+        if (!TryCheckTextIsInert(uri.Host, "host", out rejection))
+        {
+            return false;
+        }
+
         // AbsolutePath has had dot segments removed, so traversal has already been applied and the
         // segments below name where content is really served from.
         string[] segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        string host = CanonicalHost(uri.Host);
+        string host = CanonicalHost(uri);
 
         if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
         {

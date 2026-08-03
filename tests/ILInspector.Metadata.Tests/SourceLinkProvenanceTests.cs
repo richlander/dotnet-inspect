@@ -668,49 +668,106 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
-    /// A trailing dot is the DNS root label, so a fully-qualified spelling names the same host —
-    /// and both readers say so, rather than one of them treating it as a host it has never heard
-    /// of.
+    /// A host spelled with any label separator the request folds to <c>'.'</c> is read as the host
+    /// it denotes, by both readers — not as a host this code has never heard of.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Two independent adversarial reviews found the same bypass here: the content-selector rule
-    /// compared <c>Uri.Host</c> ordinally, <c>raw.githubusercontent.com.</c> is not
-    /// <c>raw.githubusercontent.com</c>, so the rule stood aside as if the grammar were unknown
-    /// and the map went back to resolving every document to one file. Measured by a reviewer with
-    /// <c>curl</c>: GitHub serves the fully-qualified host and returns identical bytes for two
-    /// different query values, so the bypass fetched real content. Azure answers 400 for the same
-    /// spelling, so only the GitHub row was live — the shape was accepted for both.
+    /// Three adversarial reviews found three spellings of one defect. Round one, independently
+    /// from GPT-5.6-sol and Gemini 3.1 Pro: <see cref="Uri.Host"/> keeps the DNS root label, so
+    /// <c>raw.githubusercontent.com.</c> compared unequal to the host it names. Round two, from
+    /// Gemini 3.1 Pro: <see cref="Uri.Host"/> also keeps Unicode full stops, so the same trick
+    /// worked again with U+3002, U+FF0E, or U+FF61. Each time the content-selector rule read an
+    /// unrecognized host, stood aside, and the map went back to resolving every document to one
+    /// file.
     /// </para>
     /// <para>
-    /// The first assertion is the one that matters and is not implied by the refusal: attribution
-    /// reads the same host as resolution. Two readers disagreeing about which host a URL names is
-    /// issue #3391's defect, and a host spelling is exactly where that would come back.
+    /// Measured against GitHub, requesting <c>dotnet/core</c>'s README by each spelling: all four
+    /// return 200 and byte-identical content (2389 bytes, SHA-256 prefix 59E1A6989F35557A),
+    /// because the request is sent using the IDN form. So these were live fetches, not a parser
+    /// curiosity.
+    /// </para>
+    /// <para>
+    /// The first assertion is the one that is not implied by the refusal: attribution reads the
+    /// same host as resolution. Two readers disagreeing about which host a URL names is issue
+    /// #3391's defect, and a host spelling is exactly where it would come back.
     /// </para>
     /// </remarks>
-    [Fact]
-    public void AFullyQualifiedHostSpelling_IsReadAsThatHostByBothReaders()
+    [Theory]
+    [InlineData(".")]
+    [InlineData("\u3002")]
+    [InlineData("\uFF0E")]
+    [InlineData("\uFF61")]
+    public void AHostSpelledWithAnyLabelSeparator_IsReadAsThatHostByBothReaders(string separator)
     {
         const string Bare =
             $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
-        const string Fqdn =
-            $$$"""{"documents":{"*":"https://raw.githubusercontent.com./owner/repo/{{{Sha}}}/*"}}""";
 
         var bare = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Bare), ["A.cs"]);
-        var fqdn = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Fqdn), ["A.cs"]);
+
+        string spelled = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
+            + "/owner/repo/" + Sha + "/*\"}}";
+        var fqdn = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(spelled), ["A.cs"]);
 
         Assert.True(bare.IsEstablished, bare.Reason);
         Assert.True(fqdn.IsEstablished, fqdn.Reason);
         Assert.Equal(bare.Origin!.Value.Identity, fqdn.Origin!.Value.Identity);
 
         // And the spelling buys nothing: the query-confined wildcard is refused either way.
-        const string Hostile =
-            $$$"""{"documents":{"*":"https://raw.githubusercontent.com./o/r/{{{Sha}}}/fixed.cs?ignored=*"}}""";
+        string hostile = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
+            + "/o/r/" + Sha + "/fixed.cs?ignored=*\"}}";
+        var refused = SLF.SourceLinkResolver.Parse(hostile);
 
-        var hostile = SLF.SourceLinkResolver.Parse(Hostile);
+        Assert.Equal(["*"], refused.RejectedKeys);
+        Assert.False(refused.TryResolve("A.cs", out _));
+    }
 
-        Assert.Equal(["*"], hostile.RejectedKeys);
-        Assert.False(hostile.TryResolve("A.cs", out _));
+    /// <summary>
+    /// A query parameter written without a value still binds its name, so it is the occurrence the
+    /// host serves and a wildcard in a later pair of the same name is never read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found by Gemini 3.1 Pro in the second review round. The scan looked for <c>'='</c> within
+    /// the pair and skipped a pair that had none, so <c>&amp;path&amp;path=/*</c> presented a
+    /// wildcard this reader examined and the host never read.
+    /// </para>
+    /// <para>
+    /// Measured by the reviewer against <c>dev.azure.com/dnceng-public/public</c>: that shape
+    /// returns 425 bytes — the repository root listing, which is what an empty path selects — and
+    /// not the 985-byte file the second pair names. So the valueless pair binds and wins, and
+    /// every document would have resolved to that one response.
+    /// </para>
+    /// <para>
+    /// The second half is the non-vacuity, and the reason this is not simply "refuse a valueless
+    /// pair": a valueless parameter that is not a content selector says nothing about where the
+    /// wildcard lands, and refusing it would strand a correct map.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AValuelessContentSelector_IsTheOccurrenceTheHostServes()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        foreach ((string valueless, string wildcarded) in
+            new[] { ("path", "path"), ("scopePath", "scopePath"), ("%70ath", "path") })
+        {
+            var shadowed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&" + wildcarded + "=/*\"}}");
+
+            Assert.Equal(["*"], shadowed.RejectedKeys);
+            Assert.False(shadowed.TryResolve("A.cs", out _));
+        }
+
+        var unrelated = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&download&path=/*\"}}");
+
+        Assert.Empty(unrelated.RejectedKeys);
+        Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+        Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+        Assert.NotEqual(one.Url, two.Url);
     }
 
     /// <summary>
