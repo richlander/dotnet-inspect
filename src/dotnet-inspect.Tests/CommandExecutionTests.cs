@@ -8972,7 +8972,7 @@ public partial class CommandExecutionTests
                     var (selectExit, selectOutput, selectError) = await RunAppAsync(selectArgs);
                     var selectionSucceeded = selectExit == 0
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
-                    var hint = IsSourceLinkBackedSection(section) ? TestAssemblySourceLink.FailureHint : string.Empty;
+                    var hint = IsSourceLinkBackedSection(command, section) ? TestAssemblySourceLink.FailureHint : string.Empty;
                     Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}{hint}");
                     if (RequiresRealDataDiscoveryGuard(command))
@@ -9015,19 +9015,33 @@ public partial class CommandExecutionTests
            || command is ["member", _, var memberName, ..]
                 && memberName == nameof(MemberCallsFixture.Overloaded);
 
+    /// <summary>
+    /// Whether a failure of <paramref name="section"/> under <paramref name="command"/> could
+    /// plausibly be caused by the test assembly's PDB lacking a SourceLink blob.
+    /// </summary>
+    /// <remarks>
+    /// Two conditions must hold, and both were established by A/B-ing the built CLI against the
+    /// test assembly with and without the blob.
+    ///
+    /// The command must inspect the test assembly. <c>package</c> and <c>diff</c> reach other
+    /// artifacts whose SourceLink is independent of this build, so a hint about the test
+    /// assembly's PDB would misdirect there.
+    ///
+    /// The section must actually need the blob. <c>Source Locations</c> does — it was the sole
+    /// section to lose its rows when the blob was suppressed. <c>Context: Source Location</c>
+    /// deliberately does not qualify: it resolves from portable-PDB sequence points and still
+    /// renders method, token, file, and line without SourceLink, dropping only the URL, so
+    /// hinting there would misattribute an unrelated token or PDB failure to the environment —
+    /// the very mistake this hint exists to prevent.
+    /// </remarks>
+    private static bool IsSourceLinkBackedSection(string[] command, string section)
+        => command.Contains(TestAssemblyPath, StringComparer.Ordinal)
+           && (section == SectionNames.SourceLocations
+               || section.StartsWith("SourceLink:", StringComparison.Ordinal));
+
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
            && typeName == typeof(EmptyDiscoveryFixture).FullName;
-
-    /// <summary>
-    /// Sections whose rows come from the inspected assembly's SourceLink blob rather than from
-    /// metadata or PDB sequence points alone. Only these carry the
-    /// <see cref="TestAssemblySourceLink.FailureHint"/>, so a failure elsewhere is not
-    /// misattributed to the environment.
-    /// </summary>
-    private static bool IsSourceLinkBackedSection(string section)
-        => section is SectionNames.SourceLocations or SectionNames.ILOffset
-           || section.StartsWith("SourceLink:", StringComparison.Ordinal);
 
     [Fact]
     public async Task MemberDiscovery_MultiOverload_DoesNotListSingleOverloadSections()
