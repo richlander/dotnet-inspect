@@ -789,6 +789,11 @@ public static class MetadataDeclarationQuery
                 Constraints = constraints,
                 StructuredConstraints = structured,
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
+                TypeKind = TypeParameterKindClassifier.Classify(
+                    reader,
+                    parameter,
+                    hasValueTypeConstraint: isStruct,
+                    hasReferenceTypeConstraint: (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0),
             });
         }
 

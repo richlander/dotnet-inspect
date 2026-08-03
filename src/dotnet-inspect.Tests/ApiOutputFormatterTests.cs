@@ -762,6 +762,76 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
+    /// Every row of the restatement table, through the real chain over real compiled
+    /// metadata. An override may not repeat its inherited constraints (CS0460) but must
+    /// restate exactly one fact about each type parameter, because that fact decides
+    /// whether `T?` binds as a nullable reference type or as Nullable&lt;T&gt;. Omitting
+    /// it is CS0453/CS0115/CS0534; naming the wrong one is CS8822 or CS8665.
+    /// </summary>
+    /// <remarks>
+    /// The rows cannot be told apart by constraint spelling, which is why this runs
+    /// against compiler-produced metadata rather than a hand-built model: `Enumish` and
+    /// `Named` are both class constraints, and `Interface` and `Named` are both named
+    /// type constraints, yet each pair needs opposite restatements. This is the gate for
+    /// <c>TypeParameterKindClassifier</c>; the writer's reduction from the classified
+    /// kind is gated separately by
+    /// <c>CSharpDeclarationWriterTests.OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires</c>.
+    /// </remarks>
+    [Theory]
+    // No constraint, and constraints that prove nothing about T being a reference or
+    // value type. `default` is required: omitting the clause does not compile.
+    [InlineData(nameof(RestatementRowFixture.None), "default")]
+    [InlineData(nameof(RestatementRowFixture.NotNull), "default")]
+    [InlineData(nameof(RestatementRowFixture.Ctor), "default")]
+    // An interface constraint proves nothing either -- T may still be a struct.
+    [InlineData(nameof(RestatementRowFixture.Interface), "default")]
+    // System.Enum is the trap: it is a class, but it is one of the three base types
+    // that does not make T known to be a reference type, so `class` here is CS8665.
+    [InlineData(nameof(RestatementRowFixture.Enumish), "default")]
+    // Any other named class constraint does make T known to be a reference type.
+    [InlineData(nameof(RestatementRowFixture.Named), "class")]
+    public void ConstraintRestatement_MatchesWhatCSharpRequires(string memberName, string expected)
+    {
+        string path = typeof(RestatementRowFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(RestatementRowFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == memberName);
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains(
+            $"{memberName}<T>(T? value) where T : {expected}",
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains(
+            $"{memberName}<T>(T? value) where T : {expected}",
+            typeSource,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The same chain must reduce, not drop, the constraints an override inherits.
     /// C# allows exactly a bare `class` or `struct` to be restated, and that carve-out
     /// decides how `T?` binds: without it `T?` becomes Nullable&lt;T&gt; and the render
@@ -1147,4 +1217,40 @@ public class ConstraintFixture : ConstraintFixtureBase, IConstraintFixture
 public interface IConstraintFixture
 {
     void Wrap<T>(T? value) where T : struct;
+}
+
+/// <summary>
+/// One row per line of the restatement table an override has to satisfy. The rows are
+/// distinguished by what the base constrains, not by how the constraint is spelled:
+/// <see cref="Enumish"/> and <see cref="Named"/> are both class constraints in
+/// metadata, yet C# requires opposite restatements for them.
+/// </summary>
+public class RestatementRowBase
+{
+    public virtual T? None<T>(T? value) => value;
+
+    public virtual T? NotNull<T>(T? value) where T : notnull => value;
+
+    public virtual T? Interface<T>(T? value) where T : IConstraintFixture => value;
+
+    public virtual T? Enumish<T>(T? value) where T : Enum => value;
+
+    public virtual T? Named<T>(T? value) where T : ConstraintFixtureBase => value;
+
+    public virtual T? Ctor<T>(T? value) where T : new() => value;
+}
+
+public class RestatementRowFixture : RestatementRowBase
+{
+    public override T? None<T>(T? value) where T : default => value;
+
+    public override T? NotNull<T>(T? value) where T : default => value;
+
+    public override T? Interface<T>(T? value) where T : default => value;
+
+    public override T? Enumish<T>(T? value) where T : default => value;
+
+    public override T? Named<T>(T? value) where T : class => value;
+
+    public override T? Ctor<T>(T? value) where T : default => value;
 }

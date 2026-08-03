@@ -711,6 +711,11 @@ public static class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
+            typeParam.TypeKind = TypeParameterKindClassifier.Classify(
+                reader,
+                param,
+                hasValueTypeConstraint: (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
+                hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0);
             parameters.Add(typeParam);
         }
 
