@@ -58,7 +58,12 @@ internal static class DeclarationIndexBuilder
         // Most scopes own the row whose body they delimit. Anonymous scopes and extension blocks
         // do not. An extension block still carries its enclosing type's index so its members land
         // on that type, but closing it must not close or otherwise mutate that enclosing row.
-        var scopes = new List<(int RowIndex, bool OwnsRow)>();
+        //
+        // A file-scoped namespace is different again: it owns a row but no brace closes it. The
+        // scanner can see one in a conditional branch nested under a block namespace even though
+        // that branch cannot compile. Its entry must not steal the block namespace's physical
+        // closing brace in the configurations that drop the branch.
+        var scopes = new List<(int RowIndex, bool OwnsRow, bool ClosesWithBrace)>();
         var pending = new List<ScanToken>();
         int triviaStart = -1;
 
@@ -590,7 +595,7 @@ internal static class DeclarationIndexBuilder
                 if (Truncate(pending, Text).CutAtEquals)
                 {
                     initializerDepth++;
-                    scopes.Add((-1, false));
+                    scopes.Add((-1, false, true));
                     pending.Add(tok);
                     continue;
                 }
@@ -601,7 +606,7 @@ internal static class DeclarationIndexBuilder
                 // inside a parent that has no metadata counterpart.
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
-                    scopes.Add((EnclosingIndex(), false));
+                    scopes.Add((EnclosingIndex(), false, true));
                     EndDeclaration(tok);
                     lastClosed = -1;
                     continue;
@@ -623,11 +628,11 @@ internal static class DeclarationIndexBuilder
                         AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
                     });
-                    scopes.Add((rows.Count - 1, true));
+                    scopes.Add((rows.Count - 1, true, true));
                 }
                 else
                 {
-                    scopes.Add((-1, false));
+                    scopes.Add((-1, false, true));
                 }
                 EndDeclaration(tok);
                 lastClosed = -1;
@@ -674,7 +679,23 @@ internal static class DeclarationIndexBuilder
 
                 if (scopes.Count > 0)
                 {
-                    var (idx, ownsRow) = scopes[^1];
+                    // A file-scoped namespace has no matching brace. If one was written in a
+                    // conditional branch inside a block namespace, the next physical "}" closes
+                    // the block namespace in every configuration that can compile; letting the
+                    // brace-less entry consume it shifts every enclosing row's EndLine outward by
+                    // one. Drop such entries before finding the scope this brace actually closes.
+                    // Found by adversarial review round 13 (Claude Opus 5).
+                    while (scopes.Count > 0 && !scopes[^1].ClosesWithBrace)
+                        scopes.RemoveAt(scopes.Count - 1);
+
+                    if (scopes.Count == 0)
+                    {
+                        lastClosed = -1;
+                        EndDeclaration(tok);
+                        continue;
+                    }
+
+                    var (idx, ownsRow, _) = scopes[^1];
                     scopes.RemoveAt(scopes.Count - 1);
                     if (idx >= 0 && ownsRow)
                     {
@@ -915,9 +936,12 @@ internal static class DeclarationIndexBuilder
                 //
                 // The relevant question is therefore not the remembered row's kind. It is whether
                 // that row (or the terminator that replaced it when lastClosed is -1) and the
-                // pending run can both be absent in a build where this ";" remains. Ordinary
-                // unconditional text shares this terminator's section and is unaffected. Found by
-                // adversarial review round 12 (Claude Opus 5).
+                // pending run can both be absent in a build where this ";" remains. A section
+                // difference means only that a directive boundary intervened; even an empty group
+                // changes the section and can conservatively decline the row. Text with no
+                // intervening directive shares the terminator's section. Found by adversarial
+                // review round 12 (Claude Opus 5); corrected for the empty-group counterexample in
+                // round 13 (Claude Opus 5).
                 bool predecessorCanVanish = lastClosed >= 0
                     ? lastClosedSection != tok.Section
                     : lastTerminatorSection != tok.Section;
@@ -952,7 +976,7 @@ internal static class DeclarationIndexBuilder
                             var ns = rows[^1];
                             ns.EndLine = -1;
                             ns.ClosesAtEndOfFile = true;
-                            scopes.Add((rows.Count - 1, true));
+                            scopes.Add((rows.Count - 1, true, false));
 
                             // A file-scoped namespace is the one scope opener in C# that uses no
                             // brace, so neither the balance rule nor the opening-depth floor can

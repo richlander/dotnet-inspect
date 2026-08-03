@@ -76,7 +76,7 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 // over-vouch, but a clean run is evidence, not proof -- it cannot flag a defect
 // the generator never spells (it emits no #line and no #define/#undef).
 //
-// Six consecutive rounds have now found a defect in the generator's REACH
+// Seven consecutive rounds have now found a defect in the generator's REACH
 // rather than in its case count, so treat that as the expected failure mode:
 //   - round 7: every group sat at file scope, so no member row was ever
 //     compared across 140,000 clean cases.
@@ -98,6 +98,9 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 //   - round 12: no case put a brace-bodied NON-TYPE member before a trailing
 //     ";", and no case put a C# 14 extension block there. The fifteenth way and
 //     the extension-block starting-point defect both lived in those gaps.
+//   - round 13: no case wrapped top-level generation in a BLOCK namespace, so
+//     TopPool's file-scoped namespace always landed at file scope and could
+//     never strand a brace-less scope entry above a physical namespace "}".
 // Before citing a clean run, read the cmp1/cmp2 buckets it printed and check
 // that the rows you care about are actually in them. Note also that "fair"
 // means "parses", not "compiles": the oracle reads parse diagnostics, so
@@ -442,6 +445,16 @@ public class ConditionalRecoveryFuzzTests
         bool inType = rnd.Next(2) == 0;
         curType = inType ? $"Outer{iter}" : null;
 
+        // Round 13: without block-namespace wrappers, TopPool's file-scoped namespace always
+        // lands at file scope. That leaves no enclosing physical "}" for its brace-less scope
+        // entry to steal, so the seventeenth way was unreachable at every seed and case count.
+        int namespaceWrappers = inType ? 0 : rnd.Next(3);
+        for (int w = 0; w < namespaceWrappers; w++)
+        {
+            lines.Add($"namespace NsW{iter}_{w}");
+            lines.Add("{");
+        }
+
         if (inType)
             lines.Add($"class Outer{iter}");
         if (inType)
@@ -473,6 +486,8 @@ public class ConditionalRecoveryFuzzTests
         else
         {
             lines.Add($"class Tail{iter} {{ }}");
+            for (int w = namespaceWrappers - 1; w >= 0; w--)
+                lines.Add("}");
         }
         return string.Join("\n", lines);
     }

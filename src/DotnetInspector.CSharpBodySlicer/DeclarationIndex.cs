@@ -173,7 +173,7 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// product's own numbers;
 /// <c>ConditionalRecoveryFuzzTests.EveryVouchedRowMatchesRoslynInEveryBuildItExistsIn</c> answers
 /// the other half by checking the product's numbers against each build.
-/// Both are only as good as the generator's reach, which rounds 7 through 12 each falsified, so
+/// Both are only as good as the generator's reach, which rounds 7 through 13 each falsified, so
 /// read
 /// that file's header before reading a clean run as proof. The per-site gates
 /// remain as regression pins:
@@ -189,7 +189,9 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// <c>ATrailingSemicolonMaskedAfterABracelessOpener_DoesNotVouchTheRowBeforeIt</c> for round 11,
 /// <c>ATrailingSemicolonMaskedByANonTypeBlock_DoesNotVouchTheEarlierType</c> and
 /// <c>ATrailingSemicolonAfterAConditionalExtensionBlock_RefusesItsSiblingNotItsParent</c> for
-/// round 12, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
+/// round 12,
+/// <c>AConditionalFileScopedNamespace_DoesNotStealAnEnclosingNamespacesClosingBrace</c> for
+/// round 13, <c>ABodilessRowWhoseTerminatorIsInABranch_IsNotVouchedFor</c> and
 /// <c>ABodilessRowWhoseModifierIsInABranch_IsNotVouchedFor</c> for the bodiless emit path.
 /// Recovery after a balanced group is
 /// gated by <c>DeclarationIndexTests.ABalancedConditional_CostsOnlyTheRowsInsideIt</c> and, over

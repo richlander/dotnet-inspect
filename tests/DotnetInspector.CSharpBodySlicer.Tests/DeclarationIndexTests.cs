@@ -3126,6 +3126,68 @@ public class DeclarationIndexTests
         Assert.Equal(10, c.EndLine);
     }
 
+    /// <summary>
+    /// The seventeenth way: a file-scoped namespace owns a row and opens a scope, but no brace
+    /// closes it. When one is written conditionally inside nested block namespaces, its stranded
+    /// scope entry used to consume <c>Mid</c>'s physical <c>}</c>; every outer close then shifted
+    /// one scope, leaving <c>Mid</c> vouched through line 10 where Roslyn's two compilable
+    /// configurations end it on line 9. The existing file-scoped-namespace refusal begins at the
+    /// namespace row and cannot repair enclosing rows emitted before it. Found by adversarial
+    /// review round 13 (Claude Opus 5).
+    /// </summary>
+    [Fact]
+    public void AConditionalFileScopedNamespace_DoesNotStealAnEnclosingNamespacesClosingBrace()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace Outer
+            {
+                namespace Mid
+                {
+                    class Sy { }
+            #if X
+                    namespace Inner;
+            #endif
+                }
+            }
+            """);
+
+        var outer = Assert.Single(index.Declarations, s => s.Name == "Outer");
+        Assert.True(outer.SpanKnown);
+        Assert.Equal(10, outer.EndLine);
+
+        var mid = Assert.Single(index.Declarations, s => s.Name == "Mid");
+        Assert.True(mid.SpanKnown);
+        Assert.Equal(9, mid.EndLine);
+
+        var inner = Assert.Single(index.Declarations, s => s.Name == "Inner");
+        Assert.False(inner.SpanKnown, "the file-scoped namespace exists only with X");
+    }
+
+    /// <summary>
+    /// A legitimate file-scoped namespace still owns every declaration below it through end of
+    /// file. Marking it as brace-less must prevent unrelated type braces from popping it without
+    /// losing its transparent nesting or end-line calculation.
+    /// </summary>
+    [Fact]
+    public void AFileScopedNamespace_RemainsOpenAcrossNestedTypeBraces()
+    {
+        var index = DeclarationIndex.Build("""
+            namespace N;
+            class A
+            {
+                class B { }
+            }
+            class C { }
+            """);
+
+        var ns = Assert.Single(index.Declarations, s => s.Name == "N");
+        Assert.True(ns.SpanKnown);
+        Assert.Equal(6, ns.EndLine);
+        Assert.All(
+            index.Declarations.Where(s => s.Name is "A" or "C"),
+            row => Assert.Equal(ns, index.ParentOf(row)));
+    }
+
     private static string Format(Declaration d) =>
         $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
 
