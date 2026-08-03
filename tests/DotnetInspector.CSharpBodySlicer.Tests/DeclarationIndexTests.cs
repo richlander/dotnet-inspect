@@ -2945,6 +2945,102 @@ public class DeclarationIndexTests
         Assert.False(f.SpanKnown, "without X the field's signature starts on line 6, not line 4");
     }
 
+    /// <summary>
+    /// The fourteenth way, and it masks the twelfth's own brace-less arm exactly as the
+    /// thirteenth masked the twelfth. Two groups bypass both round-10 rules at once: the
+    /// brace-less <c>namespace Nr;</c> leaves <c>lastClosed</c> at -1, which is what the
+    /// round-10 arm exists for, while the pending <c>Field</c> defeats that arm's demand for an
+    /// EMPTY pending run -- and the thirteenth-way rule cannot cover for it because that rule
+    /// needs <c>lastClosed &gt;= 0</c>. With <c>{!X,!Y}</c> the file is
+    /// <c>class C { class Sr { } ; }</c> and <c>Sr</c> ends at the <c>;</c> on line 9; with
+    /// <c>{!X,Y}</c> the <c>;</c> is the field's and <c>Sr</c> ends at its brace on line 2.
+    /// Both parse. Found by adversarial review round 11 (Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void ATrailingSemicolonMaskedAfterABracelessOpener_DoesNotVouchTheRowBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                class Sr { }
+            #if X
+                namespace Nr;
+            #endif
+            #if Y
+                int Field = 1
+            #endif
+                ;
+            }
+            """);
+
+        var sr = Assert.Single(index.Declarations, s => s.Name == "Sr");
+        Assert.False(sr.SpanKnown, "without either symbol the \";\" is Sr's own trailer, ending it on line 9");
+    }
+
+    /// <summary>
+    /// The masking term of the fourteenth-way fix, isolated. Dropping the second group leaves
+    /// the round-10 arm's original empty-run case, so this is the gate that fails if the
+    /// <c>PendingCanVanishBefore</c> term is removed while the empty-run term is kept.
+    /// </summary>
+    [Fact]
+    public void ABracelessOpenerBeforeABareSemicolon_StillRefusesWithNoPendingRun()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                class Sr { }
+            #if X
+                namespace Nr;
+            #endif
+                ;
+            }
+            """);
+
+        var sr = Assert.Single(index.Declarations, s => s.Name == "Sr");
+        Assert.False(sr.SpanKnown, "without X the \";\" is Sr's own trailer");
+    }
+
+    /// <summary>
+    /// Recall for the fourteenth-way fix. The widened arm must not refuse a row whose trailing
+    /// <c>;</c> is unconditional and whose enclosing scope is opened by a brace, which is the
+    /// ordinary shape; only the row the <c>;</c> could reach is at stake, so the enclosing type
+    /// stays vouched for in the refusal gates above as well.
+    /// </summary>
+    [Fact]
+    public void AnUnconditionalTrailingSemicolon_KeepsTheRowBeforeIt()
+    {
+        var index = DeclarationIndex.Build("""
+            class C {
+                class Sr { };
+                int After;
+            }
+            """);
+
+        var sr = Assert.Single(index.Declarations, s => s.Name == "Sr");
+        Assert.True(sr.SpanKnown, "nothing here is branch-dependent");
+        var c = Assert.Single(index.Declarations, s => s.Name == "C");
+        Assert.True(c.SpanKnown, "the enclosing type is unaffected");
+    }
+
+    /// <summary>
+    /// The premise round 10 stated for <c>PendingCanVanishBefore</c> -- that an unknown depth
+    /// means a token inside a conditional group -- is false, and this is the witness. The group
+    /// never balances, so the scan stops knowing the depth and does not recover, and
+    /// <c>Tail</c> is refused although it lies outside every group. The rule stays sound because
+    /// it needs only the converse. Found by adversarial review round 11 (Gemini 3.1 Pro).
+    /// </summary>
+    [Fact]
+    public void AfterAnUnbalancedGroup_EvenARowOutsideEveryGroup_IsNotVouchedFor()
+    {
+        var index = DeclarationIndex.Build("""
+            #if A
+            class Opened {
+            #endif
+            class Tail { }
+            """);
+
+        var tail = Assert.Single(index.Declarations, s => s.Name == "Tail");
+        Assert.False(tail.SpanKnown, "the scan never regains the depth after an unbalanced group");
+    }
+
     private static string Format(Declaration d) =>
         $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
 

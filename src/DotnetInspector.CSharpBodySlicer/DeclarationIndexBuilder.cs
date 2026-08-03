@@ -292,11 +292,25 @@ internal static class DeclarationIndexBuilder
         // Whether the run under construction can be absent from a build in which the terminator
         // that follows it is present. Both terms are needed and neither implies the other.
         //
-        // DepthKnown is false exactly for a token inside a conditional group, so a run in which
-        // every token is unknown is a run that some build discards. If even one token sits outside
-        // every group, that token is in every build, a declaration is always under construction,
-        // and the terminator can never reach past it -- which is what keeps an ordinary member
-        // carrying only a CONDITIONAL INITIALIZER out of this rule.
+        // DepthKnown is false for a token inside a conditional group, and also for every token
+        // after a group that failed to balance -- the scan stops knowing the depth at that point
+        // and does not recover, so an unknown token is not necessarily a token inside a group.
+        // Round 10 wrote "exactly for a token inside a conditional group" here, which round 11
+        // (Gemini 3.1 Pro) falsified: in
+        //
+        //     #if A
+        //     class Opened {
+        //     #endif
+        //     class Tail { }
+        //
+        // Tail lies outside every group and is still refused. What the rule needs is only the
+        // weaker direction, and that direction holds: a token OUTSIDE every group always has
+        // DepthKnown true, so a run in which every token is unknown contains no token that every
+        // build is guaranteed to have. The extra unknown tokens an unbalanced group contributes
+        // can only add refusals, never remove one, which is the safe direction -- and a run that
+        // is genuinely in every build is normally caught by the section test below instead.
+        // This is what keeps an ordinary member carrying only a CONDITIONAL INITIALIZER out of
+        // this rule.
         //
         // The section test then asks whether the terminator goes with them. A run and a terminator
         // written in one branch vanish together and nothing reaches back; only a terminator written
@@ -871,8 +885,33 @@ internal static class DeclarationIndexBuilder
                 // now remembers. An ordinary stray ";" shares its predecessor's section and is
                 // unaffected, including in a file with unrelated groups earlier in it. Found by
                 // adversarial review round 10 (Claude Opus 5), who predicted this arm without being
-                // able to build a parsing case for it; the widened generator built one.
-                if (pending.Count == 0 && lastClosed < 0 && lastTerminatorSection != tok.Section)
+                // Found by adversarial review round 10 (Claude Opus 5), who predicted this arm
+                // without being able to build a parsing case for it; the widened generator built
+                // one.
+                //
+                // The pending run is tested the same way the thirteenth-way rule below tests it,
+                // and round 11 is why. Requiring an EMPTY run here let a second group mask this
+                // arm exactly as the thirteenth way masked the twelfth:
+                //
+                //     class C {
+                //         class Sr { }
+                //     #if X
+                //         namespace Nr;
+                //     #endif
+                //     #if Y
+                //         int Field = 1
+                //     #endif
+                //         ;
+                //     }
+                //
+                // Both round-10 arms are bypassed at once: this one because Field is pending, and
+                // the thirteenth-way one because the brace-less namespace left lastClosed at -1.
+                // With {!X,!Y} the file is "class C { class Sr { } ; }" and Sr ends at the ";" on
+                // line 9; with {!X,Y} the ";" is Field's and Sr ends at its brace on line 2. Both
+                // parse, and Sr was vouched at 2..2. Found by adversarial review round 11
+                // (Gemini 3.1 Pro).
+                if ((pending.Count == 0 || PendingCanVanishBefore(tok.Section))
+                    && lastClosed < 0 && lastTerminatorSection != tok.Section)
                 {
                     RefuseSiblingsAnInitializerCouldReach();
                 }
