@@ -186,7 +186,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     for (int index = runLine + 1; index < lines.Length; index++)
     {
         string line = lines[index];
-        if (line.Length == 0)
+        if (string.IsNullOrWhiteSpace(line))
         {
             body.Add("");
             continue;
