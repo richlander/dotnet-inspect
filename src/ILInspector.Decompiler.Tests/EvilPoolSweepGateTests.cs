@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DotnetInspector.Packages;
@@ -103,11 +104,12 @@ public class EvilPoolSweepGateTests
         Assert.True(File.Exists(pooled), $"the sweep exited 0 without pooling '{pooled}'");
         Assert.Equal(world.FixtureSha256, Sha256Of(pooled));
 
-        // The pool is only reproducible if what the sweep reports is what it wrote -- both
-        // packages, in rank order, and no third thing.
-        Assert.Equal(
-            [world.LeadDestination, pooled],
-            File.ReadAllLines(world.PooledListPath).Where(line => line.Length > 0));
+        // This list crosses from .NET into shell tooling, so its exact bytes are the
+        // protocol: BOM-less UTF-8, LF separators, and a terminating LF. Reading lines
+        // would accept UTF-16 and a missing terminator and leave that contract ungated.
+        byte[] expectedList = Encoding.UTF8.GetBytes(
+            $"{world.LeadDestination}\n{pooled}\n");
+        Assert.Equal(expectedList, File.ReadAllBytes(world.PooledListPath));
 
         // And the count agrees with the record. Nothing read this aggregate before, so a
         // successful two-package pool could report zero selected -- measured.
@@ -702,6 +704,47 @@ public class EvilPoolSweepGateTests
         // to remove one is visible to whoever reads the manifest -- and so a leak this
         // step would otherwise quietly tidy away cannot pass for a clean pool.
         world.AssertPoolMatchesRecord([world.SubjectDestination, sibling, underLead]);
+    }
+
+    /// <summary>
+    /// A sweep does not reconcile the pool until its new record is durable.
+    ///
+    /// <para>The first run leaves a complete pool and the record that names it. The second
+    /// run would record only the lead, but its <c>assemblies.txt</c> replacement is made to
+    /// fail after the replacement temporary has been written. That failure exits 2 before
+    /// the manifest write, so the first run's record and manifest remain the durable
+    /// description of the pool. Reconciliation before the failed write would delete the
+    /// subject from under that surviving description.</para>
+    ///
+    /// <para>A directory planted at the record path is the deterministic cross-platform
+    /// way to make the atomic move fail. The fixture moves the first record aside and moves
+    /// that same file back after the failed run; it does not reconstruct the expectation.
+    /// <see cref="SweepWorld.AssertPoolMatchesRecord"/> then derives the expected pool from
+    /// the restored durable record, so moving reconciliation ahead of the write makes this
+    /// case fail on the missing subject.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepDoesNotReconcileBeforeItsRecordIsDurable()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        world.AssertPoolMatchesRecord(removals: []);
+
+        world.PinInstead(FixturePackage, "9.9.9", FixtureTfm);
+
+        string savedRecord = Path.Combine(world.Scratch, "assemblies.first.txt");
+        File.Move(world.PooledListPath, savedRecord);
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var second = world.Run();
+
+        Directory.Delete(world.PooledListPath);
+        File.Move(savedRecord, world.PooledListPath);
+
+        Assert.True(second.ExitCode == 2, world.Explain(second, "an assemblies.txt that cannot be replaced"));
+        world.AssertPoolMatchesRecord(removals: []);
     }
 
     /// <summary>

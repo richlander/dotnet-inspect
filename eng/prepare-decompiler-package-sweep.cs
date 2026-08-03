@@ -728,9 +728,13 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
+// This is an interchange file for shell tooling, so its bytes are part of the
+// contract: UTF-8 without a BOM, one LF-terminated path per line. ReplaceTextOrReport
+// supplies the encoding; EvilPoolSweepGateTests.ASweepPoolsTheBytesThePinNames gates
+// the complete file.
 string? unwritable = (await ReplaceTextOrReport(
     assembliesPath,
-    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)))).Error;
+    string.Concat(assemblies.Select(assembly => assembly + '\n')))).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -852,6 +856,8 @@ var manifest = new PackageSweepManifest(
     RemovedFromPool: removedFromPool,
     Unreconciled: unreconciled);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+// JSON values are the manifest contract; terminal whitespace is not. This newline is
+// text-file convenience and is deliberately not gated.
 unwritable = (await ReplaceTextOrReport(
     manifestPath,
     JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine)).Error;
@@ -928,6 +934,9 @@ if (refreshPin)
     Console.WriteLine($"Recorded {recorded.Length} pinned packages in {Path.GetRelativePath(root, pinPath)}.");
 }
 
+// Console output is operator convenience, not an output protocol. The manifest and
+// exit code are the stable contract; the wording and presence of these diagnostics are
+// deliberately not gated.
 Console.WriteLine(
     $"Selected {assemblies.Count} of {selected.Length} requested packages; "
     + $"manifest: {Path.Combine(outputDirectory, "manifest.json")}");
