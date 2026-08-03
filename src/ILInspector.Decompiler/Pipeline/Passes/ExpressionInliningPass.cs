@@ -131,7 +131,56 @@ public sealed class ExpressionInliningPass : IIrPass
 
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
             bool firstLeaf = IsFirstEvaluatedLeaf(load, next);
-            if (!firstLeaf && !pure)
+            // A non-pure value must stay unconditionally evaluated: the spilled
+            // store always ran, so its effectful value may only land where it
+            // still always runs — never inside a `?:`/`??`/`&&`/`||`/`?.`/switch/
+            // `??=` arm. This guards BOTH inline paths, including `firstLeaf`: a
+            // node that exposes its own CONDITIONAL child as `Children[0]` (a
+            // `??=` whose only/first child is its guarded fallback) makes
+            // `IsFirstEvaluatedLeaf` misreport that fallback as first-evaluated,
+            // so the firstLeaf path alone would move the effect into the guarded
+            // position (#3500 adversarial review, GPT + Gemini). Pure values are
+            // effect-free and non-throwing, so conditional evaluation is
+            // unobservable and they skip this.
+            if (!pure && !LoadIsUnconditionallyEvaluated(load, next))
+                continue;
+            // A non-pure value must also not cross a hidden operation that runs
+            // before or between a container's children — a record clone, an object
+            // construction, an interpolated-string handler build with interleaved
+            // appends, or a collection/array allocation. Universal, so it guards
+            // the firstLeaf path too: these operations precede even the first
+            // evaluated child (#3500 adversarial review, GPT + Gemini).
+            if (!pure && LoadCrossesHiddenOperation(load, next))
+                continue;
+            // A value that is neither the first-evaluated leaf nor pure normally
+            // cannot defer to its load: it would move past whatever `next`
+            // evaluates first, reordering effects or which exception surfaces. It
+            // IS safe when everything evaluated before the load is itself pure
+            // (effect-free and non-throwing) — the deferral then crosses nothing
+            // observable. This is the spilled receiver-then-value shape a field or
+            // array store leaves behind: `this._f = o ?? new()` spills `this` and
+            // the coalesce across the `??` branch, and once the receiver spill
+            // collapses to a pure `this`/argument load the value spill follows it
+            // back into the store (a value-type `this` stays impure, so a struct
+            // receiver keeps the value spilled). Restricted to synthetic stack
+            // slots — the compiler's spill scratch. A user local carries source
+            // meaning and later passes (foreach, deconstruction, merged-slot
+            // naming) reshape constructs around it, so deferring one changes
+            // already-raised code and drops its source name. Unconditional
+            // evaluation is already established above (the non-pure guard), so
+            // only the ordering and type-witness conditions remain here. A slot
+            // whose stored value type differs from the type at which it is loaded
+            // carries a type reconciliation the materialized `T S_n = ...`
+            // declaration would spell (e.g. an object-merged ternary narrowed to
+            // an unresolved, possibly value-type, target); inlining would drop
+            // that witness, so require the two to agree — the analogue of the
+            // StoreLocal type witness guard above.
+            bool precedingPure = isSlot && !firstLeaf && !pure
+                && store is StoreStackSlot { Value.ResultType: { } slotValueType }
+                && load is LoadStackSlot { ResultType: { } slotLoadType }
+                && slotValueType.Equals(slotLoadType)
+                && PrecedingEvaluationIsPure(load, next, locals, argumentAddresses, function);
+            if (!firstLeaf && !pure && !precedingPure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
             // Purity proves the value has no effect and cannot throw, but a value
             // deferred to a NON-first-leaf load also moves past `next`'s prefix.
@@ -307,14 +356,15 @@ public sealed class ExpressionInliningPass : IIrPass
     }
 
     // A read is stable to move only if no escaped address could let an
-    // intervening call mutate it: arg whose address is never taken (and not the
-    // possibly-byref `this` of an instance method), or a local never addressed.
+    // intervening call mutate it: arg whose address is never taken (and not a
+    // byref value-type `this`), or a local never addressed. A CONFIRMED
+    // reference-type `this` is a plain object reference, so it stays stable.
     static bool ReadIsStable(
         (PlaceKind Kind, int Index) read, HashSet<int> argumentAddresses, HashSet<int> addressTakenLocals, IrFunction function)
         => read.Kind switch
         {
             PlaceKind.Argument => !argumentAddresses.Contains(read.Index)
-                && !(function.Signature.HasThis && read.Index == 0),
+                && !(function.Signature.HasThis && read.Index == 0 && !ReceiverThisIsPure(function)),
             PlaceKind.Local => !addressTakenLocals.Contains(read.Index),
             _ => true,
         };
@@ -522,6 +572,233 @@ public sealed class ExpressionInliningPass : IIrPass
         return false;
     }
 
+    /// <summary>
+    /// True when <c>this</c> (arg 0) of an instance method loads a plain,
+    /// non-reassignable object reference rather than a byref managed pointer —
+    /// i.e. the declaring type is a CONFIRMED reference type. The only
+    /// value-type bases are the corelib <c>System.ValueType</c> (struct) and
+    /// <c>System.Enum</c> (enum); any other resolved base is a class. An
+    /// unresolved base (<c>null</c>, including <c>System.Object</c> itself) stays
+    /// conservative — treated as possibly byref, so the receiver is not moved.
+    /// </summary>
+    static bool ReceiverThisIsPure(IrFunction function)
+        => function.BaseType is { } baseType
+            && baseType is not { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Enum" };
+
+    /// <summary>
+    /// True when everything evaluated before <paramref name="load"/> within
+    /// <paramref name="statement"/> is pure — effect-free and non-throwing.
+    /// Walks the path from the statement root down to the load; at each level the
+    /// children before the path-child are its left siblings, fully evaluated
+    /// before the load, so each must be pure. The operations ON the path normally
+    /// sit above the load and execute AFTER their operands, so they are not part
+    /// of the preceding evaluation. Nodes that instead perform a hidden operation
+    /// before or between their children (a record clone, an object construction,
+    /// a container allocation, interleaved handler appends) are rejected earlier
+    /// by the universal <see cref="LoadCrossesHiddenOperation"/> guard, so this
+    /// walk only has to prove the left siblings pure.
+    /// </summary>
+    static bool PrecedingEvaluationIsPure(
+        IrNode load,
+        IrNode statement,
+        Dictionary<(bool IsSlot, int Index), (List<IrNode> Loads, List<IrNode> Stores, bool AddressTaken)> locals,
+        HashSet<int> argumentAddresses,
+        IrFunction function)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+                if (child is not IrExpression expression || !IsPure(expression, locals, argumentAddresses, function))
+                    return false;
+            }
+            if (onPath is null)
+                return false;
+            node = onPath;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="parent"/> performs an observable operation
+    /// before or between its children, up to and including <paramref name="child"/>,
+    /// so a non-pure value moved into <paramref name="child"/> crosses that
+    /// operation. This is the third soundness hazard for the deferred fold — after
+    /// impure left siblings (<see cref="PrecedingEvaluationIsPure"/>) and
+    /// conditional evaluation (<see cref="LoadIsUnconditionallyEvaluated"/>) —
+    /// and the only one that also affects the <c>firstLeaf</c> path, because these
+    /// operations run BEFORE the first evaluated child rather than after the last.
+    ///
+    /// <para><c>receiver with { M = v }</c> clones the receiver (a possibly
+    /// effectful or throwing copy constructor, and the clone snapshots the
+    /// receiver's other fields) before evaluating any initializer value, so only
+    /// the receiver is preceding-operation-free. <c>new T(args) { M = v }</c> runs
+    /// the constructor before the initializers (the creation is itself non-pure,
+    /// so the left-sibling-pure check already blocks it, but reject explicitly so
+    /// the guard does not depend on that).</para>
+    ///
+    /// <para>A <c>$"...{a}...{b}..."</c> interpolated string constructs a
+    /// <c>DefaultInterpolatedStringHandler</c> and appends each literal and
+    /// formatted value in turn, INTERLEAVED with hole evaluation: the append of an
+    /// earlier hole runs before a later hole is evaluated, and appending an
+    /// earlier <see cref="IFormattable"/> or custom-handler value runs arbitrary
+    /// user code. A <c>[a, b, ..s]</c> collection expression, a
+    /// <c>new T[] { a, b }</c> array literal, a <c>ReadOnlySpan&lt;T&gt;</c> span
+    /// literal, and the initializer form of a <c>stackalloc T[n] { a, b }</c>
+    /// allocate the container (<c>newobj</c> list / <c>newarr</c> / <c>CreateSpan</c>
+    /// / <c>localloc</c>) before evaluating any element, and a collection expression
+    /// may additionally interleave <c>Add</c> calls or spread enumeration
+    /// (<c>MoveNext</c>, user code) between elements. For all of these, no element
+    /// is preceding-operation-free. A <c>stackalloc</c>'s <c>count</c> is the
+    /// exception: it is evaluated before the <c>localloc</c>, so it stays foldable.</para>
+    ///
+    /// <para>The container allocation before the FIRST element runs no user code,
+    /// but it is still program-observable: it reserves an object identity and can
+    /// rent a pooled buffer, so a non-pure value that reads allocation order (e.g.
+    /// <c>ArrayPool&lt;char&gt;.Shared.Rent</c> identity) or that runs only if the
+    /// allocation did not first throw observes the reordering (#3500 adversarial
+    /// review, GPT + Gemini). Rejecting the first element is therefore correct,
+    /// not merely conservative, and measured to cost nothing on the corpus.</para>
+    ///
+    /// <para>Multi-child expressions whose own operation runs strictly AFTER all
+    /// operands are NOT hidden-operation nodes and keep the <c>false</c> default:
+    /// a call / <c>new T(args)</c> / local-function invocation / indexer pushes its
+    /// arguments then invokes (the <c>newobj</c>/<c>call</c> is last),
+    /// <see cref="AnonymousObject"/> and a tuple literal construct after all element
+    /// values, and a plain <c>new T[n]</c> / <c>stackalloc T[n]</c> without an
+    /// initializer evaluates its size before the single allocation. Every other
+    /// expression's own operation runs strictly after all of its operands, so the
+    /// default is <c>false</c>.</para>
+    /// </summary>
+    static bool ChildFollowsHiddenOperation(IrNode parent, IrNode child) => parent switch
+    {
+        WithExpression w => !ReferenceEquals(child, w.Receiver),
+        ObjectInitializerExpression o => !ReferenceEquals(child, o.Creation),
+        InterpolatedStringExpression => true,
+        CollectionExpression => true,
+        ArrayLiteral => true,
+        SpanLiteral => true,
+        StackAllocArray s => !ReferenceEquals(child, s.Count),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Walks the path from <paramref name="statement"/> to <paramref name="load"/>
+    /// and returns true if any parent performs a hidden operation before or between
+    /// the on-path child (see <see cref="ChildFollowsHiddenOperation"/>). Universal:
+    /// runs ahead of both the <c>firstLeaf</c> and <c>precedingPure</c> paths,
+    /// because a container's allocation and interleaved appends precede even its
+    /// first child, so the firstLeaf path is not exempt.
+    /// </summary>
+    static bool LoadCrossesHiddenOperation(IrNode load, IrNode statement)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+            }
+            if (onPath is null)
+                return false;
+            if (ChildFollowsHiddenOperation(node, onPath))
+                return true;
+            node = onPath;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="load"/> is evaluated on every execution of
+    /// <paramref name="statement"/> — no ancestor between the statement root and
+    /// the load evaluates its path-child conditionally. Walks the path and
+    /// rejects at the first short-circuiting or branching parent
+    /// (<c>?:</c>, <c>??</c>, <c>&amp;&amp;</c>/<c>||</c>, <c>?.</c>, switch
+    /// expressions, <c>??=</c>) whose evaluated child is not its always-evaluated
+    /// leading operand. The spilled store this pass folds was an unconditional
+    /// statement, so its value must land in an unconditional position; inlining
+    /// it into a guarded arm would change a non-pure value from always-run to
+    /// conditionally-run (#3500 adversarial review).
+    /// </summary>
+    static bool LoadIsUnconditionallyEvaluated(IrNode load, IrNode statement)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+            }
+            if (onPath is null)
+                return false;
+            // Below the root statement the path must stay within operand
+            // expressions. A nested statement, block, container, catch/finally
+            // region, or switch arm is a control-flow boundary whose body may not
+            // run on every entry; rather than enumerate them, reject any
+            // non-expression parent below the root.
+            if (!ReferenceEquals(node, statement) && node is not IrExpression)
+                return false;
+            if (!ChildIsUnconditional(node, onPath))
+                return false;
+            node = onPath;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="parent"/> evaluates <paramref name="child"/> on
+    /// every evaluation of itself. This is a DENYLIST: the overwhelming majority
+    /// of expression forms evaluate all of their operands left-to-right and
+    /// unconditionally, so the default is <c>true</c>; only the short-circuiting,
+    /// branching, and null-coalescing forms defer a child, and each defers only
+    /// past its always-evaluated leading operand (the condition, the
+    /// <c>??</c>/<c>&amp;&amp;</c>/<c>||</c> left operand, the switch scrutinee, or
+    /// the <c>??=</c> receiver/index). A <c>?.</c> guards its whole member
+    /// subtree, so none of its children is unconditional. The three
+    /// <see cref="IrNode"/> <c>??=</c> statement forms appear here too because one
+    /// can be the walk's root <paramref name="statement"/>, which the caller's
+    /// non-expression guard exempts. Non-root control boundaries (blocks, loops,
+    /// try regions, switch arms, lambda bodies) are rejected by that guard, and
+    /// pattern nodes need no case because their only non-scrutinee children are
+    /// pure <see cref="Constant"/>s. Tuple <c>==</c>/<c>!=</c>
+    /// (<see cref="TupleBinaryExpression"/>) is deliberately absent: C# evaluates
+    /// every element of both operand tuples before any element comparison, so its
+    /// components are unconditional (verified by compiled canary, #3500).
+    /// </summary>
+    static bool ChildIsUnconditional(IrNode parent, IrNode child) => parent switch
+    {
+        Conditional c => ReferenceEquals(child, c.Condition),
+        Coalesce c => ReferenceEquals(child, c.Left),
+        LogicalBinary l => ReferenceEquals(child, l.Left),
+        NullConditional => false,
+        SwitchExpression s => ReferenceEquals(child, s.Value),
+        PatternSwitchExpression s => ReferenceEquals(child, s.Value),
+        UnionSwitchExpression s => ReferenceEquals(child, s.Value),
+        TupleSwitchExpression s => s.Components.Any(component => ReferenceEquals(component, child)),
+        NullCoalescingAssignment => false,
+        NullCoalescingFieldAssignment f => ReferenceEquals(child, f.Instance),
+        NullCoalescingFieldAssignmentExpression f => ReferenceEquals(child, f.Instance),
+        NullCoalescingPropertyAssignment p => !ReferenceEquals(child, p.Value),
+        _ => true,
+    };
+
     /// <summary>Expressions whose evaluation cannot observe or produce effects, so reordering them is invisible.</summary>
     static bool IsPure(
         IrExpression value,
@@ -533,11 +810,13 @@ public sealed class ExpressionInliningPass : IIrPass
         // Reads are reorder-safe only if nothing can mutate the place from
         // inside an expression: stores are statement-level in this IR, so
         // the remaining hazard is a call writing through an escaped address.
-        // For instance methods, arg 0 may be a byref struct receiver that
-        // any instance call mutates — TypeRef cannot yet tell struct from
-        // class, so the receiver is never pure.
+        // For instance methods, arg 0 is a byref managed pointer only for a
+        // value-type receiver, which any instance call can mutate through; for
+        // a CONFIRMED reference type it is a plain, non-reassignable object
+        // reference, so the receiver load is pure. An unknown/unresolved
+        // declaring type stays conservative (treated as possibly byref).
         LoadArgument argument => !argumentAddresses.Contains(argument.Index)
-            && !(function.Signature.HasThis && argument.Index == 0),
+            && !(function.Signature.HasThis && argument.Index == 0 && !ReceiverThisIsPure(function)),
         LoadLocal load => !locals.TryGetValue((false, load.Index), out var entry) || !entry.AddressTaken,
         // Side-effect-free, non-throwing composites: pure iff every operand is
         // pure. Purity here must imply "cannot throw" as well as "no effect",
