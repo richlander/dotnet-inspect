@@ -212,6 +212,13 @@ public class CompilerGeneratedOrdinalTests
     /// The negative cases pin that depth matching did not widen ownership: the
     /// <c>&lt;&gt;</c>-prefixed anonymous shapes still report a closing angle of 1 and
     /// stay disowned, which is what keeps unrelated closures from merging.
+    ///
+    /// The lambda cache field <c>&lt;&gt;9__N_K</c> is the one <c>&lt;&gt;</c>-prefixed
+    /// shape this correspondence does own, and it is owned on a different basis: not on
+    /// its own name, which carries no containing method and would merge unrelated
+    /// closures exactly as the others would, but through the sibling lambda method it
+    /// pairs with. Ownership here is what keeps the per-side rewrite off it; the fold
+    /// itself is decided in the field loop.
     /// </summary>
     [Fact]
     public void GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned()
@@ -227,9 +234,16 @@ public class CompilerGeneratedOrdinalTests
         // Unchanged by depth matching: the anonymous shapes stay disowned. Asked under
         // `Any`, which is the weakest refusal available, so these also pin that the
         // entity-kind split did not widen ownership anywhere.
-        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c__DisplayClass1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>c", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
+
+        // The lambda cache field is owned under `Any` so the per-side rewrite keeps off
+        // it, and under `Field` so the field loop's grammar check agrees with the guard.
+        // It stays disowned under `Method` and `Type`, the kinds Roslyn never emits it on.
+        Assert.NotNull(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
+        Assert.NotNull(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Field));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Method));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<>9__1_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Type));
 
         // A containing name that never closes is not a form at all.
         Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal("<<Run>g__Local|0_0", CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any));
@@ -1633,6 +1647,302 @@ public class CompilerGeneratedOrdinalTests
         }
         throw new InvalidOperationException($"no method named {name}");
     }
+
+    /// <summary>
+    /// The premise the whole cache-field fold rests on: Roslyn emits <c>&lt;&gt;9__N_K</c>
+    /// in lockstep with <c>&lt;Name&gt;b__N_K</c> on the same type, so every cache field
+    /// has exactly one sibling lambda method and vice versa.
+    /// </summary>
+    /// <remarks>
+    /// The names below are not invented. They are the complete generated membership of
+    /// <c>&lt;&gt;c</c> from a Release build of a class whose seven methods between them
+    /// cover plain lambdas, several lambdas in one method, an overload pair, a capturing
+    /// lambda, an async method and a nested lambda. Eight fields, eight methods, and the
+    /// tails match one for one with nothing left over on either side.
+    /// <para>
+    /// Also present on <c>&lt;&gt;c</c> in that build, and deliberately in the negative
+    /// list here, is the singleton <c>&lt;&gt;9</c>. The capturing and async cases put
+    /// their lambdas on <c>&lt;&gt;c__DisplayClassN_K</c> and <c>&lt;M&gt;d__N</c>
+    /// instead, where the lambda method is named <c>&lt;Name&gt;b__K</c> with no scope
+    /// ordinal and no cache field is emitted at all -- so those never reach this pairing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void LambdaCacheFields_PairOneToOneWithTheirLambdaMethods()
+    {
+        string[] fields =
+        [
+            "<>9__0_0", "<>9__0_1", "<>9__0_2", "<>9__1_0",
+            "<>9__3_0", "<>9__5_0", "<>9__6_1", "<>9__6_0",
+        ];
+        string[] methods =
+        [
+            "<Run>b__0_0", "<Run>b__0_1", "<Run>b__0_2", "<Other>b__1_0",
+            "<Overload>b__3_0", "<AsyncOne>b__5_0", "<Nested>b__6_0", "<Nested>b__6_1",
+        ];
+
+        var fieldTails = fields
+            .Select(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail)
+            .ToList();
+        var methodTails = methods
+            .Select(CompilerGeneratedOrdinalCorrespondence.TryLambdaMethodTail)
+            .ToList();
+
+        Assert.All(fieldTails, Assert.NotNull);
+        Assert.All(methodTails, Assert.NotNull);
+        Assert.Equal(fieldTails.Count, fieldTails.Distinct().Count());
+        Assert.Equal(methodTails.Count, methodTails.Distinct().Count());
+        Assert.Equal(methodTails.Order(), fieldTails.Order());
+    }
+
+    /// <summary>
+    /// The other generated fields Roslyn puts on these types are not cache fields, and
+    /// eliding their ordinals would be wrong: <c>&lt;&gt;u__N</c> numbers a real awaiter
+    /// slot, and none of them has a sibling method to take a name from.
+    /// </summary>
+    [Fact]
+    public void NeighbouringGeneratedFields_AreNotMistakenForLambdaCaches()
+    {
+        // Observed on <>c and on <M>d__N in the same build as the pairing test above.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>1__state"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>t__builder"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>u__1"));
+
+        // Shapes the grammar must refuse rather than half-parse.
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9__"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9__0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9__0_"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9___0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9__00_0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<>9__0_0_0"));
+        Assert.Null(CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail("<Run>b__0_0"));
+    }
+
+    /// <summary>
+    /// The behavioral claim: a cache field whose scope ordinal shifted folds, because its
+    /// sibling lambda method establishes that the two denote the same closure slot.
+    /// </summary>
+    [Fact]
+    public void LambdaCacheFieldWhoseScopeOrdinalShifted_Folds()
+    {
+        Assert.Equal(IlBodyDiffOutcome.Exact, CompareCacheField(
+            oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
+            newMethod: "<Run>b__4_0", newField: "<>9__4_0").Outcome);
+    }
+
+    /// <summary>
+    /// The slot ordinal <c>K</c> is evidence and is preserved, so two cache slots of the
+    /// same containing method stay apart.
+    /// </summary>
+    [Fact]
+    public void LambdaCacheFieldsDifferingInSlot_DoNotFold()
+    {
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, CompareCacheField(
+            oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
+            newMethod: "<Run>b__0_1", newField: "<>9__0_1").Outcome);
+    }
+
+    /// <summary>
+    /// The point of pairing rather than folding the field on its own name. Both sides
+    /// spell the field <c>&lt;&gt;9__0_0</c>, so the per-side rewrite's <c>&lt;&gt;9__#_0</c>
+    /// key cannot tell them apart -- but they cache lambdas of different containing
+    /// methods, and the sibling supplies exactly that discriminator.
+    /// </summary>
+    [Fact]
+    public void LambdaCacheFieldsOfDifferentContainingMethods_DoNotFold()
+    {
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, CompareCacheField(
+            oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
+            newMethod: "<Other>b__0_0", newField: "<>9__0_0").Outcome);
+    }
+
+    /// <summary>
+    /// A cache field pairs only within its own type. Sharing the sibling map across types
+    /// would let a field borrow an unrelated type's lambda method, which is the field
+    /// analogue of the declaring-type mark leak.
+    /// </summary>
+    [Fact]
+    public void LambdaCacheFields_DoNotPairAcrossTypes()
+    {
+        // Sibling is indexed *before* Holder on purpose. With the type order reversed the
+        // test passes whether or not the map is per type, because the sibling method has
+        // not been seen yet when the field is reached -- a vacuous pass this fixture was
+        // rewritten to avoid after the tamper failed to fail.
+        byte[] image = BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["Sibling", "Holder"],
+            generatedTypeMethodNames: ["<Run>b__0_0", "M"],
+            generatedTypeFieldNames: ["<>9__0_0"],
+            fieldsOnGeneratedTypeIndex: 1);
+
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+
+        // The fixture presents the case: the field is on Holder, the only lambda method
+        // is on Sibling, and the tails would otherwise match.
+        Assert.Equal("<>9__0_0", Assert.Single(ReadFieldNames(image, "Holder")));
+        Assert.Equal("<Run>b__0_0", Assert.Single(ReadMethodNames(image, "Sibling")));
+
+        var (side, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+        Assert.False(side.TryGetFieldName(FieldNamed(reader, "<>9__0_0"), out _));
+    }
+
+    /// <summary>
+    /// Ownership is what keeps the per-side rewrite off a cache field the correspondence
+    /// declined to fold. Without it the rewrite folds <c>&lt;&gt;9__N_K</c> on the
+    /// containing-method-blind <c>&lt;&gt;9__#_K</c> key and reports Exact for the two
+    /// unrelated closures of
+    /// <see cref="LambdaCacheFieldsOfDifferentContainingMethods_DoNotFold"/>.
+    /// </summary>
+    [Fact]
+    public void LambdaCacheFields_AreNotLeftToThePerSideRewrite()
+    {
+        Assert.True(CompilerGeneratedOrdinalCorrespondence.TryElideOrdinal(
+            "<>9__1_0",
+            CompilerGeneratedOrdinalCorrespondence.GeneratedNameKind.Any) is not null);
+
+        // The rewrite alone does fold them -- which is the behavior being kept away from
+        // the composed contract, not a defect of the rewrite on its own terms.
+        Assert.Equal(IlBodyDiffOutcome.Exact, CompareCacheField(
+            oldMethod: "<Run>b__0_0", oldField: "<>9__0_0",
+            newMethod: "<Other>b__0_0", newField: "<>9__0_0",
+            normalization: IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).Outcome);
+    }
+
+    static IlBodyDiffResult CompareCacheField(
+        string oldMethod,
+        string oldField,
+        string newMethod,
+        string newField,
+        IlBodyDiffNormalization normalization = ComposedNormalization)
+    {
+        byte[] o = BuildImage("Probe", [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"], generatedTypeMethodNames: [oldMethod],
+            generatedTypeFieldNames: [oldField]);
+        byte[] n = BuildImage("Probe", [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"], generatedTypeMethodNames: [newMethod],
+            generatedTypeFieldNames: [newField]);
+        using var oldPe = new PEReader(new MemoryStream(o));
+        using var newPe = new PEReader(new MemoryStream(n));
+        return Compare(oldPe, newPe, normalization);
+    }
+
+    const IlBodyDiffNormalization ComposedNormalization =
+        IlBodyDiffNormalization.NormalizeVariableLayout
+        | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
+
+    static FieldDefinitionHandle FieldNamed(MetadataReader reader, string name)
+    {
+        foreach (var handle in reader.FieldDefinitions)
+        {
+            if (reader.GetString(reader.GetFieldDefinition(handle).Name) == name)
+                return handle;
+        }
+        throw new InvalidOperationException($"no field named {name}");
+    }
+
+    static List<string> ReadFieldNames(byte[] image, string typeName)
+    {
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            return type.GetFields()
+                .Select(f => reader.GetString(reader.GetFieldDefinition(f).Name))
+                .ToList();
+        }
+        throw new InvalidOperationException($"no type named {typeName}");
+    }
+
+    /// <summary>
+    /// The field analogue of the defect slice 1 fixed for methods, and the case the
+    /// per-side rewrite gets wrong. Two overloads share a containing name, so their
+    /// lambdas <c>&lt;Overload&gt;b__2_0</c> and <c>&lt;Overload&gt;b__3_0</c> differ only
+    /// in the scope ordinal, and their cache fields <c>&lt;&gt;9__2_0</c> and
+    /// <c>&lt;&gt;9__3_0</c> differ only there too. Eliding that ordinal on either name
+    /// alone merges the two overloads' caches.
+    /// </summary>
+    /// <remarks>
+    /// The correspondence gets this right without a rule of its own: the two sibling
+    /// methods collide on one key, so the method path finds them ambiguous and folds
+    /// neither, and each field is then named for its sibling's <em>raw</em> name, which
+    /// still tells the two apart. The safety is inherited rather than re-derived, which
+    /// is the point of naming a field for whatever its sibling resolved to.
+    /// </remarks>
+    [Fact]
+    public void LambdaCacheFieldsOfTwoOverloads_StayApart()
+    {
+        byte[] image = BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"],
+            generatedTypeMethodNames: ["<Overload>b__2_0"],
+            firstGeneratedTypeExtraMethods: ["<Overload>b__3_0"],
+            generatedTypeFieldNames: ["<>9__2_0", "<>9__3_0"]);
+
+        using var pe = new PEReader(new MemoryStream(image));
+        var reader = pe.GetMetadataReader();
+
+        // The fixture presents the case: both lambdas and both caches on one type.
+        Assert.Equal(
+            ["<Overload>b__2_0", "<Overload>b__3_0"],
+            ReadMethodNames(image, "<>c").Order());
+        Assert.Equal(
+            ["<>9__2_0", "<>9__3_0"],
+            ReadFieldNames(image, "<>c").Order());
+
+        var (side, _) = CompilerGeneratedOrdinalCorrespondence.Build(reader, reader);
+
+        // Neither sibling folds -- they collide on one key -- so neither cache may be
+        // given a name that loses the ordinal telling the overloads apart.
+        Assert.False(side.TryGetMethodName(MethodNamed(reader, "<Overload>b__2_0"), out _));
+        Assert.False(side.TryGetMethodName(MethodNamed(reader, "<Overload>b__3_0"), out _));
+
+        Assert.True(side.TryGetFieldName(FieldNamed(reader, "<>9__2_0"), out string first));
+        Assert.True(side.TryGetFieldName(FieldNamed(reader, "<>9__3_0"), out string second));
+        Assert.NotEqual(first, second);
+        Assert.DoesNotContain(CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder, first);
+        Assert.DoesNotContain(CompilerGeneratedOrdinalCorrespondence.OrdinalPlaceholder, second);
+    }
+
+    /// <summary>
+    /// The behavioral claim of this slice, end to end: a body caching one overload's
+    /// lambda and a body caching the other's stop reporting <c>Exact</c>.
+    /// </summary>
+    /// <remarks>
+    /// The <c>rewriteOnly</c> assertion is what ships on main for these fields, and it is
+    /// the defect: the per-side rewrite folds <c>&lt;&gt;9__2_0</c> and
+    /// <c>&lt;&gt;9__3_0</c> to a common <c>&lt;&gt;9__#_0</c> with no two-sided evidence,
+    /// so two different overloads' caches compare equal. It is asserted rather than
+    /// merely described so that the improvement is pinned against a measured baseline
+    /// instead of a remembered one.
+    /// </remarks>
+    [Fact]
+    public void OverloadCacheFields_StopReportingExactUnderTheCorrespondence()
+    {
+        byte[] Image(string[] fields) => BuildImage(
+            "Probe",
+            [new Member("Keep", CompilerGenerated: false)],
+            generatedTypes: ["<>c"],
+            generatedTypeMethodNames: ["<Overload>b__2_0"],
+            firstGeneratedTypeExtraMethods: ["<Overload>b__3_0"],
+            generatedTypeFieldNames: fields);
+
+        using var oldPe = new PEReader(new MemoryStream(Image(["<>9__2_0", "<>9__3_0"])));
+        using var newPe = new PEReader(new MemoryStream(Image(["<>9__3_0", "<>9__2_0"])));
+
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, IlBodyDiffNormalization.None).Outcome);
+        Assert.Equal(IlBodyDiffOutcome.Exact, Compare(oldPe, newPe, IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).Outcome);
+        Assert.Equal(IlBodyDiffOutcome.OperandDiff, Compare(oldPe, newPe, ComposedNormalization).Outcome);
+    }
     readonly record struct Member(
         string Name,
         bool CompilerGenerated,
@@ -1769,7 +2079,10 @@ public class CompilerGeneratedOrdinalTests
         GenericParameterAttributes? declaringTypeConstraint = null,
         bool declaringTypeAttributed = false,
         string? corruptAttributeOnType = null,
-        string[]? generatedTypeMethodNames = null)
+        string[]? generatedTypeMethodNames = null,
+        string[]? generatedTypeFieldNames = null,
+        int fieldsOnGeneratedTypeIndex = 0,
+        string[]? firstGeneratedTypeExtraMethods = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1818,6 +2131,23 @@ public class CompilerGeneratedOrdinalTests
             ? default
             : AttributeCtor("System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
 
+        string[] extraFirstMethods = firstGeneratedTypeExtraMethods ?? [];
+        var fieldSignature = metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 });
+        string[] extraFields = generatedTypeFieldNames ?? [];
+        var extraFieldHandles = new List<FieldDefinitionHandle>();
+        foreach (string fieldName in extraFields)
+        {
+            extraFieldHandles.Add(metadata.AddFieldDefinition(
+                FieldAttributes.Public | FieldAttributes.Static,
+                metadata.GetOrAddString(fieldName),
+                fieldSignature));
+        }
+
+        // Every type before the first generated one starts its FieldList at row 1 and so
+        // owns an empty range, because the range runs to the next type's start. The first
+        // generated type owns rows 1..K; every type after it starts at K+1.
+        var afterFields = MetadataTokens.FieldDefinitionHandle(extraFields.Length + 1);
+
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
             default,
@@ -1833,8 +2163,10 @@ public class CompilerGeneratedOrdinalTests
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
-        // Each generated type owns exactly one method, laid out after the caller and the
-        // members so the MethodList ranges stay contiguous and ascending.
+        // Each generated type owns one method, except the first, which may own further
+        // methods so a fixture can put two lambdas on one type. Rows are laid out after
+        // the caller and the members so the MethodList ranges stay contiguous and
+        // ascending, and each type's start is the running total of what precedes it.
         // GenericParam rows are emitted in one sorted pass below rather than as their
         // owners are declared: the table is sorted by coded owner, and TypeDef and
         // MethodDef interleave under TypeOrMethodDef exactly as they do for
@@ -1854,8 +2186,9 @@ public class CompilerGeneratedOrdinalTests
                 default,
                 metadata.GetOrAddString(extraTypes[i]),
                 default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(members.Length + 2 + i)));
+                i <= fieldsOnGeneratedTypeIndex ? MetadataTokens.FieldDefinitionHandle(1) : afterFields,
+                MetadataTokens.MethodDefinitionHandle(
+                    members.Length + 2 + i + (i == 0 ? 0 : extraFirstMethods.Length))));
 
             int arity = generatedTypeArities is { } arities && i < arities.Length ? arities[i] : 0;            for (int g = 0; g < arity; g++)
                 genericParameters.Add((generatedTypeHandles[i], g,
@@ -1876,8 +2209,9 @@ public class CompilerGeneratedOrdinalTests
                 metadata.GetOrAddString(localAttributeNamespace),
                 metadata.GetOrAddString(localAttributeName),
                 default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(members.Length + 2 + extraTypes.Length));
+                afterFields,
+                MetadataTokens.MethodDefinitionHandle(
+                    members.Length + 2 + extraTypes.Length + extraFirstMethods.Length));
         }
 
         var signature = metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 });
@@ -1914,7 +2248,13 @@ public class CompilerGeneratedOrdinalTests
         // The first member is always method 2: method 1 is the caller emitted below.
         // With generated types present the caller instead targets the first such type's
         // method, so the rendered operand carries that type's name.
-        if (callReferenceNamed is not null)
+        if (extraFieldHandles.Count > 0)
+        {
+            caller.OpCode(ILOpCode.Ldsfld);
+            caller.Token(extraFieldHandles[0]);
+            caller.OpCode(ILOpCode.Pop);
+        }
+        else if (callReferenceNamed is not null)
             caller.Call(reference);
         else if (extraTypes.Length > 0)
             caller.Call(MetadataTokens.MethodDefinitionHandle(members.Length + 2));
@@ -1939,6 +2279,15 @@ public class CompilerGeneratedOrdinalTests
             var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
             encoder.OpCode(ILOpCode.Ret);
             extraOffsets[i] = bodies.AddMethodBody(encoder);
+        }
+
+        var extraFirstOffsets = new int[extraFirstMethods.Length];
+        for (int i = 0; i < extraFirstMethods.Length; i++)
+        {
+            var il = new BlobBuilder();
+            var encoder = new InstructionEncoder(il, new ControlFlowBuilder());
+            encoder.OpCode(ILOpCode.Ret);
+            extraFirstOffsets[i] = bodies.AddMethodBody(encoder);
         }
 
         int localCtorOffset = -1;
@@ -1999,6 +2348,20 @@ public class CompilerGeneratedOrdinalTests
                 signature,
                 extraOffsets[extraIndex],
                 MetadataTokens.ParameterHandle(1));
+
+            if (extraIndex != 0)
+                continue;
+
+            for (int e = 0; e < extraFirstMethods.Length; e++)
+            {
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString(extraFirstMethods[e]),
+                    signature,
+                    extraFirstOffsets[e],
+                    MetadataTokens.ParameterHandle(1));
+            }
         }
 
         if (definesAttributeLocally)

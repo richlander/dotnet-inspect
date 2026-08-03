@@ -942,7 +942,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name), SynthesizedMemberKind.Field)}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{FieldName(handle, field)}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -959,7 +959,11 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
-            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name), SynthesizedMemberKind.Field)}";
+            // A MemberReference names a field the correspondence never indexed, so an
+            // owned name arriving this way is declined rather than folded -- the same
+            // accepted cost, in the same direction, that MethodNameOutsideCorrespondence
+            // documents for methods.
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{FieldNameOutsideCorrespondence(reader.GetString(member.Name))}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
@@ -1051,6 +1055,26 @@ public static class IlBodyDiff
             // real difference (#3645). Only names outside `d__`/`g__` fall through.
             return MethodNameOutsideCorrespondence(reader.GetString(method.Name));
         }
+
+        string FieldName(FieldDefinitionHandle handle, FieldDefinition field)
+        {
+            if (correspondence.TryGetFieldName(handle, out var elided))
+                return elided;
+
+            return FieldNameOutsideCorrespondence(reader.GetString(field.Name));
+        }
+
+        // The field analogue of MethodNameOutsideCorrespondence, and for the same reason:
+        // a lambda cache field the correspondence recognized but declined to fold must not
+        // fall through to the per-side rewrite, which folds `<>9__N_K` to `<>9__#_K` on
+        // strictly weaker evidence -- that key drops the containing method entirely, so it
+        // merges every method's slot K. Declining is a false positive; folding there is a
+        // masked difference. Gated by LambdaCacheFields_AreNotLeftToThePerSideRewrite.
+        string FieldNameOutsideCorrespondence(string raw)
+            => (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                && CompilerGeneratedOrdinalCorrespondence.TryLambdaCacheFieldTail(raw) is not null
+                    ? raw
+                    : NormalizeMemberName(raw, SynthesizedMemberKind.Field);
 
         // The two options split the synthesized name space when both are requested: the
         // correspondence owns `d__`, `g__` and `b__`, and the per-side rewrite keeps

@@ -141,7 +141,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 {
     /// <summary>The identity correspondence: nothing folds.</summary>
     public static readonly CompilerGeneratedOrdinalCorrespondence Empty =
-        new(new Dictionary<MethodDefinitionHandle, string>(), new Dictionary<TypeDefinitionHandle, string>());
+        new(new Dictionary<MethodDefinitionHandle, string>(),
+            new Dictionary<TypeDefinitionHandle, string>(),
+            new Dictionary<FieldDefinitionHandle, string>());
 
     /// <summary>
     /// The separator between key segments. It is NUL for the same reason the ordinal
@@ -223,13 +225,16 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
     readonly Dictionary<MethodDefinitionHandle, string> _methods;
     readonly Dictionary<TypeDefinitionHandle, string> _types;
+    readonly Dictionary<FieldDefinitionHandle, string> _fields;
 
     CompilerGeneratedOrdinalCorrespondence(
         Dictionary<MethodDefinitionHandle, string> methods,
-        Dictionary<TypeDefinitionHandle, string> types)
+        Dictionary<TypeDefinitionHandle, string> types,
+        Dictionary<FieldDefinitionHandle, string> fields)
     {
         _methods = methods;
         _types = types;
+        _fields = fields;
     }
 
     /// <summary>The ordinal-free name to compare this method under, when it has one.</summary>
@@ -239,6 +244,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// <summary>The ordinal-free name to compare this type under, when it has one.</summary>
     public bool TryGetTypeName(TypeDefinitionHandle handle, out string name)
         => _types.TryGetValue(handle, out name!);
+
+    /// <summary>The ordinal-free name to compare this field under, when it has one.</summary>
+    public bool TryGetFieldName(FieldDefinitionHandle handle, out string name)
+        => _fields.TryGetValue(handle, out name!);
 
     /// <summary>
     /// Builds the correspondence for each side. A member folds only when its ordinal-free
@@ -312,11 +321,47 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             newTypes[counterpart] = newIndex.TypeNames[counterpart];
         }
 
-        if (oldMethods.Count == 0 && oldTypes.Count == 0)
+        // A cache field is named for whatever its sibling lambda method resolved to, so
+        // the two agree by construction rather than by a second key that could disagree
+        // with the first. The composition is what makes the field safe in both
+        // directions. When the sibling folded, both sides spell the field with the
+        // sibling's elided name and the field folds with it. When the sibling did not --
+        // because its key was ambiguous, or because the two sides' lambdas belong to
+        // different containing methods -- both sides spell the field with the sibling's
+        // *raw* name, which still differs exactly when the siblings differ.
+        //
+        // Falling back to the field's own raw name instead would be unsound, and this is
+        // the one place where declining to fold is not automatically the safe answer: two
+        // unrelated closures can carry the identical field name `<>9__0_0` while their
+        // siblings are `<Run>b__0_0` and `<Other>b__0_0`, so a raw fallback reports Exact
+        // for a real difference. Gated by
+        // LambdaCacheFieldsOfDifferentContainingMethods_DoNotFold, which fails with a raw
+        // fallback and passes with this composition.
+        var oldFields = Resolve(oldReader, oldIndex, oldMethods);
+        var newFields = Resolve(newReader, newIndex, newMethods);
+
+        static Dictionary<FieldDefinitionHandle, string> Resolve(
+            MetadataReader reader,
+            SideIndex index,
+            Dictionary<MethodDefinitionHandle, string> resolvedMethods)
+        {
+            var named = new Dictionary<FieldDefinitionHandle, string>();
+            foreach (var (fieldHandle, sibling) in index.FieldSiblings)
+            {
+                string siblingName = resolvedMethods.TryGetValue(sibling, out var elided)
+                    ? elided
+                    : reader.GetString(reader.GetMethodDefinition(sibling).Name);
+                named[fieldHandle] = LambdaCacheFieldPrefix + siblingName;
+            }
+
+            return named;
+        }
+
+        if (oldMethods.Count == 0 && oldTypes.Count == 0 && oldFields.Count == 0)
             return (Empty, Empty);
 
-        return (new CompilerGeneratedOrdinalCorrespondence(oldMethods, oldTypes),
-                new CompilerGeneratedOrdinalCorrespondence(newMethods, newTypes));
+        return (new CompilerGeneratedOrdinalCorrespondence(oldMethods, oldTypes, oldFields),
+                new CompilerGeneratedOrdinalCorrespondence(newMethods, newTypes, newFields));
     }
 
     /// <summary>
@@ -386,6 +431,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         Method,
 
         /// <summary>
+        /// A name read from a field definition. Only Roslyn's lambda cache field
+        /// <c>&lt;&gt;9__N_K</c> is read on this kind, and it does not fold on its own
+        /// name -- see <see cref="TryLambdaCacheFieldTail"/>.
+        /// </summary>
+        Field,
+
+        /// <summary>
         /// Either kind. Used only by the ownership guard, which asks whether a
         /// name belongs to this correspondence at all so the per-side rewrite
         /// can keep off it. Answering broadly there costs at most a false
@@ -405,6 +457,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         // empty pair of brackets, so their ordinal is their only discriminator and
         // eliding it would merge unrelated closures. Depth matching still reports 1 for
         // those, so they are rejected here exactly as before.
+        // The lambda cache field opens with an empty pair of brackets and so is refused
+        // by the depth check below. It is nonetheless owned: the field loop folds it
+        // through its sibling lambda method rather than on its own name. Claiming it for
+        // the ownership guard is what stops the per-side rewrite folding `<>9__N_K` on
+        // the weaker `<>9__#_K` key while the correspondence is also in force. The
+        // returned text is never rendered -- only the guard and the field loop's own
+        // grammar check consume this branch, and the field's rendered name comes from
+        // TryLambdaCacheFieldTail's sibling. Gated by
+        // LambdaCacheFields_AreNotLeftToThePerSideRewrite.
+        if (kind is GeneratedNameKind.Any or GeneratedNameKind.Field
+            && TryLambdaCacheFieldTail(name) is not null)
+        {
+            return $"{LambdaCacheFieldPrefix}{OrdinalPlaceholder}";
+        }
+
         int close = FindClosingAngle(name);
         if (close <= 1)
             return null;
@@ -452,6 +519,69 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         return ElideScopeOrdinal(rest[(bar + 1)..]) is { } localOrdinals
             ? $"{containing}g__{local}|{localOrdinals}"
             : null;
+    }
+
+    internal const string LambdaCacheFieldPrefix = "<>9__";
+
+    /// <summary>
+    /// The raw <c>N_K</c> tail of Roslyn's lambda cache field <c>&lt;&gt;9__N_K</c>, or
+    /// null when the name is not that form.
+    /// </summary>
+    /// <remarks>
+    /// This field is the one owned form that cannot fold on its own name. It opens with
+    /// an empty pair of brackets, so after eliding the renumbered scope ordinal <c>N</c>
+    /// nothing distinguishes one containing method's cache slot from another's:
+    /// <c>&lt;&gt;9__0_0</c> and <c>&lt;&gt;9__1_0</c> would both spell
+    /// <c>&lt;&gt;9__#_0</c>, and two unrelated closures would merge. What makes it
+    /// foldable is that Roslyn emits it in lockstep with a sibling lambda method
+    /// <c>&lt;Name&gt;b__N_K</c> on the same type, whose containing name supplies exactly
+    /// the discriminator the field lacks. The tail returned here is what pairs the two.
+    /// <para>
+    /// Measured rather than assumed: a build of a type with lambdas in seven methods --
+    /// plain, overloaded, capturing, async and nested -- emits eight
+    /// <c>&lt;&gt;9__N_K</c> fields on <c>&lt;&gt;c</c> and exactly eight matching
+    /// <c>&lt;Name&gt;b__N_K</c> methods, a 1:1 pairing with no unmatched member on
+    /// either side. Pinned by <c>LambdaCacheFields_PairOneToOneWithTheirLambdaMethods</c>.
+    /// </para>
+    /// <para>
+    /// The tail is accepted exactly when <see cref="ElideScopeOrdinal"/> accepts it, so
+    /// the field grammar cannot drift from the method grammar it pairs against. That
+    /// also excludes the neighbouring generated fields Roslyn puts on these types --
+    /// <c>&lt;&gt;9</c> (the singleton, no tail), <c>&lt;&gt;1__state</c>,
+    /// <c>&lt;&gt;t__builder</c> and the awaiter slots <c>&lt;&gt;u__N</c>, whose ordinal
+    /// discriminates a real slot and which have no sibling method to pair with. Gated by
+    /// <c>NeighbouringGeneratedFields_AreNotMistakenForLambdaCaches</c>.
+    /// </para>
+    /// </remarks>
+    internal static string? TryLambdaCacheFieldTail(string name)
+    {
+        if (name is null || !name.StartsWith(LambdaCacheFieldPrefix, StringComparison.Ordinal))
+            return null;
+
+        string tail = name[LambdaCacheFieldPrefix.Length..];
+        return ElideScopeOrdinal(tail) is not null ? tail : null;
+    }
+
+    /// <summary>
+    /// The raw <c>N_K</c> tail of a lambda method <c>&lt;Name&gt;b__N_K</c>, or null when
+    /// the name is not that form. This is the key side of the pairing described on
+    /// <see cref="TryLambdaCacheFieldTail"/>.
+    /// </summary>
+    internal static string? TryLambdaMethodTail(string name)
+    {
+        if (name is null || name.Length < 4 || name[0] != '<')
+            return null;
+
+        int close = FindClosingAngle(name);
+        if (close <= 1)
+            return null;
+
+        var rest = name.AsSpan(close + 1);
+        if (!rest.StartsWith("b__", StringComparison.Ordinal))
+            return null;
+
+        string tail = rest[3..].ToString();
+        return ElideScopeOrdinal(tail) is not null ? tail : null;
     }
 
     /// <summary>
@@ -542,8 +672,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         public required Dictionary<string, TypeDefinitionHandle> Types { get; init; }
         public required HashSet<string> AmbiguousTypes { get; init; }
         public required Dictionary<TypeDefinitionHandle, string> TypeNames { get; init; }
+        public required Dictionary<FieldDefinitionHandle, MethodDefinitionHandle> FieldSiblings { get; init; }
 
-        public bool IsEmpty => Methods.Count == 0 && Types.Count == 0;
+        public bool IsEmpty => Methods.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
 
         public static SideIndex For(MetadataReader reader)
             => s_cache.GetValue(reader, static r => Create(r));
@@ -578,6 +709,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Types = [],
                     AmbiguousTypes = [],
                     TypeNames = [],
+                    FieldSiblings = [],
                 };
             }
         }
@@ -590,6 +722,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             var types = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
             var ambiguousTypes = new HashSet<string>(StringComparer.Ordinal);
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
+            var fieldSiblings = new Dictionary<FieldDefinitionHandle, MethodDefinitionHandle>();
 
             foreach (var typeHandle in reader.TypeDefinitions)
             {
@@ -630,6 +763,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 // suite green. It is not load-bearing for either property above.
                 bool? typeIsGenerated = null;
 
+                // Per type for the same reason the mark is: a cache field pairs only with
+                // a lambda method on its own type, and a map shared across types would
+                // let a field borrow an unrelated type's method name. Gated by
+                // LambdaCacheFields_DoNotPairAcrossTypes.
+                Dictionary<string, MethodDefinitionHandle>? lambdaSiblings = null;
+                HashSet<string>? ambiguousSiblings = null;
+
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
@@ -648,6 +788,17 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         continue;
 
                     methodNames[methodHandle] = elided;
+
+                    // The pairing side of the lambda cache field. Recorded only for
+                    // methods that were themselves found eligible, so a field can never
+                    // borrow a name the method path refused to fold.
+                    if (TryLambdaMethodTail(methodName) is { } siblingTail)
+                    {
+                        lambdaSiblings ??= new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
+                        if (!lambdaSiblings.TryAdd(siblingTail, methodHandle))
+                            (ambiguousSiblings ??= new HashSet<string>(StringComparer.Ordinal)).Add(siblingTail);
+                    }
+
                     // A method records its arity twice, in GenericParam and in its
                     // signature, and nothing in the format ties the two together. The
                     // operand renderer reads the signature, so a well-formed generic
@@ -663,6 +814,40 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                             method.GetGenericParameters().Count,
                         methodHandle);
                 }
+
+                if (lambdaSiblings is null)
+                    continue;
+
+                foreach (var fieldHandle in type.GetFields())
+                {
+                    var field = reader.GetFieldDefinition(fieldHandle);
+                    if (TryLambdaCacheFieldTail(reader.GetString(field.Name)) is not { } tail)
+                        continue;
+
+                    // Fail closed on an ambiguous pairing. Roslyn does not emit two lambda
+                    // methods sharing a tail on one type -- the scope ordinal is the
+                    // containing member index, so a shared tail implies a shared containing
+                    // method and hence a shared name -- but hand-written or hostile IL can,
+                    // and then the field has no single sibling to take its name from.
+                    if (ambiguousSiblings?.Contains(tail) == true
+                        || !lambdaSiblings.TryGetValue(tail, out var sibling))
+                    {
+                        continue;
+                    }
+
+                    typeIsGenerated ??= HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
+                    if (!typeIsGenerated.Value
+                        && !HasCompilerGeneratedAttribute(reader, field.GetCustomAttributes()))
+                    {
+                        continue;
+                    }
+
+                    // Only the pairing is recorded here. What the field is *called* is
+                    // decided in Build, from whatever the method correspondence resolved
+                    // its sibling to, so the field inherits the method's two-sided
+                    // guarantee rather than repeating it on a weaker key of its own.
+                    fieldSiblings[fieldHandle] = sibling;
+                }
             }
 
             return new SideIndex
@@ -673,6 +858,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 Types = types,
                 AmbiguousTypes = ambiguousTypes,
                 TypeNames = typeNames,
+                FieldSiblings = fieldSiblings,
             };
         }
 
