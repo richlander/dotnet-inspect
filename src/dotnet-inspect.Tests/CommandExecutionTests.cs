@@ -8974,7 +8974,7 @@ public partial class CommandExecutionTests
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
                     Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
-                    if (RequiresRealDataDiscoveryGuard(command))
+                    if (RequiresNonEmptyDiscoveryResult(command, section))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
                             $"{command[0]} -S '{section}' produced no data after being listed by -D.");
@@ -9009,10 +9009,24 @@ public partial class CommandExecutionTests
         return [.. args];
     }
 
-    private static bool RequiresRealDataDiscoveryGuard(string[] command)
-        => IsNoMemberTypeDiscoveryCommand(command)
-           || command is ["member", _, var memberName, ..]
-                && memberName == nameof(MemberCallsFixture.Overloaded);
+    private static readonly HashSet<string> TypeUnprobedDiscoverySections =
+        ApiMemberSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static readonly HashSet<string> MemberOverloadUnprobedDiscoverySections =
+        ApiMemberOverloadSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static bool RequiresNonEmptyDiscoveryResult(string[] command, string section)
+    {
+        // ProbeEffectiveness=false deliberately allows -D to list a structurally applicable
+        // section whose -S result is empty. Derive that exemption from the same pipeline
+        // declaration while preserving the non-empty guard for probed sections.
+        if (IsNoMemberTypeDiscoveryCommand(command))
+            return !TypeUnprobedDiscoverySections.Contains(section);
+
+        return command is ["member", _, var memberName, ..]
+               && memberName == nameof(MemberCallsFixture.Overloaded)
+               && !MemberOverloadUnprobedDiscoverySections.Contains(section);
+    }
 
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
