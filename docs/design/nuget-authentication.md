@@ -3,7 +3,9 @@
 How `dotnet-inspect` authenticates to a NuGet feed, which credential mechanisms it honors,
 and which it silently ignores.
 
-This document describes *what the tool does*. For what you *should* do — choosing between
+For instructions on setting up access to a private feed, see
+[Private NuGet Feeds](../private-feeds.md). This document describes *what the tool does*. For
+what you *should* do — choosing between
 Microsoft Entra tokens, PATs, service principals, and workload identity federation — follow
 the Azure DevOps guidance, which is authoritative and kept current:
 
@@ -68,73 +70,34 @@ or from the user-level config. Parsing lives in
 Note that the `%TOKEN%` placeholder above is *not* expanded — see the next section. It is
 written that way only to keep a secret out of the example.
 
-## What is ignored
+## Supported credential forms
 
-NuGet's own guidance in
+Two forms are supported: a credential provider, and `Username` with `ClearTextPassword` in
+`nuget.config`. NuGet's guidance in
 [Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#security-best-practices-for-managing-credentials)
-ranks credential mechanisms from most to least secure. Lining that ranking up against what this
-tool honors is the clearest statement of the gap:
+ranks the available forms from most to least secure. The two supported here are that ranking's
+first and last:
 
-| NuGet's rank | Mechanism | Supported here |
+| NuGet's rank | Mechanism | Supported |
 | --- | --- | --- |
-| 1, "highly recommended" | Credential provider | **Yes** — see [Credential providers](#credential-providers). |
-| 2 | Encrypted `<Password>` in `nuget.config` | **No** — only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
-| 3 | `%VAR%` macros in `nuget.config` | **No** — values are taken verbatim, so the placeholder is sent as the password. |
-| 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
-| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
+| 1, "highly recommended" | Credential provider | Yes — see [Credential providers](#credential-providers). |
+| 2 | Encrypted `<Password>` in `nuget.config` | No. `dotnet nuget add source --password` writes this form by default on Windows. |
+| 3 | `%VAR%` macros in `nuget.config` | No. Values are taken verbatim, so the placeholder itself is sent as the password. |
+| 4 | `NuGetPackageSourceCredentials_<name>` | No. The environment is not consulted for credentials. |
+| 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | Yes. |
 
-The two supported mechanisms are the ranking's top and bottom. Rank 1 is the most secure where
-it is available; rank 5 is available everywhere. Ranks 2 through 4 remain unsupported, and are
-still dropped in silence.
+Rank 5 is supported because many feeds offer nothing else. Only three credential providers exist
+in the ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of which is Visual
+Studio-only. GitHub Packages, GitLab, Artifactory, Nexus, ProGet, Cloudsmith and Artifact
+Registry all authenticate with a token in `nuget.config`.
 
-### Why clear text is still supported
+Two forms absent from NuGet's list are also unsupported: a `ClearTextPassword` with no
+`Username`, since both halves are required even though Azure DevOps ignores the username, and
+userinfo in the source URL (`******host/...`), which is never turned into a header.
 
-The table invites the conclusion that `ClearTextPassword` should be dropped in favour of
-requiring a credential provider. It is worth recording why that has not been done: NuGet's
-ranking is security guidance, not availability guidance.
-
-NuGet's [list of credential providers](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#list-of-credential-providers)
-names three in the entire ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of
-which is Visual Studio-only and so does not apply to a CLI. Other feeds authenticate by putting
-a token in `nuget.config`:
-
-| Feed | If rank 5 were dropped |
-| --- | --- |
-| Azure Artifacts | Works — a cross-platform provider exists. |
-| AWS CodeArtifact | Mixed. Works with the provider; not with `aws codeartifact login`, which writes a plaintext token into the user-level `nuget.config` on Linux and macOS. |
-| GitHub Packages | Unsupported. PAT-only, no provider, and the documented setup command is `dotnet nuget add source --username U --password T --store-password-in-clear-text`. |
-| GitLab, Artifactory, Nexus, ProGet, Cloudsmith, Artifact Registry | Unsupported. No NuGet credential providers exist. |
-
-The mechanism NuGet ranks last is therefore the one with the widest reach, and for GitHub
-Packages it is the only documented option.
-
-The gap this document describes is not that rank 5 is supported. It is that rank 5 was, until
-recently, the only supported mechanism, and that a dropped credential cannot be told apart from
-a missing package. Credential provider support addresses the first point for Azure Artifacts and
-AWS CodeArtifact. It does not help GitHub Packages, where better diagnosis is the only remedy.
-
-Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
-and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
-though Azure DevOps ignores the username), and userinfo in the source URL
-(`https://user:pass@host/...`, which is never turned into a header).
-
-Every one of these is dropped without a diagnostic, so a source configured through an
-unsupported mechanism is read as though no credential were supplied at all.
-
-What that then looks like has changed. A source that answers 401 or 403 is now reported as
-unreadable rather than as a missing package, naming the source, the status, and the phase:
-
-```console
-$ dotnet-inspect package Markout --source https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json
-Error: Package 'markout' could not be resolved because a source requires credentials.
-  https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json — HTTP 401 Unauthorized while reading the service index
-The package may exist; the source was not readable. Supply credentials for this source and retry.
-```
-
-A genuine 404 still reports as *not found*, because that is the one status that means the
-package is actually absent. The remaining gap is narrower than it was: the credential is still
-dropped silently, but the resulting failure is no longer indistinguishable from a typo in the
-package name.
+A credential in an unsupported form is treated as though no credential were supplied. The form
+itself draws no diagnostic; what surfaces is the feed's response to an unauthenticated request,
+described under [Reporting an unreadable source](#reporting-an-unreadable-source).
 
 ## Credential providers
 
@@ -195,9 +158,86 @@ Credentials are requested with `IsNonInteractive` set and `CanShowDialog` clear,
 prompt. Cached credentials and tokens supplied through the environment still work; only
 interactive sign-in is withheld.
 
-On Linux the v2.0.2 Azure Artifacts tool package ships no `msalruntime.so`, so its interactive
-and broker paths throw `DllNotFoundException` regardless. Supplying
-`ARTIFACTS_CREDENTIALPROVIDER_ACCESSTOKEN` avoids those paths entirely.
+### How credentials arrive
+
+Everything above describes the channel. This describes who speaks on it, because the answer
+differs by environment, and "a credential provider supplies it" is not specific enough to act on.
+
+The Azure Artifacts provider resolves in two levels. The outer level chooses a *credential
+provider*, consulting the environment first and the hostname last:
+
+| Order | Provider | Selected when |
+| --- | --- | --- |
+| 1 | `VstsBuildTaskServiceEndpointCredentialProvider` | `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS` is set |
+| 2 | `VstsBuildTaskCredentialProvider` | `ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES` and `..._ACCESSTOKEN` are set |
+| 3 | `VstsCredentialProvider` | the host is a well-known Azure DevOps hostname |
+
+Only when the first two decline does the third run, and only then does MSAL enter the picture at
+all. Its inner chain of bearer token providers is tried in this order:
+
+`MSAL Service Principal` → `MSAL Managed Identity` → `MSAL Silent` → `MSAL Broker Interactive` →
+`MSAL Interactive` → `MSAL Device Code`
+
+Each inner provider logs itself as skipped when its configuration is absent, so `-V Debug` shows
+which link answered without needing source access.
+
+`VstsCredentialProvider` also issues its own unauthenticated request and reads the Entra authority
+out of the **401 response headers**. It is 401-driven internally, independently of
+[our handler](#preemptive-credentials-versus-401-driven-credentials).
+
+The flows, distinguished by what supplies the secret:
+
+| Flow | Driven by | Unattended |
+| --- | --- | --- |
+| `nuget.config` credential | the config file; no provider runs at all | yes |
+| Pipeline build identity | `ARTIFACTS_CREDENTIALPROVIDER_URI_PREFIXES` and `..._ACCESSTOKEN`, set by `NuGetAuthenticate@1` | yes |
+| External feed endpoints | `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS`: endpoint, username, password | yes |
+| Service principal and certificate | `ARTIFACTS_CREDENTIALPROVIDER_FEED_ENDPOINTS`: `clientId` plus `clientCertificateSubjectName` or `clientCertificateFilePath` | yes |
+| Silent | the MSAL token cache, populated by an earlier sign-in | only if warm |
+| Broker interactive, interactive, device code | a human | no |
+
+`MSAL Managed Identity` sits in the chain between the service principal and silent providers, but
+the provider's README documents no configuration for it, so it is deliberately absent from the
+table above rather than guessed at.
+
+Three consequences are worth stating plainly:
+
+- **In an Azure DevOps pipeline there is no secret to configure.** `NuGetAuthenticate@1` installs
+  the provider onto the agent for that run and points it at the build service identity, scoped by
+  **URL prefix** — a semicolon-separated host list, not a feed list. A feed outside those prefixes
+  falls through to the next provider. The two build-provider variables can be exported by hand and
+  the provider honors them, but the provider's own documentation describes them only as the task's
+  mechanism; `ARTIFACTS_CREDENTIALPROVIDER_EXTERNAL_FEED_ENDPOINTS` is what it directs unattended
+  callers outside Azure DevOps Pipelines to use.
+- **`az login` does not help.** There is no Azure CLI credential provider, and the two token
+  caches are unrelated. A token from `az account get-access-token` has to be handed over
+  explicitly, either through the build-provider variables or as a `ClearTextPassword`.
+- **The certificate flow is the one that generalises.** It is configured once through an
+  environment variable, needs no interactive session, and every NuGet-aware tool on the machine
+  reads it from the same place. That is the mechanism for sharing one short-lived credential
+  across build tools, rather than teaching each tool separately.
+
+### The broker on Linux
+
+The MSAL paths of the v2.0.2 Azure Artifacts tool package do not work on a current Ubuntu, for two
+independent reasons that surface in that order:
+
+1. The package ships `runtimes/linux-x64/native/libmsalruntime.so`, but nothing places it beside
+   the entry assembly, so the load fails on a path that does not exist:
+   `.../tools/net8.0/any/libmsalruntime: cannot open shared object file`.
+2. Pointing `LD_LIBRARY_PATH` at that `runtimes/linux-x64/native` directory gets past the first
+   failure, and the load then fails on `libwebkit2gtk-4.0.so.37`. Ubuntu 24.04 ships only
+   `libwebkit2gtk-4.1-0`; the 4.0 ABI is gone, and only a transitional documentation package
+   still carries the old name.
+
+The consequence is worse than "interactive sign-in is unavailable", which would be unremarkable on
+a headless machine. The broker is initialised *before* `MSAL Silent` is attempted, so a GUI
+dependency removes the one MSAL path that is meant to be headless-safe, and the provider gives up
+having tried nothing that could have succeeded.
+
+Every unattended flow in the table above except `MSAL Silent` is unaffected, because none of them
+constructs an MSAL public client. Supplying a token through the build-provider variables sidesteps
+the area entirely.
 
 ## Preemptive credentials versus 401-driven credentials
 
