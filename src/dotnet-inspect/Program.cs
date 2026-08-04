@@ -90,7 +90,7 @@ try
     // tool for debugging.
     ILInspector.Decompiler.Pipeline.IrInvariants.DisableForShippedTool();
     // Wire the tool-tier SourceLink index cache into the engine's dependency-inversion seam.
-    ILInspector.Metadata.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
+    ILInspector.SourceLink.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
 
     // Start info tracking (installs counting writer on Console.Out)
     if (showInfo)

@@ -6,7 +6,7 @@ using ILInspector.Metadata;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Exercises the sequence-point walk in <see cref="SourceLinkResolver.ResolveByILOffsetDirect"/>
+/// Exercises Metadata's raw sequence-point walk
 /// against this test assembly's own portable PDB.
 /// </summary>
 public sealed class ILOffsetResolutionTests
@@ -28,6 +28,7 @@ public sealed class ILOffsetResolutionTests
     public void EachSequencePointOffset_ResolvesToItsOwnLine()
     {
         using var img = new SelfImage();
+        using var context = PdbContext.Open(typeof(ILOffsetResolutionTests).Assembly.Location);
         var method = FindMethod(img.Metadata, nameof(SampleMethod));
         int token = MetadataTokens.GetToken(method);
         var points = VisibleSequencePoints(img.Pdb, method);
@@ -35,7 +36,7 @@ public sealed class ILOffsetResolutionTests
 
         foreach (var (offset, line) in points)
         {
-            var result = SourceLinkResolver.ResolveByILOffsetDirect(img.Metadata, img.Pdb, token, offset);
+            var result = context.ResolvePdbLocation(token, offset);
             Assert.NotNull(result);
             Assert.Equal(line, result!.Line);
             Assert.Equal(offset, result.MatchedOffset);
@@ -48,6 +49,7 @@ public sealed class ILOffsetResolutionTests
     public void OffsetBetweenSequencePoints_ResolvesToPrecedingPoint()
     {
         using var img = new SelfImage();
+        using var context = PdbContext.Open(typeof(ILOffsetResolutionTests).Assembly.Location);
         var method = FindMethod(img.Metadata, nameof(SampleMethod));
         int token = MetadataTokens.GetToken(method);
         var points = VisibleSequencePoints(img.Pdb, method);
@@ -56,7 +58,7 @@ public sealed class ILOffsetResolutionTests
         var pair = points.Zip(points.Skip(1)).First(p => p.Second.Offset - p.First.Offset >= 2);
         int between = pair.First.Offset + 1;
 
-        var result = SourceLinkResolver.ResolveByILOffsetDirect(img.Metadata, img.Pdb, token, between);
+        var result = context.ResolvePdbLocation(token, between);
         Assert.NotNull(result);
         Assert.Equal(pair.First.Offset, result!.MatchedOffset);
         Assert.Equal(pair.First.Line, result.Line);
@@ -66,19 +68,20 @@ public sealed class ILOffsetResolutionTests
     public void NonMethodDefToken_ReturnsNull()
     {
         using var img = new SelfImage();
+        using var context = PdbContext.Open(typeof(ILOffsetResolutionTests).Assembly.Location);
         var method = FindMethod(img.Metadata, nameof(SampleMethod));
         var typeHandle = img.Metadata.GetMethodDefinition(method).GetDeclaringType();
         int typeToken = MetadataTokens.GetToken(typeHandle); // TypeDef table (0x02), not MethodDef
 
-        Assert.Null(SourceLinkResolver.ResolveByILOffsetDirect(img.Metadata, img.Pdb, typeToken, 0));
+        Assert.Null(context.ResolvePdbLocation(typeToken, 0));
     }
 
     [Fact]
     public void OutOfRangeMethodToken_ReturnsNull()
     {
-        using var img = new SelfImage();
+        using var context = PdbContext.Open(typeof(ILOffsetResolutionTests).Assembly.Location);
         // MethodDef table (0x06) but a row that does not exist.
-        Assert.Null(SourceLinkResolver.ResolveByILOffsetDirect(img.Metadata, img.Pdb, 0x06FFFFFF, 0));
+        Assert.Null(context.ResolvePdbLocation(0x06FFFFFF, 0));
     }
 
     static MethodDefinitionHandle FindMethod(MetadataReader md, string methodName)
