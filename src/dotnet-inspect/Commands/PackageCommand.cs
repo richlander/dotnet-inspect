@@ -1822,7 +1822,9 @@ public class PackageCommand
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent));
+            builder
+                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent))
+                .Append('\n');
         return builder.ToString();
     }
 

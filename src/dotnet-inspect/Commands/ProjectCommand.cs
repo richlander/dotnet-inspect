@@ -286,7 +286,9 @@ public class ProjectCommand
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectAgentsIndexRow));
+            builder
+                .Append(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectAgentsIndexRow))
+                .Append('\n');
         return builder.ToString();
     }
 
@@ -383,7 +385,9 @@ public class ProjectCommand
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectSkillRow));
+            builder
+                .Append(JsonSerializer.Serialize(row, ProjectCommandCompactJsonContext.Default.ProjectSkillRow))
+                .Append('\n');
         return builder.ToString();
     }
 

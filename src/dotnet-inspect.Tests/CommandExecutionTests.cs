@@ -14542,6 +14542,73 @@ public partial class CommandExecutionTests
         }
     }
 
+    /// <summary>
+    /// This extends <see cref="OutputFormatterTests.ArtifactNewlineGate_ProductOwnedFramingUsesLf"/>
+    /// through the command-only JSONL builders whose output cannot be exercised at the formatter
+    /// seam. Each artifact must keep LF framing when <c>--out</c> writes it to a file.
+    /// </summary>
+    [Fact]
+    public async Task ArtifactNewlineGate_CommandJsonlFilesUseLf()
+    {
+        const string agents = """
+            ---
+            name: newline gate
+            ---
+            agents body
+            """;
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.NewlineGate",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents,
+                [new ProjectSkillDoc("skills/newline/SKILL.md", "skill body")]));
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Package.NewlineGate",
+            "README.md",
+            "readme",
+            "agents body");
+
+        try
+        {
+            var agentsOutput = Path.Combine(projectTempDir, "agents.jsonl");
+            var skillsOutput = Path.Combine(projectTempDir, "skills.jsonl");
+            var contentOutput = Path.Combine(packageTempDir, "content.jsonl");
+
+            var (agentsExit, agentsStdout, agentsError) = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
+            var (skillsExit, skillsStdout, skillsError) = await RunAppAsync(
+                "project", projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
+            var (contentExit, contentStdout, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content", "--jsonl", "--out", contentOutput);
+
+            Assert.Equal(0, agentsExit);
+            Assert.Equal(0, skillsExit);
+            Assert.Equal(0, contentExit);
+            Assert.Empty(agentsStdout);
+            Assert.Empty(skillsStdout);
+            Assert.Empty(contentStdout);
+            Assert.Empty(agentsError);
+            Assert.Empty(skillsError);
+            Assert.Empty(contentError);
+
+            foreach (var path in new[] { agentsOutput, skillsOutput, contentOutput })
+            {
+                var artifact = File.ReadAllText(path);
+                Assert.DoesNotContain('\r', artifact);
+                Assert.EndsWith("\n", artifact, StringComparison.Ordinal);
+                using var _ = JsonDocument.Parse(
+                    Assert.Single(artifact.Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(projectTempDir, recursive: true);
+            Directory.Delete(packageTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_Readme_FallsBackToProjectMd()
     {
