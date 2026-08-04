@@ -3910,21 +3910,21 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Library:", output, StringComparison.Ordinal);
 
-        var inline = quietOutput.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inline = SplitOutputLines(quietOutput)
+            .First(l => l.StartsWith("Library:", StringComparison.Ordinal));
         var inlineFields = inline
             .Split('|')
             .Select(part => part.Trim().Split(':', 2))
             .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.Ordinal);
 
-        var rows = output.Split('\n')
+        var rows = SplitOutputLines(output)
             .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
             .Where(l => l.StartsWith("| ", StringComparison.Ordinal))
             .Select(l => l.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()).ToArray())
             .Where(cells => cells.Length == 2 && cells[0] != "Field" && !cells[0].StartsWith('-'))
             .ToDictionary(cells => cells[0], cells => cells[1], StringComparer.Ordinal);
 
-        if (rows.Count == 0)
-            Assert.Fail($"API Info rows were absent from:{Environment.NewLine}{output}");
+        Assert.NotEmpty(rows);
         Assert.Equal(inlineFields.Count, rows.Count);
         foreach (var (field, value) in inlineFields)
             Assert.Equal(value, rows[field]);
