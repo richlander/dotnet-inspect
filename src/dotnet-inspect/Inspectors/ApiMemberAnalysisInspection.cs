@@ -275,7 +275,7 @@ internal sealed class ApiMemberAnalysisInspection
         [NotNullWhen(true)]
         out Analysis.TypeRef? target)
     {
-        Analysis.MethodIdentity? method = Session.BodyIndex.Methods
+        Analysis.MethodIdentity? method = Session.BodyIndex.DeclaredMethods
             .FirstOrDefault(candidate =>
                 candidate.MetadataToken == methodToken);
         if (method is null)
@@ -284,8 +284,16 @@ internal sealed class ApiMemberAnalysisInspection
             return false;
         }
 
-        target = Analysis.GenericMemberIdentity.OpenDeclaringType(
+        Analysis.TypeRef openDeclaringType =
+            Analysis.GenericMemberIdentity.OpenDeclaringType(
             method.DeclaringType);
+        if (openDeclaringType.Resolution is null)
+        {
+            target = null;
+            return false;
+        }
+
+        target = openDeclaringType;
         return true;
     }
 

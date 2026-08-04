@@ -180,7 +180,8 @@ public sealed class MethodBodyInspectionSession
         IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
         Analysis.CallerResolutionPlan? resolutionPlan = null)
     {
-        var selected = BodyIndex.Methods.FirstOrDefault(m => m.MetadataToken == targetToken);
+        var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == targetToken);
         var pattern = selected is { } identity
             ? Analysis.MemberPattern.Method(identity.DeclaringType, identity.Name, identity.ParameterTypes)
             : null;
@@ -193,9 +194,10 @@ public sealed class MethodBodyInspectionSession
                 edges.Add(new CallerEdge(SourceName, call));
         }
 
-        if (pattern is not null && scopes is { Count: > 0 })
+        if (pattern is not null
+            && resolutionPlan is not null
+            && scopes is { Count: > 0 })
         {
-            ArgumentNullException.ThrowIfNull(resolutionPlan);
             foreach (var scope in scopes)
             {
                 foreach (var call in scope.BodyIndex.DirectCalls)
