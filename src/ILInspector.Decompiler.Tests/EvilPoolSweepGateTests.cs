@@ -169,14 +169,15 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
-    /// A sweep that cannot write its manifest refuses the output directory.
+    /// A sweep that cannot invalidate its prior manifest refuses the output directory
+    /// before mutating the pool.
     ///
-    /// <para>The assembly record and pool reconciliation both precede this write. The
-    /// stale file makes that ordering observable: reaching the manifest write is not
-    /// enough if the sweep can return before reconciling the pool it would describe.</para>
+    /// <para>A directory at the manifest path makes invalidation fail. The unpooled
+    /// packages, absent assembly record, and surviving stale file prove that refusal
+    /// happened before the first pool, record, or reconciliation mutation.</para>
     /// </summary>
     [Fact]
-    public void ASweepThatCannotWriteItsManifestRefusesTheOutputDirectory()
+    public void ASweepThatCannotInvalidateItsManifestRefusesBeforePoolMutation()
     {
         using var world = SweepWorld.Create();
         Directory.CreateDirectory(world.ManifestPath);
@@ -192,12 +193,14 @@ public class EvilPoolSweepGateTests
             sweep.ExitCode == 2,
             world.Explain(sweep, "a directory standing at the manifest path"));
         Assert.Contains(
-            $"Could not write '{world.ManifestPath}'",
+            $"Could not invalidate prior manifest '{world.ManifestPath}'",
             sweep.Errors,
             StringComparison.Ordinal);
 
-        Assert.True(File.Exists(world.PooledListPath), "the sweep did not write its assembly record.");
-        Assert.False(File.Exists(stale), "the sweep attempted the manifest write before reconciling the pool.");
+        Assert.False(File.Exists(world.LeadDestination), "the sweep pooled the lead before invalidation.");
+        Assert.False(File.Exists(world.SubjectDestination), "the sweep pooled the subject before invalidation.");
+        Assert.False(File.Exists(world.PooledListPath), "the sweep wrote its assembly record before invalidation.");
+        Assert.True(File.Exists(stale), "the sweep reconciled the pool before invalidation.");
     }
 
     /// <summary>
