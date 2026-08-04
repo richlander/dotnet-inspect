@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -2190,6 +2191,7 @@ public class PackageCommand
 
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var queryRegistry = LibrarySections.CreateQueryRegistry();
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2207,6 +2209,7 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var queries = pipeline.GetRequiredQueries(libraryOptions.Verbosity, libraryOptions.IncludeSections);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
@@ -2220,7 +2223,9 @@ public class PackageCommand
                 version,
                 context.HttpClient,
                 scanners: scanners,
-                scannerRegistry: scannerRegistry);
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryRegistry: queryRegistry);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");

@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using ILInspector.Metadata;
+using InertText;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Sections;
@@ -86,19 +87,25 @@ public sealed class ScannerContext : IDisposable
             if (MetadataContext is { HasMetadata: true } context)
             {
                 _session = AssemblyInspectionSession.Borrow(context);
-                Trace?.RecordResource("metadata session", "borrowed from the command's open image");
+                Trace?.RecordResource(
+                    "metadata session",
+                    new InertString(TextPolicy.Field, "borrowed from the command's open image"));
             }
             else
             {
                 _session = AssemblyInspectionSession.Open(AssemblyPath);
-                Trace?.RecordResource("metadata session", "opened (no shared image available)");
+                Trace?.RecordResource(
+                    "metadata session",
+                    new InertString(TextPolicy.Field, "opened (no shared image available)"));
             }
         }
         catch (Exception)
         {
             // Left to the fallback path overload, which logs and produces the failed inspection.
             _session = null;
-            Trace?.RecordResource("metadata session", "failed to open; scanners reopen individually");
+            Trace?.RecordResource(
+                "metadata session",
+                new InertString(TextPolicy.Field, "failed to open; scanners reopen individually"));
         }
 
         return _session;
@@ -224,14 +231,20 @@ public sealed class ScannerContext : IDisposable
             // Scanners swallow a failed index and render an empty section, so without this the
             // trace would show no body index for a run that tried to build one and failed —
             // indistinguishable from a run that correctly never needed it.
-            Trace?.RecordResource("body index", $"FAILED after {Elapsed(start)}: {ex.GetType().Name}");
+            Trace?.RecordResource(
+                "body index",
+                InertString.Format(
+                    TextPolicy.Field,
+                    $"FAILED after {Elapsed(start)}: {ex.GetType().Name}"));
             throw;
         }
 
         var index = _bodySession.BodyIndex;
         Trace?.RecordResource(
             "body index",
-            $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})");
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})"));
         return index;
     }
 
@@ -251,7 +264,11 @@ public sealed class ScannerContext : IDisposable
 
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         _drillMap = LibraryMetadataService.BuildLibraryDrillMap(GetMetadataContext(), Logger);
-        Trace?.RecordResource("drill map", $"built in {Elapsed(start)} ({_drillMap.Count} members)");
+        Trace?.RecordResource(
+            "drill map",
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} ({_drillMap.Count} members)"));
         return _drillMap;
     }
 

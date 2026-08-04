@@ -194,15 +194,49 @@ consumer's convenience.
 7. **Presentation-free means presentation-free.** No layer below L3 writes to the
    console or decides an output format.
 
+## Current migration state
+
+Metadata-image inspection is the first vertical L1 canary:
+
+- `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
+  prerequisite expansion, and query cost.
+- `MetadataImageQuery` consumes an already-open `AssemblyInspectionSession` and
+  returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
+  mutating `LibraryInspection`.
+- Metadata sections bind to the query definition by object identity. The
+  diagnostic name is never a lookup key.
+- `MetadataImageOverview.MetadataVersion` remains an `InertString` from the
+  metadata producer through query results to the rendering sink. Inspection
+  trace fields and lines use the same query-to-sink currency.
+
+This is a canary, not the completed split. The remaining boundaries are
+intentional and visible:
+
+- Other library facets still use `ScannerRegistry`, string keys, and shared
+  `LibraryInspection` mutation.
+- L2 currently registers the L1 executor through a `ScannerContext` adapter so
+  the typed query and legacy scanners can borrow one metadata session. The L1
+  query itself does not depend on that CLI context.
+- The CLI retains the typed metadata result on `LibraryInspection` because the
+  existing renderer still consumes that aggregate. Its `Failed` case feeds the
+  existing inspection-failure surface rather than collapsing into empty output.
+- Metadata row and heap projection still retain
+  `LibraryInspection.MetadataAssemblyPath` for on-demand rendering. Removing
+  that path-shaped residual requires a content-shaped projection query.
+- `InspectionCost` and the legacy `SectionCost` are parallel during migration;
+  L2 maps between them exhaustively.
+
 ## What must change
 
 The layering is closer to reality than it looks: the CLI's directories already
 declare `DotnetInspector.*` namespaces, and Markout coupling is already
-concentrated in the upper directories while the model and service directories are
-essentially free of it. The boundary is largely drawn; what is missing is the
-project split and one structural fix.
+concentrated in the upper directories while the model and service directories
+are essentially free of it. The boundary is largely drawn; the metadata canary
+establishes the L1 project and structural pattern, but the remaining facets and
+the L2 project split still need migration.
 
-The structural fix is L1. Today it is neither typed nor demand-driven:
+The structural fix is completing L1. Outside the metadata canary, collection is
+still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results, so a consumer cannot take one query without materializing everything.

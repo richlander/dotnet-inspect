@@ -116,6 +116,28 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// The first L1 query is wired all the way through section demand, one execution, and the
+    /// existing metadata sink. This is deliberately asserted on the real command trace: a registry
+    /// unit test cannot prove the library command stopped using the legacy mutating scanner.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Trace_ExecutesTypedQueryOnce()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Metadata version |", output, StringComparison.Ordinal);
+
+        string[] lines = error.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        Assert.Contains("    Metadata: Image -> Metadata image", lines);
+        Assert.Single(
+            lines,
+            line => line.StartsWith("    Metadata image ", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("Metadata ->", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The category door selects the whole family. Asserted through <c>--count</c> because that
     /// reports the per-section row counts without printing a hundred thousand rows.
     /// </summary>

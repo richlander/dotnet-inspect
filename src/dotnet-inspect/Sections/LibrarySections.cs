@@ -1,5 +1,6 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
@@ -28,7 +29,6 @@ public static class LibrarySections
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
-    public const string ScannerMetadata = "Metadata";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -36,6 +36,7 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
             .UseScannerCosts(CreateScannerRegistry().CostOf)
+            .UseQueryCosts(CreateQueryRegistry().CostOf)
             .Add<LibraryInfo>()
             .Add<InspectionFailures>()
             .Add<ILOffset>()
@@ -185,8 +186,29 @@ public static class LibrarySections
                     session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
-            .Add(ScannerMetadata, SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+            ;
+    }
+
+    /// <summary>Builds the typed query registry used by library sections.</summary>
+    public static InspectionQueryRegistry<ScannerContext> CreateQueryRegistry()
+    {
+        return new InspectionQueryRegistry<ScannerContext>()
+            .Add(MetadataImageQuery.Definition, ctx =>
+                ctx.Scan(
+                    MetadataImageQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return MetadataImageQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new MetadataImageResult.Failed(ex);
+                        }
+                    }));
     }
 
     // ===== Primary section =====

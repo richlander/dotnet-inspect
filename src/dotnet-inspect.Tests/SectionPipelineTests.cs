@@ -1,15 +1,18 @@
 using ILInspector.Metadata;
 using ILInspector.Findings;
 using ILInspector.Research;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 using System.Text.Json;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
@@ -1371,6 +1374,150 @@ public class SectionPipelineTests
             registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void LibraryQueryRegistry_RegistrationMatchesDeclaration()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal),
+            registry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+        Assert.Equal([MetadataImageQuery.Definition], pipeline.DeclaredQueries);
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_BindsByIdentityAndReturnsTypedCurrency()
+    {
+        var prerequisite = new InspectionQuery<int>("same display name", InspectionCost.Moderated);
+        var query = new InspectionQuery<InertString>(
+            "same display name",
+            InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(prerequisite, _ => 42)
+            .Add(
+                query,
+                (_, results) => InertString.Format(
+                    TextPolicy.Field,
+                    $"answer {results.Get(prerequisite)}"),
+                prerequisite);
+
+        InspectionQueryResults results = registry.Run([query], context: null);
+        InertString answer = results.Get(query);
+
+        Assert.Equal("answer 42", answer.ToString());
+        Assert.Equal(InspectionCost.Moderated, registry.CostOf(query));
+        Assert.NotSame(prerequisite, query);
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_ExecutesPrerequisitesOnceInDeclaredOrder()
+    {
+        List<string> order = [];
+        var prerequisite = new InspectionQuery<int>("prerequisite", InspectionCost.NetworkFree);
+        var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
+        var second = new InspectionQuery<int>("second", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(prerequisite, _ =>
+            {
+                order.Add("prerequisite");
+                return 1;
+            })
+            .Add(first, (_, results) =>
+            {
+                order.Add("first");
+                return results.Get(prerequisite) + 1;
+            }, prerequisite)
+            .Add(second, (_, results) =>
+            {
+                order.Add("second");
+                return results.Get(prerequisite) + results.Get(first);
+            }, prerequisite, first);
+
+        InspectionQueryResults results = registry.Run([first, second], context: null);
+
+        Assert.Equal(["prerequisite", "first", "second"], order);
+        Assert.Equal(3, results.Get(second));
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_PrerequisiteGraphIsImmutableAndFailVisible()
+    {
+        var prerequisite = new InspectionQuery<int>("prerequisite", InspectionCost.NetworkFree);
+        var replacement = new InspectionQuery<int>("replacement", InspectionCost.Unbounded);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        InspectionQueryDefinition[] declared = [prerequisite];
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(prerequisite, _ => 1)
+            .Add(replacement, _ => 2)
+            .Add(query, (_, results) => results.Get(prerequisite), declared);
+
+        declared[0] = replacement;
+
+        Assert.Equal([prerequisite], registry.RequirementsOf(query));
+        Assert.Equal(InspectionCost.NetworkFree, registry.CostOf(query));
+
+        var missing = new InspectionQuery<int>("missing", InspectionCost.NetworkFree);
+        Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired([missing]));
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_RejectsPrerequisiteCycles()
+    {
+        var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
+        var second = new InspectionQuery<int>("second", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(first, _ => 1, second)
+            .Add(second, _ => 2, first);
+
+        Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired([first]));
+    }
+
+    [Fact]
+    public void InspectionCost_OrdersFromCheapestToMostExpensive()
+    {
+        Assert.Equal(
+            [InspectionCost.NetworkFree, InspectionCost.Moderated, InspectionCost.Unbounded],
+            Enum.GetValues<InspectionCost>());
+    }
+
+    [Fact]
+    public void MetadataImageQuery_CarriesInertStringInItsTypedResult()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+
+        var available = Assert.IsType<MetadataImageResult.Available>(
+            MetadataImageQuery.Execute(session));
+        InertString metadataVersion = available.Overview.MetadataVersion;
+
+        Assert.True(InertString.IsPermitted(TextPolicy.Field, metadataVersion.ToString()));
+        Assert.False(metadataVersion.IsEmpty);
+    }
+
+    [Fact]
+    public void MetadataImageQuery_FailureRemainsTypedAndAffectsEveryMetadataSection()
+    {
+        var model = new LibraryInspection();
+        Assert.Null(model.InspectionFailures);
+
+        var error = new InvalidDataException("metadata image failed");
+        model.MetadataImageResult = new MetadataImageResult.Failed(error);
+
+        Assert.Null(model.MetadataOverview);
+        Assert.Same(error, Assert.IsType<MetadataImageResult.Failed>(
+            model.MetadataImageResult).Error);
+        LibraryInspectionFailureJson failure = Assert.Single(model.InspectionFailures!);
+        Assert.Equal(MetadataSectionNames.Image, failure.Section);
+        Assert.Equal(MetadataImageQuery.Definition.Name, failure.Finding);
+        Assert.Equal(error.Message, failure.Reason);
+        Assert.All(
+            MetadataSectionNames.All,
+            section => Assert.True(LibraryCommand.FailureAffectsSection(
+                failure.Section,
+                section)));
+    }
+
     // ===== Scanner prerequisite tests =====
 
     [Fact]
@@ -2156,7 +2303,7 @@ public class SectionPipelineTests
         // command named it, or a declared prerequisite pulled it in. That attribution is the report's
         // entire value, and it is the part with no other check on it -- a wrong bucket still renders
         // a plausible-looking report and sends whoever chases an unexpected scan to a declaration
-        // that does not exist. Discovery mode's Metadata scan was exactly that bug.
+        // that does not exist.
         //
         // The asymmetry is what makes this a gate rather than a restatement: the closure comes from
         // what the run actually *did* (ExpandRequired over the returned set), while reachability is
@@ -2164,41 +2311,72 @@ public class SectionPipelineTests
         // trace.Requested instead would re-derive ExpandRequired's own input and assert X is a subset
         // of X -- which an earlier version of this test did, and which stayed green under tampering.
         var registry = LibrarySections.CreateScannerRegistry();
-        (string, string)[] discoveryDemand = [("discovery catalog", LibrarySections.ScannerMetadata)];
+        var pipeline = LibrarySections.CreatePipeline();
+        var trace = new InspectionTrace();
+        var requested = pipeline.GetRequiredScanners(Verbosity.Detailed, trace: trace);
 
-        foreach (var commandDemand in new[] { null, discoveryDemand })
+        trace.RecordClosure(registry.ExpandRequired(requested));
+
+        var claimed = trace.Demand.Select(d => d.Scanner)
+            .Concat(trace.CommandDemand.Select(c => c.Scanner))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var reachable = new HashSet<string>(claimed, StringComparer.Ordinal);
+        var queue = new Queue<string>(claimed);
+        while (queue.Count > 0)
         {
-            var pipeline = LibrarySections.CreatePipeline();
-            var trace = new InspectionTrace();
-            var requested = pipeline.GetRequiredScanners(
-                Verbosity.Detailed, trace: trace, commandDemand: commandDemand);
-
-            trace.RecordClosure(registry.ExpandRequired(requested));
-
-            var claimed = trace.Demand.Select(d => d.Scanner)
-                .Concat(trace.CommandDemand.Select(c => c.Scanner))
-                .ToHashSet(StringComparer.Ordinal);
-
-            var reachable = new HashSet<string>(claimed, StringComparer.Ordinal);
-            var queue = new Queue<string>(claimed);
-            while (queue.Count > 0)
+            foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
             {
-                foreach (var requirement in registry.RequirementsOf(queue.Dequeue()))
-                {
-                    if (reachable.Add(requirement))
-                        queue.Enqueue(requirement);
-                }
+                if (reachable.Add(requirement))
+                    queue.Enqueue(requirement);
             }
-
-            Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
         }
 
-        // Non-vacuity: the discovery case has to actually pull in a scanner no section named, or the
-        // second iteration proves nothing the first did not.
-        var plain = LibrarySections.CreatePipeline().GetRequiredScanners(Verbosity.Detailed);
-        var withDiscovery = LibrarySections.CreatePipeline()
-            .GetRequiredScanners(Verbosity.Detailed, commandDemand: discoveryDemand);
-        Assert.Equal([LibrarySections.ScannerMetadata], withDiscovery.Except(plain, StringComparer.Ordinal));
+        Assert.Empty(trace.Closure.Except(reachable, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Trace_ExplainsEveryQueryThatRan_AndRendersInertLines()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var pipeline = LibrarySections.CreatePipeline();
+        var trace = new InspectionTrace
+        {
+            Target = new InertString(TextPolicy.Field, "target\nError: FORGED"),
+        };
+        (string Reason, InspectionQueryDefinition Query)[] discoveryDemand =
+            [("discovery catalog", MetadataImageQuery.Definition)];
+
+        HashSet<InspectionQueryDefinition> requested = pipeline.GetRequiredQueries(
+            Verbosity.Detailed,
+            trace: trace,
+            commandDemand: discoveryDemand);
+        HashSet<InspectionQueryDefinition> closure = registry.ExpandRequired(requested);
+        trace.RecordQueryClosure(closure);
+
+        var claimed = trace.QueryDemand.Select(d => d.Query)
+            .Concat(trace.CommandQueryDemand.Select(d => d.Query))
+            .ToHashSet();
+        var reachable = new HashSet<InspectionQueryDefinition>(claimed);
+        var queue = new Queue<InspectionQueryDefinition>(claimed);
+        while (queue.Count > 0)
+        {
+            foreach (InspectionQueryDefinition requirement in registry.RequirementsOf(queue.Dequeue()))
+            {
+                if (reachable.Add(requirement))
+                    queue.Enqueue(requirement);
+            }
+        }
+
+        Assert.Empty(trace.QueryClosure.Except(reachable));
+        Assert.Equal([MetadataImageQuery.Definition], requested);
+
+        IEnumerable<InertString> lines = trace.RenderLines();
+        Assert.All(
+            lines,
+            line => Assert.True(
+                InertString.IsPermitted(TextPolicy.Field, line.ToString())));
+        Assert.Contains(lines, line => line.ToString().Contains(@"\^J", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2252,7 +2430,7 @@ public class SectionPipelineTests
         registry.RunScanners(registry.ExpandRequired([LibrarySections.ScannerUnsafeMembers]), context);
 
         var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
-        Assert.StartsWith("built in", bodyIndex.Detail);
+        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
     }
 
     [Fact]
@@ -3432,7 +3610,9 @@ public class SectionPipelineTests
         // projector's table list, which is exactly the drift MetadataSectionNames exists to
         // prevent; reading a real assembly keeps the fixture correct as tables are added.
         using (var session = AssemblyInspectionSession.Open(typeof(SectionPipelineTests).Assembly.Location))
-            library.MetadataOverview = session.MetadataImage();
+            library.MetadataImageResult = session.MetadataImage() is { } overview
+                ? new MetadataImageResult.Available(overview)
+                : new MetadataImageResult.NoMetadata();
         yield return DiscoverableCase("library", libraryPipeline, library);
 
         var packagePipeline = PackageSectionDescriptors.CreatePipeline();

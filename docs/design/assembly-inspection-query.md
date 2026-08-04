@@ -136,6 +136,12 @@ public sealed record InspectionTarget(
     MemberSelector? Selector = null);   // optional: which member / IL coordinate inside it
 ```
 
+The current metadata canary implements the inner, facet-level contract as
+`InspectionQuery<TResult>` plus an `InspectionQueryDefinition` identity. That
+generic definition says what one facet returns and costs; it is not the
+non-generic aggregate request above, which will carry the target, selected
+facets, and options when the acquisition seam migrates.
+
 `MemberSelector` is the `MemberQuery` / `ILCoordinateQuery` union. A plain assembly inspection
 leaves `Selector` null; a member or coordinate inspection sets it.
 
