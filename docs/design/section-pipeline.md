@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Twenty routes into the same defect
+### Twenty-four routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twenty different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twenty-four different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -116,7 +116,7 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A prerequisite list is mutated through an alias the caller still holds | copy-on-registration into `ImmutableArray<string>` |
 | A scanner reaches `LibraryBodyIndex.Open` without going through the gated accessor | a pinned opener set plus a reverse-reachability gate, over the compiled product assemblies |
 | A caller outside any scanner run takes the body index unchecked | default-deny in `RequireUnboundedDeclaration` (below) |
-| A helper in another product assembly opens the index internally | the assembly set derived as the CLI's product reference closure |
+| A helper in another product assembly opens the index internally | the assembly set derived from the CLI dependency manifest's shipped project libraries |
 | A second overload of a pinned opener collapses into its sibling | opener identity keyed by full signature, not by `Type::Method` |
 | A generic opener (`Open<T>(string)`) collapses into its non-generic namesake | generic arity carried in the identity key |
 | A scanner opens the index by **reflection**, which no IL walk can follow | the reflection API surface reachable from `Sections` is pinned instead |
@@ -131,8 +131,12 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | A **materialization primitive** (`RuntimeHelpers.GetUninitializedObject`) yields an instance with no `newobj`, and dispatch through a **BCL** interface yields no ancestor — so both hierarchy mechanisms fail at once | those primitives pinned by call site alongside `Activator` |
 | The same, by **reinterpretation** (`Unsafe.As<T>(object)`) rather than allocation | the same call-site pin, which is why it is keyed on callers rather than members |
 | The implementing type is a **value type**, which needs no construction event at all, so no primitive is required and the two rows above are patches | a claim over the population instead of an edge: no product value type's implementation of a BCL contract may reach an opener |
+| Scanner code overwrites the context's current cost with `Unbounded` | a registry-created authorization token whose secret is not exposed to scanners |
+| A real scanner's catch-all turns the declaration exception into an empty section | a dedicated exception that crosses scanner and top-level inspection catch boundaries, plus a production-helper gate |
+| A first-party assembly such as `NuGetFetch` does not match the two historical product-name prefixes | product membership comes from `dotnet-inspect.deps.json`, not assembly-name shape |
+| A scanner invokes an opener through a delegate loaded from a static field, leaving no edge to the target | accessible static delegate and function-pointer fields are denied across the shipped project set |
 
-That the enumeration reached twenty is itself the finding. After each fix the class looked closed, and all but one were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached twenty-four is itself the finding. After each fix the class looked closed, and nearly all were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The thirteenth is instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
 
@@ -273,9 +277,9 @@ The general lesson is the same one the assembly closure taught, arriving from th
 
 Cutting the walk at `ScannerContext.BodyIndex`/`DrillMap` is only sound if the accessor really does enforce. It did not, at first.
 
-`RequireUnboundedDeclaration` used to **return** when `Running` was null, reasoning that a caller outside a scanner run has no declaration to check against. That made the absence of a declaration the one way to escape needing one. `RunWithRequirements` restores `Running` in a `finally`, so it is null for the whole render phase — and review reached it from ordinary code: a descriptor's `CanRender` that captured the `ScannerContext` called `BodyIndex()` while rendering and spent seconds on work no section had declared. It also laundered the very violation the cut claims to exclude, since the walk treats a path through the accessor as gated.
+`RequireUnboundedDeclaration` used to **return** when no scanner was authorized, reasoning that a caller outside a scanner run has no declaration to check against. That made the absence of a declaration the one way to escape needing one. `RunWithRequirements` removes its authorization when the invocation ends, so the render phase has none — and review reached it from ordinary code: a descriptor's `CanRender` that captured the `ScannerContext` called `BodyIndex()` while rendering and spent seconds on work no section had declared. It also laundered the very violation the cut claims to exclude, since the walk treats a path through the accessor as gated.
 
-Cost is declared per scanner, so work that cannot be attributed to one cannot be afforded by anything: an unscoped caller is now **refused**. Exactly one test depended on the old permission, which is the useful measurement — no product path calls these accessors outside a scanner run. `UnscopedCallers_AreRefusedTheBodyIndex` pins the refusal, and `ScannerDeclaration_DoesNotOutliveTheRun` distinguishes the two refusal messages so that deleting the `finally` still fails.
+Cost is declared per scanner, so work that cannot be attributed to one cannot be afforded by anything: an unscoped caller is now **refused**. Exactly one test depended on the old permission, which is the useful measurement — no product path calls these accessors outside a scanner run. `UnscopedCallers_AreRefusedTheBodyIndex` pins the refusal, and `ScannerDeclaration_DoesNotOutliveTheRun` distinguishes the two refusal messages so that leaking the authorization scope still fails.
 
 `RequirementsOf` returns `ImmutableArray<string>`, which `ImmutableCollectionsMarshal.AsArray` can still unwrap. That is a documented property of `ImmutableArray` shared by every one of this repository's public `ImmutableArray`-returning members, not a property of this registry, and the type is unused anywhere in the product. The boundary is named in `RequirementsOf`'s doc comment rather than left as an unqualified claim.
 

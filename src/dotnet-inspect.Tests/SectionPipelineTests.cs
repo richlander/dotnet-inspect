@@ -9,6 +9,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -16,6 +17,11 @@ public class SectionPipelineTests
 {
     // Simple test model
     private record TestModel(string? Name, int Count);
+
+    internal static class StaticDelegateFieldCanary
+    {
+        internal static readonly Action<string> Invoke = _ => { };
+    }
 
     // Test descriptors
     private sealed class AlwaysSection : ISectionDescriptor<TestModel>
@@ -1495,7 +1501,7 @@ public class SectionPipelineTests
         var cheap = new ScannerRegistry()
             .Add("cheap", SectionCost.NetworkFree, ctx => ctx.BodyIndex());
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<ScannerCostDeclarationException>(
             () => cheap.RunScanners(["cheap"], NullScannerContext()));
         Assert.Contains("body index", ex.Message, StringComparison.Ordinal);
         Assert.Contains("NetworkFree", ex.Message, StringComparison.Ordinal);
@@ -1519,7 +1525,7 @@ public class SectionPipelineTests
         var cheap = new ScannerRegistry()
             .Add("cheap", SectionCost.NetworkFree, ctx => ctx.DrillMap());
 
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<ScannerCostDeclarationException>(
             () => cheap.RunScanners(["cheap"], NullScannerContext()));
         Assert.Contains("drill map", ex.Message, StringComparison.Ordinal);
 
@@ -1540,9 +1546,9 @@ public class SectionPipelineTests
         // govern every later use.
         //
         // An earlier version of this gate ran a cheap scanner after an expensive prerequisite and
-        // asserted the cheap one was refused. That proved nothing -- each scanner overwrites
-        // Running on entry, so deleting the restore left it green. The observable that actually
-        // depends on the restore is the state after the run.
+        // asserted the cheap one was refused. That proved nothing -- each scanner installs its own
+        // authorization on entry, so deleting the restore left it green. The observable that
+        // actually depends on the restore is the state after the run.
         var registry = new ScannerRegistry()
             .Add("cheap", SectionCost.NetworkFree, _ => { });
         var context = NullScannerContext();
@@ -1551,9 +1557,9 @@ public class SectionPipelineTests
 
         // Refused, because the run is over and nothing is left to attribute the work to. The
         // message distinguishes the two reasons a call can be refused, which is what keeps the
-        // restore pinned: delete the `finally` in RunWithRequirements and Running stays set to
-        // ("cheap", NetworkFree), so the *declaration* message appears here instead.
-        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        // restore pinned: stop disposing the authorization scope and the cheap scanner remains
+        // current, so the *declaration* message appears here instead.
+        var ex = Assert.Throws<ScannerCostDeclarationException>(() => context.BodyIndex());
         Assert.Contains("outside a scanner run", ex.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("declares Cost", ex.Message, StringComparison.Ordinal);
     }
@@ -1563,11 +1569,11 @@ public class SectionPipelineTests
     {
         // Raised by the GPT review of #3626, as a working exploit rather than a hypothetical.
         //
-        // RequireUnboundedDeclaration used to *return* when Running was null, on the reasoning
+        // RequireUnboundedDeclaration used to *return* when no scanner was authorized, on the reasoning
         // that a caller outside a scanner run "has no declaration to check against". That made
         // the absence of a declaration the one way to escape needing one. GPT reached it from
         // ordinary code: a descriptor's CanRender that captured the ScannerContext called
-        // BodyIndex() while rendering -- after RunScanners had restored Running to null -- and
+        // BodyIndex() while rendering -- after RunScanners had removed the authorization -- and
         // the CLI spent 5.2 seconds on whole-assembly work that no section had declared.
         //
         // It also undermined the reachability gate below. That gate cuts its walk at the accessor
@@ -1577,20 +1583,67 @@ public class SectionPipelineTests
         // Cost is declared per scanner, so work that cannot be attributed to one cannot be
         // afforded by anything. Both resources refuse.
         var context = NullScannerContext();
-        Assert.Null(context.Running);
 
-        var body = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        var body = Assert.Throws<ScannerCostDeclarationException>(() => context.BodyIndex());
         Assert.Contains("outside a scanner run", body.Message, StringComparison.Ordinal);
 
-        var drill = Assert.Throws<InvalidOperationException>(() => context.DrillMap());
+        var drill = Assert.Throws<ScannerCostDeclarationException>(() => context.DrillMap());
         Assert.Contains("outside a scanner run", drill.Message, StringComparison.Ordinal);
 
         // Non-vacuity: the refusal must be the declaration check, not the missing metadata context
-        // that NullScannerContext would also throw on. Declaring Unbounded gets past this check
-        // and reaches the context requirement instead, which is a different message.
-        context.Running = ("declared", SectionCost.Unbounded);
-        var allowed = Assert.Throws<InvalidOperationException>(() => context.DrillMap());
+        // that NullScannerContext would also throw on. A registry-declared Unbounded scanner gets
+        // past this check and reaches the context requirement instead, which is a different message.
+        var declared = new ScannerRegistry()
+            .Add("declared", SectionCost.Unbounded, ctx => ctx.DrillMap());
+        var allowed = Assert.Throws<InvalidOperationException>(
+            () => declared.RunScanners(["declared"], context));
         Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ScannerAuthorization_CannotBeForgedByScannerCode()
+    {
+        Type authorization = typeof(ScannerRegistry).GetNestedType(
+            "ScannerAuthorization",
+            System.Reflection.BindingFlags.NonPublic)!;
+
+        Assert.NotNull(authorization);
+        System.Reflection.ConstructorInfo constructor = Assert.Single(
+            authorization.GetConstructors(
+                System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic));
+        var rejected = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => constructor.Invoke(["forged", SectionCost.Unbounded, new object()]));
+        Assert.Contains(
+            "only be created by their registry",
+            rejected.InnerException!.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            typeof(ScannerContext).GetMembers(
+                System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic),
+            member => member switch
+            {
+                System.Reflection.PropertyInfo property => property.PropertyType == authorization,
+                System.Reflection.FieldInfo field => !field.IsPrivate && field.FieldType == authorization,
+                System.Reflection.MethodInfo method => method.ReturnType == authorization,
+                _ => false,
+            });
+    }
+
+    [Fact]
+    public void ProductionScannerCatchBoundary_DoesNotSwallowDeclarationViolation()
+    {
+        var registry = new ScannerRegistry()
+            .Add("cheap", SectionCost.NetworkFree, ctx =>
+                LibraryMetadataService.ScanUnsafeMembers(
+                    ctx.BodyIndex,
+                    ctx.AssemblyPath,
+                    ctx.Logger));
+
+        Assert.Throws<ScannerCostDeclarationException>(
+            () => registry.RunScanners(["cheap"], NullScannerContext()));
     }
 
     [Fact]
@@ -1892,33 +1945,117 @@ public class SectionPipelineTests
         //
         // Merging in a named second assembly fixed that instance and left the shape of it intact:
         // the MAI re-review pointed at ILInspector.Research, which opens an index in
-        // AnalysisIndexCache.ForPath and ResearchDiff. So the assembly set is not listed here at
-        // all. It is *derived* as the product reference closure of the CLI, which means a new
-        // product assembly enters this gate by being referenced rather than by someone remembering
-        // to add it. Deriving it also excludes test-support assemblies such as
-        // DotnetInspector.Fixtures for a reason rather than by an exception: the CLI does not
-        // reference them, so a fixture that opens an index cannot pad the pinned set below.
-        static bool IsProductAssembly(string? name)
-            => name is not null
-                && (name.StartsWith("ILInspector.", StringComparison.Ordinal)
-                    || name.StartsWith("DotnetInspector.", StringComparison.Ordinal)
-                    || name == "dotnet-inspect");
+        // AnalysisIndexCache.ForPath and ResearchDiff. The assembly set is therefore derived from
+        // the CLI's dependency manifest: every runtime library marked `project` is
+        // repository-owned code that ships in the process. This includes first-party assemblies
+        // whose names do not follow either historical prefix (NuGetFetch, SourceLinkFetch, and
+        // InertText), and excludes test support because it is absent from dotnet-inspect.deps.json.
+        string dependencyManifest = Path.ChangeExtension(
+            typeof(ScannerRegistry).Assembly.Location,
+            ".deps.json");
+        Assert.True(
+            File.Exists(dependencyManifest),
+            $"{dependencyManifest} is required to derive the shipped project closure.");
 
-        var productAssemblies = new Dictionary<string, System.Reflection.Assembly>(StringComparer.Ordinal);
-        var toVisit = new Queue<System.Reflection.Assembly>();
-        toVisit.Enqueue(typeof(ScannerRegistry).Assembly);
-        while (toVisit.Count > 0)
+        using JsonDocument dependencies = JsonDocument.Parse(
+            File.ReadAllText(dependencyManifest));
+        JsonElement root = dependencies.RootElement;
+        string runtimeTarget = root
+            .GetProperty("runtimeTarget")
+            .GetProperty("name")
+            .GetString()!;
+        JsonElement target = root.GetProperty("targets").GetProperty(runtimeTarget);
+        string outputDirectory = Path.GetDirectoryName(
+            typeof(ScannerRegistry).Assembly.Location)!;
+        var productAssemblies = new Dictionary<string, System.Reflection.Assembly>(
+            StringComparer.Ordinal);
+
+        foreach (JsonProperty library in root.GetProperty("libraries").EnumerateObject())
         {
-            var assembly = toVisit.Dequeue();
-            if (!productAssemblies.TryAdd(assembly.GetName().Name!, assembly))
+            if (library.Value.GetProperty("type").GetString() != "project")
                 continue;
 
-            foreach (var reference in assembly.GetReferencedAssemblies())
+            Assert.True(
+                target.TryGetProperty(library.Name, out JsonElement targetLibrary),
+                $"{library.Name} is a shipped project library with no target entry.");
+            if (!targetLibrary.TryGetProperty("runtime", out JsonElement runtime))
+                continue;
+
+            foreach (JsonProperty asset in runtime.EnumerateObject())
             {
-                if (IsProductAssembly(reference.Name))
-                    toVisit.Enqueue(System.Reflection.Assembly.Load(reference));
+                if (!asset.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string path = Path.Combine(
+                    outputDirectory,
+                    asset.Name.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(
+                    File.Exists(path),
+                    $"{library.Name} declares runtime asset {asset.Name}, but {path} is absent.");
+                System.Reflection.Assembly assembly = System.Reflection.Assembly.LoadFrom(path);
+                Assert.True(
+                    productAssemblies.TryAdd(assembly.GetName().Name!, assembly),
+                    $"The dependency manifest mapped more than one project asset to {assembly.GetName().Name}.");
             }
         }
+
+        static bool IsTypeAccessibleFromScanner(
+            Type type,
+            System.Reflection.Assembly scannerAssembly)
+        {
+            if (type.DeclaringType is { } declaring
+                && !IsTypeAccessibleFromScanner(declaring, scannerAssembly))
+            {
+                return false;
+            }
+
+            return type.Assembly == scannerAssembly
+                ? !type.IsNestedPrivate
+                : type.IsPublic || type.IsNestedPublic;
+        }
+
+        static bool IsStaticCodeFieldAccessibleFromScanner(
+            System.Reflection.FieldInfo field,
+            System.Reflection.Assembly scannerAssembly)
+        {
+            if (!field.IsStatic
+                || !IsTypeAccessibleFromScanner(field.DeclaringType!, scannerAssembly))
+            {
+                return false;
+            }
+
+            bool fieldAccessible = field.DeclaringType!.Assembly == scannerAssembly
+                ? field.IsPublic || field.IsAssembly || field.IsFamilyOrAssembly
+                : field.IsPublic;
+            return fieldAccessible
+                && (typeof(Delegate).IsAssignableFrom(field.FieldType)
+                    || field.FieldType.IsFunctionPointer);
+        }
+
+        // A scanner can invoke a delegate loaded from a static field without naming the target in
+        // IL: ldsfld + Delegate.Invoke carries no edge to the helper that opens the index. Deny
+        // that route rather than pretending the call graph models field data flow.
+        System.Reflection.FieldInfo canary = typeof(StaticDelegateFieldCanary).GetField(
+            nameof(StaticDelegateFieldCanary.Invoke),
+            System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.NonPublic)!;
+        Assert.True(IsStaticCodeFieldAccessibleFromScanner(
+            canary,
+            typeof(StaticDelegateFieldCanary).Assembly));
+
+        string[] accessibleStaticCodeFields = productAssemblies.Values
+            .SelectMany(assembly => assembly.GetTypes())
+            .SelectMany(type => type.GetFields(
+                System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic))
+            .Where(field => IsStaticCodeFieldAccessibleFromScanner(
+                field,
+                typeof(ScannerRegistry).Assembly))
+            .Select(field => $"{field.DeclaringType!.FullName}::{field.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Empty(accessibleStaticCodeFields);
 
         var calls = productAssemblies.Values
             .Select(assembly => assembly.Location)
@@ -2596,20 +2733,20 @@ public class SectionPipelineTests
         // The walk must be able to see openers, or Assert.Empty passes by finding nothing.
         Assert.NotEmpty(openerKeys);
 
-        // The closure must actually be a closure. If it collapsed to the CLI alone, or quietly
-        // stopped at one hop, the cross-assembly claim would evaporate while everything else still
-        // passed. ILInspector.Research is the useful witness: nothing in the CLI names it in this
-        // test, it is reached only by following references, and it owns two of the pinned openers.
+        // The manifest-derived set must include both prefixed and unprefixed first-party
+        // assemblies. ILInspector.Research owns two pinned openers; the other three are witnesses
+        // for names the old two-prefix filter silently dropped.
         Assert.Contains("ILInspector.Analysis", productAssemblies.Keys);
         Assert.Contains("ILInspector.Research", productAssemblies.Keys);
+        Assert.Contains("InertText", productAssemblies.Keys);
+        Assert.Contains("NuGetFetch", productAssemblies.Keys);
+        Assert.Contains("SourceLinkFetch", productAssemblies.Keys);
         Assert.Contains(
             openerKeys,
             key => key.StartsWith("ILInspector.Research.", StringComparison.Ordinal));
 
-        // And it must stay a *product* closure. DotnetInspector.Fixtures sits in the same output
-        // directory and matches the same name prefix, so a directory scan would sweep it in and
-        // let test-support code pad the pinned set. It is absent because the CLI does not
-        // reference it, which is the property worth pinning rather than an exclusion list.
+        // And it must stay a product set. The CLI dependency manifest excludes test-support code
+        // even though its binaries share the test output directory.
         Assert.DoesNotContain("DotnetInspector.Fixtures", productAssemblies.Keys);
 
         // Both gated members must still exist under these exact signatures. A rename or an added
@@ -2808,9 +2945,8 @@ public class SectionPipelineTests
         // -- primitives, exceptions, collections, and helpers -- where a genuinely new BCL type is
         // worth the one line of review it costs. Product namespaces are excluded for the same
         // churn reason, at no cost in coverage: a product helper's own BCL calls are already inside
-        // this same closure, which is what the previous route proved. InertText and NuGet are
-        // referenced leaves outside the product closure; pinning their public types as though they
-        // were BCL primitives would misstate the boundary this list enforces.
+        // this same closure, which is what the previous route proved. Product namespaces are
+        // excluded from this BCL pin, but their own BCL calls remain in the closure.
         //
         // This literal grew from 65 to 99 entries across three fixes in this PR, and every addition
         // is a generic collection, delegate type, or value type -- List, Dictionary, Span, Func,
@@ -2824,11 +2960,15 @@ public class SectionPipelineTests
         // reached through a constructed generic (say a Lazy<LibraryBodyIndex>) or through a BCL
         // callback would have been invisible to all three claims at once.
         //
-        // Integrating main at 57056f6d raises this pin from 99 to 131 entries. Main moved assembly
+        // Integrating main at 57056f6d raised this pin from 99 to 131 entries. Main moved assembly
         // sessions to content-shaped references and split SourceLink into its own product layer,
         // which makes more of the existing section-reachable BCL closure visible to this walk.
         // Keeping those entries literal subjects the newly visible path to the same fail-closed
         // review as the scanner path.
+        //
+        // Deriving the product set from the CLI dependency manifest rather than two name prefixes
+        // raises it once more, to 132: InertText's reachable Rune use was previously outside the
+        // graph along with the entire unprefixed first-party assembly.
         // The projection is to the *open definition*, so Dictionary<int, Foo> and
         // Dictionary<string, Bar> are one entry. That is the granularity the claim is about -- an
         // allowed type surface, not an instantiation surface -- and without it this list is 571
@@ -2947,6 +3087,7 @@ public class SectionPipelineTests
                 "System.Text.Json.JsonElement",
                 "System.Text.Json.JsonElement.ObjectEnumerator",
                 "System.Text.Json.JsonProperty",
+                "System.Text.Rune",
                 "System.Text.StringBuilder",
                 "System.Text.StringBuilder.AppendInterpolatedStringHandler",
                 "System.Threading.AsyncLocal",

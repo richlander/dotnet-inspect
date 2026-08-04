@@ -300,6 +300,10 @@ internal static class LibraryMetadataService
 
             return inspection;
         }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
@@ -771,6 +775,10 @@ internal static class LibraryMetadataService
 
             return rows.Count > 0 ? rows : null;
         }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning unsafe members in {path}: {ex.Message}");
@@ -852,6 +860,10 @@ internal static class LibraryMetadataService
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
+        }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -956,6 +968,10 @@ internal static class LibraryMetadataService
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
+        }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -8,6 +8,12 @@ using Analysis = ILInspector.Analysis;
 namespace DotnetInspector.Sections;
 
 /// <summary>
+/// A scanner requested unbounded work without the registry-owned declaration that authorizes it.
+/// This is a programming error, not an inspected-artifact failure.
+/// </summary>
+internal sealed class ScannerCostDeclarationException(string message) : Exception(message);
+
+/// <summary>
 /// Context passed to each scanner during data collection.
 /// </summary>
 public sealed class ScannerContext : IDisposable
@@ -36,6 +42,7 @@ public sealed class ScannerContext : IDisposable
     private bool _sessionOpenAttempted;
     private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
         _drillMap;
+    private ScannerRegistry.ScannerAuthorization? _scannerAuthorization;
 
     /// <summary>
     /// One metadata session over the assembly, opened on first use and shared by the scanners that
@@ -136,15 +143,16 @@ public sealed class ScannerContext : IDisposable
     public int SharedScanCount { get; private set; }
 
     /// <summary>
-    /// The scanner currently executing and the cost it declared, set by
-    /// <see cref="ScannerRegistry.RunScanners"/> around each invocation, and restored rather than
-    /// cleared so a nested run cannot leave the outer scanner unattributed.
-    ///
-    /// Null outside a scanner run. That is a refusal, not a permission: see
-    /// <see cref="RequireUnboundedDeclaration"/>. A test driving a scan function directly sets
-    /// this to declare on the scanner's behalf.
+    /// Applies the registry-owned authorization for one scanner invocation. The authorization's
+    /// constructor is private to <see cref="ScannerRegistry"/>, so scanner code cannot promote
+    /// itself by writing an <see cref="SectionCost.Unbounded"/> value into the context.
     /// </summary>
-    internal (string Key, SectionCost Cost)? Running { get; set; }
+    internal IDisposable AuthorizeScanner(ScannerRegistry.ScannerAuthorization authorization)
+    {
+        var outer = _scannerAuthorization;
+        _scannerAuthorization = authorization;
+        return new ScannerAuthorizationScope(this, outer);
+    }
 
     /// <summary>
     /// Refuses a shared resource to a caller that did not declare it could afford one.
@@ -163,28 +171,44 @@ public sealed class ScannerContext : IDisposable
     /// on the reasoning that such a caller "has no declaration to check against" — but that made
     /// the absence of a declaration the one way to escape needing one. The GPT review of #3626
     /// exploited it in ordinary code: a descriptor's <c>CanRender</c> that captured the context
-    /// called <see cref="BodyIndex"/> while rendering, spending seconds with no check, because
-    /// <see cref="Running"/> is restored to null once the run ends. Cost is declared per scanner,
-    /// so work that is not attributable to one cannot be afforded by anything.
+    /// called <see cref="BodyIndex"/> while rendering, spending seconds with no check, because the
+    /// scanner authorization is removed once the run ends. Cost is declared per scanner, so work
+    /// that is not attributable to one cannot be afforded by anything.
     /// Gate: <c>SectionPipelineTests.UnscopedCallers_AreRefusedTheBodyIndex</c>.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
-        if (Running is not { } running)
+        if (_scannerAuthorization is not { } authorization)
         {
-            throw new InvalidOperationException(
+            throw new ScannerCostDeclarationException(
                 $"The {resource} was requested outside a scanner run, so no cost declaration " +
                 $"covers it. It is unbounded whole-assembly work and must be attributed to a " +
                 $"scanner registered with SectionCost.Unbounded.");
         }
 
-        if (running.Cost == SectionCost.Unbounded)
+        if (authorization.Cost == SectionCost.Unbounded)
             return;
 
-        throw new InvalidOperationException(
-            $"Scanner '{running.Key}' declares Cost={running.Cost} but asked for the {resource}, " +
+        throw new ScannerCostDeclarationException(
+            $"Scanner '{authorization.Key}' declares Cost={authorization.Cost} but asked for the {resource}, " +
             $"which is unbounded whole-assembly work. Register it with SectionCost.Unbounded, or " +
             $"stop taking the {resource}.");
+    }
+
+    private sealed class ScannerAuthorizationScope(
+        ScannerContext context,
+        ScannerRegistry.ScannerAuthorization? outer) : IDisposable
+    {
+        private ScannerContext? _context = context;
+
+        public void Dispose()
+        {
+            if (_context is not { } current)
+                return;
+
+            current._scannerAuthorization = outer;
+            _context = null;
+        }
     }
 
     public void Dispose() => _session?.Dispose();
@@ -260,9 +284,27 @@ public sealed class ScannerContext : IDisposable
 /// </summary>
 public sealed class ScannerRegistry
 {
+    private static readonly object AuthorizationSecret = new();
     private readonly Dictionary<string, Action<ScannerContext>?> _scanners = [];
     private readonly Dictionary<string, ImmutableArray<string>> _requires = [];
     private readonly Dictionary<string, SectionCost> _costs = [];
+    private readonly Dictionary<string, ScannerAuthorization> _authorizations = [];
+
+    internal sealed class ScannerAuthorization
+    {
+        internal ScannerAuthorization(string key, SectionCost cost, object secret)
+        {
+            if (!ReferenceEquals(secret, AuthorizationSecret))
+                throw new InvalidOperationException(
+                    "Scanner authorizations can only be created by their registry.");
+
+            Key = key;
+            Cost = cost;
+        }
+
+        internal string Key { get; }
+        internal SectionCost Cost { get; }
+    }
 
     /// <summary>
     /// The keys of every registered scanner. This is the supply side of the section-to-scanner
@@ -301,6 +343,7 @@ public sealed class ScannerRegistry
         _scanners[key] = scan;
         _requires[key] = [.. requires];
         _costs[key] = cost;
+        _authorizations[key] = new ScannerAuthorization(key, cost, AuthorizationSecret);
         return this;
     }
 
@@ -501,20 +544,19 @@ public sealed class ScannerRegistry
         running.Remove(key);
         ran.Add(key);
 
-        // Scoped around the invocation, and restored rather than cleared, so a nested run (a
-        // prerequisite pulled in mid-scan) cannot leave the outer scanner unattributed.
-        var outer = context.Running;
-        context.Running = (key, _costs.TryGetValue(key, out var cost) ? cost : SectionCost.NetworkFree);
-        try
+        if (scan is null)
         {
-            if (context.Trace is { } trace)
-                trace.Time(key, isBundle: scan is null, () => scan?.Invoke(context));
-            else
-                scan?.Invoke(context);
+            context.Trace?.Time(key, isBundle: true, () => { });
+            return;
         }
-        finally
-        {
-            context.Running = outer;
-        }
+
+        // Scoped around the invocation and restored on disposal, so a nested run cannot leave the
+        // outer scanner unattributed. The authorization object can only be created by this
+        // registry; scanner code receives the context but never the token.
+        using IDisposable authorization = context.AuthorizeScanner(_authorizations[key]);
+        if (context.Trace is { } trace)
+            trace.Time(key, isBundle: false, () => scan(context));
+        else
+            scan(context);
     }
 }
