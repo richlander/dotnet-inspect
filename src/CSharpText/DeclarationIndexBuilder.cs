@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 
-namespace DotnetInspector.CSharpBodySlicer;
+namespace CSharpText;
 
 /// <summary>
-/// Recovers <see cref="DeclarationSpan"/>s from <see cref="BodySlicer"/>'s token stream in one
+/// Recovers <see cref="DeclarationSpan"/>s from <see cref="CSharpLexer"/>'s token stream in one
 /// forward pass.
 /// <para>
 /// The pass is a small state machine over three events. A <c>{</c> ends a header and opens a
@@ -48,7 +48,7 @@ internal static class DeclarationIndexBuilder
 
     public static ImmutableArray<DeclarationSpan> Build(IReadOnlyList<string> lines)
     {
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
         var rows = new List<Row>();
         bool depthLost = false;
 
