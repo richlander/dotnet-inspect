@@ -60,7 +60,9 @@
 - Keeps stable and prerelease latest-selection evidence separate while allowing
   package-existence probes to use either flavor.
 - Resolves single-version queries across every active source and preserves
-  structured output formatting on candidate-cache hits.
+  structured output formatting on candidate-cache hits, pinned versions, and
+  forced-latest queries. Stable single-version listings no longer fall back to
+  prerelease-only coordinates.
 
 ### Metadata text containment
 

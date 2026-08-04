@@ -38,8 +38,10 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
     public static PackageSource NuGetOrg { get; } =
         new("nuget.org", NuGetOrgServiceIndexUrl);
 
-    public bool IsNuGetOrg =>
-        Uri.TryCreate(Url, UriKind.Absolute, out Uri? uri)
+    public bool IsNuGetOrg => IsNuGetOrgServiceIndex(Url);
+
+    internal static bool IsNuGetOrgServiceIndex(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
         && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
         && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
         && uri.Port == 443

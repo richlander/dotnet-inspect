@@ -267,6 +267,27 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task GetLatestVersion_QueryBearingServiceIndexIsNotCorrupted()
+    {
+        var source = new NuGetSource(
+            "custom",
+            "https://api.nuget.org/private/v3/index.json?source=custom");
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: source.Url,
+            flatContainerBase: "https://private.invalid/query-flat/",
+            packageId: "querypath",
+            versions: ["8.9.0"]));
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            client,
+            "QueryPath",
+            [source],
+            log: null);
+
+        Assert.Equal("8.9.0", result);
+    }
+
+    [Fact]
     public async Task GetLatestVersion_NonStringVersionIndexEntryIsAMiss()
     {
         using var client = new HttpClient(new RawCustomFeedHandler(

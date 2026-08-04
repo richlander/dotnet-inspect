@@ -300,7 +300,7 @@ public class PackageCommand
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
-                    Console.WriteLine(versionQueryPinned);
+                    WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -328,7 +328,7 @@ public class PackageCommand
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
                     else
-                        Console.WriteLine(versionQueryPinned);
+                        WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -368,7 +368,7 @@ public class PackageCommand
                     return 0;
                 }
 
-                Console.WriteLine(latest);
+                WriteSingleVersion(latest, options);
                 return 0;
             }
 
@@ -377,13 +377,14 @@ public class PackageCommand
                 && !options.IncludeUnlisted
                 && !options.ListVersionsWithFeed)
             {
-                string? latest = await PackageExtractor.GetLatestVersionAsync(
+                List<string>? singleVersions =
+                    await PackageExtractor.GetSingleVersionListingAsync(
                     context.HttpClient,
                     normalizedName,
-                    NuGetSourceResolver.ResolveSources(options.SourceOptions),
+                    options.IncludePrerelease,
                     logger.Log,
-                    includePrerelease: options.IncludePrerelease);
-                if (latest is null)
+                    options.SourceOptions);
+                if (singleVersions is null)
                 {
                     CommandError.Write(
                         $"Package '{packageArgs[0]}' not found on nuget.org");
@@ -393,14 +394,14 @@ public class PackageCommand
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
-                        1,
+                        singleVersions.Count,
                         out var cachedLatestExit))
                 {
                     return cachedLatestExit;
                 }
 
                 OutputFormatter.WriteStringList(
-                    [latest],
+                    singleVersions,
                     "Version",
                     "Version",
                     options.Tsv,
@@ -786,6 +787,17 @@ public class PackageCommand
             }
         }
     }
+
+    private static void WriteSingleVersion(
+        string version,
+        InspectionOptions options)
+        => OutputFormatter.WriteStringList(
+            [version],
+            "Version",
+            "Version",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out);
 
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,

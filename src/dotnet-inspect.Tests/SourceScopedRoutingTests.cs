@@ -14,6 +14,8 @@ namespace DotnetInspector.Tests;
 public sealed class SourceScopedRoutingTests : IDisposable
 {
     private const string ExcludedSource = "https://excluded.invalid/v3/index.json";
+    private const string SecondSource =
+        "https://second.invalid/v3/index.json";
 
     private readonly string _testRoot = Path.Combine(
         Path.GetTempPath(),
@@ -259,23 +261,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
     public async Task BareVersion_QueriesMissingSourceAndPreservesJsonl()
     {
         string packageName = $"PartialCache{Guid.NewGuid():N}";
-        const string SecondSource =
-            "https://second.invalid/v3/index.json";
         SeedLatestCandidate(packageName, ExcludedSource, "1.0.0");
-        var requests = new ConcurrentQueue<string>();
-
-        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
-            innerHandler => new VersionFeedHandler(
-                SecondSource,
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
                 packageName,
                 "2.0.0",
-                requests,
-                innerHandler));
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
-        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        try
-        {
-            var (exit, output, error) = await RunCommandAsync(
                 [
                     "package",
                     packageName,
@@ -287,22 +277,14 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     SecondSource,
                 ]);
 
-            Assert.Equal(0, exit);
-            Assert.Equal("""{"version":"2.0.0"}""", output.Trim());
-            Assert.Empty(error);
-            Assert.Contains(
-                requests,
-                request => request.EndsWith(
-                    $"/{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.Ordinal));
-        }
-        finally
-        {
-            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
-                null);
-            DotnetInspector.Core.HttpClientFactory.Initialize(offline: true);
-            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
-        }
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"2.0.0"}""", output.Trim());
+        Assert.Empty(error);
+        Assert.Contains(
+            requests,
+            request => request.EndsWith(
+                $"/{packageName.ToLowerInvariant()}/index.json",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -323,6 +305,75 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Equal("""{"version":"4.5.6"}""", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task CachedPinnedVersion_PreservesJsonlOffline()
+    {
+        string packageName = $"PinnedJsonl{Guid.NewGuid():N}";
+        SeedPackage(packageName);
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "package",
+                $"{packageName}@1.0.0",
+                "--version",
+                "--jsonl",
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"1.0.0"}""", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("2.0.0")]
+    [InlineData("latest")]
+    public async Task VerifiedSingleVersion_PreservesJsonl(
+        string requestedVersion)
+    {
+        string packageName = $"VerifiedJsonl{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    $"{packageName}@{requestedVersion}",
+                    "--version",
+                    "--jsonl",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"2.0.0"}""", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task StableSingleVersionListingDoesNotFallBackToPrerelease()
+    {
+        string packageName = $"PreviewOnly{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0-preview.1",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "1",
+                    "--count",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
         Assert.Empty(error);
     }
 
@@ -428,6 +479,43 @@ public sealed class SourceScopedRoutingTests : IDisposable
             Assert.Empty(parseResult.Errors);
             return await CommandLineBuilder.InvokeAsync(parseResult);
         });
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
+            string packageName,
+            string version,
+            string[] args)
+    {
+        var requests = new ConcurrentQueue<string>();
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            innerHandler => new VersionFeedHandler(
+                SecondSource,
+                packageName,
+                version,
+                requests,
+                innerHandler));
+        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var result = await RunCommandAsync(args);
+            return (
+                result.Exit,
+                result.Output,
+                result.Error,
+                requests);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+                null);
+            DotnetInspector.Core.HttpClientFactory.Initialize(offline: true);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
 
     private sealed class BreadcrumbObserver(
         ConcurrentQueue<BreadcrumbObservation> observations)

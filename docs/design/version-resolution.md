@@ -57,6 +57,9 @@ when the resolved source list contains the canonical
 `https://api.nuget.org/v3/index.json` service index (an optional trailing slash
 is equivalent). Another path on that host, a subdomain, or an endpoint with a
 query or fragment is a custom source and goes through service-index discovery.
+A query on a configured custom service-index URL is preserved as part of that
+request; path completion, when needed for a feed root, happens before the
+query.
 A custom-only feed therefore does not leak its package identity to NuGet.org or
 reuse a NuGet.org metadata cache entry for a same-named private package. Package
 acquisition and RID companion-package verification continue to follow the
@@ -290,6 +293,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
+| Single-version listing (`--version` or `--versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |

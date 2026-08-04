@@ -127,6 +127,46 @@ public sealed class ServiceIndexAuthenticationTests
         Assert.Empty(versions);
     }
 
+    [Fact]
+    public async Task NoncanonicalNuGetOrgHostUsesConfiguredServiceIndex()
+    {
+        const string Source =
+            "https://globalcdn.nuget.org/private/v3/index.json";
+        const string Flat =
+            "https://globalcdn.nuget.org/private/flat/";
+        const string Package =
+            "https://globalcdn.nuget.org/private/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        RecordingHandler handler = new()
+        {
+            [Source] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    { "@id": "{{Flat}}", "@type": "PackageBaseAddress/3.0.0" }
+                  ]
+                }
+                """,
+            [Package] = "package bytes",
+        };
+        NuGetClient client = new(new HttpClient(handler));
+
+        await using Stream package = await client.DownloadAsync(
+            "contoso",
+            "1.0.0",
+            Source,
+            Credential,
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains(Source, handler.Requested);
+        Assert.Contains(Package, handler.Requested);
+        Assert.DoesNotContain(
+            handler.Requested,
+            url => url.StartsWith(
+                NuGetClient.NuGetOrgFlatContainer,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("pat:s3cret", handler.DecodedAuthFor(Package));
+    }
+
     private const string ServiceIndex = $$"""
         {
           "version": "3.0.0",

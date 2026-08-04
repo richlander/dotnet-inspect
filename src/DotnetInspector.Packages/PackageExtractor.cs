@@ -670,15 +670,21 @@ public static class PackageExtractor
             return null;
         }
 
-        // The source URL should be the V3 index.json
-        var indexUrl = source.Url;
-        if (!indexUrl.EndsWith("index.json", StringComparison.OrdinalIgnoreCase))
+        // The source URL should be the V3 index.json. Inspect only the URI
+        // path so a query-bearing service index is not mistaken for a feed
+        // root and corrupted by appending after the query.
+        string indexUrl = source.Url;
+        var indexUri = new Uri(source.Url, UriKind.Absolute);
+        if (!indexUri.AbsolutePath.EndsWith(
+                "index.json",
+                StringComparison.OrdinalIgnoreCase))
         {
-            // Try appending /v3/index.json for common feed patterns
-            if (indexUrl.EndsWith('/'))
-                indexUrl += "v3/index.json";
-            else
-                indexUrl += "/v3/index.json";
+            var builder = new UriBuilder(indexUri)
+            {
+                Path =
+                    $"{indexUri.AbsolutePath.TrimEnd('/')}/v3/index.json",
+            };
+            indexUrl = builder.Uri.AbsoluteUri;
         }
 
         log?.Invoke($"Querying service index: {indexUrl}");
@@ -867,6 +873,35 @@ public static class PackageExtractor
         string sourceKey,
         bool includePrerelease)
     {
+        string? latest = TryGetCachedLatestEntryForSource(
+            normalizedName,
+            sourceKey,
+            includePrerelease);
+        if (latest is not null)
+            return latest;
+
+        string? serializedListings = CoreCache.TryGet(
+            VersionCacheCategory,
+            ListingsVersionCacheKey(sourceKey, normalizedName),
+            VersionCacheTtl,
+            extension: "txt");
+        List<PackageVersionInfo>? listings = serializedListings is null
+            ? null
+            : DeserializeListings(serializedListings);
+        return listings is null
+            ? null
+            : PickLatest(
+                listings
+                    .Where(listing => listing.Listed)
+                    .Select(listing => listing.Version),
+                includePrerelease);
+    }
+
+    private static string? TryGetCachedLatestEntryForSource(
+        string normalizedName,
+        string sourceKey,
+        bool includePrerelease)
+    {
         string? latest = NormalizeCandidateVersion(
             CoreCache.TryGet(
                 VersionCacheCategory,
@@ -890,24 +925,7 @@ public static class PackageExtractor
             latest = PickLatest([latest, stable], includePrerelease: true);
         }
 
-        if (latest is not null)
-            return latest;
-
-        string? serializedListings = CoreCache.TryGet(
-            VersionCacheCategory,
-            ListingsVersionCacheKey(sourceKey, normalizedName),
-            VersionCacheTtl,
-            extension: "txt");
-        List<PackageVersionInfo>? listings = serializedListings is null
-            ? null
-            : DeserializeListings(serializedListings);
-        return listings is null
-            ? null
-            : PickLatest(
-                listings
-                    .Where(listing => listing.Listed)
-                    .Select(listing => listing.Version),
-                includePrerelease);
+        return latest;
     }
 
     private static string LatestVersionCacheKey(
@@ -1562,6 +1580,78 @@ public static class PackageExtractor
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Resolves the newest listed version using matching-flavor latest entries
+    /// where available and strict listing semantics for uncached sources.
+    /// Returns an empty list when source metadata exists but has no matching
+    /// listed version, and <see langword="null"/> when no source can answer.
+    /// </summary>
+    public static async Task<List<string>?> GetSingleVersionListingAsync(
+        HttpClient client,
+        string packageName,
+        bool includePrerelease,
+        Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        List<NuGetSource> sources =
+            NuGetSourceResolver.ResolveSources(sourceOptions);
+        NuGet.Versioning.NuGetVersion? best = null;
+        string? bestVersion = null;
+        bool sawMetadata = false;
+
+        foreach (NuGetSource source in sources)
+        {
+            string? candidate = TryGetCachedLatestEntryForSource(
+                normalizedName,
+                NuGetCache.GetSourceKey(source.Url),
+                includePrerelease);
+            if (candidate is not null)
+            {
+                sawMetadata = true;
+                Consider(candidate);
+                continue;
+            }
+
+            List<SourceVersionListings>? perSource =
+                await FetchListingsPerSourceAsync(
+                    client,
+                    normalizedName,
+                    [source],
+                    log).ConfigureAwait(false);
+            if (perSource is null)
+                continue;
+
+            sawMetadata = true;
+            foreach (PackageVersionInfo listing in perSource[0].Listings)
+            {
+                if (listing.Listed)
+                    Consider(listing.Version);
+            }
+        }
+
+        return bestVersion is not null
+            ? [bestVersion]
+            : sawMetadata ? [] : null;
+
+        void Consider(string version)
+        {
+            string? normalized = NormalizeCandidateVersion(version);
+            if (normalized is null
+                || !NuGet.Versioning.NuGetVersion.TryParse(
+                    normalized,
+                    out var parsed)
+                || (!includePrerelease && parsed.IsPrerelease)
+                || (best is not null && parsed <= best))
+            {
+                return;
+            }
+
+            best = parsed;
+            bestVersion = normalized;
+        }
     }
 
     internal static async Task<List<PackageVersionResolution>?> GetVersionCandidatesAsync(
