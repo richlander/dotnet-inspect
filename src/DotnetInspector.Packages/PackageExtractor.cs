@@ -860,8 +860,11 @@ public static class PackageExtractor
                 includePrerelease),
             VersionCacheTtl,
             extension: "txt");
-        if (latest is not null)
+        if (latest is not null
+            && NuGet.Versioning.NuGetVersion.TryParse(latest, out _))
+        {
             return latest;
+        }
 
         string? serializedListings = CoreCache.TryGet(
             VersionCacheCategory,
@@ -946,18 +949,31 @@ public static class PackageExtractor
 
             if (version is null)
             {
-                version = await GetLatestVersionFromSourceAsync(client, normalizedName, source, log, includePrerelease).ConfigureAwait(false);
-                if (version != null && !skipCache)
+                string? fetchedVersion =
+                    await GetLatestVersionFromSourceAsync(
+                        client,
+                        normalizedName,
+                        source,
+                        log,
+                        includePrerelease).ConfigureAwait(false);
+                if (fetchedVersion is not null
+                    && NuGet.Versioning.NuGetVersion.TryParse(
+                        fetchedVersion,
+                        out _))
                 {
-                    using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
-                    CoreCache.Set(
-                        VersionCacheCategory,
-                        LatestVersionCacheKey(
-                            NuGetCache.GetSourceKey(source.Url),
-                            normalizedName,
-                            includePrerelease),
-                        version,
-                        extension: "txt");
+                    version = fetchedVersion;
+                    if (!skipCache)
+                    {
+                        using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageVersionList);
+                        CoreCache.Set(
+                            VersionCacheCategory,
+                            LatestVersionCacheKey(
+                                NuGetCache.GetSourceKey(source.Url),
+                                normalizedName,
+                                includePrerelease),
+                            version,
+                            extension: "txt");
+                    }
                 }
             }
 
@@ -977,12 +993,6 @@ public static class PackageExtractor
                 {
                     AddReporter(reporters, source);
                 }
-            }
-            else if (bestOriginal == null)
-            {
-                bestOriginal = version;
-                reporters.Clear();
-                reporters.Add(source);
             }
         }
 
@@ -1383,7 +1393,12 @@ public static class PackageExtractor
                 var package = data[0];
                 if (package.TryGetProperty("version", out var version))
                 {
-                    return version.GetString();
+                    string? candidate = version.GetString();
+                    return NuGet.Versioning.NuGetVersion.TryParse(
+                        candidate,
+                        out _)
+                        ? candidate
+                        : null;
                 }
             }
         }

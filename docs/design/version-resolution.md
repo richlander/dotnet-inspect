@@ -246,8 +246,9 @@ hidden default.
 
 The version-list cache stores the listed bit per version. Each cache line
 carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted).
-Publication is atomic, and a missing suffix, invalid version, or empty snapshot
-is a cache miss rather than an authoritative candidate list.
+Publication is atomic. A malformed or empty latest entry falls through to the
+listing snapshot or feed, while a missing listing suffix, invalid version, or
+empty snapshot is a cache miss rather than authoritative candidate metadata.
 
 ## Cache locations
 

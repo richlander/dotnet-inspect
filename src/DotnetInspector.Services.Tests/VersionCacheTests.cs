@@ -58,6 +58,24 @@ public class VersionCacheTests : IDisposable
         Assert.Equal("2.0.0", result);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("garbage")]
+    public async Task GetLatestVersion_WithMalformedLatestEntry_FallsBackToListings(
+        string malformed)
+    {
+        SetLatest("MalformedLatest", CustomSource, malformed);
+        SetListings("MalformedLatest", CustomSource, "1.2.3");
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            FailingClient,
+            "MalformedLatest",
+            [CustomSource],
+            log: null);
+
+        Assert.Equal("1.2.3", result);
+    }
+
     [Fact]
     public async Task GetLatestVersion_CustomSourceDoesNotUseAnotherSourcesCache()
     {
