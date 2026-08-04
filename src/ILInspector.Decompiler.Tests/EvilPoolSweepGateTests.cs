@@ -745,6 +745,34 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// A refusal before the mutable phase preserves the previous committed manifest.
+    ///
+    /// <para>An invalid pin never reaches acquisition or pool writes, so removing the
+    /// prior result would discard valid evidence without protecting against stale state.
+    /// This is the other side of
+    /// <see cref="ASweepInvalidatesThePreviousManifestBeforeThePoolCanChange"/>: the
+    /// manifest becomes non-authoritative when mutation begins, not merely when another
+    /// process invocation starts.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepRefusedBeforeTheMutablePhasePreservesThePreviousManifest()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        byte[] previousManifest = File.ReadAllBytes(world.ManifestPath);
+
+        world.PinInstead(FixturePackage, "../not-a-version", FixtureTfm);
+
+        var refused = world.Run();
+
+        Assert.True(refused.ExitCode == 2, world.Explain(refused, "an invalid pinned version"));
+        Assert.Equal(previousManifest, File.ReadAllBytes(world.ManifestPath));
+        world.AssertPoolMatchesRecord(removals: []);
+    }
+
+    /// <summary>
     /// A sweep removes a link planted in the pool as a link, rather than deleting what is
     /// on the far side of it.
     ///

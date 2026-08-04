@@ -411,27 +411,6 @@ if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
     return;
 }
 
-string manifestPath = Path.Combine(outputDirectory, "manifest.json");
-try
-{
-    // A manifest describes a committed pool, so the previous run's manifest stops being
-    // authoritative before this run can copy or remove anything. If any later step
-    // fails, absence is an honest incomplete-run signal; leaving the old manifest
-    // would make new pool bytes look like the previous run's result.
-    //
-    // A directory at this path is not an earlier manifest. Leave it for the final
-    // atomic write to refuse, which keeps that metadata-write failure observable.
-    if (!Directory.Exists(manifestPath))
-        File.Delete(manifestPath);
-}
-catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-{
-    Console.Error.WriteLine(
-        $"Could not invalidate previous manifest '{manifestPath}': {ex.Message}");
-    Environment.ExitCode = 2;
-    return;
-}
-
 // The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
@@ -454,6 +433,27 @@ if (isolated && cacheBasePath == null)
 
 HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
+
+string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+try
+{
+    // A manifest describes a committed pool, so the previous run's manifest stops being
+    // authoritative before this run can copy or remove anything. If any later step
+    // fails, absence is an honest incomplete-run signal; leaving the old manifest
+    // would make new pool bytes look like the previous run's result.
+    //
+    // A directory at this path is not an earlier manifest. Leave it for the final
+    // atomic write to refuse, which keeps that metadata-write failure observable.
+    if (!Directory.Exists(manifestPath))
+        File.Delete(manifestPath);
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine(
+        $"Could not invalidate previous manifest '{manifestPath}': {ex.Message}");
+    Environment.ExitCode = 2;
+    return;
+}
 
 // Counted where a package reaches the outcome its mode expects, not where it fails
 // to. An incident counter has to be remembered at every failure site and silently
