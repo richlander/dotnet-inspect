@@ -48,6 +48,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public string UnsupportedReason { get; private init; } = "";
     public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
 
+    /// <summary>
+    /// Decoder-retained origin and exact metadata name. It is excluded from
+    /// structural equality, hashing, and display.
+    /// </summary>
+    public ResolvableTypeReference? Resolution { get; private init; }
+
     // Whether this type's declaring assembly carries a known Microsoft framework
     // public-key-token (#1708 Row A). Advisory classification used by the framework
     // signal predicates to reject simple-name spoofs (a user assembly named
@@ -66,11 +72,27 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public bool TrustedProtobufAssembly { get; private init; } = true;
 
     public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true, bool trustedProtobufAssembly = true)
+        => Definition(
+            assembly,
+            ns,
+            name,
+            resolution: null,
+            trustedFrameworkAssembly,
+            trustedProtobufAssembly);
+
+    internal static TypeRef Definition(
+        string assembly,
+        string ns,
+        string name,
+        ResolvableTypeReference? resolution,
+        bool trustedFrameworkAssembly = true,
+        bool trustedProtobufAssembly = true)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
             Namespace = ns,
             Name = name,
+            Resolution = resolution,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,
             TrustedProtobufAssembly = trustedProtobufAssembly,
         };

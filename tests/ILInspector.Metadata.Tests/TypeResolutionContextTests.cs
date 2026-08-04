@@ -42,6 +42,120 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void DefinitionCorrespondence_IsCatalogOwnedAndTokenExact()
+    {
+        byte[] image = BuildAssembly(
+            "Definitions",
+            definesType: true,
+            definesOtherType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest type = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        TypeResolutionRequest other = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName("Other"));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [assembly],
+            [type, other]);
+        ResolvedTypeDefinitionKey typeKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(type)).Definition.Key;
+        ResolvedTypeDefinitionKey otherKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(other)).Definition.Key;
+
+        Assert.IsType<DefinitionCorrespondence.Same>(
+            catalog.Compare(typeKey, typeKey));
+        Assert.IsType<DefinitionCorrespondence.Different>(
+            catalog.Compare(typeKey, otherKey));
+    }
+
+    [Fact]
+    public void DefinitionCorrespondence_DuplicateArtifactIsClassScoped()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference first = Descriptor(image);
+        ResolvedAssemblyReference second = Descriptor(image);
+        ResolvedAssemblyReference third = Descriptor(image);
+        ResolvedAssemblyReference[] assemblies = [first, second, third];
+        TypeResolutionRequest[] requests = assemblies
+            .Select(assembly => TypeResolutionRequest.FromAssembly(
+                assembly,
+                AssemblyResolutionScope.Any,
+                TypeName()))
+            .ToArray();
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            assemblies,
+            requests);
+        ResolvedTypeDefinitionKey[] keys = requests
+            .Select(request =>
+                Assert.IsType<TypeResolutionOutcome.Resolved>(
+                    context.Resolve(request)).Definition.Key)
+            .ToArray();
+
+        var duplicate = Assert.IsType<
+            DefinitionCorrespondence.IndeterminateDuplicateArtifact>(
+                catalog.Compare(keys[0], keys[1]));
+
+        Assert.Equal(
+            assemblies.Select(assembly => assembly.Registration).ToHashSet(),
+            duplicate.Evidence.Candidates
+                .Select(candidate => candidate.Assembly.Registration)
+                .ToHashSet());
+        Assert.All(
+            duplicate.Evidence.Candidates,
+            candidate => Assert.Equal(
+                ReadMvid(image),
+                candidate.Address.ModuleVersionId));
+    }
+
+    [Fact]
+    public void DefinitionCorrespondence_CrossCatalogAndStaleAreVisible()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NotFound());
+        using var firstCatalog = new TypeResolutionCatalog();
+        using var secondCatalog = new TypeResolutionCatalog();
+        using TypeResolutionContext first =
+            firstCatalog.CreateContext(policy, [assembly], [request]);
+        ResolvedTypeDefinitionKey oldKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                first.Resolve(request)).Definition.Key;
+        using TypeResolutionContext other =
+            secondCatalog.CreateContext(policy, [assembly], [request]);
+        ResolvedTypeDefinitionKey otherKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                other.Resolve(request)).Definition.Key;
+
+        Assert.IsType<DefinitionCorrespondence.IncomparableCatalogs>(
+            firstCatalog.Compare(oldKey, otherKey));
+
+        using TypeResolutionContext current =
+            firstCatalog.CreateContext(policy, [assembly], [request]);
+        ResolvedTypeDefinitionKey currentKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                current.Resolve(request)).Definition.Key;
+
+        Assert.IsType<DefinitionCorrespondence.StaleGeneration>(
+            firstCatalog.Compare(oldKey, currentKey));
+        Assert.IsType<DefinitionCorrespondence.Same>(
+            firstCatalog.Compare(currentKey, currentKey));
+    }
+
+    [Fact]
     public void DefinitionAddress_ResolvesOnlyAgainstMatchingModuleAndRow()
     {
         byte[] image = BuildAssembly("Definitions", definesType: true);

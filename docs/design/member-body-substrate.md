@@ -309,8 +309,8 @@ base to factor out.
 
 What the four producers *do* share is the **line**. A rendered body is an ordered
 line stream, and the correlation layer joins two such streams on the IL offset.
-Two line types carry this, split by whether annotations are baked into the text or
-carried as structure:
+Three line types carry this, split by whether the line is a fast display value,
+an in-process correlation value, or a portable consumer value:
 
 - **`SourceLine(string Text, int Offset)`** — the fast, medium-neutral line. Both
   the C# and IL fast paths are just display-ready text plus an anchor, so one type
@@ -323,17 +323,35 @@ carried as structure:
   IL offset) before joining, adopting the currency without pulling the
   decompiler-pipeline decoder into the raw view.
 - **`BoundSourceLine(string Text, int Offset, SourceLineKind Kind,
-  IReadOnlyList<Annotation> Annotations)`** — the interleave currency. It carries
-  its annotations as *structure* (not baked into `Text`) so the merge printer has
-  placement freedom, plus a `Kind`.
+  IReadOnlyList<IAnnotation> Annotations)`** — the in-process interleave currency.
+  It carries bound annotations as *structure* (not baked into `Text`) so the merge
+  printer owns their presentation, plus a `Kind`.
+- **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
+  IReadOnlyList<PrintedAnnotationSpan> Annotations)`** — the portable form a
+  consumer can retain, serialize, filter, and render without the IR graph or
+  `IAnnotation` instances. Annotation extents use the coordinate space of the
+  containing stream; the producer rebases them when it interleaves lines.
 
 `SourceLineKind` is just **`{ CSharp, Il }`** — the one bit the merge frames on.
 It is deliberately *not* a structural taxonomy (no `BlockOpen`/`Statement`/depth):
 the containment tree already exists as `IrNode` (`Children` + `SourceOffset`), and
 the line stream is its *flat rendered projection*. Each medium pretty-prints its
-own lines — indentation, braces, IL comment-column alignment, and inline
-annotations already live in `Text` — so the correlation layer owns only the
-*cross-medium* framing, for which `Medium` is exactly enough.
+own lines — indentation, braces, IL comment-column alignment, and medium-owned
+commentary such as local and stack state already live in `Text`. Research facts
+do not: every line kind carries them as data, and only a renderer turns them into
+labels. The correlation layer therefore owns cross-medium framing and annotation
+presentation, for which `Kind` plus the structured fact list is exactly enough.
+
+The printer carries a separate structural coordinate plane. Its bound
+`PrintedRangeMap` records exact character ranges while the IR graph is alive;
+`PrintedBodyMap` projects them to portable, end-exclusive `PrintedExtent`
+coordinates. Node extents and the printer-recorded
+`PrintedRegionRole { Construct, Header, Body, Else, Catch, Finally, Case }`
+regions form a laminar family, enforced when the portable map is constructed.
+That lets a consumer rebuild containment from coordinates alone without parent
+pointers. Multi-line nodes remain in the projection rather than disappearing,
+and a fact whose node could not be placed remains present with a null extent
+rather than inheriting a guessed position.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case
@@ -354,7 +372,9 @@ stream that a dumb printer renders to text. The interleave is the landed instanc
 `ResearchViews.CorrelateMixedSource` folds the C# body, its statement-line map, the
 annotations, and the IL lines into one ordered `BoundSourceLine` stream (owning
 the range-containment bucketing), and `RenderMixedStream` frames each line by
-`Kind`, reading indent straight from the C# line's leading whitespace. The
+`Kind`, reading indent straight from the C# line's leading whitespace. Both C#
+and IL facts remain structured through correlation; the default renderer chooses
+side comments for IL only when it renders the stream. The
 cost/semantics/annotated-source **overlays** are the degenerate single-medium case
 of the same join: `ResearchViews.CorrelateOverlay` anchors the fact groups onto
 their printed C# lines and emits a C#-only `BoundSourceLine` stream (empty IL
