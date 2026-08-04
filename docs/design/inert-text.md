@@ -481,6 +481,14 @@ second framing string. A byte length lets the writer copy the existing encoded
 value directly and lets the reader create one encoded string, which
 `FromEncoded(string)` retains without copying.
 
+The boundary is framing, not an integrity code. It guarantees that output from
+the cache writer cannot promote description lines into fields; it does not make
+a locally modified cache file tamper-evident. A process that can change the
+declared length can already replace the following fields with another
+syntactically valid record. Reads reject malformed lengths, invalid UTF-8, and
+invalid encoded representations, but do not claim to detect every modification
+that remains a valid cache document.
+
 ## Composition
 
 Composition has to work, or callers fall back to `$"...{treated}..."` and drop

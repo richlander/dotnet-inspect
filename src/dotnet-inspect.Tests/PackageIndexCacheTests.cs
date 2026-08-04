@@ -39,13 +39,13 @@ public sealed class PackageIndexCacheTests
     }
 
     [Fact]
-    public void Description_CorruptionRejectsTheWholeCacheEntry()
+    public void Description_MalformedEnvelopeRejectsTheWholeCacheEntry()
     {
-        AssertCacheMiss(
+        AssertMalformedCacheMiss(
             "invalid-length",
             "description-bytes: nope\n\npackageName: Corrupt\nversion: 1.0.0\n"u8.ToArray());
 
-        AssertCacheMiss(
+        AssertMalformedCacheMiss(
             "invalid-utf8",
             [
                 .. "description-bytes: 1\n"u8,
@@ -54,7 +54,7 @@ public sealed class PackageIndexCacheTests
             ]);
 
         byte[] rawBidi = Encoding.UTF8.GetBytes("\u202E");
-        AssertCacheMiss(
+        AssertMalformedCacheMiss(
             "invalid-encoded-text",
             [
                 .. Encoding.UTF8.GetBytes($"description-bytes: {rawBidi.Length}\n"),
@@ -138,9 +138,9 @@ public sealed class PackageIndexCacheTests
         Assert.Equal(versionRange, dependency.Version);
     }
 
-    private static void AssertCacheMiss(string suffix, byte[] bytes)
+    private static void AssertMalformedCacheMiss(string suffix, byte[] bytes)
     {
-        string packageName = $"Description.Corrupt.{suffix}.{Guid.NewGuid():N}";
+        string packageName = $"Description.Malformed.{suffix}.{Guid.NewGuid():N}";
         const string Version = "1.0.0";
         string key = $"{packageName.ToLowerInvariant()}@{Version}";
         CoreCache.SetBytes(PackageIndexCache.Category, key, bytes, extension: "md");
