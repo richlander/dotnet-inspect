@@ -255,7 +255,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | three `-class` filters | the docket + byte-neutrality gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | six `-class` filters | the docket, byte-neutrality and printer/cluster fidelity gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -443,11 +443,28 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects three classes rather than the whole `Fidelity`
-area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
-principle — `ClusterCaptureTests` and `PrinterPrecedenceTests` alone are ~21
-minutes for *two* tests and want the #3495 type-filter treatment before they can
-be gated. Widen the preset as classes get cheap enough.
+`pre-merge` deliberately selects five gate classes rather than the whole
+`Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
+along in the preset it guards. Two different reasons keep the rest out, and only
+one of them is cost.
+
+**Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
+suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
+Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
+simply adopt a narrower build.
+
+**Excluded on principle.** `DiffFixtureFidelityTests`,
+`NestedTargetLookupTests`, `AuthoredRebuildFidelityTests` and
+`AnnotatedCompileBackFailureTests` are nearly free — 20 tests in ~2s combined —
+and still cannot be gated today, because every one of them carries a `[Theory]`.
+No xUnit `-list` mode enumerates individual cases, so the completeness check is
+method-granular and a theory that silently lost cases would still satisfy it.
+`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
+closed on exactly that. Gating them requires making the completeness check
+case-granular first; it is a prerequisite change, not an oversight.
+
+Widen the preset as classes get cheap enough, and as the completeness check
+grows the granularity a theory would need.
 
 ## Vocabulary
 
