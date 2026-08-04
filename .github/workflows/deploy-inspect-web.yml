@@ -1,0 +1,54 @@
+name: Deploy inspect-web
+
+on:
+  push:
+    branches:
+      - prototype/wasm-command-ui
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-inspect-web
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+
+jobs:
+  deploy:
+    name: Publish and deploy
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-experimental
+
+      - name: Publish browser app
+        run: >
+          dotnet publish
+          prototypes/inspect-web/engine/InspectWeb.Engine.csproj
+          -c Release
+          --output artifacts/inspect-web-publish
+
+      - name: Deploy to Azure Static Web Apps
+        id: deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB }}
+          action: upload
+          app_location: artifacts/inspect-web-publish/wwwroot
+          output_location: ''
+          skip_app_build: true
+          skip_api_build: true
+          # Change this and the push branch above to main when the prototype lands.
+          production_branch: prototype/wasm-command-ui

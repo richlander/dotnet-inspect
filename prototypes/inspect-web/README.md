@@ -77,6 +77,22 @@ that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
 Emscripten `tools` directory.
 
+## Deploy
+
+`.github/workflows/deploy-inspect-web.yml` publishes and deploys this app to the
+Free `dotnet-inspect-web` Azure Static Web App on every push to
+`prototype/wasm-command-ui`. The deployed site is:
+
+```text
+https://ambitious-field-014c33f1e.7.azurestaticapps.net
+```
+
+The workflow builds the browser-Wasm project itself, then uploads the prebuilt
+`wwwroot` with Azure's app build disabled. Its deployment credential is the
+`AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret. To make
+`main` the production source later, change both `branches` and
+`production_branch` in the workflow from `prototype/wasm-command-ui` to `main`.
+
 ## Prototype boundary
 
 Package acquisition, framework selection, public types, public members, and

@@ -14,6 +14,7 @@ using System.Xml.Linq;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
+using ILInspector.SourceLink;
 using DotnetInspector.CSharpBodySlicer;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
