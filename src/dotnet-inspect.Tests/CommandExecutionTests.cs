@@ -9062,6 +9062,23 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LegacyDependenciesFlag_RendersTransitiveTree()
+    {
+        // The legacy flag reaches the traversal independently of section-scanner selection.
+        // Removing its IncludeDependencies branch left every selector test green while this route
+        // returned only the report header and a success exit code.
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "--dependencies", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("System.Runtime", output);
+        Assert.Contains(
+            SplitOutputLines(output),
+            line => line.StartsWith("├─ ", StringComparison.Ordinal)
+                || line.StartsWith("└─ ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverTreeShapedSection_ExplainsTheEmptySchema()
     {
         // Regression: -D asks what rows a section has, and a tree-shaped section answered with
@@ -11461,14 +11478,21 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Dependencies_ComposesWithoutChangingItsTree_AndEnrichesSignals()
     {
+        var (signalsExit, signalsOutput, signalsError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", SectionNames.Signals,
+            "--trace", "--tips", "q");
         var (aloneExit, aloneOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-S", SectionNames.Dependencies, "--tips", "q");
         var (togetherExit, togetherOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-S",
             $"{SectionNames.Dependencies},{SectionNames.Signals}", "--tips", "q");
 
+        Assert.Equal(0, signalsExit);
         Assert.Equal(0, aloneExit);
         Assert.Equal(0, togetherExit);
+        Assert.Contains(LibrarySections.ScannerAuditSignals, signalsError);
+        Assert.DoesNotContain(LibrarySections.ScannerTransitiveRefs, signalsError);
+        Assert.DoesNotContain("Transitive assembly references", signalsOutput);
         Assert.Equal(
             TryExtractSectionBody(aloneOutput, SectionNames.Dependencies),
             TryExtractSectionBody(togetherOutput, SectionNames.Dependencies));
