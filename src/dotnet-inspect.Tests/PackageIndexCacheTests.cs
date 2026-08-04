@@ -1,4 +1,7 @@
+using System.Text;
+using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using InertText;
 
@@ -6,20 +9,105 @@ namespace DotnetInspector.Tests;
 
 public sealed class PackageIndexCacheTests
 {
+    public PackageIndexCacheTests()
+        => CoreCache.Initialize("dotnet-inspect-test");
+
     [Fact]
     public void Description_RoundTripsAsContainedProse()
     {
+        string packageName = $"Description.RoundTrip.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
         var description = new InertString(
             TextPolicy.Prose,
-            "first\nliteral \\u202E and live \u202E");
+            "first\r\n\tliteral \\u202E and live \u202E\nauthors: attacker\n");
+        var result = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = Version,
+            Description = description,
+            Authors = "real author"
+        };
 
-        string encoded = PackageIndexCache.SerializeDescription(description)!;
-        InertString cached = PackageIndexCache.DeserializeDescription(encoded)!.Value;
+        PackageIndexCache.Set(packageName, Version, result);
+        InspectionResult cached = PackageIndexCache.TryGet(packageName, Version)!;
 
-        Assert.DoesNotContain('\n', encoded);
-        Assert.Equal("first\\^Jliteral \\\\u202E and live \\u202E", encoded);
-        Assert.Equal(description, cached);
-        Assert.Equal("first\nliteral \\\\u202E and live \\u202E", cached.ToString());
+        Assert.Equal(description, cached.Description);
+        Assert.Equal(
+            "first\r\n\tliteral \\\\u202E and live \\u202E\nauthors: attacker\n",
+            cached.Description?.ToString());
+        Assert.Equal("real author", cached.Authors);
+    }
+
+    [Fact]
+    public void Description_CorruptionRejectsTheWholeCacheEntry()
+    {
+        AssertCacheMiss(
+            "invalid-length",
+            "description-bytes: nope\n\npackageName: Corrupt\nversion: 1.0.0\n"u8.ToArray());
+
+        AssertCacheMiss(
+            "invalid-utf8",
+            [
+                .. "description-bytes: 1\n"u8,
+                0xFF,
+                .. "\npackageName: Corrupt\nversion: 1.0.0\n"u8
+            ]);
+
+        byte[] rawBidi = Encoding.UTF8.GetBytes("\u202E");
+        AssertCacheMiss(
+            "invalid-encoded-text",
+            [
+                .. Encoding.UTF8.GetBytes($"description-bytes: {rawBidi.Length}\n"),
+                .. rawBidi,
+                .. "\npackageName: Corrupt\nversion: 1.0.0\n"u8
+            ]);
+    }
+
+    [Fact]
+    public void Description_TruncatedValueRequiresHigherProvenancePersistence()
+    {
+        string packageName = $"Description.Truncated.{Guid.NewGuid():N}";
+        var result = new InspectionResult
+        {
+            PackageName = packageName,
+            Version = "1.0.0",
+            Description = new InertString(TextPolicy.Field, "a\u202Eb", maxLength: 3)
+        };
+
+        Assert.Throws<InvalidOperationException>(
+            () => PackageIndexCache.Set(packageName, "1.0.0", result));
+    }
+
+    [Fact]
+    public void Description_NullAndEmptyRemainDistinct()
+    {
+        string nullPackage = $"Description.Null.{Guid.NewGuid():N}";
+        string emptyPackage = $"Description.Empty.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+
+        PackageIndexCache.Set(
+            nullPackage,
+            Version,
+            new InspectionResult
+            {
+                PackageName = nullPackage,
+                Version = Version,
+                Description = null
+            });
+        PackageIndexCache.Set(
+            emptyPackage,
+            Version,
+            new InspectionResult
+            {
+                PackageName = emptyPackage,
+                Version = Version,
+                Description = InertString.Empty
+            });
+
+        Assert.Null(PackageIndexCache.TryGet(nullPackage, Version)?.Description);
+        InertString? empty = PackageIndexCache.TryGet(emptyPackage, Version)?.Description;
+        Assert.NotNull(empty);
+        Assert.True(empty.Value.IsEmpty);
     }
 
     [Theory]
@@ -48,5 +136,15 @@ public sealed class PackageIndexCacheTests
         var dependency = Assert.Single(cached.Dependencies);
         Assert.Equal("Dependency.With.Range", dependency.Id);
         Assert.Equal(versionRange, dependency.Version);
+    }
+
+    private static void AssertCacheMiss(string suffix, byte[] bytes)
+    {
+        string packageName = $"Description.Corrupt.{suffix}.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        string key = $"{packageName.ToLowerInvariant()}@{Version}";
+        CoreCache.SetBytes(PackageIndexCache.Category, key, bytes, extension: "md");
+
+        Assert.Null(PackageIndexCache.TryGet(packageName, Version));
     }
 }

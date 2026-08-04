@@ -50,8 +50,9 @@ namespace InertText;
 ///
 /// There is deliberately no conversion <em>from</em> <see cref="string"/>, implicit or
 /// explicit. One would restore exactly the confusion the type removes. Text enters through the
-/// constructor, <see cref="Format"/> or <see cref="Join"/>, all of which name a policy, so every
-/// value has been spelled under some policy.
+/// constructor, <see cref="FromEncoded(TextPolicy, string)"/>, <see cref="Format"/> or
+/// <see cref="Join(string, TextPolicy, IEnumerable{InertString})"/>, all of which name a policy,
+/// so every value has been spelled or validated under some policy.
 ///
 /// Every one of those reads <c>(TextPolicy, payload)</c>, including
 /// <see cref="IsPermitted(TextPolicy, string)"/> and <see cref="EnsurePermitted"/>. One shape
@@ -107,6 +108,13 @@ public readonly struct InertString : IEquatable<InertString>
     public InertString(TextPolicy policy, string value) => this = VisualEncoder.Encode(policy, value);
 
     /// <summary>
+    /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, allocating only
+    /// the resulting encoded string.
+    /// </summary>
+    public InertString(TextPolicy policy, ReadOnlySpan<char> value)
+        => this = VisualEncoder.Encode(policy, value);
+
+    /// <summary>
     /// Encodes <paramref name="value"/> and bounds it to <paramref name="maxLength"/> encoded
     /// characters, without dividing a spelling.
     /// </summary>
@@ -126,6 +134,13 @@ public readonly struct InertString : IEquatable<InertString>
     /// <param name="value">The untreated text.</param>
     /// <param name="maxLength">The largest encoded length the sink can accept.</param>
     public InertString(TextPolicy policy, string value, int maxLength)
+        => this = VisualEncoder.Encode(policy, value).Truncate(maxLength);
+
+    /// <summary>
+    /// Encodes <paramref name="value"/> and bounds it to <paramref name="maxLength"/> encoded
+    /// characters, without dividing a spelling.
+    /// </summary>
+    public InertString(TextPolicy policy, ReadOnlySpan<char> value, int maxLength)
         => this = VisualEncoder.Encode(policy, value).Truncate(maxLength);
 
     // Takes text already spelled by the encoder, so it asserts rather than establishes the
@@ -166,6 +181,37 @@ public readonly struct InertString : IEquatable<InertString>
     /// </remarks>
     public static InertString Empty { get; } = new(string.Empty, VisualForm.None);
 
+    /// <summary>
+    /// Reconstructs an unbounded value from text previously returned by <see cref="ToString"/>.
+    /// </summary>
+    /// <remarks>
+    /// Validates the encoded representation without recovering the original text. The returned
+    /// value retains <paramref name="encoded"/> itself, so the string overload allocates nothing.
+    /// A malformed representation throws <see cref="FormatException"/> rather than producing a
+    /// plausible value with a weakened invariant.
+    ///
+    /// This restores encoded text and its <see cref="Forms"/>, not provenance that the text does
+    /// not carry. In particular, the result is not truncated. Persisting a value whose
+    /// <see cref="IsTruncated"/> flag matters requires a higher-provenance envelope.
+    /// </remarks>
+    public static InertString FromEncoded(TextPolicy policy, string encoded)
+    {
+        ArgumentNullException.ThrowIfNull(encoded);
+        VisualForm forms = VisualEncoder.ValidateEncoded(policy, encoded);
+        return new InertString(encoded, forms);
+    }
+
+    /// <summary>
+    /// Reconstructs an unbounded value from encoded text, allocating only the retained string.
+    /// </summary>
+    public static InertString FromEncoded(
+        TextPolicy policy,
+        ReadOnlySpan<char> encoded)
+    {
+        VisualForm forms = VisualEncoder.ValidateEncoded(policy, encoded);
+        return new InertString(encoded.ToString(), forms);
+    }
+
     /// <summary>The spellings <see cref="InertString"/> emitted while producing this value.</summary>
     /// <remarks>
     /// Retained so a sink can print a legend for what it is about to show without re-deriving
@@ -188,7 +234,8 @@ public readonly struct InertString : IEquatable<InertString>
     ///
     /// Every operation that builds a value from one carrying this therefore carries it too —
     /// <see cref="Bound"/> or-s it with the cut it just made, and <see cref="EnsurePermitted"/>,
-    /// <see cref="Join"/> and the interpolation handler propagate it — so a composed or
+    /// <see cref="Join(string, TextPolicy, IEnumerable{InertString})"/> and the interpolation
+    /// handler propagate it — so a composed or
     /// re-spelled value cannot claim to be whole when part of it is missing.
     ///
     /// It is state the text does not determine, so two values can carry identical text and
@@ -358,6 +405,17 @@ public readonly struct InertString : IEquatable<InertString>
     public static InertString Join(string separator, TextPolicy policy, IEnumerable<InertString> values)
     {
         ArgumentNullException.ThrowIfNull(separator);
+        return Join(separator.AsSpan(), policy, values);
+    }
+
+    /// <summary>
+    /// Concatenates <paramref name="values"/>, separated by <paramref name="separator"/>.
+    /// </summary>
+    public static InertString Join(
+        ReadOnlySpan<char> separator,
+        TextPolicy policy,
+        IEnumerable<InertString> values)
+    {
         ArgumentNullException.ThrowIfNull(values);
 
         InertString encodedSeparator = VisualEncoder.Encode(policy, separator);
@@ -409,6 +467,15 @@ public readonly struct InertString : IEquatable<InertString>
     /// reports.
     /// </remarks>
     public static bool IsPermitted(TextPolicy policy, string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return IsPermitted(policy, value.AsSpan(), out _);
+    }
+
+    /// <summary>
+    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is.
+    /// </summary>
+    public static bool IsPermitted(TextPolicy policy, ReadOnlySpan<char> value)
         => IsPermitted(policy, value, out _);
 
     /// <summary>
@@ -425,7 +492,18 @@ public readonly struct InertString : IEquatable<InertString>
         [NotNullWhen(false)] out ScalarViolation? violation)
     {
         ArgumentNullException.ThrowIfNull(value);
+        return IsPermitted(policy, value.AsSpan(), out violation);
+    }
 
+    /// <summary>
+    /// Reports whether every scalar in <paramref name="value"/> is permitted as it is, naming
+    /// the first that is not.
+    /// </summary>
+    public static bool IsPermitted(
+        TextPolicy policy,
+        ReadOnlySpan<char> value,
+        [NotNullWhen(false)] out ScalarViolation? violation)
+    {
         ScalarPolicy permits = ScalarPolicies.For(policy);
         int i = 0;
         while (i < value.Length)
@@ -575,6 +653,9 @@ public ref struct InertStringHandler
     /// <summary>Appends a literal part of the interpolated string.</summary>
     public void AppendLiteral(string value) => Append(value);
 
+    /// <summary>Appends a literal span.</summary>
+    public void AppendLiteral(ReadOnlySpan<char> value) => Append(value);
+
     /// <summary>Appends an interpolation hole.</summary>
     /// <remarks>
     /// Formatted under the invariant culture, matching the format-specifier overload. A message
@@ -624,6 +705,9 @@ public ref struct InertStringHandler
     /// <summary>Appends a string-valued interpolation hole.</summary>
     public void AppendFormatted(string? value) => Append(value);
 
+    /// <summary>Appends a span-valued interpolation hole.</summary>
+    public void AppendFormatted(ReadOnlySpan<char> value) => Append(value);
+
     /// <summary>
     /// Appends a value that is already inert, without encoding it a second time.
     /// </summary>
@@ -664,6 +748,14 @@ public ref struct InertStringHandler
     private void Append(string? value)
     {
         if (string.IsNullOrEmpty(value))
+            return;
+
+        Append(value.AsSpan());
+    }
+
+    private void Append(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
             return;
 
         InertString encoded = VisualEncoder.Encode(_policy, value);

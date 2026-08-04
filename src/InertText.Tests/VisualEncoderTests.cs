@@ -17,6 +17,27 @@ namespace InertText.Tests;
 public class VisualEncoderTests
 {
     [Fact]
+    public void Decode_CleanStringRetainsTheInputInstance()
+    {
+        string encoded = "nothing to decode";
+
+        Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded));
+        Assert.Same(encoded, decoded);
+    }
+
+    [Fact]
+    public void SpanInputs_EncodeAndDecodeWithoutAnIntermediateString()
+    {
+        ReadOnlySpan<char> original = "a\u202Eb".AsSpan();
+
+        InertString encoded = VisualEncoder.Encode(TextPolicy.Field, original);
+
+        Assert.Equal("a\\u202Eb", encoded.ToString());
+        Assert.True(VisualEncoder.TryDecode(encoded.ToString().AsSpan(), out string? decoded));
+        Assert.Equal("a\u202Eb", decoded);
+    }
+
+    [Fact]
     public void RoundTrip_EveryScalar_RecoversTheOriginal()
     {
         // The whole plane, not just the BMP: 127 scalars in the encoded categories live above

@@ -54,7 +54,21 @@ public static class VisualEncoder
     public static InertString Encode(TextPolicy policy, string value)
     {
         ArgumentNullException.ThrowIfNull(value);
+        return EncodeCore(policy, value, value);
+    }
 
+    /// <summary>
+    /// Encodes <paramref name="value"/> as <paramref name="policy"/> requires, allocating only
+    /// the resulting encoded string.
+    /// </summary>
+    public static InertString Encode(TextPolicy policy, ReadOnlySpan<char> value)
+        => EncodeCore(policy, value, original: null);
+
+    private static InertString EncodeCore(
+        TextPolicy policy,
+        ReadOnlySpan<char> value,
+        string? original)
+    {
         ScalarPolicy permits = ScalarPolicies.For(policy);
 
         VisualForm formsUsed = VisualForm.None;
@@ -68,14 +82,14 @@ public static class VisualEncoder
 
             if (!encode)
             {
-                builder?.Append(value, i, width);
+                builder?.Append(value.Slice(i, width));
                 i += width;
                 continue;
             }
 
             // Only allocate once something actually needs encoding, so ordinary text — which is
             // almost all text — is returned as it came in.
-            builder ??= new StringBuilder(value.Length + 8).Append(value, 0, i);
+            builder ??= new StringBuilder(value.Length + 8).Append(value[..i]);
 
             if (isUnpairedSurrogate)
             {
@@ -90,11 +104,11 @@ public static class VisualEncoder
             i += width;
         }
 
-        return new InertString(builder?.ToString() ?? value, formsUsed);
+        return new InertString(builder?.ToString() ?? original ?? value.ToString(), formsUsed);
     }
 
     /// <summary>
-    /// Recovers the original text from <see cref="Encode"/>'s output.
+    /// Recovers the original text from <see cref="Encode(TextPolicy, string)"/>'s output.
     /// </summary>
     /// <remarks>
     /// The reason this namespace exists. Every other operation in the library moves text
@@ -109,9 +123,25 @@ public static class VisualEncoder
     public static bool TryDecode(string encoded, [NotNullWhen(true)] out string? value)
     {
         ArgumentNullException.ThrowIfNull(encoded);
+        return TryDecodeCore(encoded, encoded, out value);
+    }
 
+    /// <summary>
+    /// Recovers the original text from <see cref="Encode(TextPolicy, ReadOnlySpan{char})"/>'s
+    /// output.
+    /// </summary>
+    public static bool TryDecode(
+        ReadOnlySpan<char> encoded,
+        [NotNullWhen(true)] out string? value)
+        => TryDecodeCore(encoded, original: null, out value);
+
+    private static bool TryDecodeCore(
+        ReadOnlySpan<char> encoded,
+        string? original,
+        [NotNullWhen(true)] out string? value)
+    {
         value = null;
-        StringBuilder builder = new(encoded.Length);
+        StringBuilder? builder = null;
 
         for (int i = 0; i < encoded.Length; i++)
         {
@@ -123,7 +153,8 @@ public static class VisualEncoder
                 {
                     // A raw astral scalar, which Encode passes through whenever the policy
                     // permits it: an emoji is So, and So is graphic.
-                    builder.Append(encoded[i]).Append(encoded[++i]);
+                    builder?.Append(encoded[i]).Append(encoded[i + 1]);
+                    i++;
                     continue;
                 }
 
@@ -134,9 +165,11 @@ public static class VisualEncoder
                     return false;
                 }
 
-                builder.Append(encoded[i]);
+                builder?.Append(encoded[i]);
                 continue;
             }
+
+            builder ??= new StringBuilder(encoded.Length).Append(encoded[..i]);
 
             if (++i == encoded.Length)
             {
@@ -227,7 +260,7 @@ public static class VisualEncoder
         // decode to the astral scalar, which is the only text that spelling can denote; injectivity
         // survives because Encode never *emits* that form -- a paired scalar always comes back as a
         // single \U escape -- so the two-escape spelling is an input form only.
-        value = builder.ToString();
+        value = builder?.ToString() ?? original ?? encoded.ToString();
         return true;
     }
 
@@ -307,10 +340,14 @@ public static class VisualEncoder
     // replacement character, so the caller has to keep the original code unit itself.
     // string.EnumerateRunes() cannot be used here: it silently substitutes U+FFFD, which would
     // make the transform lossy on exactly the input that needs it most.
-    internal static Rune DecodeAt(string value, int index, out int width, out bool isUnpairedSurrogate)
+    internal static Rune DecodeAt(
+        ReadOnlySpan<char> value,
+        int index,
+        out int width,
+        out bool isUnpairedSurrogate)
     {
         OperationStatus status = Rune.DecodeFromUtf16(
-            value.AsSpan(index),
+            value[index..],
             out Rune scalar,
             out width);
 
@@ -328,7 +365,11 @@ public static class VisualEncoder
     // "00ad" as readily as "00AD", which would give U+00AD two spellings when AppendBmpHex only
     // ever emits the second. Injectivity is what EnsurePermitted's repair rests on, so a second
     // accepted spelling is a defect rather than leniency.
-    private static bool TryReadHex(string text, int start, int length, out uint value)
+    private static bool TryReadHex(
+        ReadOnlySpan<char> text,
+        int start,
+        int length,
+        out uint value)
     {
         value = 0;
 
@@ -365,7 +406,10 @@ public static class VisualEncoder
     // not here would make every boundary past it wrong, and the two are only obviously coupled
     // when they are adjacent. Internal, so it adds nothing to the capability surface: it reports
     // where the text can be divided, never what any of it decodes to.
-    private static int NextToken(string encoded, int index, out VisualForm form)
+    private static int ReadToken(
+        ReadOnlySpan<char> encoded,
+        int index,
+        out VisualForm form)
     {
         char c = encoded[index];
 
@@ -373,49 +417,66 @@ public static class VisualEncoder
         {
             form = VisualForm.None;
 
-            // Encode never emits a raw unpaired surrogate -- it spells one as \uXXXX -- so a
-            // high surrogate here is always the first half of a scalar and is never divisible.
-            return char.IsHighSurrogate(c)
-                && index + 1 < encoded.Length
-                && char.IsLowSurrogate(encoded[index + 1])
-                    ? 2
-                    : 1;
+            DecodeAt(encoded, index, out int width, out bool isUnpairedSurrogate);
+            return !isUnpairedSurrogate
+                ? width
+                : throw InvalidEncodedText(index);
         }
 
         int remaining = encoded.Length - index;
 
-        // Widths are clamped rather than trusted. Encode cannot emit a truncated escape, but the
-        // internal constructor asserts the invariant instead of establishing it, so a walk that
-        // read past the end here would turn a malformed value into an IndexOutOfRangeException
-        // at a boundary check rather than at the point it was built.
         switch (remaining > 1 ? encoded[index + 1] : '\0')
         {
             case '\\':
+                if (remaining < 2)
+                    throw InvalidEncodedText(index);
                 form = VisualForm.Backslash;
-                return Math.Min(2, remaining);
+                return 2;
             case '^':
-                form = remaining > 2 && encoded[index + 2] == '?'
+                if (remaining < 3
+                    || encoded[index + 2] is not ('?' or >= '@' and <= '_'))
+                {
+                    throw InvalidEncodedText(index);
+                }
+
+                form = encoded[index + 2] == '?'
                     ? VisualForm.CaretDelete
                     : VisualForm.Caret;
-                return Math.Min(3, remaining);
+                return 3;
             case 'u':
+                if (!TryReadHex(encoded, index + 2, 4, out uint bmp)
+                    || bmp <= 0x1F
+                    || bmp is 0x7F or '\\'
+                    || (!char.IsSurrogate((char)bmp)
+                        && !ScalarPolicies.IsNonGraphic(new Rune((int)bmp))))
+                {
+                    throw InvalidEncodedText(index);
+                }
+
                 form = VisualForm.BmpHex;
 
                 // Composition encodes each fragment on its own, so a surrogate pair split across
                 // two of them arrives as two \uXXXX escapes that together spell one astral
                 // scalar. Cutting between them would leave a lone surrogate in the text this
                 // decodes to, which is the atomicity the escaper this replaces guaranteed.
-                return IsEscapedSurrogatePair(encoded, index) ? 12 : Math.Min(6, remaining);
+                return IsEscapedSurrogatePair(encoded, index) ? 12 : 6;
             case 'U':
+                if (!TryReadHex(encoded, index + 2, 8, out uint astral)
+                    || !Rune.IsValid((int)astral)
+                    || astral <= 0xFFFF
+                    || !ScalarPolicies.IsNonGraphic(new Rune((int)astral)))
+                {
+                    throw InvalidEncodedText(index);
+                }
+
                 form = VisualForm.AstralHex;
-                return Math.Min(10, remaining);
+                return 10;
             default:
-                form = VisualForm.None;
-                return 1;
+                throw InvalidEncodedText(index);
         }
     }
 
-    private static bool IsEscapedSurrogatePair(string encoded, int index)
+    private static bool IsEscapedSurrogatePair(ReadOnlySpan<char> encoded, int index)
         => index + 12 <= encoded.Length
             && encoded[index + 6] == '\\'
             && encoded[index + 7] == 'u'
@@ -423,6 +484,38 @@ public static class VisualEncoder
             && TryReadHex(encoded, index + 8, 4, out uint low)
             && char.IsHighSurrogate((char)high)
             && char.IsLowSurrogate((char)low);
+
+    internal static VisualForm ValidateEncoded(
+        TextPolicy policy,
+        ReadOnlySpan<char> encoded)
+    {
+        ScalarPolicy permits = ScalarPolicies.For(policy);
+        VisualForm forms = VisualForm.None;
+
+        for (int index = 0; index < encoded.Length;)
+        {
+            int width = ReadToken(encoded, index, out VisualForm form);
+            if (form == VisualForm.None)
+            {
+                Rune scalar = DecodeAt(
+                    encoded,
+                    index,
+                    out _,
+                    out bool isUnpairedSurrogate);
+
+                if (isUnpairedSurrogate || !permits(scalar))
+                    throw InvalidEncodedText(index);
+            }
+
+            forms |= form;
+            index += width;
+        }
+
+        return forms;
+    }
+
+    private static FormatException InvalidEncodedText(int index)
+        => new($"Encoded text is not a valid InertString representation at index {index}.");
 
     /// <summary>
     /// The largest window inside <paramref name="start"/>..<paramref name="end"/> whose bounds
@@ -438,13 +531,16 @@ public static class VisualEncoder
     /// text, and an end below the start gives an empty window, because the end walks from the
     /// start and only ever advances.
     /// </remarks>
-    internal static (int Start, int End, VisualForm Forms) WindowWithin(string encoded, int start, int end)
+    internal static (int Start, int End, VisualForm Forms) WindowWithin(
+        ReadOnlySpan<char> encoded,
+        int start,
+        int end)
     {
         int from = 0;
 
         while (from < start && from < encoded.Length)
         {
-            from += NextToken(encoded, from, out _);
+            from += ReadToken(encoded, from, out _);
         }
 
         VisualForm forms = VisualForm.None;
@@ -452,7 +548,7 @@ public static class VisualEncoder
 
         while (to < end && to < encoded.Length)
         {
-            int width = NextToken(encoded, to, out VisualForm form);
+            int width = ReadToken(encoded, to, out VisualForm form);
 
             if (to + width > end)
             {

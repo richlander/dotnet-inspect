@@ -351,11 +351,15 @@ same `InertString`; and only the two sinks take it apart. JSON writes its encode
 text as a JSON string, leaving structural escaping to the serializer. Markdown
 prefixes every line as a quotation, so package-authored headings and tables
 remain visibly package content rather than becoming peer structures in tool
-output. The line-oriented package cache is a persistence sink: it conforms the
-value to `TextPolicy.Field` while stored, then decodes and immediately rebuilds
-the `TextPolicy.Prose` value on read. `PackageIndexCacheTests` gates that
-round-trip. `NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString`
-gates the two model fields, and
+output. The line-oriented package cache is a persistence sink: it stores the
+exact encoded value in a length-delimited UTF-8 segment, then reconstructs the
+wrapper with `InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither
+operation recovers the untreated description, and the cache consumer never
+names the decoder capability namespace. `PackageIndexCacheTests` gates that
+round-trip, malformed-entry rejection, and the distinction between null and
+empty descriptions.
+`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` gates
+the two model fields, and
 `HostileDescription_RemainsQuotedInMarkdownAndContainedInJson` gates both sinks.
 
 The other nuspec fields remain `string` deliberately. Package IDs, versions,
@@ -379,8 +383,10 @@ So the decoder lives in its own namespace:
 | `InertText` | `InertString`, `TextPolicy`, `VisualForm` | build, compose, compare and print inert text |
 | `InertText.Encoding` | `VisualEncoder` | additionally recover the original text |
 
-Text enters through `InertString`'s constructor and leaves through `ToString`
-already spelled, so the currency namespace is sufficient for every ordinary use.
+Untreated text enters through `InertString`'s constructor. Persisted encoded text
+re-enters through `InertString.FromEncoded`, which validates the representation
+without recovering the original. Both leave through `ToString` already spelled,
+so the currency namespace is sufficient for every ordinary use.
 
 **The audit is one search, and the string is `InertText.Encoding`.** Reaching the
 decoder means naming its namespace, and that act *is* the opt-in. Decoding is a
@@ -442,6 +448,38 @@ echoing it). Adding a decode convenience to the currency type fails that test.
 namespace either way, and nothing should stop it — decoding is a legitimate
 operation with legitimate callers. What the boundary buys is that the reversing
 half cannot arrive unnoticed *by a reviewer who searches correctly*.
+
+## Persisting the currency form
+
+`FromEncoded(TextPolicy, string)` reconstructs an unbounded `InertString` from a
+value previously returned by `ToString`. It validates the encoded token grammar,
+checks every raw scalar against the named policy, and derives `VisualForm`
+without building the untreated original. Invalid state throws `FormatException`;
+there is no `Try` form that can let corrupt persistence look routine.
+
+The string overload retains the validated instance. That preserves the
+allocation model of construction: when ordinary input needs no spelling, the
+original string and the encoded string are the same object; when spelling is
+needed, the encoded string is the one additional string. The
+`ReadOnlySpan<char>` overload validates borrowed input and allocates only the
+string the returned value must retain. Constructors, policy checks, joining,
+interpolation holes, and the encoder/decoder capability expose matching span
+inputs for the same reason.
+
+The encoded text does not carry every property of the value. In particular,
+`IsTruncated` records that text was dropped, and two values with identical text
+can disagree on that fact. `FromEncoded` therefore returns an unbounded value;
+the package cache rejects a truncated description rather than fabricating or
+discarding provenance. A distinct high-provenance persistence design is tracked
+by #3787 and may deliberately spend more strings or buffers.
+
+The package index cache stores descriptions as exact encoded UTF-8 behind a
+byte-length boundary. Length framing matters: `TextPolicy.Prose` legitimately
+retains line endings, while converting it to `Field` and back would require the
+decoder. Base64 or JSON framing would avoid that capability but introduce a
+second framing string. A byte length lets the writer copy the existing encoded
+value directly and lets the reader create one encoded string, which
+`FromEncoded(string)` retains without copying.
 
 ## Composition
 
