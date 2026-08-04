@@ -123,8 +123,7 @@ for the generated skill listing.
 ### Platform compatibility
 
 - Treat cross-platform operation as the default requirement for product
-  libraries and reusable feature paths. Browser/Wasm compatibility is a design
-  target even when the consuming host is still a prototype.
+  libraries and reusable feature paths. Browser/Wasm compatibility is a design target.
 - Before introducing a dependency, API, or design that cannot run on a
   supported platform -- especially single-threaded Browser/Wasm -- stop and
   obtain explicit user approval for that specific exception.
