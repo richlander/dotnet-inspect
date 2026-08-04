@@ -376,25 +376,50 @@ public static partial class ResearchViews
         var spans = AnnotationAnchor.ComputeSpans(imported);
         var csharpLines = RenderCSharpBodyLines(csText, printedRanges);
         var factsByOffset = FactsByOffset(annotations);
-        var positionedIl = new List<(int TargetLine, SourceLine Line)>(ilLines.Count);
+        var positionedIl = new List<(int TargetLine, bool BeforeLine, SourceLine Line)>(ilLines.Count);
         foreach (var line in ilLines.OrderBy(line => line.Offset))
         {
             int targetLine = csharpLines.Count - 1;
+            bool beforeLine = false;
             if (AnnotationAnchor.Best(spans, line.Offset) is { } owner)
             {
-                if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out targetLine)
-                    && !printedRanges.TryGetInsertionLine(owner, out targetLine))
+                if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out targetLine))
                 {
-                    targetLine = csharpLines.Count - 1;
+                    beforeLine = printedRanges.TryGetInsertionLine(owner, out targetLine);
+                    if (!beforeLine)
+                        targetLine = csharpLines.Count - 1;
                 }
             }
-            positionedIl.Add((Math.Max(0, targetLine), line));
+            positionedIl.Add((Math.Max(0, targetLine), beforeLine, line));
         }
 
         var stream = new List<BoundSourceLine>(csharpLines.Count + positionedIl.Count);
         int nextIl = 0;
+        void AddIl(SourceLine il) => stream.Add(new BoundSourceLine(
+            il.Text,
+            il.Offset,
+            SourceLineKind.Il,
+            factsByOffset.GetValueOrDefault(il.Offset) ?? []));
+
         for (int csharpLine = 0; csharpLine < csharpLines.Count; csharpLine++)
         {
+            // Silent nodes carry insertion points rather than printed ranges. If
+            // one occurs in the offset-ordered prefix now eligible for this line,
+            // emit through it before the line. Directly placed instructions that
+            // precede it move with it because splitting that prefix would regress
+            // IL offsets. An instruction targeting a later line still blocks the
+            // prefix until that target appears.
+            int beforeThrough = nextIl - 1;
+            for (int i = nextIl;
+                i < positionedIl.Count && positionedIl[i].TargetLine <= csharpLine;
+                i++)
+            {
+                if (positionedIl[i].BeforeLine)
+                    beforeThrough = i;
+            }
+            while (nextIl <= beforeThrough)
+                AddIl(positionedIl[nextIl++].Line);
+
             var line = csharpLines[csharpLine];
             stream.Add(new BoundSourceLine(
                 line.Text,
@@ -407,24 +432,12 @@ public static partial class ResearchViews
             while (nextIl < positionedIl.Count
                 && positionedIl[nextIl].TargetLine <= csharpLine)
             {
-                var il = positionedIl[nextIl++].Line;
-                stream.Add(new BoundSourceLine(
-                    il.Text,
-                    il.Offset,
-                    SourceLineKind.Il,
-                    factsByOffset.GetValueOrDefault(il.Offset) ?? []));
+                AddIl(positionedIl[nextIl++].Line);
             }
         }
 
         while (nextIl < positionedIl.Count)
-        {
-            var il = positionedIl[nextIl++].Line;
-            stream.Add(new BoundSourceLine(
-                il.Text,
-                il.Offset,
-                SourceLineKind.Il,
-                factsByOffset.GetValueOrDefault(il.Offset) ?? []));
-        }
+            AddIl(positionedIl[nextIl++].Line);
         return stream;
     }
 

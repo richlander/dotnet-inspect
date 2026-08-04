@@ -265,6 +265,28 @@ public class AnnotatedSourceMapProjectionTests
         Assert.Empty(map.UnplacedAnnotations);
     }
 
+    [Fact]
+    public void SilentConstructorProloguePrecedesTheFirstPrintedStatement()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchConstructorFixture).FullName!,
+            ".ctor",
+            OverloadIndex: 1,
+            SourceMap: true));
+        var map = Assert.IsType<AnnotatedSourceMap>(projection.SourceMap);
+
+        int firstCSharp = map.Lines
+            .Select((line, index) => (line, index))
+            .First(item => item.line.Kind == SourceLineKind.CSharp)
+            .index;
+        var prologue = map.Lines.Take(firstCSharp).ToArray();
+        Assert.NotEmpty(prologue);
+        Assert.All(prologue, line => Assert.Equal(SourceLineKind.Il, line.Kind));
+        Assert.Contains(prologue, line => line.Text.Contains("::.ctor", StringComparison.Ordinal));
+    }
+
     static AnnotatedSourceMap Map(string method, PrinterOptions? options)
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);

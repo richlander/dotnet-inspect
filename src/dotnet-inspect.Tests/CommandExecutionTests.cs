@@ -6623,6 +6623,21 @@ public partial class CommandExecutionTests
         Assert.Contains("must be the only selected section under --json", error);
     }
 
+    [Theory]
+    [InlineData("@all")]
+    [InlineData("Annotated*")]
+    public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", selection, "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
     [Fact]
     public async Task Type_AnnotatedSourceMap_IsNotAdvertisedAsATypeSection()
     {

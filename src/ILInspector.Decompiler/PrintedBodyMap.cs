@@ -466,6 +466,9 @@ public sealed record AnnotatedSourceMap
 
             string[] text = [.. lines.Select(line => line.Text)];
             var structure = new PrintedBodyMap(text, Nodes, Regions, []);
+            var nodeSet = structure.Nodes
+                .Select(node => (node.Kind, node.Extent))
+                .ToHashSet();
             int previousIlOffset = -1;
             for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
@@ -487,8 +490,24 @@ public sealed record AnnotatedSourceMap
                     PrintedBodyMap.ValidateExtent(extent, text, nameof(Lines));
                     if (lineIndex < extent.StartLine || lineIndex > extent.EndLine)
                         throw new ArgumentException("A line annotation's extent must contain its line.", nameof(Lines));
-                    if (line.Kind == SourceLineKind.Il && annotation.SourceOffset != line.Offset)
-                        throw new ArgumentException("An IL annotation must match its line offset.", nameof(Lines));
+                    if (line.Kind == SourceLineKind.Il)
+                    {
+                        if (annotation.SourceOffset != line.Offset)
+                            throw new ArgumentException("An IL annotation must match its line offset.", nameof(Lines));
+                        if (annotation.Kind != "Instruction"
+                            || extent != new PrintedExtent(lineIndex, 0, lineIndex, line.Text.Length))
+                        {
+                            throw new ArgumentException(
+                                "An IL annotation must name its complete instruction line.",
+                                nameof(Lines));
+                        }
+                    }
+                    else if (!nodeSet.Contains((annotation.Kind, extent)))
+                    {
+                        throw new ArgumentException(
+                            $"Placed annotation {annotation.Descriptor} has no matching {annotation.Kind} node extent.",
+                            nameof(Lines));
+                    }
                 }
             }
 

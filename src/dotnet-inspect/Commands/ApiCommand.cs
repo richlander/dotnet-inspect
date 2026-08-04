@@ -2162,7 +2162,10 @@ public class ApiCommand
            && !options.Count
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 1 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceMap);
+           && sections.Contains(SectionNames.AnnotatedSourceMap)
+           && options.Select?.Any(value => value.Equals(
+               SectionNames.AnnotatedSourceMap,
+               StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
