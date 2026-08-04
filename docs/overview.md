@@ -8,8 +8,9 @@ It is built for both humans and agents. Markdown is the default output because h
 
 The [inspection space architecture](inspection-space.md) is the core:
 workspace contexts, typed query planning, acquisition and caching, shared
-identity and provenance, and safe presentation boundaries. The components below
-are hosts, shared substrates, and inspection producers that extend that space.
+identity and provenance, owner-issued correspondence, and safe presentation
+boundaries. The components below are hosts, shared substrates, and inspection
+producers that extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.

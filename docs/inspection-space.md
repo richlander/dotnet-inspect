@@ -25,6 +25,15 @@ target design, and verification they own. In particular:
   boundaries.
 - [Assembly inspection query model](design/assembly-inspection-query.md) owns
   the resolution-to-inspection currency.
+- [Type, member, and API representation](design/type-member-api-representation.md)
+  owns the map of lookup, shape, address, resolution, and correspondence
+  currencies.
+- [Finding coordinates](design/finding-coordinates.md) owns subject,
+  correspondence, order, and provenance axes for Findings.
+- [Member body substrate](design/member-body-substrate.md) owns body-local
+  coordinates and bound versus portable source projections.
+- [Type forwarding resolution](design/type-forwarding-resolution.md) owns
+  catalog generations and definition correspondence.
 - [Progressive disclosure](design/progressive-disclosure.md) owns current
   command backpressure and defaults.
 - [Cache concurrency and publication](design/cache-concurrency.md) owns package
@@ -91,7 +100,9 @@ The most valuable answers often cross producer boundaries:
 
 Those joins must use shared typed identity, coordinates, provenance, and context
 boundaries. Display text is not identity, and a renderer is not a composition
-layer.
+layer. The shared foundation does not impose one universal identity. It gives
+each domain enough context to issue the correspondence currency its joins
+require.
 
 ### Fast
 
@@ -105,8 +116,11 @@ The architecture gets speed from avoiding work:
   by the host.
 - **Progressive acquisition.** Permit cheap, high-value results before
   expensive or exhaustive layers.
-- **Shared lifetimes.** Open or materialize one artifact generation once and
-  reuse it across the queries that consume it.
+- **Shared lifetimes.** Open or materialize one artifact generation once, then
+  reuse it through owner-controlled leases across the queries that consume it.
+- **Frozen contexts.** Reuse binding and correspondence work inside an explicit
+  catalog generation; advance the generation rather than mutating answers
+  underneath a query.
 - **Semantic caching.** Key reusable results by every input that can change
   their meaning, including content, source authorization, options, and producer
   version where applicable.
@@ -127,12 +141,18 @@ authority.
 - Inspected assemblies are parsed, not loaded.
 - Resolution carries typed identity and provenance rather than handing
   inspection a bare path.
+- Availability is not authorization. Cached or retained content is usable only
+  when the current request authorizes its producer and coordinate.
 - Network, source-content, and unbounded work require explicit capability and
   cost authorization.
 - Malformed input, failed acquisition, and incomplete analysis remain visible
   as typed outcomes.
 - Cache hits are valid only when the current request authorizes and identifies
   the stored result.
+- Reader-local handles, catalog keys, and other bound currencies cannot outlive
+  or escape the owner that gives them meaning.
+- Equality, path spelling, display text, and durable addresses do not substitute
+  for owner-issued correspondence.
 - Artifact-derived work is bounded so hostile input cannot silently turn a
   small request into unlimited CPU, memory, network, or output.
 - Artifact text remains exact while it participates in identity and control
@@ -202,11 +222,19 @@ run several query plans over the same acquired content.
 A workspace contains one or more **assembly context groups**. A group is one
 binding-consistent universe: root assemblies, dependency assemblies, target
 framework and runtime identity when known, and the resolution policy that chose
-them.
+them. It also retains the acquisition provenance and policy inputs needed to
+decide whether a query may use their content. Authorization remains a decision
+for the current query plan, not a permanent property of the group.
 
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
+
+Domain catalogs operate inside a group. A catalog may advance through
+progressive generations as new candidates or binding roots are discovered while
+the group itself remains alive. A query that consumes catalog-bound values runs
+against one frozen generation. Plan expansion establishes a new generation
+rather than changing the old answer set in place.
 
 The smallest case remains cheap: one workspace, one group, one root assembly,
 and one requested query.
@@ -223,6 +251,8 @@ query declares:
 | Cost | Is the work bounded, network-bound, source-content-bound, or exhaustive? |
 | Capabilities | What must the caller authorize? |
 | Dependencies | Which producer results must exist first? |
+| Lifetimes | Which acquired images, catalogs, or other bound resources must remain alive? |
+| Correspondence | Which owner establishes relationships between the inputs? |
 | Result | Which typed value or failure does it return? |
 
 CLI sections and Wasm views lower their selections into this plan. They do not
@@ -249,6 +279,13 @@ not alter:
 - failure visibility;
 - assembly, group, or producer provenance.
 
+It must also respect resource and generation barriers. A query pins one frozen
+generation, which expansion cannot mutate; the catalog may only publish a
+successor. Work that requires the successor waits for its owner to freeze it. A
+query cannot outlive a resource it borrowed. A producer may declare a resource
+safe for concurrent consumers; otherwise the executor serializes access. The
+sequential executor satisfies these rules without requiring threads.
+
 Producers receive the narrow context named by their scope, not a mutable
 workspace object. This keeps the workspace from becoming a god object and makes
 cross-group access explicit.
@@ -257,6 +294,36 @@ cross-group access explicit.
 
 The core is defined more by the values crossing its boundaries than by project
 names.
+
+### Currency contracts
+
+A **currency** is a value one owner accepts as authoritative for one operation.
+It is not a repository-wide interchange type. Every currency has a contract:
+
+| Property | Question |
+| --- | --- |
+| Authority | Which owner and operation may trust this value? |
+| Scope | Is it valid for one reader, image, body, catalog generation, group, or comparison? |
+| Lifetime | Which live owner or frozen generation must remain available? |
+| Portability | May it cross a query, process, serialization, or persistence boundary? |
+| Erasure | Which facts or capabilities were deliberately left behind? |
+| Rebinding | Which owner can validate or bind it in another context? |
+| Correspondence | Does equality have meaning, or must an owner compare or project it? |
+
+These properties are independent. A durable address may be portable but unable
+to prove that two artifacts correspond. An opaque catalog key may answer exact
+correspondence but only while one generation remains alive. A portable source
+line may survive serialization while its offset remains meaningful only inside
+the containing stream.
+
+Bound and portable forms are therefore a matrix, not a ladder. Projection from
+a bound value into a portable value is explicit and names what authority it
+loses. Rebinding is another owner operation with a typed failure, not an
+implicit cast back to the original value.
+
+Concrete types remain domain-owned. The core does not define a universal
+`IJoinable`, generic anchor, bound-value wrapper, or portable-value envelope.
+The architecture is the contract above and the ownership of each transition.
 
 ### Identity and provenance
 
@@ -267,6 +334,53 @@ reconstruct it.
 
 Identity, correspondence, provenance, and display remain separate. Joins use
 the typed currencies; presentation chooses spelling afterward.
+
+### Acquired generations and leases
+
+An acquired assembly has several related but distinct scopes:
+
+| Scope | Meaning |
+| --- | --- |
+| Acquisition registration | Repeated policy selections name the same canonical candidate chosen by one acquisition owner. |
+| Image lifetime | Consumers read one opened byte generation through a format owner's session or lease. |
+| Catalog generation | Binding and correspondence answers share one frozen candidate universe. |
+
+None implies another. Matching descriptor fields do not prove one registered
+candidate. Sharing one `PEReader` does not establish definition
+correspondence. Advancing a catalog generation does not require reopening every
+image whose bytes remain valid.
+
+The workspace coordinates these lifetimes without making format-specific
+handles core currency. Metadata may own a `PEReader`; another producer may own
+an immutable byte image or a parsed index. Queries receive narrow sessions,
+views, or leases and do not reopen or dispose the underlying resource.
+
+This is a correctness rule as well as a performance rule. Opening the same path
+twice can observe two different files after a build, restore, or symlink change
+and silently combine facts from different assemblies. Sharing the acquired
+generation removes that assumption.
+
+Reader-local handles and pointers remain inside the owning lifetime. Results
+that outlive it materialize producer facts or carry a durable address that its
+owner revalidates before dereference. A durable address is location evidence,
+not artifact identity or correspondence proof.
+
+### Authorized content
+
+Content availability never grants authority to inspect it. A package payload,
+source document, retained byte image, or cache entry is visible only when the
+current request authorizes the producer and coordinate that supplied it.
+
+Acquisition retains enough provenance and authorization evidence for the owner
+to make that decision. A persistent workspace may retain bytes or parsed
+resources, but a later query plan revalidates access under its own capabilities
+and source policy before receiving a lease. The cache answers only after that
+decision; it does not introduce candidates or widen authorization.
+
+This is the acquisition analogue of other owner-issued safety currencies. The
+acquisition owner authorizes content, a catalog authorizes correspondence, and
+the presentation boundary produces `InertString`. None can be reconstructed by
+inspecting the visible fields of an untyped value.
 
 ### Results and failures
 
@@ -309,6 +423,119 @@ presentation, when the sink policy is known.
 Structural escaping remains the renderer's responsibility. Inert text prevents
 terminal control, visual reordering, and invisible agent-context payloads;
 Markdown, JSON, TSV, and other writers separately escape their grammars.
+
+## Joins
+
+A join is an owned operation over typed operands in an explicit context:
+
+```text
+join = operands × context × correspondence authority
+    -> relation | typed non-relation
+```
+
+The architecture does not require one relation type. It requires the operation
+to preserve the distinctions that make its answer trustworthy.
+
+### Join operands
+
+A join operand conceptually combines four parts:
+
+| Part | Role |
+| --- | --- |
+| Subject | The entity being discussed across producers or contexts. |
+| Local binding | The exact candidate, member, body, or resource in the current context. |
+| Native coordinates | Producer-owned locations such as a metadata row, IL offset, source extent, or stream position. |
+| Payload and provenance | The evidence being related and the producer that supplied it. |
+
+Those parts need not be duplicated on every leaf. Identity belongs at the
+highest container that knows the subject; native coordinates stay on the
+lowest producer that owns their semantics. A body-local fact may carry only an
+IL offset while its enclosing result carries the member subject and assembly
+binding. A portable source line may depend on its containing stream for the
+coordinate plane. Composition supplies the full operand without flattening it
+into one key.
+
+Member inspection is the worked pattern. A selector is a portable question, a
+member anchor is a durable API-identity projection, a resolved target binds
+that identity to one API surface and possible physical body, and a metadata
+handle is exact only for one reader. Body evidence retains its native identity
+and coordinates; Research owns the bridge when API and body vocabularies must
+join. Projected members such as extension methods retain both the API target
+and the physical body owner instead of collapsing them.
+
+Source projection demonstrates the same pattern at another scale. An in-process
+correlation may retain live annotation objects and IR relationships. Its
+portable projection materializes annotation data and rebased extents so another
+consumer can retain, filter, or render the relation without those live objects.
+The projection remains scoped to its containing stream and does not claim to
+recover the original graph.
+
+These examples are precedents, not core types. Their owning documents define
+the exact currencies and conversions.
+
+### Correspondence precedes composition
+
+Equality is not correspondence. A path, display string, MVID, metadata token,
+durable address, record equality, or matching payload fields can be useful
+evidence without proving that two operands denote the same subject.
+
+The domain owner establishes correspondence. Depending on the domain, its
+closed result may distinguish:
+
+- exact sameness and definite difference;
+- ambiguity or duplicate-artifact indeterminacy;
+- incomparable contexts or stale generations;
+- exact and named soft-match tiers with match provenance;
+- inability to decide because required evidence was unavailable.
+
+A boolean result is insufficient when the domain admits those states. In
+particular, indeterminate is neither false nor permission to fabricate a
+match. A safe negative comes only from the authority that has enough evidence
+to rule the relation out.
+
+When repeated joins need hashing or indexing, the authority may project a
+generation-scoped join token. Consumers do not derive one by normalizing
+display strings or unpacking an opaque key. A portable address may be rebound
+and revalidated in another context, but it does not become a correspondence
+token by surviving the trip.
+
+### Join scope
+
+The required correspondence changes with scope:
+
+| Scope | Rule |
+| --- | --- |
+| One live image | Reader-local handles are exact only inside that image. |
+| One body or stream | Native offsets and extents are interpreted beside the containing subject and coordinate plane. |
+| One context group | Cross-assembly correspondence uses one frozen binding catalog generation. |
+| Several groups | Each portable subject is bound independently; bound handles, keys, and tokens never cross the group boundary. |
+| Several versions | Producer-owned exact or soft correspondence retains its tier, ambiguity, and match provenance. |
+
+Cross-group comparison is explicit work, not an exception to group isolation.
+It consumes portable projections or independently resolved subjects from each
+group and produces a new relation. A value that is incomparable across catalogs
+does not become comparable because both catalogs happen to be in one
+workspace.
+
+### Join execution
+
+Joins must remain demand-driven and bounded. The query plan declares their
+operand producers, correspondence owner, scope, capabilities, prerequisites,
+and result. The executor requests the required frozen contexts from their
+owners and retains their leases until the relation is complete.
+
+An owner may provide indexes, blocking keys, or conservative prefilters to
+avoid a Cartesian comparison. Such a filter may admit extra candidates, but it
+must not produce a negative outside the evidence its domain contract
+authorizes. Candidate generation and final correspondence remain separate
+operations.
+
+The result retains producer-native evidence, subject identity, local
+coordinates, correspondence provenance, and scoped failures. It is a projection
+of the relation, not a replacement for either operand. Research normally owns
+cross-producer composition; a domain producer continues to own its own binding,
+matching, and coordinate semantics. The workspace orchestrates both without
+learning type names, member grammars, IL offsets, or source-span rules.
 
 ## Add-ins
 
