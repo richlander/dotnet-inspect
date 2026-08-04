@@ -623,6 +623,10 @@ Research overlay bridge, and the application layer:
 │  CSharpFormatter declaration spelling                       │
 │  CSharpTypePrinter typed request and body composition        │
 ├─────────────────────────────────────────────────────────────┤
+│  CSharpText (C# textual grammar)                            │
+│                                                             │
+│  Lexer, conservative declaration index and source ranges    │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.SourceLink (source decoration)                 │
 │                                                             │
 │  SourceLinkService, SourceLinkResolver, SourceLinkFindings  │
@@ -643,6 +647,7 @@ Research overlay bridge, and the application layer:
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharpText** owns dependency-free C# lexing and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
