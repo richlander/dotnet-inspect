@@ -1509,6 +1509,71 @@ public class ApiOutputFormatterTests
         Assert.Contains("where T : struct", typeSource, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Both decompiled-source routes preserve the compiler-produced distinction between
+    /// structural <c>Nullable&lt;T&gt;</c> and bare <c>T</c> under a value-type constraint.
+    /// This is the end-to-end gate for issue #3729; applying the enclosing nullable context
+    /// to <c>T</c> produces invalid <c>Nullable&lt;T?&gt;</c> and changes bare <c>T</c> to
+    /// <c>T?</c>.
+    /// </summary>
+    [Fact]
+    public void ValueConstrainedGenericParameters_IgnoreNullableAnnotationBytes()
+    {
+        string path = typeof(ValueTypeNullabilityFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ValueTypeNullabilityFixture).FullName);
+
+        foreach (var member in type.Members.Where(candidate =>
+                     candidate.Name is nameof(ValueTypeNullabilityFixture.NullableValue)
+                         or nameof(ValueTypeNullabilityFixture.PlainValue)))
+        {
+            var collected = Assert.Single(MemberCodeProvider.Collect(
+                type,
+                [member],
+                path,
+                overloadIndex: 0,
+                new MemberCodeProvider.Request(
+                    DecompiledSource: true,
+                    AnnotatedSource: false,
+                    CostOverlay: false,
+                    SemanticsOverlay: false,
+                    IL: false,
+                    Attributes: false,
+                    Calls: false,
+                    Callers: false,
+                    CallGraph: false,
+                    UnsafeOperations: false)));
+            var sections = new MemberCodeView();
+            Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+
+            if (member.Name == nameof(ValueTypeNullabilityFixture.NullableValue))
+            {
+                Assert.Contains("Nullable<T> value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+                Assert.DoesNotContain("T?>", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains("PlainValue<T>(T value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+                Assert.DoesNotContain("PlainValue<T>(T? value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+            }
+        }
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("Nullable<T> value", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("T?>", typeSource, StringComparison.Ordinal);
+        var plainStart = typeSource.IndexOf("PlainValue<T>", StringComparison.Ordinal);
+        Assert.True(plainStart >= 0);
+        var plainEnd = typeSource.IndexOf('{', plainStart);
+        Assert.True(plainEnd > plainStart);
+        var plainDeclaration = typeSource[plainStart..plainEnd];
+        Assert.Contains("T value", plainDeclaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("T? value", plainDeclaration, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
