@@ -90,9 +90,11 @@ public sealed class NuspecHardeningTests : IDisposable
         Assert.Empty(markdownError);
         string normalized = markdown.ReplaceLineEndings("\n");
         Assert.Contains("> Intro\\u202Etail", normalized);
+        Assert.Contains("\n>\n", normalized);
         Assert.Contains("\n> ## Verified publisher", normalized);
         Assert.Contains("\n> | Check | Result |", normalized);
         Assert.DoesNotContain("\n## Verified publisher", normalized);
+        Assert.Equal(-1, normalized.IndexOf("> \n", StringComparison.Ordinal));
         int rawBidiIndex = normalized.IndexOf(bidi, StringComparison.Ordinal);
         Assert.True(rawBidiIndex < 0, $"Raw bidi scalar at output index {rawBidiIndex}.");
 

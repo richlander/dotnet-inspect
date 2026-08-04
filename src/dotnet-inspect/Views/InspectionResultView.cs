@@ -468,7 +468,9 @@ internal static class PackageViewText
         // makes the package's prose a quotation, so headings, tables, and other block syntax
         // remain visibly package-authored instead of becoming peer sections in tool output.
         string text = prose.ToString().ReplaceLineEndings("\n");
-        return "> " + text.Replace("\n", "\n> ", StringComparison.Ordinal);
+        return string.Join(
+            "\n",
+            text.Split('\n').Select(static line => line.Length == 0 ? ">" : $"> {line}"));
     }
 }
 
