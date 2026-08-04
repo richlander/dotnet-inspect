@@ -269,16 +269,17 @@ A bundle may contain:
 
 - a stable bundle id and descriptive metadata;
 - one or more context-group definitions;
-- embedded artifact content, identity evidence, digests, and typed acquisition
-  provenance;
+- embedded artifact content or typed acquisition locations, with the identity,
+  digest, and provenance evidence appropriate to their source;
 - required producer capabilities; and
 - optional named query-plan and view presets.
 
-The workspace definition and its query presets remain separate. Several demo
-scenarios may reuse one definition, and a host may instantiate the workspace
-without running a preset. Selecting a preset lowers into the same typed query
-plan used by an interactive request; it does not create a second demo-only
-execution path.
+The workspace definition, query preset, and view or navigation preset remain
+separate. A **demo scenario** names one composition of them. Several scenarios
+may reuse one workspace definition, and a host may instantiate the workspace
+without running a preset. Selecting a scenario lowers into the same acquisition
+and typed query paths used by an interactive request; it does not create a
+second demo-only execution path.
 
 A bundle contains no live streams, `PEReader` instances, sessions, acquisition
 registrations, candidate ids, catalog generations, join tokens, cached verdicts,
@@ -288,13 +289,16 @@ under the current request's policy. A persistent host may retain the resulting
 workspace afterward under the normal lifetime and budget rules.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
-their artifact bytes do not enter the build; included bundles require no runtime
-plugin discovery, reflection loading, filesystem probing, or network access.
-This keeps the model compatible with trimming, NativeAOT, and an offline Wasm
-demo gallery.
+their definitions and embedded artifact bytes do not enter the build. Included
+bundles require no runtime plugin discovery or reflection loading. A
+self-contained bundle can run without filesystem or network access; a bundle
+that names package, platform, project, or local acquisition locations uses the
+normal owner and capability gates for those sources. This keeps the model
+compatible with trimming, NativeAOT, both online and offline Wasm demos, and
+non-browser hosts.
 
 Build inclusion makes bundled bytes available. Selecting a scenario forms a
-request for its registered inputs and declared capabilities; the host
+request for its declared inputs and capabilities; the host
 authorizes that request under the same input, cost, and capability policy as any
 other request. Selection does not bypass a network, source-content, exhaustive,
 or other expensive-work gate. The bytes remain untrusted inspection data, are
