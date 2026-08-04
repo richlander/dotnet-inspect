@@ -259,6 +259,53 @@ tokens, and leases when it publishes the successor.
 The smallest case remains cheap: one workspace, one group, one root assembly,
 and one requested query.
 
+### Workspace bundles and demos
+
+A host build may include zero or more immutable **workspace bundles**. A bundle
+is a portable definition from which the host creates an ordinary runtime
+workspace, not a serialized live workspace.
+
+A bundle may contain:
+
+- a stable bundle id and descriptive metadata;
+- one or more context-group definitions;
+- embedded artifact content, identity evidence, digests, and typed acquisition
+  provenance;
+- required producer capabilities; and
+- optional named query-plan and view presets.
+
+The workspace definition and its query presets remain separate. Several demo
+scenarios may reuse one definition, and a host may instantiate the workspace
+without running a preset. Selecting a preset lowers into the same typed query
+plan used by an interactive request; it does not create a second demo-only
+execution path.
+
+A bundle contains no live streams, `PEReader` instances, sessions, acquisition
+registrations, candidate ids, catalog generations, join tokens, cached verdicts,
+or authorization decisions. Runtime instantiation asks the normal acquisition
+owners to create fresh descriptors and registrations, then builds catalogs
+under the current request's policy. A persistent host may retain the resulting
+workspace afterward under the normal lifetime and budget rules.
+
+Hosts statically register the bundles they choose to ship. Excluded bundles and
+their artifact bytes do not enter the build; included bundles require no runtime
+plugin discovery, reflection loading, filesystem probing, or network access.
+This keeps the model compatible with trimming, NativeAOT, and an offline Wasm
+demo gallery.
+
+Build inclusion makes bundled bytes available. Selecting a scenario forms a
+request for its registered inputs and declared capabilities; the host
+authorizes that request under the same input, cost, and capability policy as any
+other request. Selection does not bypass a network, source-content, exhaustive,
+or other expensive-work gate. The bytes remain untrusted inspection data, are
+parsed rather than loaded, retain bundled acquisition provenance, and cross the
+same budgets and presentation boundaries as user-supplied content.
+
+A bundle may carry revalidatable producer data only as a versioned cache entry
+under the same semantic-key and validation rules as any other cache. It cannot
+ship a bound result, retained authorization verdict, or old producer verdict as
+authority.
+
 ### Query plan
 
 A host asks for typed inspections, not scanner names or output sections. Each
@@ -434,7 +481,7 @@ The cache owner for each result must still define:
 - freshness and versioning;
 - validation on read;
 - publication and concurrency behavior;
-- whether a miss may authorize network work.
+- whether already-authorized network work may run after a miss.
 
 A cache may make a correct query faster. It must not change which query was
 asked or which producer's bytes the caller is authorized to inspect.
