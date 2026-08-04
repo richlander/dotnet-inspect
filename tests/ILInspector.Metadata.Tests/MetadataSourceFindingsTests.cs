@@ -272,12 +272,12 @@ public sealed class MetadataSourceFindingsTests
             resolver.ResolveTypeSource(nameof(OrderedTypeSourceProbe)));
 
         Assert.EndsWith(
-            "Generated/OrderedType.Z.cs",
+            Path.Combine("Generated", "OrderedType.Z.cs"),
             source.SourceFilePath,
             StringComparison.Ordinal);
         var additional = Assert.Single(source.AdditionalSourceFiles);
         Assert.EndsWith(
-            "Generated/OrderedType.A.cs",
+            Path.Combine("Generated", "OrderedType.A.cs"),
             additional.FilePath,
             StringComparison.Ordinal);
     }

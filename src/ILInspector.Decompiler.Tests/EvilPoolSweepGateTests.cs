@@ -138,6 +138,69 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// A sweep that cannot write its assembly record refuses the output directory.
+    ///
+    /// <para>Exit 1 means the sweep ran and the corpus is short a package. This failure
+    /// is different: both packages were pooled, but the operator-supplied output path
+    /// prevented the record that makes them consumable from being written. Exit 2 keeps
+    /// that bad-output refusal distinct from a package failure.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotWriteItsAssemblyRecordRefusesTheOutputDirectory()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the assembly record path"));
+        Assert.Contains(
+            $"Could not write '{world.PooledListPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        // The run reached the record write after pooling both packages; this is not an
+        // earlier refusal that happened to return the same exit code.
+        Assert.True(File.Exists(world.LeadDestination), "the lead was not pooled.");
+        Assert.True(File.Exists(world.SubjectDestination), "the subject was not pooled.");
+        Assert.False(File.Exists(world.ManifestPath), "the sweep wrote a manifest without its assembly record.");
+    }
+
+    /// <summary>
+    /// A sweep that cannot write its manifest refuses the output directory.
+    ///
+    /// <para>The assembly record and pool reconciliation both precede this write. The
+    /// stale file makes that ordering observable: reaching the manifest write is not
+    /// enough if the sweep can return before reconciling the pool it would describe.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotWriteItsManifestRefusesTheOutputDirectory()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.ManifestPath);
+
+        string stale = Path.Combine(
+            world.OutputDirectory, "packages", "999-sweep.stale", "1.0.0", "Sweep.Stale.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        File.WriteAllBytes(stale, world.FixtureBytes);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the manifest path"));
+        Assert.Contains(
+            $"Could not write '{world.ManifestPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        Assert.True(File.Exists(world.PooledListPath), "the sweep did not write its assembly record.");
+        Assert.False(File.Exists(stale), "the sweep attempted the manifest write before reconciling the pool.");
+    }
+
+    /// <summary>
     /// Bytes the pin does not name are refused, and are not left in the pool.
     ///
     /// <para>The defect this replays: the pin recorded a version and a TFM, which describe
