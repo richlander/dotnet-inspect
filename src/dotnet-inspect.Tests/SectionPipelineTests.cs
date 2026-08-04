@@ -2968,7 +2968,9 @@ public class SectionPipelineTests
         //
         // Deriving the product set from the CLI dependency manifest rather than two name prefixes
         // raises it once more, to 132: InertText's reachable Rune use was previously outside the
-        // graph along with the entire unprefixed first-party assembly.
+        // graph along with the entire unprefixed first-party assembly. Main's synchronous
+        // Browser/Wasm metadata gate changes it to 133: its cancellation check and over-release
+        // failure enter the surface while the replaced SemaphoreSlim leaves it.
         // The projection is to the *open definition*, so Dictionary<int, Foo> and
         // Dictionary<string, Bar> are one entry. That is the granularity the claim is about -- an
         // allowed type surface, not an instantiation surface -- and without it this list is 571
@@ -3091,9 +3093,10 @@ public class SectionPipelineTests
                 "System.Text.StringBuilder",
                 "System.Text.StringBuilder.AppendInterpolatedStringHandler",
                 "System.Threading.AsyncLocal",
+                "System.Threading.CancellationToken",
                 "System.Threading.Interlocked",
                 "System.Threading.Monitor",
-                "System.Threading.SemaphoreSlim",
+                "System.Threading.SemaphoreFullException",
                 "System.Threading.Tasks.Parallel",
                 "System.Threading.Volatile",
                 "System.TimeSpan",
