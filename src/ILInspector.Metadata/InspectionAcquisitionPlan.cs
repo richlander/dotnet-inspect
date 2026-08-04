@@ -85,7 +85,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 {
     readonly object _gate = new();
     readonly InspectionAcquisitionPlanOptions _options;
-    readonly SemaphoreSlim _sourceOpenGate;
+    readonly SynchronousConcurrencyGate _sourceOpenGate;
     readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
         _entriesByRegistration =
             new(ReferenceEqualityComparer.Instance);
@@ -101,7 +101,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         _options.Validate();
         CatalogId = new AssemblyCatalogId(Guid.NewGuid());
         _sourceOpenGate =
-            new SemaphoreSlim(_options.MaxConcurrentSourceOpens);
+            new SynchronousConcurrencyGate(_options.MaxConcurrentSourceOpens);
     }
 
     internal AssemblyCatalogId CatalogId { get; }
@@ -202,7 +202,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
     CandidateRegistrationResult ReadInventory(CandidateEntry entry)
     {
-        _sourceOpenGate.Wait();
+        _sourceOpenGate.Enter();
         try
         {
             using Stream stream = OpenSource(entry.Candidate.Assembly);
@@ -333,7 +333,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
-            _sourceOpenGate.Release();
+            _sourceOpenGate.Exit();
         }
     }
 
@@ -343,7 +343,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         if (inventoryResult is CandidateRegistrationResult.Rejected rejected)
             return new CandidateSessionResult.Rejected(rejected.Failure);
 
-        _sourceOpenGate.Wait();
+        _sourceOpenGate.Enter();
         long reservedBytes = 0;
         try
         {
@@ -413,7 +413,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
-            _sourceOpenGate.Release();
+            _sourceOpenGate.Exit();
         }
     }
 
@@ -527,7 +527,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         foreach (AssemblyInspectionSession session in sessions)
             session.Dispose();
-        _sourceOpenGate.Dispose();
     }
 
     sealed class CandidateEntry
