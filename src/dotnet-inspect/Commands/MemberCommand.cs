@@ -568,7 +568,7 @@ public static class MemberCommand
         _ => kind
     };
 
-    private static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
+    internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
         if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
@@ -579,6 +579,7 @@ public static class MemberCommand
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
+                   || sections.Contains(SectionNames.AnnotatedSourceMap)
                    || sections.Contains(SectionNames.Facts));
     }
 

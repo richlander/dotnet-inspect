@@ -133,7 +133,6 @@ public static class ApiMemberSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceMap>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 

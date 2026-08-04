@@ -350,7 +350,7 @@ public static partial class ResearchViews
                 importMethodBody: ImportMethodBody,
                 typesProvablyDisjoint: source.AreProvablyDisjoint,
                 options: printerOptions);
-        if (csResult.Output is not { } csText)
+        if (csResult.Output is not { Length: > 0 } csText)
             return AnnotatedSourceMap.Empty;
 
         bool lensApplied = csResult.Metadata.Decisions

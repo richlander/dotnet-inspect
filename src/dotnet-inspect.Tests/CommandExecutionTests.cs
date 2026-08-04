@@ -6624,6 +6624,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_AnnotatedSourceMap_IsNotAdvertisedAsATypeSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Annotated Source Map", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Annotated Source Map' not found", error);
+    }
+
+    [Fact]
+    public void Member_AnnotatedSourceMap_AuthorizesPdbResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.AnnotatedSourceMap,
+            },
+        };
+
+        Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
     public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
     {
         const string injected = "public int Injected() => 42; //";

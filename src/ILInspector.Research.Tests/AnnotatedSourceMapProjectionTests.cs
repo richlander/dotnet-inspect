@@ -254,6 +254,17 @@ public class AnnotatedSourceMapProjectionTests
             annotation => annotation.Descriptor == "test.unplaced");
     }
 
+    [Fact]
+    public void EmptyBodyProducesAnEmptyMap()
+    {
+        var map = Map(nameof(AnnotatedTasteFixture.Noop), options: null);
+
+        Assert.Empty(map.Lines);
+        Assert.Empty(map.Nodes);
+        Assert.Empty(map.Regions);
+        Assert.Empty(map.UnplacedAnnotations);
+    }
+
     static AnnotatedSourceMap Map(string method, PrinterOptions? options)
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
