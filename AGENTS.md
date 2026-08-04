@@ -517,6 +517,13 @@ explicitly includes hostile in-process callers, require the invariant for
 well-behaved code that follows the design — not for arbitrary code that bypasses
 or misuses its abstractions.
 
+Mutation testing is evidence, not an admission rule. A mutation surviving the
+suite does not by itself justify another gate: require a plausible regression
+of promised behavior that existing contract-level coverage misses. Prefer one
+outcome-level test over tests coupled to every branch or call site, and do not
+add fixture seams solely to make each intentional-looking weakening
+independently red.
+
 Prefer simple, auditable enforcement over making every abstraction a fortress
 against rogue callers. `InertString` is the model: code that uses the type
 properly gets its invariant, while bypasses and misuse are deliberately easy to
