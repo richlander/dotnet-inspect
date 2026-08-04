@@ -22,7 +22,6 @@ internal sealed record CSharpDeclarationOptions
     public CSharpTypeNameMode TypeNameMode { get; init; } = CSharpTypeNameMode.Qualified;
     public string? ContainingNamespace { get; init; }
     public IReadOnlyCollection<string> Usings { get; init; } = [];
-    public IReadOnlyCollection<string> AdditionalShadowingNames { get; init; } = [];
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -62,11 +61,7 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         var references = CollectMemberTypeReferences(member);
-        var plan = TypeNamePlan.Create(
-            references,
-            options,
-            CollectShadowingNames(type, [member]),
-            CSharpFormatter.StripArity(type.Name));
+        var plan = TypeNamePlan.Create(references, options);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
 
@@ -85,11 +80,7 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         var references = CollectMemberTypeReferences(member);
-        var plan = TypeNamePlan.Create(
-            references,
-            options,
-            CollectShadowingNames(type, [member]),
-            CSharpFormatter.StripArity(type.Name));
+        var plan = TypeNamePlan.Create(references, options);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
@@ -106,11 +97,7 @@ internal static class CSharpDeclarationWriter
         var memberList = members?.ToList() ?? type.Members;
         var references = CollectTypeReferences(type)
             .Concat(memberList.SelectMany(CollectMemberTypeReferences));
-        var plan = TypeNamePlan.Create(
-            references,
-            options,
-            CollectShadowingNames(type, memberList),
-            CSharpFormatter.StripArity(type.Name));
+        var plan = TypeNamePlan.Create(references, options);
 
         List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type, options))];
         lines.Add("{");
@@ -136,37 +123,11 @@ internal static class CSharpDeclarationWriter
             ? string.Join('\n', text.Split('\n').Select(line => line.Length == 0 ? line : pad + line))
             : pad + text;
 
-    public static string RenderTypeDeclaration(
-        ApiType type,
-        CSharpDeclarationOptions? options = null,
-        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
+    public static string RenderTypeDeclaration(ApiType type, CSharpDeclarationOptions? options = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var parameters = primaryConstructorParameters ?? [];
-        var plan = TypeNamePlan.Create(
-            CollectTypeReferences(type)
-                .Concat(parameters.SelectMany(CollectParameterTypeReferences)),
-            options,
-            CollectShadowingNames(type, []),
-            CSharpFormatter.StripArity(type.Name));
-        string declaration = RenderTypeDeclarationCore(type, options);
-        if (parameters.Count > 0)
-        {
-            string declarationWithoutAttributes = RenderTypeDeclarationCore(
-                type,
-                options with { IncludeCustomAttributes = false });
-            if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
-            }
-
-            declaration = declaration[..^declarationWithoutAttributes.Length]
-                + AddPrimaryConstructorParameters(
-                    declarationWithoutAttributes,
-                    parameters);
-        }
-        return plan.Apply(declaration);
+        var plan = TypeNamePlan.Create(CollectTypeReferences(type), options);
+        return plan.Apply(RenderTypeDeclarationCore(type, options));
     }
 
     /// <summary>
@@ -183,61 +144,77 @@ internal static class CSharpDeclarationWriter
     public static IReadOnlyList<string> DeriveContextualUsings(IReadOnlyCollection<ApiType> types)
     {
         ArgumentNullException.ThrowIfNull(types);
-        return DeriveContextualUsings(types.Select(type => (
-            Type: type,
-            Members: (IEnumerable<ApiMember>)type.Members,
-            AdditionalParameters: Enumerable.Empty<ApiParameter>())));
-    }
 
-    internal static IReadOnlyList<string> DeriveContextualUsings(
-        IEnumerable<(
-            ApiType Type,
-            IEnumerable<ApiMember> Members,
-            IEnumerable<ApiParameter> AdditionalParameters)> scopes,
-        IEnumerable<string>? contextualNamespaces = null)
-    {
-        var scopeList = scopes
-            .Select(scope => (
-                scope.Type,
-                Members: scope.Members.ToList(),
-                AdditionalParameters: scope.AdditionalParameters.ToList()))
-            .ToList();
-        var typeRefs = scopeList
-            .SelectMany(scope => CollectTypeReferences(scope.Type)
-                .Concat(scope.Members.SelectMany(CollectMemberTypeReferences))
-                .Concat(scope.AdditionalParameters.SelectMany(CollectParameterTypeReferences)))
+        var typeRefs = types
+            .SelectMany(type => CollectTypeReferences(type)
+                .Concat(type.Members.SelectMany(CollectMemberTypeReferences)))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
 
-        var knownNamespaces = typeRefs
-            .Select(typeRef => typeRef.Namespace)
-            .Concat(contextualNamespaces ?? [])
-            .Concat(scopeList.Select(scope => scope.Type.Namespace))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        var declaredSimpleNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var scope in scopeList)
+        var declaredSimpleNames = types
+            .Select(type => CSharpFormatter.StripArity(type.Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+        // Generic type/method parameters shadow same-named type references within
+        // their scope: importing a namespace and shortening a reference to a simple
+        // name that matches an in-scope type parameter would rebind it to the
+        // parameter. Exclude those namespaces so such references stay qualified.
+        foreach (var type in types)
         {
-            declaredSimpleNames.Add(CSharpFormatter.StripArity(scope.Type.Name));
-            foreach (var knownNamespace in knownNamespaces)
+            foreach (var typeParameter in type.TypeParameters)
+                declaredSimpleNames.Add(typeParameter.Name);
+            foreach (var member in type.Members)
             {
-                AddVisibleNamespaceNames(
-                    declaredSimpleNames,
-                    scope.Type.Namespace,
-                    knownNamespace);
+                if (member.SignatureModel is { } signature)
+                {
+                    foreach (var typeParameter in signature.TypeParameters)
+                        declaredSimpleNames.Add(typeParameter.Name);
+                }
+
+                // Members whose signature failed structured decoding fall back to the
+                // raw signature string, whose generic method parameters are not in
+                // SignatureModel. Parse them so they still shadow same-named references.
+                foreach (var name in RawSignatureGenericParameterNames(member))
+                    declaredSimpleNames.Add(name);
             }
-            declaredSimpleNames.UnionWith(CollectShadowingNames(scope.Type, scope.Members));
         }
 
         var usings = new SortedSet<string>(StringComparer.Ordinal);
-        var collidingSimpleNames = CollidingSimpleNames(typeRefs);
-        var unsafeNamespaces = UnsafeNamespaces(
-            typeRefs,
-            declaredSimpleNames,
-            collidingSimpleNames);
+        var collidingSimpleNames = typeRefs
+            .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
+            .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A nested type referenced as a type (e.g. `System.Environment.SpecialFolder`)
+        // arrives here as a flat dotted string, indistinguishable from a
+        // namespace-qualified reference: TypeRef.TryCreate splits at the last dot and
+        // derives namespace `System.Environment`, which is actually a type. Emitting
+        // `using System.Environment;` is illegal (CS0138). When the enclosing type is
+        // itself referenced in the unit we can detect this — its full name appears as a
+        // derived namespace — and exclude that namespace. (The isolated case, where the
+        // enclosing type is never referenced on its own, is not detectable from the
+        // flattened string alone; a full fix needs nested-type identity from the
+        // metadata layer. The failure mode is safe-visible: the reference stays
+        // qualified and, for a spurious using, RTS records a RecompileFail rather than
+        // miscompiling.)
+        var referencedFullNames = typeRefs
+            .Select(r => r.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // A namespace contributes a simple name for every reference it owns. Per-type
+        // shortening keys off namespace membership, so importing a namespace shortens
+        // every reference it owns. If any of those simple names is ambiguous unit-wide
+        // or shadowed by a declared type or type parameter, importing the namespace is
+        // unsafe: the shortened reference would become ambiguous or rebind. Exclude the
+        // whole namespace so every reference it owns stays fully qualified.
+        var unsafeNamespaces = typeRefs
+            .Where(r => collidingSimpleNames.Contains(r.SimpleName) || declaredSimpleNames.Contains(r.SimpleName))
+            .Select(r => r.Namespace)
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
@@ -248,124 +225,12 @@ internal static class CSharpDeclarationWriter
             var ns = group.First().Namespace;
             if (unsafeNamespaces.Contains(ns))
                 continue;
+            if (referencedFullNames.Contains(ns))
+                continue;
             usings.Add(ns);
         }
 
         return usings.ToList();
-    }
-
-    static IEnumerable<string> CollectParameterTypeReferences(ApiParameter parameter)
-    {
-        if (!string.IsNullOrWhiteSpace(parameter.Type))
-            foreach (var reference in ExtractQualifiedTypeNames(parameter.Type))
-                yield return reference;
-        foreach (var attribute in parameter.Attributes)
-            foreach (var reference in ExtractQualifiedTypeNames(StripAttributeArguments(attribute)))
-                yield return reference;
-    }
-
-    static string AddPrimaryConstructorParameters(
-        string declaration,
-        IReadOnlyList<ApiParameter> parameters)
-    {
-        string parameterList = CSharpFormatter.FormatParameterList(parameters);
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
-        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
-            ? head[..inheritance] + parameterList + head[inheritance..] + tail
-            : $"{head}{parameterList}{tail}";
-    }
-
-    static HashSet<string> CollectShadowingNames(
-        ApiType type,
-        IEnumerable<ApiMember> members)
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var typeParameter in type.TypeParameters)
-            names.Add(typeParameter.Name);
-        foreach (var member in members)
-        {
-            if (member.SignatureModel is { } signature)
-                foreach (var typeParameter in signature.TypeParameters)
-                    names.Add(typeParameter.Name);
-
-            // Members whose signature failed structured decoding fall back to the
-            // raw signature string, whose generic method parameters are not in
-            // SignatureModel. Parse them so they still shadow same-named references.
-            foreach (var name in RawSignatureGenericParameterNames(member))
-                names.Add(name);
-        }
-        return names;
-    }
-
-    static void AddVisibleNamespaceNames(
-        HashSet<string> names,
-        string? containingNamespace,
-        string? knownNamespace)
-    {
-        if (string.IsNullOrWhiteSpace(knownNamespace))
-            return;
-        var knownSegments = knownNamespace.Split(
-            '.',
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (knownSegments.Length == 0)
-            return;
-        names.Add(knownSegments[0]);
-
-        if (string.IsNullOrWhiteSpace(containingNamespace))
-            return;
-        var containingSegments = containingNamespace.Split(
-            '.',
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        int sharedLength = Math.Min(containingSegments.Length, knownSegments.Length - 1);
-        for (var i = 0; i < sharedLength; i++)
-        {
-            if (!string.Equals(
-                containingSegments[i],
-                knownSegments[i],
-                StringComparison.Ordinal))
-            {
-                break;
-            }
-            names.Add(knownSegments[i + 1]);
-        }
-    }
-
-    static HashSet<string> CollidingSimpleNames(IReadOnlyList<TypeRef> typeRefs)
-        => typeRefs
-            .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
-            .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
-            .Select(g => g.Key)
-            .ToHashSet(StringComparer.Ordinal);
-
-    static HashSet<string> UnsafeNamespaces(
-        IReadOnlyList<TypeRef> typeRefs,
-        IReadOnlySet<string> shadowingNames,
-        IReadOnlySet<string> collidingSimpleNames)
-    {
-        // A namespace contributes a simple name for every reference it owns. If any
-        // of those names is ambiguous or shadowed in the unit, importing that
-        // namespace is unsafe, so every reference it owns stays qualified.
-        var unsafeNamespaces = typeRefs
-            .Where(r => collidingSimpleNames.Contains(r.SimpleName)
-                || shadowingNames.Contains(r.SimpleName))
-            .Select(r => r.Namespace)
-            .ToHashSet(StringComparer.Ordinal);
-
-        // A nested type referenced as a type (e.g. `System.Environment.SpecialFolder`)
-        // arrives as a flat dotted string whose last-dot split looks like namespace
-        // `System.Environment`. When the enclosing type is itself referenced, its full
-        // name exposes that false namespace and keeps the nested reference qualified.
-        var referencedFullNames = typeRefs
-            .Select(r => r.FullName)
-            .ToHashSet(StringComparer.Ordinal);
-        unsafeNamespaces.UnionWith(typeRefs
-            .Where(r => referencedFullNames.Contains(r.Namespace))
-            .Select(r => r.Namespace));
-
-        return unsafeNamespaces;
     }
 
     static string ComposeUnit(IReadOnlyList<string> bodyLines, IReadOnlyList<string> usings, CSharpDeclarationOptions options)
@@ -2215,12 +2080,11 @@ internal static class CSharpDeclarationWriter
             return text;
         }
 
-        public static TypeNamePlan Create(
-            IEnumerable<string> references,
-            CSharpDeclarationOptions options,
-            IReadOnlySet<string> shadowingNames,
-            string declaredTypeName)
+        public static TypeNamePlan Create(IEnumerable<string> references, CSharpDeclarationOptions options)
         {
+            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
+                return new TypeNamePlan(new Dictionary<string, string>(), [], []);
+
             var typeRefs = references
                 .Select(TypeRef.TryCreate)
                 .Where(r => r is not null)
@@ -2228,102 +2092,30 @@ internal static class CSharpDeclarationWriter
                 .DistinctBy(r => r.FullName, StringComparer.Ordinal)
                 .ToList();
 
-            var lexicalShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
-            lexicalShadowingNames.UnionWith(options.AdditionalShadowingNames);
-            var namespaceShadowingNames = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var typeRef in typeRefs)
-            {
-                AddVisibleNamespaceNames(
-                    namespaceShadowingNames,
-                    options.ContainingNamespace,
-                    typeRef.Namespace);
-            }
-            foreach (var ns in options.Usings)
-            {
-                AddVisibleNamespaceNames(
-                    namespaceShadowingNames,
-                    options.ContainingNamespace,
-                    ns);
-            }
-            AddVisibleNamespaceNames(
-                namespaceShadowingNames,
-                options.ContainingNamespace,
-                options.ContainingNamespace);
-            if (typeRefs.Any(r => string.Equals(r.SimpleName, declaredTypeName, StringComparison.Ordinal)
-                && !string.Equals(r.Namespace, options.ContainingNamespace, StringComparison.Ordinal)))
-            {
-                lexicalShadowingNames.Add(declaredTypeName);
-            }
-            var rootShadowingNames = lexicalShadowingNames.ToHashSet(StringComparer.Ordinal);
-            rootShadowingNames.Add(declaredTypeName);
-            rootShadowingNames.UnionWith(typeRefs
-                .Where(typeRef => string.Equals(
-                    typeRef.Namespace,
-                    options.ContainingNamespace,
-                    StringComparison.Ordinal))
-                .Select(typeRef => typeRef.SimpleName));
-
-            var collisions = CollidingSimpleNames(typeRefs);
-            var allShadowingNames = lexicalShadowingNames
-                .Concat(namespaceShadowingNames)
-                .ToHashSet(StringComparer.Ordinal);
-            var unsafeNamespaces = UnsafeNamespaces(
-                typeRefs,
-                allShadowingNames,
-                collisions);
+            var collisions = typeRefs
+                .GroupBy(r => r.SimpleName, StringComparer.Ordinal)
+                .Where(g => g.Select(r => r.FullName).Distinct(StringComparer.Ordinal).Count() > 1)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
             var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
             var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
             var diagnostics = new List<string>();
             var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
-            void KeepResolvableQualified(TypeRef typeRef)
-            {
-                if (rootShadowingNames.Contains(NamespaceRoot(typeRef.Namespace)))
-                    replacements[typeRef.FullName] = $"global::{typeRef.FullName}";
-            }
-
-            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
-            {
-                foreach (var typeRef in typeRefs)
-                    KeepResolvableQualified(typeRef);
-                return new TypeNamePlan(replacements, [], diagnostics);
-            }
 
             foreach (var typeRef in typeRefs)
             {
-                var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
-                    && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
-                if (!isSameNamespace && collisions.Contains(typeRef.SimpleName))
+                if (collisions.ContainsKey(typeRef.SimpleName))
                 {
                     diagnostics.Add($"Type name '{typeRef.SimpleName}' is ambiguous; kept '{typeRef.FullName}' qualified.");
-                    KeepResolvableQualified(typeRef);
                     continue;
                 }
-                if (lexicalShadowingNames.Contains(typeRef.SimpleName))
-                {
-                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed in this declaration; kept '{typeRef.FullName}' qualified.");
-                    KeepResolvableQualified(typeRef);
-                    continue;
-                }
-                if (!isSameNamespace && namespaceShadowingNames.Contains(typeRef.SimpleName))
-                {
-                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed by a namespace in this declaration; kept '{typeRef.FullName}' qualified.");
-                    KeepResolvableQualified(typeRef);
-                    continue;
-                }
-                if (!isSameNamespace && unsafeNamespaces.Contains(typeRef.Namespace))
-                {
-                    diagnostics.Add($"Namespace '{typeRef.Namespace}' contains an ambiguous or shadowed type name; kept '{typeRef.FullName}' qualified.");
-                    KeepResolvableQualified(typeRef);
-                    continue;
-                }
+
+                var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
+                    && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
                 var isInContext = isSameNamespace || contextualUsings.Contains(typeRef.Namespace);
 
                 if (options.TypeNameMode == CSharpTypeNameMode.ContextualShort && !isInContext)
-                {
-                    KeepResolvableQualified(typeRef);
                     continue;
-                }
 
                 replacements[typeRef.FullName] = typeRef.SimpleName;
                 if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
@@ -2331,12 +2123,6 @@ internal static class CSharpDeclarationWriter
             }
 
             return new TypeNamePlan(replacements, generatedUsings.ToList(), diagnostics);
-        }
-
-        static string NamespaceRoot(string ns)
-        {
-            int separator = ns.IndexOf('.');
-            return separator < 0 ? ns : ns[..separator];
         }
 
         static string ReplaceIdentifierToken(string text, string token, string replacement)
@@ -2363,11 +2149,6 @@ internal static class CSharpDeclarationWriter
                     && IsStartBoundary(text, i - 1)
                     && IsEndBoundary(text, i + token.Length))
                 {
-                    if (IsWithinGlobalAlias(text, i))
-                    {
-                        sb.Append(text[i++]);
-                        continue;
-                    }
                     sb.Append(replacement);
                     i += token.Length;
                     continue;
@@ -2377,19 +2158,6 @@ internal static class CSharpDeclarationWriter
             }
 
             return sb.ToString();
-        }
-
-        static bool IsWithinGlobalAlias(string text, int index)
-        {
-            var start = index;
-            while (start > 0
-                && (IsIdentifierPart(text[start - 1]) || text[start - 1] is '.' or '+'))
-            {
-                start--;
-            }
-            return start >= "global::".Length
-                && text.AsSpan(start - "global::".Length, "global::".Length)
-                    .SequenceEqual("global::");
         }
 
         static bool IsStartBoundary(string text, int index)
