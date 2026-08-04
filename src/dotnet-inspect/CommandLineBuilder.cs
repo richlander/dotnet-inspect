@@ -102,6 +102,11 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
+        catch (DotnetInspector.Services.NuspecParseException ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             return 1;

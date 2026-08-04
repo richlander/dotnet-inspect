@@ -5,6 +5,8 @@ using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
+using InertText.Encoding;
 using MarkdownTable.Formatting;
 
 namespace DotnetInspector.Inspectors;
@@ -16,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v10";
+    internal const string Category = "pkg-index-v11";
 
     static PackageIndexCache()
     {
@@ -41,7 +43,7 @@ internal static class PackageIndexCache
                 PackageName = doc.GetString("packageName") ?? packageName,
                 ManifestVersion = doc.GetString("manifestVersion"),
                 Version = doc.GetString("version") ?? version,
-                Description = doc.GetString("description"),
+                Description = DeserializeDescription(doc.GetString("description")),
                 Authors = doc.GetString("authors"),
                 License = doc.GetString("license"),
                 LicenseUrl = doc.GetString("licenseUrl"),
@@ -131,7 +133,7 @@ internal static class PackageIndexCache
         WriteField(buf, "packageName"u8, result.PackageName);
         WriteField(buf, "manifestVersion"u8, result.ManifestVersion);
         WriteField(buf, "version"u8, result.Version);
-        WriteField(buf, "description"u8, result.Description);
+        WriteField(buf, "description"u8, SerializeDescription(result.Description));
         WriteField(buf, "authors"u8, result.Authors);
         WriteField(buf, "license"u8, result.License);
         WriteField(buf, "licenseUrl"u8, result.LicenseUrl);
@@ -200,6 +202,20 @@ internal static class PackageIndexCache
         Write(buf, ": "u8);
         Write(buf, value);
         Write(buf, "\n"u8);
+    }
+
+    internal static string? SerializeDescription(InertString? description)
+        => description?.EnsurePermitted(TextPolicy.Field).ToString();
+
+    internal static InertString? DeserializeDescription(string? encoded)
+    {
+        if (encoded is null)
+            return null;
+
+        if (!VisualEncoder.TryDecode(encoded, out string? decoded))
+            throw new InvalidDataException("Cached package description is not valid encoded text.");
+
+        return new InertString(TextPolicy.Prose, decoded);
     }
 
     private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, bool value)

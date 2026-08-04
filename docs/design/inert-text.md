@@ -344,6 +344,27 @@ compiler: there is no conversion that would let a `string` into any of those
 fields. That is a stronger enforcement than a test, and it is the reason to
 prefer carrying the type over re-checking the text.
 
+Package descriptions are the second worked example. A nuspec description is
+presentation-bound from the moment it is parsed, so `NuspecData.Description`
+contains it under `TextPolicy.Prose`; `InspectionResult.Description` carries the
+same `InertString`; and only the two sinks take it apart. JSON writes its encoded
+text as a JSON string, leaving structural escaping to the serializer. Markdown
+prefixes every line as a quotation, so package-authored headings and tables
+remain visibly package content rather than becoming peer structures in tool
+output. The line-oriented package cache is a persistence sink: it conforms the
+value to `TextPolicy.Field` while stored, then decodes and immediately rebuilds
+the `TextPolicy.Prose` value on read. `PackageIndexCacheTests` gates that
+round-trip. `NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString`
+gates the two model fields, and
+`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson` gates both sinks.
+
+The other nuspec fields remain `string` deliberately. Package IDs, versions,
+dependency coordinates, and readme paths participate in identity, parsing,
+matching, and path resolution before any of them reaches presentation. Encoding
+them at acquisition would change those answers. Their known grammars want typed
+allow-list rejection instead, which is a separate contract from
+presentation-bound prose.
+
 ## Holding a value is not the same as being able to reverse it
 
 A type answers what a *sink* accepts. It does not answer what a *file* can do,

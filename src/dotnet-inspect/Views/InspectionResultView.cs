@@ -1,7 +1,6 @@
-using System.Globalization;
-using System.Text;
 using System.Diagnostics.CodeAnalysis;
 using ILInspector.CSharp;
+using InertText;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -37,8 +36,8 @@ public class InspectionResultView
     /// <inheritdoc cref="PackageViewText"/>
     public string? TitleVersion => _includeTitleVersion ? PackageViewText.Contain(_data.Version) : null;
 
-    /// <inheritdoc cref="PackageViewText.ContainProse"/>
-    public string? Description => PackageViewText.ContainProse(_data.Description);
+    /// <inheritdoc cref="PackageViewText.QuoteProse"/>
+    public string? Description => PackageViewText.QuoteProse(_data.Description);
 
     // ===== Field Collections for Serializer =====
 
@@ -451,47 +450,25 @@ internal static class PackageViewText
         => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
 
     /// <summary>
-    /// Containment for a free-form prose block, as distinct from a table cell.
+    /// Renders contained prose as a Markdown quotation.
     /// </summary>
     /// <remarks>
-    /// A nuspec description is legitimately several paragraphs, and it renders
-    /// as a standalone block rather than inside a cell, so folding its line
-    /// endings the way <see cref="Contain"/> does would silently merge and drop
-    /// paragraphs of real package documentation. This escapes every other
-    /// rendering hazard -- bidi overrides, ANSI escapes, C0/C1 controls, and the
-    /// U+2028/U+2029 separators -- and deliberately leaves CR and LF alone.
-    ///
-    /// The boundary that leaves is explicit and unverified by any gate: a
-    /// hostile description can still introduce a line break, and because the
-    /// block is rendered as Markdown it could already introduce a heading or a
-    /// table before this change. Constraining a package's own description to
-    /// inert text is a separate decision from #3319, which is about untrusted
-    /// text escaping a structure it was placed inside.
+    /// The value reaches this sink as an <see cref="InertString"/>, so visual containment is
+    /// already a property of the object model. The quotation is the separate structural
+    /// containment Markdown requires: package-authored headings and tables remain inside a
+    /// visibly quoted block instead of becoming peer structures in tool output.
     /// </remarks>
     [return: NotNullIfNotNull(nameof(value))]
-    public static string? ContainProse(string? value)
+    public static string? QuoteProse(InertString? value)
     {
-        if (value is null || !value.Any(NeedsEscape))
-            return value;
+        if (value is not { } prose || prose.IsEmpty)
+            return value?.ToString();
 
-        var builder = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            if (NeedsEscape(ch))
-                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
-            else
-                builder.Append(ch);
-        }
-
-        return builder.ToString();
-
-        // U+2028 and U+2029 are categories Zl/Zp, so char.IsControl is false for
-        // them and IsRenderingHazard does not claim them; they are named here
-        // because a terminal still breaks the line on them, which would split
-        // the block just as CR/LF do without being visible in the source text.
-        static bool NeedsEscape(char ch)
-            => ch is '\u2028' or '\u2029'
-                || (ch is not '\n' and not '\r' and not '\t' && CSharpIdentifier.IsRenderingHazard(ch));
+        // Markout's DescriptionProperty writes a paragraph verbatim. Prefixing every line
+        // makes the package's prose a quotation, so headings, tables, and other block syntax
+        // remain visibly package-authored instead of becoming peer sections in tool output.
+        string text = prose.ToString().ReplaceLineEndings("\n");
+        return "> " + text.Replace("\n", "\n> ", StringComparison.Ordinal);
     }
 }
 

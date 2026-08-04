@@ -2411,7 +2411,9 @@ public class OutputFormatterTests
     public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
     {
         var result = CreateTestPackageResult();
-        result.Description = "Package description that should only appear in default views.";
+        result.Description = new InertText.InertString(
+            InertText.TextPolicy.Prose,
+            "Package description that should only appear in default views.");
         result.Source = "NuGet";
         result.AuditSignals =
         [
@@ -2429,7 +2431,7 @@ public class OutputFormatterTests
         Assert.DoesNotContain("# TestPackage (1.0.0)", output);
         Assert.Contains("Version: 1.0.0", output);
         Assert.Contains("Source: NuGet", output);
-        Assert.DoesNotContain(result.Description, output);
+        Assert.DoesNotContain(result.Description.Value.ToString(), output);
         Assert.Contains("## Signals", output);
     }
 

@@ -1,10 +1,27 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Packages;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
 public sealed class PackageIndexCacheTests
 {
+    [Fact]
+    public void Description_RoundTripsAsContainedProse()
+    {
+        var description = new InertString(
+            TextPolicy.Prose,
+            "first\nliteral \\u202E and live \u202E");
+
+        string encoded = PackageIndexCache.SerializeDescription(description)!;
+        InertString cached = PackageIndexCache.DeserializeDescription(encoded)!.Value;
+
+        Assert.DoesNotContain('\n', encoded);
+        Assert.Equal("first\\^Jliteral \\\\u202E and live \\u202E", encoded);
+        Assert.Equal(description, cached);
+        Assert.Equal("first\nliteral \\\\u202E and live \\u202E", cached.ToString());
+    }
+
     [Theory]
     [InlineData("[1.0.0,2.0.0)")]
     [InlineData("[3.0.0,)")]

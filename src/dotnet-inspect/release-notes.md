@@ -62,6 +62,16 @@
   modes differ only in whether they can fail, so output is unchanged wherever no
   such text exists.
 
+### Package manifest hardening
+
+- Rejects malformed nuspec XML with a one-line diagnostic naming only the parse
+  location, rather than emitting the parser stack or quoting package-authored
+  text.
+- Carries nuspec descriptions as `InertString` through the service and
+  inspection models. Markdown renders the description as a quotation so its
+  headings and tables cannot impersonate tool sections; JSON retains the prose
+  shape and applies its own structural escaping.
+
 ### Output and projections
 
 - Adds JSON array projection output and scalar URL/path shape projections,
