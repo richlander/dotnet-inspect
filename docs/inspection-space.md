@@ -14,9 +14,11 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. The repository already contains important parts of it,
-but not every assembly-backed command runs through one workspace and typed query
-plan yet.
+govern its migration. No assembly-backed command runs through a workspace or
+typed query plan today. Existing foundations include shared image and inspection
+session ownership, catalog generations, `CoreCache`, typed provenance and
+resolution currencies, and `InertString`; the workspace and query-plan model
+describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
