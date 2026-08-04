@@ -148,11 +148,13 @@ public class GateExpectedClassesTests
 
         Assert.True(
             offenders.Count == 0,
-            "The pre-merge gate completeness check is method-granular because xUnit's discovery "
-                + "listing does not enumerate individual cases, so a test that expands to several "
-                + "cases and silently loses some would still satisfy it. Gate classes must contain "
-                + "only plain [Fact] tests. Either make these facts, or teach "
-                + "eng/check-decompiler-gate.cs a case-level expectation before adding them:"
+            "The pre-merge gate completeness check is method-granular because its discovery "
+                + "pass runs '-list methods/json', so a test that expands to several cases and "
+                + "silently loses some would still satisfy it. Gate classes must contain only "
+                + "plain [Fact] tests. Either make these facts, or teach "
+                + "eng/check-decompiler-gate.cs a case-level expectation "
+                + "('-preEnumerateTheories -list full/json' lists one entry per case with a "
+                + "stable ID) before adding them:"
                 + Environment.NewLine
                 + string.Join(Environment.NewLine, offenders.Select(o => "  " + o)));
     }
