@@ -252,9 +252,10 @@ public class EvilPoolPinTests
     /// rule disappeared both fail. Each whole-list tamper is placed at the end of the
     /// committed list, outside the requested rank 1-2 window, so deleting its intended
     /// rule does not fall into a neighbouring list refusal. Measured one rule at a time,
-    /// the cases then exit 134, 1, or 0 rather than the required 2. The three window cases
-    /// similarly satisfy every earlier rule and differ only in the requested window
-    /// (#3715).</para>
+    /// the cases then exit 134, 1, or 0 rather than the required 2. Two window cases leave
+    /// the list intact and vary only the requested window; the contiguity case shifts
+    /// every rank after the first, preserving positive distinct ranks and the requested
+    /// count so only the gap refusal applies (#3715).</para>
     ///
     /// <para>The committed pin accompanies every case so pin presence cannot become a
     /// common exit-1 false positive. Any case that reaches acquisition after its rule is
