@@ -1633,6 +1633,41 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ScannerAuthorization_CannotBePromotedByNestedRegistryRun()
+    {
+        var nested = new ScannerRegistry()
+            .Add("expensive", SectionCost.Unbounded, ctx => ctx.BodyIndex());
+        var outer = new ScannerRegistry()
+            .Add(
+                "cheap",
+                SectionCost.NetworkFree,
+                ctx => nested.RunScanners(["expensive"], ctx));
+
+        var ex = Assert.Throws<ScannerCostDeclarationException>(
+            () => outer.RunScanners(["cheap"], NullScannerContext()));
+        Assert.Contains("nested scanner run", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("cannot be replaced", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DrillMapConstruction_IsPrivateToScannerContext()
+    {
+        var builder = typeof(ScannerContext).GetMethod(
+            "BuildDrillMap",
+            System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.NonPublic);
+
+        Assert.NotNull(builder);
+        Assert.True(builder.IsPrivate);
+        Assert.DoesNotContain(
+            typeof(LibraryMetadataService).GetMethods(
+                System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic),
+            method => method.Name == "BuildLibraryDrillMap");
+    }
+
+    [Fact]
     public void ProductionScannerCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
         var registry = new ScannerRegistry()

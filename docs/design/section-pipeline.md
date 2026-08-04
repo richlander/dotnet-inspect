@@ -76,7 +76,7 @@ This inverts the previous arrangement, in which each section restated the cost o
 
 The registry cannot see that a scanner touches the body index. `ctx.BodyIndex` is handed to scan methods as a lazily-invoked method group bound to `Func<LibraryBodyIndex>`, which is exactly how those nine sections drifted. A declared-cost enum alone would let the next one drift the same way.
 
-So one declaration does both jobs: **only a scanner registered as `Unbounded` may call `ctx.BodyIndex()` or `ctx.DrillMap()`**. Adding a body-index call to a scanner that still claims to be cheap throws instead of quietly restoring the defect. The check is scoped to scanner execution and cleared when the run ends, because the `Func` can outlive the scanner that supplied it and be invoked while rendering.
+So one declaration does both jobs: **only a scanner registered as `Unbounded` may call `ctx.BodyIndex()` or `ctx.DrillMap()`**. Adding a body-index call to a scanner that still claims to be cheap throws instead of quietly restoring the defect. The check is scoped to scanner execution and cleared when the run ends, because the `Func` can outlive the scanner that supplied it and be invoked while rendering. Scanner execution cannot nest on an active context: otherwise a cheap scanner could run an `Unbounded` scanner through another registry and temporarily replace its authorization. Drill-map construction is private to `ScannerContext`, so the guarded accessor is the only ordinary-code entry point to that whole-assembly operation.
 
 ### What `Unbounded` means for selection
 
@@ -105,9 +105,9 @@ The effective axis subsumes the scanner axis because a scanner raise always rais
 
 Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
-### Twenty-four routes into the same defect
+### Twenty-six routes into the same defect
 
-The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twenty-four different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
+The defect this mechanism exists to prevent has one shape — *a section declares itself cheap while the work behind it is expensive* — and twenty-six different ways in. Adversarial review of #3626 surfaced them one at a time, each only after the previous was closed, so the list is recorded here rather than left to be re-derived. Every row has a gate in `SectionPipelineTests`.
 
 | Route | Closed by |
 | --- | --- |
@@ -132,11 +132,13 @@ The defect this mechanism exists to prevent has one shape — *a section declare
 | The same, by **reinterpretation** (`Unsafe.As<T>(object)`) rather than allocation | the same call-site pin, which is why it is keyed on callers rather than members |
 | The implementing type is a **value type**, which needs no construction event at all, so no primitive is required and the two rows above are patches | a claim over the population instead of an edge: no product value type's implementation of a BCL contract may reach an opener |
 | Scanner code overwrites the context's current cost with `Unbounded` | a registry-created authorization token whose secret is not exposed to scanners |
+| A cheap scanner starts a nested registry run whose genuine token replaces its authorization | nested scanner authorization is refused on an active context |
+| A scanner calls the internal whole-assembly drill-map builder instead of `ctx.DrillMap()` | drill-map construction is private to `ScannerContext`, gated by `DrillMapConstruction_IsPrivateToScannerContext` |
 | A real scanner's catch-all turns the declaration exception into an empty section | a dedicated exception that crosses scanner and top-level inspection catch boundaries, plus a production-helper gate |
 | A first-party assembly such as `NuGetFetch` does not match the two historical product-name prefixes | product membership comes from `dotnet-inspect.deps.json`, not assembly-name shape |
 | A scanner invokes an opener through a delegate loaded from a static field, leaving no edge to the target | accessible static delegate and function-pointer fields are denied across the shipped project set |
 
-That the enumeration reached twenty-four is itself the finding. After each fix the class looked closed, and nearly all were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
+That the enumeration reached twenty-six is itself the finding. After each fix the class looked closed, and nearly all were found by review rather than by the author — so for a defect whose shape is "the declaration and the work can drift apart", an author's own enumeration should not be trusted as complete.
 
 The thirteenth is instructive, because the twelfth's fix *looked* general and was not. Hierarchy edges keyed the implementation as `derivedType + "::" + interfaceMember`, which silently fails three ways, and only the first two are the same bug:
 

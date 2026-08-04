@@ -604,8 +604,8 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceBoxing;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        // Kept behind the @Performance door in -D (a large kind-scoped sub-group), yet still
-        // auto-rendered at -v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -617,8 +617,8 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceArrays;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        // Kept behind the @Performance door in -D (a large kind-scoped sub-group), yet still
-        // auto-rendered at -v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -630,8 +630,8 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceClosures;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        // Kept behind the @Performance door in -D (a large kind-scoped sub-group), yet still
-        // auto-rendered at -v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -642,8 +642,8 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
-        // Kept behind the @Performance door in -D (a kind-scoped sub-group), yet still auto-rendered
-        // at -v:n/-v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -654,8 +654,8 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
-        // Kept behind the @Performance door in -D (a kind-scoped sub-group), yet still auto-rendered
-        // at -v:n/-v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -666,8 +666,8 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
-        // Kept behind the @Performance door in -D (a kind-scoped sub-group), yet still auto-rendered
-        // at -v:n/-v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -678,8 +678,8 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
-        // Kept behind the @Performance door in -D (a kind-scoped sub-group), yet still auto-rendered
-        // at -v:n/-v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
@@ -690,8 +690,8 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
-        // Kept behind the @Performance door in -D (a kind-scoped sub-group), yet still auto-rendered
-        // at -v:n/-v:d by size class — ListedInCatalog governs catalog listing, not render.
+        // Kept behind the @Performance door in -D; its Unbounded scanner keeps it off the
+        // automatic verbosity ladders.
         public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)

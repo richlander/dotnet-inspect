@@ -149,6 +149,13 @@ public sealed class ScannerContext : IDisposable
     /// </summary>
     internal IDisposable AuthorizeScanner(ScannerRegistry.ScannerAuthorization authorization)
     {
+        if (_scannerAuthorization is not null)
+        {
+            throw new ScannerCostDeclarationException(
+                "A scanner tried to start a nested scanner run on the active context. " +
+                "Scanner authorization cannot be replaced while a scanner is running.");
+        }
+
         var outer = _scannerAuthorization;
         _scannerAuthorization = authorization;
         return new ScannerAuthorizationScope(this, outer);
@@ -266,9 +273,51 @@ public sealed class ScannerContext : IDisposable
             return _drillMap;
 
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
-        _drillMap = LibraryMetadataService.BuildLibraryDrillMap(GetMetadataContext(), Logger);
+        _drillMap = BuildDrillMap(GetMetadataContext(), Logger);
         Trace?.RecordResource("drill map", $"built in {Elapsed(start)} ({_drillMap.Count} members)");
         return _drillMap;
+    }
+
+    /// <summary>
+    /// Builds stable member drill coordinates across the whole assembly. This stays private to
+    /// the context so scanner code cannot bypass <see cref="DrillMap"/>'s cost gate by invoking
+    /// the implementation directly.
+    /// Gate: <c>SectionPipelineTests.DrillMapConstruction_IsPrivateToScannerContext</c>.
+    /// </summary>
+    private static Dictionary<int, (string? Stable, string Visibility, string Selector)>
+        BuildDrillMap(
+            PdbContext context,
+            VerboseLogger logger)
+    {
+        var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
+        try
+        {
+            if (!context.HasMetadata)
+                return map;
+
+            // All-members first (covers non-public, numbered as `--all` drilling resolves them).
+            AddSurface(context.ExtractApiSurface(includeAll: true), map);
+            // Default surface overwrites public members with their public-only Name:N, which is
+            // what `member Name:N` resolves without `--all`.
+            AddSurface(context.ExtractApiSurface(includeAll: false), map);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                $"Error building leverage selectors for {context.AssemblyPath}: {ex.Message}");
+        }
+        return map;
+
+        static void AddSurface(
+            ApiSurface surface,
+            Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
+        {
+            foreach (var type in surface.Types)
+            {
+                foreach (var (token, drill) in ApiOutputFormatter.BuildMemberDrillMap(type))
+                    target[token] = drill;
+            }
+        }
     }
 
     PdbContext GetMetadataContext()

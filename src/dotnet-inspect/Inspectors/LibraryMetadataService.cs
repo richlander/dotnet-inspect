@@ -873,50 +873,6 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
-    /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
-    /// assembly by running the shared <see cref="ApiOutputFormatter.BuildMemberDrillMap"/>
-    /// per type. Two surfaces are extracted: the default (public) surface numbers public
-    /// overloads as <c>member Name:N</c> resolves them <em>without</em> <c>--all</c>, and the
-    /// all-members surface supplies non-public members (which require <c>--all</c> to drill).
-    /// Preferring the default-surface entry for a token keeps the emitted <c>Name:N</c>
-    /// selector round-trippable in the same context a reader would use it. Failures degrade
-    /// to an empty map (rows simply omit the selector columns).
-    /// </summary>
-    internal static Dictionary<int, (string? Stable, string Visibility, string Selector)>
-        BuildLibraryDrillMap(
-            PdbContext context,
-            VerboseLogger logger)
-    {
-        var map = new Dictionary<int, (string? Stable, string Visibility, string Selector)>();
-        try
-        {
-            if (!context.HasMetadata)
-                return map;
-
-            // All-members first (covers non-public, numbered as `--all` drilling resolves them).
-            AddSurface(context.ExtractApiSurface(includeAll: true), map);
-            // Default surface overwrites public members with their public-only Name:N, which is
-            // what `member Name:N` resolves without `--all`.
-            AddSurface(context.ExtractApiSurface(includeAll: false), map);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                $"Error building leverage selectors for {context.AssemblyPath}: {ex.Message}");
-        }
-        return map;
-
-        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
-        {
-            foreach (var type in surface.Types)
-            {
-                foreach (var (token, drill) in ApiOutputFormatter.BuildMemberDrillMap(type))
-                    target[token] = drill;
-            }
-        }
-    }
-
-    /// <summary>
     /// Collects safe, local optimization opportunities across the whole assembly. Emits the
     /// filtered set in triage priority order so the highest-value pay-dirt surfaces first.
     /// </summary>

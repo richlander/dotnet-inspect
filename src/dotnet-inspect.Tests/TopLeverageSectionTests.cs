@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
@@ -289,14 +290,27 @@ public class TopLeverageSectionTests
         using var service =
             ILInspector.SourceLink.SourceLinkService.OpenPrefetched(path);
         var context = service.Context;
-        var drillMap =
-            LibraryMetadataService.BuildLibraryDrillMap(context, logger);
+        IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>?
+            drillMap = null;
+        using var scannerContext = new ScannerContext
+        {
+            AssemblyPath = path,
+            Model = new LibraryInspection(),
+            Logger = logger,
+            MetadataContext = context,
+        };
+        new ScannerRegistry()
+            .Add(
+                "drill-map",
+                SectionCost.Unbounded,
+                ctx => drillMap = ctx.DrillMap())
+            .RunScanners(["drill-map"], scannerContext);
         return LibraryMetadataService.ScanTopLeverage(
             () => LibraryBodyIndex.OpenFromPrefetchedImage(
                 path,
                 context.GetPrefetchedImage(),
                 LibraryBodyAnalysisFeatures.Default),
-            () => drillMap,
+            () => drillMap!,
             path,
             logger);
     }
