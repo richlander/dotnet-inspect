@@ -13,7 +13,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v3";
+    private const string VersionCacheCategory = "versions-v4";
 
     /// <summary>
     /// An HttpClient that throws on any request — proves cache prevented network access.
@@ -69,6 +69,26 @@ public class VersionCacheTests : IDisposable
             FailingClient, "TestPackage", [CustomSource], log: null);
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void CandidateCacheKeys_DoNotAliasPackageIdsAndCacheKinds()
+    {
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey(
+                "foo-listings",
+                CustomSource),
+            PackageExtractor.GetListingsVersionCacheKey(
+                "foo",
+                CustomSource));
+        Assert.NotEqual(
+            PackageExtractor.GetLatestVersionCacheKey(
+                "foo",
+                CustomSource,
+                includePrerelease: true),
+            PackageExtractor.GetLatestVersionCacheKey(
+                "foo-prerelease",
+                CustomSource));
     }
 
     [Fact]
@@ -178,6 +198,37 @@ public class VersionCacheTests : IDisposable
 
         Assert.NotNull(result);
         Assert.Equal(["2.0.0", "1.1.0", "1.0.0"], result);
+    }
+
+    [Fact]
+    public async Task GetVersions_WithIncompleteCachedSnapshot_RefetchesSource()
+    {
+        string packageName = $"partial-{Guid.NewGuid():N}";
+        CoreCache.Set(
+            VersionCacheCategory,
+            PackageExtractor.GetListingsVersionCacheKey(
+                packageName,
+                CustomSource),
+            "9.9.9",
+            extension: "txt");
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: CustomSource.Url,
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: packageName,
+            versions: ["1.2.3"]));
+
+        List<string>? result = await PackageExtractor.GetVersionsAsync(
+            client,
+            packageName,
+            includePrerelease: false,
+            limit: null,
+            log: null,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [CustomSource.Url],
+            });
+
+        Assert.Equal(["1.2.3"], result);
     }
 
     [Fact]
@@ -299,7 +350,9 @@ public class VersionCacheTests : IDisposable
         => CoreCache.Set(
             VersionCacheCategory,
             PackageExtractor.GetListingsVersionCacheKey(packageName, source),
-            versions,
+            string.Join(
+                '\n',
+                versions.Split('\n').Select(version => $"{version}\tL")),
             extension: "txt");
 
     /// <summary>

@@ -18,6 +18,7 @@ public record NuGetSourceOptions
     public string[] Sources { get; init; } = [];
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
+    internal string[]? AuthorizedSourceUrls { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
 }
 
@@ -27,24 +28,45 @@ public record NuGetSourceOptions
 public static class NuGetSourceResolver
 {
     /// <summary>
-    /// Restricts source selection to the producers that reported a discovered
-    /// package coordinate while retaining the config used to resolve their
-    /// credentials.
+    /// Restricts payload fulfillment for one discovered coordinate to its
+    /// reporting producers while retaining the ambient source set and config.
+    /// Follow-on coordinates, such as tool-wrapper redirects, independently
+    /// recalculate their authorization.
     /// </summary>
     public static NuGetSourceOptions? RestrictToSources(
         NuGetSourceOptions? original,
         IReadOnlyList<string> sourceUrls)
     {
         ArgumentNullException.ThrowIfNull(sourceUrls);
-        if (sourceUrls.Count == 0)
-            return original;
-
-        return new NuGetSourceOptions
+        return (original ?? NuGetSourceOptions.Default) with
         {
-            Sources = [.. sourceUrls],
-            ConfigFile = original?.ConfigFile,
+            AuthorizedSourceUrls = [.. sourceUrls],
         };
     }
+
+    internal static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
+        NuGetSourceOptions? options,
+        IReadOnlyList<NuGetSource> activeSources)
+    {
+        if (options?.AuthorizedSourceUrls is not { } authorizedUrls)
+            return activeSources;
+
+        HashSet<string> authorizedKeys =
+        [
+            .. authorizedUrls.Select(NuGetCache.GetSourceKey),
+        ];
+        return
+        [
+            .. activeSources.Where(source =>
+                authorizedKeys.Contains(NuGetCache.GetSourceKey(source.Url))),
+        ];
+    }
+
+    internal static NuGetSourceOptions? WithoutSourceRestriction(
+        NuGetSourceOptions? options)
+        => options?.AuthorizedSourceUrls is null
+            ? options
+            : options with { AuthorizedSourceUrls = null };
 
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content

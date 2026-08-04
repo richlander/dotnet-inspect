@@ -203,6 +203,46 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_RestoresActiveSourcesForPinnedRedirectTarget()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string wrapperPackage = $"wrapper.scope.{suffix}";
+        string payloadPackage = $"payload.scope.{suffix}";
+        const string Version = "1.0.0";
+        const string FeedA = "https://feed-a.invalid/v3/index.json";
+        const string FeedB = "https://feed-b.invalid/v3/index.json";
+        var handler = new CoordinateScopedRedirectHandler(
+            wrapperPackage,
+            payloadPackage,
+            CreateToolWrapperArchive(
+                wrapperPackage,
+                Version,
+                payloadPackage),
+            CreatePackageArchive(payloadPackage, Version));
+        using var client = new HttpClient(handler);
+        NuGetSourceOptions? sourceOptions =
+            NuGetSourceResolver.RestrictToSources(
+                new NuGetSourceOptions
+                {
+                    Sources = [FeedA, FeedB],
+                },
+                [FeedA]);
+
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                client,
+                wrapperPackage,
+                sourceOptions: sourceOptions,
+                version: Version);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        Assert.Equal(payloadPackage, outcome.Result!.PackageName);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(FeedB),
+            outcome.Result.ProducerKey);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_ToolWrapperRedirectAtHopLimitReturnsPayload()
     {
         const int MaxRedirectHops = 8;
@@ -1489,6 +1529,55 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body),
+            });
+    }
+
+    private sealed class CoordinateScopedRedirectHandler(
+        string wrapperPackage,
+        string payloadPackage,
+        byte[] wrapperArchive,
+        byte[] payloadArchive)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url == "https://feed-a.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-a.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == "https://feed-b.invalid/v3/index.json")
+            {
+                return Json(
+                    """{"resources":[{"@id":"https://content-b.invalid/flat/","@type":"PackageBaseAddress/3.0.0"}]}""");
+            }
+
+            if (url == NupkgUrl("content-a", wrapperPackage))
+                return Bytes(wrapperArchive);
+            if (url == NupkgUrl("content-b", payloadPackage))
+                return Bytes(payloadArchive);
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        private static string NupkgUrl(string host, string packageName)
+            => $"https://{host}.invalid/flat/{packageName}/1.0.0/{packageName}.1.0.0.nupkg";
+
+        private static Task<HttpResponseMessage> Json(string body)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+            });
+
+        private static Task<HttpResponseMessage> Bytes(byte[] body)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(body),
             });
     }
 

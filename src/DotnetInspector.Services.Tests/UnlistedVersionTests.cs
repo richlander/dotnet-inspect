@@ -15,7 +15,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class UnlistedVersionTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v3";
+    private const string VersionCacheCategory = "versions-v4";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
 
     public UnlistedVersionTests()

@@ -180,7 +180,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string qualifiedName = $"{packageName}.Widget";
         var nugetOrg = NuGetFetch.PackageSource.NuGetOrg;
         CoreCache.Set(
-            "versions-v3",
+            "versions-v4",
             PackageExtractor.GetLatestVersionCacheKey(packageName, nugetOrg),
             "1.0.0",
             extension: "txt");

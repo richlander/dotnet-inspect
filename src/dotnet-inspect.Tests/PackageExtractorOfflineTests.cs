@@ -58,7 +58,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         CommitPackage(packageName, Version, sourceKey);
         var source = new NuGetFetch.PackageSource("private", SourceUrl);
         Core.CoreCache.Set(
-            "versions-v3",
+            "versions-v4",
             PackageExtractor.GetLatestVersionCacheKey(packageName, source),
             Version,
             extension: "txt");

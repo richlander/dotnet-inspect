@@ -49,6 +49,10 @@
   identifies an authorized producer. Discovered coordinates are restricted to
   feeds that reported the selected version; pinned coordinates may use any
   active eligible feed.
+- Uses unambiguous, atomically published `versions-v4` candidate entries and
+  rejects incomplete listing snapshots. Reporter restrictions apply to the
+  selected coordinate only; pinned tool-wrapper redirects recalculate
+  authorization from the ambient active sources.
 
 ### Metadata text containment
 

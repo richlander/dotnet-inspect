@@ -207,9 +207,11 @@ the nuget.org gallery:
   unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
   cache TTL; only an authoritatively filtered list is persisted. The version
-  cache category is versioned (`versions-v3`). Every key contains the producer
-  identity, so one feed's candidates cannot answer for another; the category
-  bump also fences older source-blind and pre-filter entries.
+  cache category is versioned (`versions-v4`). Every key has unambiguous
+  producer, cache-kind, and package-id fields; latest entries additionally
+  identify stable or prerelease selection. Neither another feed nor a
+  suffix-bearing package id can alias it. The category bump also fences older
+  source-blind, pre-filter, and ambiguous-key entries.
 
 ### Revealing unlisted versions
 
@@ -243,9 +245,9 @@ range (without the flag) resolves against listed versions only, matching the
 hidden default.
 
 The version-list cache stores the listed bit per version. Each cache line
-carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
-the encoding is unambiguous for any version text; a legacy suffix-less line is
-read as listed.
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted).
+Publication is atomic, and a missing suffix, invalid version, or empty snapshot
+is a cache miss rather than an authoritative candidate list.
 
 ## Cache locations
 
@@ -254,7 +256,7 @@ read as listed.
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client; payload-only, with producer in `.nupkg.metadata` |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v4/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v3/` | 1 hour | dotnet-inspect; one entry per producer and package id |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v4/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |

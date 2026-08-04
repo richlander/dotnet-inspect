@@ -30,7 +30,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class SourcePrecedenceTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v3";
+    private const string VersionCacheCategory = "versions-v4";
 
     private const string FeedAIndex = "feed-a.example.test/v3/index.json";
     private const string FeedBIndex = "feed-b.example.test/v3/index.json";

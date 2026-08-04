@@ -14,7 +14,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class VersionListingTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v3";
+    private const string VersionCacheCategory = "versions-v4";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
     private static readonly HttpClient FailingClient = new(new FailingHandler());
 

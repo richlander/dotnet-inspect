@@ -112,6 +112,7 @@ public static class PackageExtractor
         string? currentVersion = version;
         bool currentForceLatest = forceLatest;
         bool currentIncludePrerelease = includePrerelease;
+        NuGetSourceOptions? currentSourceOptions = sourceOptions;
 
         while (true)
         {
@@ -126,7 +127,7 @@ public static class PackageExtractor
                     currentPackageSource,
                     log,
                     tempDirPrefix,
-                    sourceOptions,
+                    currentSourceOptions,
                     currentVersion,
                     currentForceLatest,
                     currentIncludePrerelease).ConfigureAwait(false);
@@ -173,6 +174,8 @@ public static class PackageExtractor
             currentVersion = result.Version;
             currentForceLatest = false;
             currentIncludePrerelease = false;
+            currentSourceOptions =
+                NuGetSourceResolver.WithoutSourceRestriction(sourceOptions);
         }
     }
 
@@ -230,7 +233,10 @@ public static class PackageExtractor
 
         // Resolve NuGet sources
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
-        IReadOnlyList<NuGetSource> authorizedSources = sources;
+        IReadOnlyList<NuGetSource> authorizedSources =
+            NuGetSourceResolver.ResolveAuthorizedSources(
+                sourceOptions,
+                sources);
 
         // Resolve wildcard version patterns (e.g., 11.0.0-preview*)
         if (version != null && version.Contains('*'))
@@ -770,12 +776,11 @@ public static class PackageExtractor
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
 
-    // Bumped to -v3 for #3752: v2 keys identified only nuget.org implicitly.
-    // Every v3 key includes the canonical producer identity, so cached candidate
-    // metadata can never be attributed to a different active source.
-    private const string VersionCacheCategory = "versions-v3";
+    // Bumped to -v4 after #3752: v3's suffix-based key kinds could collide
+    // with valid package ids. Every v4 key has explicit producer, kind, and
+    // package-id fields; latest entries also identify stable or prerelease.
+    private const string VersionCacheCategory = "versions-v4";
     private const string VersionCacheCategoryPrefix = "versions-v";
-    private const string ListingsCacheSuffix = "-listings";
 
     private sealed record SourceVersionListings(
         NuGetSource Source,
@@ -863,10 +868,13 @@ public static class PackageExtractor
             ListingsVersionCacheKey(sourceKey, normalizedName),
             VersionCacheTtl,
             extension: "txt");
-        return serializedListings is null
+        List<PackageVersionInfo>? listings = serializedListings is null
+            ? null
+            : DeserializeListings(serializedListings);
+        return listings is null
             ? null
             : PickLatest(
-                DeserializeListings(serializedListings)
+                listings
                     .Where(listing => listing.Listed)
                     .Select(listing => listing.Version),
                 includePrerelease);
@@ -876,14 +884,12 @@ public static class PackageExtractor
         string sourceKey,
         string normalizedName,
         bool includePrerelease)
-        => includePrerelease
-            ? $"{sourceKey}:{normalizedName}-prerelease"
-            : $"{sourceKey}:{normalizedName}";
+        => $"{sourceKey}:latest:{(includePrerelease ? "prerelease" : "stable")}:{normalizedName}";
 
     private static string ListingsVersionCacheKey(
         string sourceKey,
         string normalizedName)
-        => $"{sourceKey}:{normalizedName}{ListingsCacheSuffix}";
+        => $"{sourceKey}:listings:{normalizedName}";
 
     private static void AddReporter(
         List<NuGetSource> reporters,
@@ -1760,9 +1766,12 @@ public static class PackageExtractor
                 extension: "txt");
             if (cached is not null)
             {
-                log?.Invoke($"Using cached version listings from {source.Name}");
                 listings = DeserializeListings(cached);
-                fromCache = true;
+                if (listings is not null)
+                {
+                    log?.Invoke($"Using cached version listings from {source.Name}");
+                    fromCache = true;
+                }
             }
 
             if (listings == null)
@@ -1866,28 +1875,36 @@ public static class PackageExtractor
         return (listings, authoritative);
     }
 
-    // Cache line format: "<version>\tL" for listed, "<version>\tU" for unlisted. Both statuses
-    // carry an explicit two-char tab suffix so the encoding is unambiguous for ANY version text:
-    // decoding always strips exactly two trailing chars and reads the flag from the first, which
-    // round-trips even a (SemVer-impossible) version that itself ends in "\tL"/"\tU". Legacy caches
-    // wrote bare "<version>" for listed; a line with no recognized suffix is decoded as listed for
-    // backward compatibility.
+    // Every line carries an explicit two-character tab suffix. The versioned
+    // cache rejects incomplete or malformed snapshots rather than treating a
+    // partially published file as authoritative candidate metadata.
     private static string SerializeListings(IEnumerable<PackageVersionInfo> listings) =>
         string.Join('\n', listings.Select(l => l.Listed ? $"{l.Version}\tL" : $"{l.Version}\tU"));
 
-    private static List<PackageVersionInfo> DeserializeListings(string cached)
+    private static List<PackageVersionInfo>? DeserializeListings(string cached)
     {
+        if (string.IsNullOrWhiteSpace(cached))
+            return null;
+
         List<PackageVersionInfo> result = [];
         foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
+            bool listed;
             if (line.EndsWith("\tU", StringComparison.Ordinal))
-                result.Add(new PackageVersionInfo(line[..^2], Listed: false));
+                listed = false;
             else if (line.EndsWith("\tL", StringComparison.Ordinal))
-                result.Add(new PackageVersionInfo(line[..^2], Listed: true));
+                listed = true;
             else
-                result.Add(new PackageVersionInfo(line, Listed: true)); // legacy bare-listed line
+                return null;
+
+            string version = line[..^2];
+            if (!NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+                return null;
+
+            result.Add(new PackageVersionInfo(version, listed));
         }
-        return result;
+
+        return result.Count == 0 ? null : result;
     }
 
     /// <summary>
