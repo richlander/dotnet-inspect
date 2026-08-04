@@ -234,8 +234,9 @@ jobs:
               # Deliberately NOT mapped to this lane, though an earlier revision of this
               # PR mapped all four here on the premise that "the sweep builds the EVIL
               # pool this gate is run over". Measured, and false: `--gate pre-merge`
-              # selects ByteNeutralityGateTests, FidelityGateTests, GateExpectedClassesTests
-              # and LoweredFidelityGateTests, none of which read the EVIL pool, and this
+              # selects ByteNeutralityGateTests, ClusterCaptureTests, FidelityGateTests,
+              # GateExpectedClassesTests, LoweredFidelityGateTests and
+              # PrinterPrecedenceTests, none of which read the EVIL pool, and this
               # job never runs eng/prepare-evil-corpus.sh. The mapping scheduled a
               # fifteen-minute job that validated nothing about the file that triggered it.
               # EvilPoolSweepGateTests and EvilPoolPinTests carry no Speed=Slow trait, so

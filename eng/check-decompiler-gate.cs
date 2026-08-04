@@ -275,12 +275,16 @@ var missingClasses = partial
 // was cut short, filtered down, or rewritten has a smaller result set than the
 // listing regardless of how self-consistent its own counters are.
 //
-// This is *method*-granular, because no `-list` mode enumerates theory cases:
-// a theory with five cases lists once, so a run that lost four of them would
-// still satisfy this check. Method granularity is only sufficient while the
+// This is *method*-granular, because the discovery pass above uses
+// `-list methods/json`: a theory with five cases lists once, so a run that lost
+// four of them would still satisfy this check. That is a property of the
+// discovery mode this checker asks for, not a limit of xUnit --
+// `-preEnumerateTheories -list full/json` lists one entry per case with a
+// stable unique ID, and switching to it is what a case-level expectation would
+// be built on. Until then, method granularity is only sufficient while the
 // gate classes declare no theories, which is not an assumption --
-// GateExpectedClassesTests.PreMergeGateClasses_DeclareNoTheories enforces it,
-// and adding a theory to a gate class fails that test rather than quietly
+// GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts enforces
+// it, and adding a theory to a gate class fails that test rather than quietly
 // weakening this one.
 // Method-granular completeness is only sufficient while one method means one
 // case. Rather than trust that, measure it: if any (type, method) produced
@@ -408,11 +412,12 @@ if (multiCase.Count > 0)
     foreach (var name in multiCase)
         Console.WriteLine($"  {name}");
     Console.WriteLine();
-    Console.WriteLine("  Completeness here is method-granular, because no '-list' mode enumerates");
-    Console.WriteLine("  individual cases. A method that expands to several cases breaks that: it is");
-    Console.WriteLine("  discovered once, so losing all but one of its cases would look complete.");
-    Console.WriteLine("  Make these plain single-case [Fact] tests, or teach this checker a");
-    Console.WriteLine("  case-level expectation before adding them to a gate class.");
+    Console.WriteLine("  Completeness here is method-granular, because discovery runs");
+    Console.WriteLine("  '-list methods/json'. A method that expands to several cases breaks that:");
+    Console.WriteLine("  it is discovered once, so losing all but one of its cases would look");
+    Console.WriteLine("  complete. Make these plain single-case [Fact] tests, or teach this checker");
+    Console.WriteLine("  a case-level expectation -- '-preEnumerateTheories -list full/json' lists");
+    Console.WriteLine("  one entry per case with a stable ID -- before adding them to a gate class.");
     Console.WriteLine();
 }
 

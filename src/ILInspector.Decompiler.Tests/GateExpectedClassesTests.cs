@@ -45,11 +45,14 @@ public class GateExpectedClassesTests
     /// Requires every test in the <c>pre-merge</c> gate classes to be a plain <c>[Fact]</c>,
     /// and proves the preset names classes that exist.
     ///
-    /// <para>The CI completeness check compares the run against a <c>-list methods</c>
-    /// discovery listing, and no <c>-list</c> mode enumerates individual cases: a method
-    /// that expands to five cases is listed once, so a run that lost four of them would
-    /// still satisfy the check. Method granularity is sufficient only while every gate
-    /// test is exactly one case. This test is what makes that true instead of assumed.</para>
+    /// <para>The CI completeness check compares the run against a <c>-list methods/json</c>
+    /// discovery listing, which is method-granular: a method that expands to five cases
+    /// is listed once, so a run that lost four of them would still satisfy the check.
+    /// That is a property of the discovery mode the checker asks for, not a limit of
+    /// xUnit — <c>-preEnumerateTheories -list full/json</c> lists one entry per case with
+    /// a stable unique ID. Until the checker is taught that, method granularity is
+    /// sufficient only while every gate test is exactly one case. This test is what makes
+    /// that true instead of assumed.</para>
     ///
     /// <para>It is an allow list, not a deny list. Rejecting only <c>[Theory]</c> would miss
     /// <c>[CulturedFact]</c>, which derives from <see cref="FactAttribute"/> rather than

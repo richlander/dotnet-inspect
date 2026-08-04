@@ -370,13 +370,16 @@ The display name is a presentation string: it carries theory arguments, honors
 outright, so a row whose name claims to be a pinned test cannot pass a new
 failure off as a known one.
 
-That comparison is **method-granular**, and deliberately so: no `-list` mode
-enumerates individual cases. A method that expands to five cases is listed
-once, so a run that lost four of them would still satisfy the check. Method
-granularity is sufficient only while every gate test is exactly one case, and
-that is enforced rather than assumed —
-`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
-every test in a gate class to carry exactly `FactAttribute`.
+That comparison is **method-granular**, because discovery runs
+`-list methods/json`. A method that expands to five cases is listed once, so a
+run that lost four of them would still satisfy the check. That is a property of
+the discovery mode the checker asks for, not a limit of xUnit —
+`-preEnumerateTheories -list full/json` lists one entry per case with a stable
+unique ID, and teaching the checker to compare those IDs is what a case-level
+expectation would be built on. Until then, method granularity is sufficient only
+while every gate test is exactly one case, and that is enforced rather than
+assumed — `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts`
+requires every test in a gate class to carry exactly `FactAttribute`.
 
 It is an **allow list**, not a deny list, because rejecting only `[Theory]`
 would miss `[CulturedFact]` — which derives from `FactAttribute`, not
