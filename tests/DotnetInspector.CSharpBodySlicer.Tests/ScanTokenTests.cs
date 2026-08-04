@@ -1309,7 +1309,7 @@ public class ScanTokenTests
             {
                 try
                 {
-                    foreach (var member in context.EnumerateMemberSources())
+                    foreach (var member in context.EnumerateMemberDocuments())
                     {
                         if (File.Exists(member.FilePath))
                             paths.Add(member.FilePath);

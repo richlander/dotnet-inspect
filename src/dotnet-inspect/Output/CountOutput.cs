@@ -86,7 +86,7 @@ public static class CountOutput
         if (string.IsNullOrEmpty(outputPath))
             Console.WriteLine(text);
         else
-            File.WriteAllText(outputPath, text + Environment.NewLine);
+            File.WriteAllText(outputPath, text + '\n');
     }
 
     public static void WriteCountFromMarkdown(string markdown)

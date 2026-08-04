@@ -1822,7 +1822,9 @@ public class PackageCommand
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent));
+            builder
+                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent))
+                .Append('\n');
         return builder.ToString();
     }
 
@@ -2017,7 +2019,7 @@ public class PackageCommand
 
     private static int WriteBarePackageText(string content, string? outputPath)
     {
-        var output = content.EndsWith('\n') ? content : content + Environment.NewLine;
+        var output = content.EndsWith('\n') ? content : content + '\n';
         if (!string.IsNullOrEmpty(outputPath))
             File.WriteAllText(outputPath, output);
         else

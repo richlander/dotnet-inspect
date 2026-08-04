@@ -22,10 +22,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="ILInspector.SourceLink" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
     <ProjectReference Include="Fixtures/ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">

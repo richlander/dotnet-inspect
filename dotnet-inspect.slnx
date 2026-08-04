@@ -55,6 +55,7 @@
     <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
