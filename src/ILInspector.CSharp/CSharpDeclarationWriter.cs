@@ -1,4 +1,5 @@
 using System.Text;
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.Text;
 

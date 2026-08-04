@@ -3,6 +3,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;

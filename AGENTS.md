@@ -107,8 +107,9 @@ for the generated skill listing.
 - Keep product paths SRM-only, NativeAOT-friendly, Roslyn-free, and free of
   inspected-assembly loading.
 - Preserve layer ownership. Metadata owns metadata facts, Analysis owns IL-body
-  evidence, CSharp owns C# spelling and type views, Research composes evidence,
-  and the CLI owns command and presentation concerns.
+  evidence, CSharpText owns model-free textual grammars, CSharp owns model-bound
+  C# spelling and type views, Research composes evidence, and the CLI owns command
+  and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
 - Preserve behavior-safe defaults and progressive disclosure. Network,

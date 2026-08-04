@@ -399,7 +399,7 @@ which is precisely the work a cheap pre-filter exists to avoid.
 
 ### `MemberCanonicalSignature` — the DocId-shaped grammar
 
-`src/ILInspector.Metadata/MemberCanonicalSignature.cs` is "the single
+`src/CSharpText/MemberCanonicalSignature.cs` is "the single
 authoritative full-name member canonical-signature grammar," emitting
 `{kind}:{typeFullName}.{memberName}(…)` with DocId kind codes `"M"`, `"P"`,
 `"F"`, `"E"`.
@@ -513,8 +513,9 @@ Known instances, kept here as a live list:
 - `EcosystemIntegrationScanner` — `signature.ReturnType == "…IServiceCollection"`.
 - `OpenTelemetryScanner` — `ReturnType == "bool"`.
 - `MethodClassificationScanner` — pointer return via `ReturnType.Contains('*')`.
-- `NormalizeXmlDocParameterType` — a mini type-parser reconstructing structure
-  from display text; reused by the CLI `XmlDocFileParser`.
+- `XmlDocumentationNotation.NormalizeParameterType` — a mini type-parser
+  reconstructing structure from display text; reused by the CLI
+  `XmlDocFileParser`.
 - `FidelityCheck.Evaluate`'s `Func<string, bool> typeFilter`
   ([#3495](https://github.com/richlander/dotnet-inspect/pull/3495)) — defensible
   as *selection* rather than identity, but string-matching a display spelling and

@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Dependency-free C# text lexing and conservative source-structure recognition.</Description>
+    <Description>Dependency-free C# textual grammars, lexing, and conservative source-structure recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

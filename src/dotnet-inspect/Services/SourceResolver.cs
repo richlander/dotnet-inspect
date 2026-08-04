@@ -241,7 +241,7 @@ public static class SourceResolver
     {
         // Case-insensitive (a user may type "String"); falls back to the original cased input.
         var trimmed = name.Trim();
-        return ILInspector.Metadata.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
+        return CSharpText.PrimitiveTypeNames.TryToClrFullName(trimmed.ToLowerInvariant(), out var full)
             ? full
             : trimmed;
     }

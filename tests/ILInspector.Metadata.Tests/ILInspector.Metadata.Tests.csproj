@@ -26,6 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />

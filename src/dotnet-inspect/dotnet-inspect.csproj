@@ -77,6 +77,7 @@
 
   <ItemGroup>
     <Using Include="ILInspector.SourceLink" />
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />

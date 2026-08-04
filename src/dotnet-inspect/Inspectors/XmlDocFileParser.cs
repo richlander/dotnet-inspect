@@ -1,4 +1,5 @@
 using System.Xml;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -84,7 +85,7 @@ public class XmlDocFileParser
             return null;
 
         // Handle generic types: convert List`1 to List{T} format used in XML docs
-        var xmlKey = $"T:{ConvertToXmlDocName(fullTypeName)}";
+        var xmlKey = $"T:{XmlDocumentationNotation.NormalizeTypeName(fullTypeName)}";
 
         if (!_members.TryGetValue(xmlKey, out var node))
             return null;
@@ -103,7 +104,7 @@ public class XmlDocFileParser
         if (!_loaded)
             return null;
 
-        var typeXmlName = ConvertToXmlDocName(fullTypeName);
+        var typeXmlName = XmlDocumentationNotation.NormalizeTypeName(fullTypeName);
 
         // Try different prefixes based on member kind
         string[] prefixes = memberKind switch
@@ -149,7 +150,7 @@ public class XmlDocFileParser
             && GetMemberDocumentation(identity) is { } structuredMatch)
             return structuredMatch;
 
-        var typeXmlName = ConvertToXmlDocName(apiType.FullName);
+        var typeXmlName = XmlDocumentationNotation.NormalizeTypeName(apiType.FullName);
         var xmlMemberName = member.Name == ".ctor" ? "#ctor" : member.Name;
         var prefix = member.Kind switch
         {
@@ -213,7 +214,7 @@ public class XmlDocFileParser
             : null;
     }
 
-    private DocCommentParser.DocComment? GetMemberDocumentation(ApiMemberIdentity.XmlDocMemberIdentity identity)
+    private DocCommentParser.DocComment? GetMemberDocumentation(XmlDocMemberIdentity identity)
     {
         var xmlKey = identity.LookupKey;
         var prefix = xmlKey.Length > 0 ? xmlKey[0].ToString() : "";
@@ -299,8 +300,14 @@ public class XmlDocFileParser
 
         return SplitParameters(inner)
             .Select(p => stripParameterNames
-                ? ApiMemberIdentity.NormalizeXmlDocSignatureParameter(p, typeParameterMap, methodParameterMap)
-                : ApiMemberIdentity.NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap))
+                ? XmlDocumentationNotation.NormalizeSignatureParameter(
+                    p,
+                    typeParameterMap,
+                    methodParameterMap)
+                : XmlDocumentationNotation.NormalizeParameterType(
+                    p,
+                    typeParameterMap,
+                    methodParameterMap))
             .ToList();
     }
 
@@ -316,7 +323,7 @@ public class XmlDocFileParser
         parameters = string.IsNullOrWhiteSpace(inner)
             ? []
             : SplitParameters(inner)
-                .Select(ApiMemberIdentity.NormalizeXmlDocParameterType)
+                .Select(XmlDocumentationNotation.NormalizeParameterType)
                 .ToList();
         return true;
     }
@@ -330,7 +337,7 @@ public class XmlDocFileParser
         if (suffixStart < 0 || suffixStart == key.Length - 1)
             return false;
 
-        var keyReturnType = ApiMemberIdentity.NormalizeXmlDocParameterType(key[(suffixStart + 1)..]);
+        var keyReturnType = XmlDocumentationNotation.NormalizeParameterType(key[(suffixStart + 1)..]);
         return string.Equals(normalizedReturnType, keyReturnType, StringComparison.Ordinal);
     }
 
@@ -429,18 +436,6 @@ public class XmlDocFileParser
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Converts a CLR type name to XML documentation format.
-    /// </summary>
-    private static string ConvertToXmlDocName(string typeName)
-    {
-        // Handle nested types: Outer+Inner -> Outer.Inner
-        typeName = typeName.Replace('+', '.');
-
-        // Handle generic arity: List`1 stays as List`1 in XML docs
-        return typeName;
     }
 
     /// <summary>

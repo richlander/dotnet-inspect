@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;

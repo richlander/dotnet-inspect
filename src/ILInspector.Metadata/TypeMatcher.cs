@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using CSharpText;
 using ILInspector.Text;
 
 namespace ILInspector.Metadata;

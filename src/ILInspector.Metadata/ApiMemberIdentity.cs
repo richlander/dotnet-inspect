@@ -1,3 +1,4 @@
+using CSharpText;
 using ILInspector.CSharp;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
@@ -133,11 +134,6 @@ public static class ApiMemberIdentity
 
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
     }
-
-    public sealed record XmlDocMemberIdentity(
-        string LookupKey,
-        IReadOnlyList<string> NormalizedParameters,
-        string? NormalizedReturnType = null);
 
     public static string GetMemberDigest(string canonicalSignature)
         => MemberAnchor.ComputeFingerprint(canonicalSignature);
@@ -459,12 +455,13 @@ public static class ApiMemberIdentity
         // display string and carries `dynamic`, so scrub it back to `object` for identity
         // exactly as the SignatureModel path does — otherwise a round-tripped member's
         // fingerprint diverges from the same member read live.
-        var parameters = NormalizeDynamicToObject(ExtractCanonicalParameterList(signature));
+        var parameters = XmlDocumentationNotation.NormalizeDynamicToObject(
+            ExtractCanonicalParameterList(signature));
         var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
         // Mirror the conversion-operator return-type disambiguation so member identity
         // is not dependent on whether SignatureModel was populated (the Try path above).
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(member.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(member.ReturnType!))}";
+            canonical += $"~{NormalizeCanonicalCommas(XmlDocumentationNotation.NormalizeDynamicToObject(member.ReturnType!))}";
         return canonical;
     }
 
@@ -514,7 +511,8 @@ public static class ApiMemberIdentity
             // round-trips.
             var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
                 ? NormalizeCanonicalParameters(propertySignature.CanonicalParameterTypesSummary)
-                : NormalizeDynamicToObject(ExtractCanonicalIndexerParameterList(member.Signature));
+                : XmlDocumentationNotation.NormalizeDynamicToObject(
+                    ExtractCanonicalIndexerParameterList(member.Signature));
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
         }
@@ -539,7 +537,7 @@ public static class ApiMemberIdentity
         // same "~ReturnType" delimiter as XML doc identity so conversion anchors
         // and XML lookups do not grow divergent spellings for the same fact.
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(signature.EffectiveCanonicalReturnType!))}";
+            canonical += $"~{NormalizeCanonicalCommas(XmlDocumentationNotation.NormalizeDynamicToObject(signature.EffectiveCanonicalReturnType!))}";
         canonicalSignature = canonical;
         return true;
     }
@@ -605,66 +603,9 @@ public static class ApiMemberIdentity
     }
 
     static string NormalizeCorrespondenceType(string type)
-        => NormalizeDynamicToObject(type.Trim())
+        => XmlDocumentationNotation.NormalizeDynamicToObject(type.Trim())
             .Replace("+", ".", StringComparison.Ordinal)
             .Replace(", ", ",", StringComparison.Ordinal);
-
-    /// <summary>
-    /// Collapses the display keyword <c>dynamic</c> back to <c>object</c> for identity
-    /// and matching. <c>dynamic</c> and <c>object</c> are the same metadata type, so the
-    /// display-only distinction must never reach canonical signatures, correspondence
-    /// keys, or XML-doc identity (which encode dynamic positions as <c>System.Object</c>).
-    /// This runs in string space by necessity: the display signature (<c>member.Signature</c>)
-    /// is serialized while the typed <c>SignatureModel</c> is <c>[JsonIgnore]</c>, so a
-    /// round-tripped member has only the rendered string to derive identity from — the same
-    /// reason nullability is normalized as text (see <see cref="NormalizeXmlDocParameterType"/>).
-    /// Boundary-aware so it never rewrites a dotted name segment or a longer identifier
-    /// (e.g. <c>System.Dynamic.X</c>, <c>Ns.dynamic</c>, or <c>MyDynamicType</c> are left
-    /// untouched). Known limitation: an identifier literally spelled <c>dynamic</c> in a
-    /// position where the keyword is legal — a type named <c>dynamic</c> in the global
-    /// namespace, or a generic parameter named <c>dynamic</c> (both C# <c>@dynamic</c>) —
-    /// renders as a bare <c>dynamic</c> token that this string pass collapses to
-    /// <c>object</c>, so an overload pair such as <c>M(@dynamic)</c> vs <c>M(object)</c>
-    /// shares one canonical signature. A generic parameter named <c>dynamic</c> is in
-    /// principle distinguishable — a declared type-parameter list survives serialization
-    /// (<c>ApiType.TypeParameters</c>) and XML-doc identity already carries generic-parameter
-    /// maps — but every identity site here (canonical signature, correspondence key, and
-    /// <see cref="NormalizeXmlDocParameterType"/>) runs this collapse in string space
-    /// *ahead of* generic-parameter resolution, so making all three parameter-aware is
-    /// tracked as follow-up rather than fixed piecemeal. A global type named <c>dynamic</c>
-    /// and a method-level generic parameter named <c>dynamic</c> have no round-trip-safe
-    /// discriminator at all. These identifiers are astronomically rare and the trade is
-    /// deliberate — preserving fingerprint stability for the ubiquitous keyword case
-    /// outweighs an identifier named after a contextual keyword.
-    /// </summary>
-    internal static string NormalizeDynamicToObject(string value)
-    {
-        const string token = "dynamic";
-        if (value.IndexOf(token, StringComparison.Ordinal) < 0)
-            return value;
-        var builder = new System.Text.StringBuilder(value.Length);
-        var index = 0;
-        while (index < value.Length)
-        {
-            if (index + token.Length <= value.Length
-                && string.CompareOrdinal(value, index, token, 0, token.Length) == 0
-                && (index == 0 || !IsTypeNameChar(value[index - 1]))
-                && (index + token.Length >= value.Length || !IsTypeNameChar(value[index + token.Length])))
-            {
-                builder.Append("object");
-                index += token.Length;
-            }
-            else
-            {
-                builder.Append(value[index]);
-                index++;
-            }
-        }
-        return builder.ToString();
-
-        static bool IsTypeNameChar(char c) =>
-            char.IsLetterOrDigit(c) || c is '_' or '.' or '`' or '+' or '/';
-    }
 
     /// <summary>
     /// Locates the index of the parameter-list opening parenthesis in a member display
@@ -741,7 +682,8 @@ public static class ApiMemberIdentity
     static string NormalizeCanonicalParameters(string parameterTypesSummary)
         => string.IsNullOrEmpty(parameterTypesSummary)
             ? "()"
-            : NormalizeCanonicalCommas(NormalizeDynamicToObject(parameterTypesSummary));
+            : NormalizeCanonicalCommas(
+                XmlDocumentationNotation.NormalizeDynamicToObject(parameterTypesSummary));
 
     static string NormalizeCanonicalCommas(string value)
         => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
@@ -907,12 +849,10 @@ public static class ApiMemberIdentity
     }
 
     static string ExtractParamType(string param)
-        => ExtractSignatureParameterType(param);
+        => XmlDocumentationNotation.ExtractSignatureParameterType(param);
 
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
     {
-        var typeXmlName = ToXmlDocName(type.FullName);
-        var memberName = member.Name == ".ctor" ? "#ctor" : ToXmlDocMemberName(member.Name);
         var prefix = member.Kind switch
         {
             "property" => "P",
@@ -921,325 +861,27 @@ public static class ApiMemberIdentity
             _ => "M"
         };
 
-        var lookupKey = $"{prefix}:{typeXmlName}.{memberName}";
         if (member.SignatureModel is not { } signature)
         {
             identity = new XmlDocMemberIdentity("", []);
             return false;
         }
 
-        var typeParameterMap = type.TypeParameters
-            .Select((p, i) => (p.Name, Index: i))
-            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
-        var methodParameterMap = GetMethodGenericParameterMap(signature.MemberName);
-        var parameters = signature.Parameters
-            .Select(parameter => NormalizeXmlDocParameterType(parameter.CanonicalTypeWithModifier, typeParameterMap, methodParameterMap))
-            .ToList();
-        var returnType = IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType)
-            ? NormalizeXmlDocParameterType(signature.EffectiveCanonicalReturnType!, typeParameterMap, methodParameterMap)
+        var conversionReturnType = IsConversionOperator(member.Name)
+            && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType)
+            ? signature.EffectiveCanonicalReturnType
             : null;
-        identity = new XmlDocMemberIdentity(lookupKey, parameters, returnType);
+        identity = XmlDocumentationNotation.CreateMemberIdentity(
+            prefix,
+            type.FullName,
+            member.Name,
+            signature.Parameters.Select(parameter => parameter.CanonicalTypeWithModifier).ToList(),
+            type.TypeParameters.Select(parameter => parameter.Name).ToList(),
+            signature.MemberName,
+            conversionReturnType);
         return true;
     }
-
-    public static string NormalizeXmlDocParameterType(string parameter)
-        => NormalizeXmlDocParameterType(parameter, EmptyParameterMap, EmptyParameterMap);
-
-    public static string NormalizeXmlDocSignatureParameter(
-        string parameter,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap)
-        => NormalizeXmlDocParameterType(ExtractSignatureParameterType(parameter), typeParameterMap, methodParameterMap);
-
-    static readonly IReadOnlyDictionary<string, int> EmptyParameterMap =
-        new Dictionary<string, int>(StringComparer.Ordinal);
-
-    static readonly HashSet<string> KnownNullableValueTypes = new(StringComparer.Ordinal)
-    {
-        "System.DateTime",
-        "System.DateTimeOffset",
-        "System.Decimal",
-        "System.Guid",
-        "System.TimeSpan",
-        "System.IntPtr",
-        "System.UIntPtr"
-    };
-
-    public static string NormalizeXmlDocParameterType(
-        string parameter,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap)
-    {
-        var type = StripLeadingAttributes(NormalizeDynamicToObject(parameter).Trim());
-        var isByRef = false;
-        foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
-        {
-            if (type.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                isByRef = prefix is "ref " or "out " or "in ";
-                type = type[prefix.Length..].TrimStart();
-                break;
-            }
-        }
-
-        if (type.EndsWith('@'))
-        {
-            isByRef = true;
-            type = type.TrimEnd('@');
-        }
-        var nullableValueType = false;
-        if (type.EndsWith("?", StringComparison.Ordinal))
-        {
-            var unwrapped = type[..^1];
-            if (PrimitiveTypeNames.TryToClrFullName(unwrapped, out var primitive)
-                && primitive is not ("System.String" or "System.Object" or "System.Void"))
-            {
-                type = $"System.Nullable<{primitive}>";
-                nullableValueType = true;
-            }
-            else if (KnownNullableValueTypes.Contains(unwrapped))
-            {
-                type = $"System.Nullable<{unwrapped}>";
-                nullableValueType = true;
-            }
-            else
-            {
-                type = unwrapped;
-            }
-        }
-
-        string normalized;
-        if (!nullableValueType && TryNormalizeGenericParameterReference(type, typeParameterMap, methodParameterMap, out var genericParameter))
-        {
-            normalized = genericParameter;
-        }
-        else if (type.EndsWith("[]", StringComparison.Ordinal))
-        {
-            normalized = $"{NormalizeXmlDocParameterType(type[..^2], typeParameterMap, methodParameterMap)}[]";
-        }
-        else if (type.EndsWith("*", StringComparison.Ordinal))
-        {
-            normalized = $"{NormalizeXmlDocParameterType(type[..^1], typeParameterMap, methodParameterMap)}*";
-        }
-        else if (TryGetArraySuffix(type, out var arrayElementType, out var arraySuffix))
-        {
-            normalized = $"{NormalizeXmlDocParameterType(arrayElementType, typeParameterMap, methodParameterMap)}{arraySuffix}";
-        }
-        else
-        {
-            var genericStart = IndexOfAny(type, '<', '{');
-            if (genericStart >= 0 && TryGetGenericParts(type, genericStart, out var genericType, out var genericArgs))
-            {
-                var normalizedType = PrimitiveTypeNames.ToClrFullName(genericType);
-                var normalizedArgs = SplitParameters(genericArgs)
-                    .Select(p => NormalizeXmlDocParameterType(p, typeParameterMap, methodParameterMap));
-                normalized = $"{normalizedType}{{{string.Join(",", normalizedArgs)}}}";
-            }
-            else
-            {
-                normalized = PrimitiveTypeNames.ToClrFullName(type);
-            }
-        }
-
-        return isByRef ? $"{normalized}@" : normalized;
-    }
-
-    static string ExtractSignatureParameterType(string parameter)
-    {
-        parameter = StripLeadingAttributes(parameter.TrimStart());
-        var eqIndex = parameter.IndexOf('=');
-        if (eqIndex >= 0)
-            parameter = parameter[..eqIndex].Trim();
-
-        var depth = 0;
-        var lastSpace = -1;
-        for (var i = 0; i < parameter.Length; i++)
-        {
-            var c = parameter[i];
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ' ' && depth == 0)
-                lastSpace = i;
-        }
-
-        return lastSpace > 0 ? parameter[..lastSpace] : parameter;
-    }
-
-    static string StripLeadingAttributes(string parameter)
-    {
-        while (parameter.StartsWith('['))
-        {
-            var depth = 0;
-            var end = -1;
-            for (var i = 0; i < parameter.Length; i++)
-            {
-                if (parameter[i] == '[') depth++;
-                else if (parameter[i] == ']')
-                {
-                    depth--;
-                    if (depth == 0)
-                    {
-                        end = i;
-                        break;
-                    }
-                }
-            }
-
-            if (end < 0)
-                return parameter;
-            parameter = parameter[(end + 1)..].TrimStart();
-        }
-
-        return parameter;
-    }
-
-    static Dictionary<string, int> GetMethodGenericParameterMap(string? memberName)
-    {
-        if (string.IsNullOrWhiteSpace(memberName))
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        var memberSegmentStart = memberName.LastIndexOf('.');
-        var memberSegment = memberSegmentStart >= 0 ? memberName[(memberSegmentStart + 1)..] : memberName;
-        var genericStart = memberSegment.IndexOf('<');
-        if (genericStart < 0)
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        if (!TryGetGenericParts(memberSegment, genericStart, out _, out var parameters))
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        return SplitParameters(parameters)
-            .Select((name, index) => (Name: name.Trim(), Index: index))
-            .Where(p => p.Name.Length > 0)
-            .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
-    }
-
-    static IEnumerable<string> SplitParameters(string parameters)
-    {
-        var depth = 0;
-        var lastSplit = 0;
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            var c = parameters[i];
-            if (c is '<' or '{' or '(')
-                depth++;
-            else if (c is '>' or '}' or ')')
-                depth--;
-            else if (c == ',' && depth == 0)
-            {
-                yield return parameters[lastSplit..i].Trim();
-                lastSplit = i + 1;
-            }
-        }
-
-        yield return parameters[lastSplit..].Trim();
-    }
-
-    static int IndexOfAny(string value, char first, char second)
-    {
-        var firstIndex = value.IndexOf(first);
-        var secondIndex = value.IndexOf(second);
-        return (firstIndex, secondIndex) switch
-        {
-            (< 0, < 0) => -1,
-            (< 0, _) => secondIndex,
-            (_, < 0) => firstIndex,
-            _ => Math.Min(firstIndex, secondIndex)
-        };
-    }
-
-    static bool TryGetGenericParts(string type, int genericStart, out string genericType, out string genericArgs)
-    {
-        genericType = type[..genericStart];
-        genericArgs = "";
-
-        var open = type[genericStart];
-        var close = open == '<' ? '>' : '}';
-        var depth = 0;
-        for (var i = genericStart; i < type.Length; i++)
-        {
-            var c = type[i];
-            if (c == open)
-                depth++;
-            else if (c == close)
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    genericArgs = type[(genericStart + 1)..i];
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    static bool TryNormalizeGenericParameterReference(
-        string type,
-        IReadOnlyDictionary<string, int> typeParameterMap,
-        IReadOnlyDictionary<string, int> methodParameterMap,
-        out string normalized)
-    {
-        normalized = "";
-        if (type.StartsWith("``", StringComparison.Ordinal) && int.TryParse(type[2..], out var methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (type.StartsWith('`') && int.TryParse(type[1..], out var typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        if (methodParameterMap.TryGetValue(type, out methodIndex))
-        {
-            normalized = $"M{methodIndex}";
-            return true;
-        }
-
-        if (typeParameterMap.TryGetValue(type, out typeIndex))
-        {
-            normalized = $"T{typeIndex}";
-            return true;
-        }
-
-        return false;
-    }
-
-    static string ToXmlDocName(string typeName)
-        => typeName.Replace('+', '.');
-
-    static string ToXmlDocMemberName(string memberName)
-        => memberName is ".cctor"
-            ? memberName
-            : memberName
-                .Replace('.', '#')
-                .Replace('<', '{')
-                .Replace('>', '}');
 
     public static bool IsConversionOperator(string memberName)
         => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
-
-    static bool TryGetArraySuffix(string type, out string elementType, out string suffix)
-    {
-        elementType = "";
-        suffix = "";
-        if (!type.EndsWith("]", StringComparison.Ordinal))
-            return false;
-
-        var open = type.LastIndexOf('[');
-        if (open <= 0)
-            return false;
-
-        var rankSpec = type[(open + 1)..^1];
-        if (rankSpec.Length == 0)
-            return false;
-
-        elementType = type[..open];
-        var rank = rankSpec.Count(c => c == ',') + 1;
-        suffix = "[" + new string(',', rank - 1) + "]";
-        return true;
-    }
 }

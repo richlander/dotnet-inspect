@@ -1,4 +1,4 @@
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// Maps C# primitive/keyword type names to their CLR <c>System.*</c> full names. Single source of
