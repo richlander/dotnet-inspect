@@ -372,14 +372,15 @@ failure off as a known one.
 
 That comparison is **method-granular**, because discovery runs
 `-list methods/json`. A method that expands to five cases is listed once, so a
-run that lost four of them would still satisfy the check. That is a property of
-the discovery mode the checker asks for, not a limit of xUnit —
+run that lost four of them would still satisfy the check.
 `-preEnumerateTheories -list full/json` lists one entry per case with a stable
-unique ID, and teaching the checker to compare those IDs is what a case-level
-expectation would be built on. Until then, method granularity is sufficient only
-while every gate test is exactly one case, and that is enforced rather than
-assumed — `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts`
-requires every test in a gate class to carry exactly `FactAttribute`.
+unique ID and is the natural basis for a case-level expectation, but it expands
+only theories whose data is serializable — see the caveat below. Until the
+checker carries a validated case-level expectation, method granularity is
+sufficient only while every gate test is exactly one case, and that is enforced
+rather than assumed —
+`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
+every test in a gate class to carry exactly `FactAttribute`.
 
 It is an **allow list**, not a deny list, because rejecting only `[Theory]`
 would miss `[CulturedFact]` — which derives from `FactAttribute`, not
@@ -477,18 +478,42 @@ checker built on that discovery would confirm all 28 methods executed while 14
 cases silently vanished — the same undetected-loss shape the gate exists to
 prevent.
 
-That is a limitation of *this checker*, not of xUnit. Passing
-`-preEnumerateTheories -list full/json` emits one entry per case, each with a
-stable unique `ID`:
+That is a limitation of *this checker* rather than an absolute one. Passing
+`-preEnumerateTheories -list full/json` emits one entry per case for these four,
+each with a stable unique `ID`:
 
 ```text
 ...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v1")
 ...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v2")
 ```
 
-So gating these is a tractable prerequisite, not a standing principle: switch
-the discovery step to pre-enumerated full JSON and compare case IDs rather than
-method names. Until that lands,
+So gating these four is a tractable prerequisite rather than a standing
+principle: switch the discovery step to pre-enumerated full JSON and compare
+case IDs rather than method names.
+
+That upgrade is not free in general, though, and the trap is worth knowing
+before anyone reaches for it. `-preEnumerateTheories` only expands theories
+whose data is **serializable**. A `[MemberData]` source typed
+`TheoryData<IrExpression, Precedence>` is not, so xUnit falls back to a single
+delayed-enumeration entry per method. `CSharpPrecedenceTests` in this assembly
+demonstrates it:
+
+```text
+$ ... -class ...CSharpPrecedenceTests -preEnumerateTheories -list full/json
+2 entries
+$ ... -class ...CSharpPrecedenceTests
+Discovered: 2 test cases to be run
+Total: 19
+```
+
+Two entries, nineteen tests — under the very flag meant to prevent that. A
+case-ID checker adopted without checking would look stricter while reopening the
+same hole, and would do it on the classes least able to advertise the problem.
+So the prerequisite is not "switch the flag" but "switch the flag and verify
+discovery emitted every case the run produced". The four classes above happen to
+use primitive `[InlineData]` and do expand correctly, all 42 of them.
+
+Until that lands,
 `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
 closed on any non-`FactAttribute` test attribute, which is what makes method
 granularity sound here rather than merely assumed.

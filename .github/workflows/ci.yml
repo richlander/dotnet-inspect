@@ -579,13 +579,19 @@ jobs:
   # runner reports "Discovered: 28" then "Total: 42": the check would confirm
   # all 28 methods executed while 14 cases silently vanished.
   #
-  # That is a limitation of this checker, not of xUnit --
-  # `-preEnumerateTheories -list full/json` emits one entry per case with a
-  # stable unique ID -- so it is tractable: switch the discovery step to
-  # pre-enumerated full JSON and compare case IDs instead of method names. Until
-  # then GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts
-  # fails closed on any non-Fact attribute, which is what makes method
-  # granularity sound here rather than merely assumed.
+  # Tractable, but not a one-flag fix. `-preEnumerateTheories -list full/json`
+  # emits one entry per case with a stable unique ID -- for these four it emits
+  # all 42 -- so a case-level expectation can be built on it. But it only
+  # expands theories whose data is *serializable*: a [MemberData] source typed
+  # TheoryData<IrExpression, Precedence> is not, and xUnit then falls back to
+  # one delayed-enumeration entry per method. CSharpPrecedenceTests in this
+  # assembly lists 2 entries under that flag and runs 19 tests. So the
+  # prerequisite is to switch discovery AND verify it emitted every case the run
+  # produced; adopting case IDs on trust would look stricter while reopening
+  # this same hole. Until then
+  # GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts fails
+  # closed on any non-Fact attribute, which is what makes method granularity
+  # sound here rather than merely assumed.
   decompiler-gates:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'

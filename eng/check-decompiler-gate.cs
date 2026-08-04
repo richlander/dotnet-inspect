@@ -277,12 +277,21 @@ var missingClasses = partial
 //
 // This is *method*-granular, because the discovery pass above uses
 // `-list methods/json`: a theory with five cases lists once, so a run that lost
-// four of them would still satisfy this check. That is a property of the
-// discovery mode this checker asks for, not a limit of xUnit --
+// four of them would still satisfy this check.
+//
 // `-preEnumerateTheories -list full/json` lists one entry per case with a
-// stable unique ID, and switching to it is what a case-level expectation would
-// be built on. Until then, method granularity is only sufficient while the
-// gate classes declare no theories, which is not an assumption --
+// stable unique ID, and is the obvious foundation for a case-level expectation
+// -- but only for theories xUnit can actually pre-enumerate. Theory data has to
+// be serializable for that. A [MemberData] source typed
+// TheoryData<IrExpression, Precedence> is not, so xUnit falls back to a single
+// delayed-enumeration entry per method: this assembly's CSharpPrecedenceTests
+// lists 2 entries under that flag and then runs 19 tests. Adopting case IDs
+// naively would therefore reintroduce the very hole it was meant to close, on
+// exactly the classes least able to advertise it. Any such move has to verify
+// that discovery emitted every case the run produced.
+//
+// Until then, method granularity is only sufficient while the gate classes
+// declare no theories, which is not an assumption --
 // GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts enforces
 // it, and adding a theory to a gate class fails that test rather than quietly
 // weakening this one.
@@ -416,8 +425,13 @@ if (multiCase.Count > 0)
     Console.WriteLine("  '-list methods/json'. A method that expands to several cases breaks that:");
     Console.WriteLine("  it is discovered once, so losing all but one of its cases would look");
     Console.WriteLine("  complete. Make these plain single-case [Fact] tests, or teach this checker");
-    Console.WriteLine("  a case-level expectation -- '-preEnumerateTheories -list full/json' lists");
-    Console.WriteLine("  one entry per case with a stable ID -- before adding them to a gate class.");
+    Console.WriteLine("  a case-level expectation before adding them to a gate class.");
+    Console.WriteLine();
+    Console.WriteLine("  If you take the second route: '-preEnumerateTheories -list full/json'");
+    Console.WriteLine("  lists one entry per case with a stable ID, but only for theories whose");
+    Console.WriteLine("  data is serializable. Others collapse to one delayed-enumeration entry");
+    Console.WriteLine("  per method, so verify discovery emitted every case the run produced --");
+    Console.WriteLine("  otherwise case IDs reopen this same hole while looking stricter.");
     Console.WriteLine();
 }
 
