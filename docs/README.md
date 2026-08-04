@@ -31,6 +31,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 
 | Document | Need served |
 | -------- | ----------- |
+| [Inspection Space Architecture](inspection-space.md) | Core workspace, query, cache, identity, and inert-text architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current command and metadata architecture. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |

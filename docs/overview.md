@@ -6,6 +6,11 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The [inspection space architecture](inspection-space.md) is the core:
+workspace contexts, typed query planning, acquisition and caching, shared
+identity and provenance, and safe presentation boundaries. The components below
+are hosts, shared substrates, and inspection producers that extend that space.
+
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details. `MetadataFindings` projects API, source-document, member-source, and portable-PDB build-context observations and comparisons onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
@@ -29,6 +34,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 ## Important systems
 
+- [Inspection space architecture](inspection-space.md): the Rich, Fast, and Safe core shared by hosts and inspection producers.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
