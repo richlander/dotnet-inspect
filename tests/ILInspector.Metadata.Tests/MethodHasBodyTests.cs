@@ -15,8 +15,8 @@ public class MethodHasBodyTests
     static string CoreLibPath => typeof(object).Assembly.Location;
 
     [Theory]
+    // -1 is the same runtime value as unchecked((int)0xFFFFFFFF), so one row covers both spellings.
     [InlineData(-1)]
-    [InlineData(unchecked((int)0xFFFFFFFF))]
     [InlineData(0x7F000001)]
     public void InvalidToken_IsUnknown_AndDoesNotThrow(int token)
     {
