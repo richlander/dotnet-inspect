@@ -61,9 +61,11 @@ ILInspector.Metadata   ILInspector.Analysis   ILInspector.Decompiler (Pipeline)
  SourceLink — on top)   own TypeRef on top)     own IR TypeRef on top)
 ```
 
-No layer gains a dependency on another layer; each gains only the lean,
-SRM-only primitives. The Decompiler `Pipeline` stays "SRM-only" because the
-helper is SRM-only. `Analysis` stays independent of `Metadata`.
+Adopting this helper would add only a dependency on the lean, SRM-only
+primitives; it would not add a new consumer-to-consumer edge. The Decompiler
+`Pipeline` stays "SRM-only" because the helper is SRM-only. Analysis separately
+references Metadata for acquisition, structured binding, and definition
+correspondence.
 
 ### What moves
 
@@ -161,9 +163,9 @@ move is reference-only (zero `using` churn). That leaves a namespace/assembly
 mismatch, acceptable as a transitional state but not the end goal. The decision
 to make once `Analysis` adopts the library (step 4): either give the primitives
 their own `ILInspector.MetadataPrimitives` namespace (consumers update `using`s,
-and `Analysis` no longer appears to "use Metadata"), or keep a deliberate shared
+so the namespace identifies the primitive owner), or keep a deliberate shared
 `ILInspector.Metadata` family namespace across the assemblies. The former is
-cleaner for the independence story; resolve it then, not now.
+cleaner ownership signaling; resolve it then, not now.
 
 ## Non-goals
 
