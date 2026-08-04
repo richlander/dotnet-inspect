@@ -5509,7 +5509,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.True(File.Exists(path), "--out was ignored: the requested file was never written.");
-            Assert.Equal(8, int.Parse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture));
+            Assert.Equal("8\n", File.ReadAllText(path));
             Assert.Empty(output.Trim());
         }
         finally
@@ -12751,7 +12751,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("package docs\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("package docs\n", output);
         }
         finally
         {
@@ -12769,7 +12769,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -12789,7 +12789,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -13797,6 +13797,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(line);
 
             // Which document was selected is part of the payload rather than a side channel, so
@@ -14468,7 +14470,7 @@ public partial class CommandExecutionTests
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Equal("2\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("2\n", output);
         }
         finally
         {
@@ -14513,6 +14515,97 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_JsonlUsesLfFraming()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Readme.Jsonl", "2.0.0", "README.md", "# README body"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("# README body", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// This extends <see cref="OutputFormatterTests.ArtifactNewlineGate_ProductOwnedFramingUsesLf"/>
+    /// through the command-only JSONL builders whose output cannot be exercised at the formatter
+    /// seam. Each artifact must keep LF framing when <c>--out</c> writes it to a file.
+    /// </summary>
+    [Fact]
+    public async Task ArtifactNewlineGate_CommandJsonlFilesUseLf()
+    {
+        const string agents = """
+            ---
+            name: newline gate
+            ---
+            agents body
+            """;
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.NewlineGate",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents,
+                [new ProjectSkillDoc("skills/newline/SKILL.md", "skill body")]));
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Package.NewlineGate",
+            "README.md",
+            "readme",
+            "agents body");
+
+        try
+        {
+            var agentsOutput = Path.Combine(projectTempDir, "agents.jsonl");
+            var skillsOutput = Path.Combine(projectTempDir, "skills.jsonl");
+            var contentOutput = Path.Combine(packageTempDir, "content.jsonl");
+
+            var (agentsExit, agentsStdout, agentsError) = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
+            var (skillsExit, skillsStdout, skillsError) = await RunAppAsync(
+                "project", projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
+            var (contentExit, contentStdout, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content", "--jsonl", "--out", contentOutput);
+
+            Assert.Equal(0, agentsExit);
+            Assert.Equal(0, skillsExit);
+            Assert.Equal(0, contentExit);
+            Assert.Empty(agentsStdout);
+            Assert.Empty(skillsStdout);
+            Assert.Empty(contentStdout);
+            Assert.Empty(agentsError);
+            Assert.Empty(skillsError);
+            Assert.Empty(contentError);
+
+            foreach (var path in new[] { agentsOutput, skillsOutput, contentOutput })
+            {
+                var artifact = File.ReadAllText(path);
+                Assert.DoesNotContain('\r', artifact);
+                Assert.EndsWith("\n", artifact, StringComparison.Ordinal);
+                using var _ = JsonDocument.Parse(
+                    Assert.Single(artifact.Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(projectTempDir, recursive: true);
+            Directory.Delete(packageTempDir, recursive: true);
         }
     }
 
