@@ -176,11 +176,15 @@ into a plausible answer.
 Conceptually, an inspection run combines three things:
 
 ```text
-inspection space = workspace contexts × requested queries × execution policy
+inspection space = inspection contexts × requested queries × execution policy
 ```
 
 The product does not materialize that Cartesian product. The plan selects a
-small demand-driven path through it.
+small demand-driven path through it. **Inspection context** is a conceptual
+role, not a shared base type. Assembly-backed contexts come from assembly
+context groups. Feed discovery, package metadata, and other operations that do
+not inspect assemblies may use narrower source or artifact contexts without
+creating a fake assembly group.
 
 ```text
 CLI · Wasm · agent · service host
@@ -195,10 +199,10 @@ CLI · Wasm · agent · service host
                   |
                   v
        +----------------------+
-       |      Workspace       |
+       |  Inspection contexts |
        | assembly groups      |
+       | source · artifact    |
        | identity · provenance|
-       | acquired generations |
        +----------+-----------+
                   |
           sequential baseline
@@ -226,6 +230,12 @@ CLI · Wasm · agent · service host
 Every invocation that inspects assemblies should use a workspace internally.
 For the CLI it is normally ephemeral; a Wasm or service host may retain it and
 run several query plans over the same acquired content.
+
+An operation that does not inspect assemblies need not create an empty
+workspace. It receives the narrow source, artifact, or request context declared
+by its query. A discovery query may return typed inputs that an authorized later
+stage uses to create a workspace; unresolved discovery terms do not masquerade
+as a binding-consistent assembly group.
 
 A workspace contains one or more **assembly context groups**. A group is one
 binding-consistent universe: root assemblies, dependency assemblies, target
@@ -259,34 +269,47 @@ tokens, and leases when it publishes the successor.
 The smallest case remains cheap: one workspace, one group, one root assembly,
 and one requested query.
 
-### Workspace bundles and demos
+### Inspection bundles and demos
 
-A host build may include zero or more immutable **workspace bundles**. A bundle
-is a portable definition from which the host creates an ordinary runtime
-workspace, not a serialized live workspace.
+A host build may include zero or more immutable **inspection bundles**. For an
+assembly-backed scenario, the bundle may carry a portable workspace definition
+from which the host creates an ordinary runtime workspace. It never contains a
+serialized live workspace.
 
 A bundle may contain:
 
 - a stable bundle id and descriptive metadata;
-- one or more context-group definitions;
+- zero or more workspace definitions, each with one or more context-group
+  definitions;
 - embedded artifact content or typed acquisition locations, with the identity,
   digest, and provenance evidence appropriate to their source;
 - required producer capabilities; and
 - optional named query-plan and view presets.
 
-The workspace definition, query preset, and view or navigation preset remain
-separate. A **demo scenario** names one composition of them. Several scenarios
-may reuse one workspace definition, and a host may instantiate the workspace
-without running a preset. Selecting a scenario lowers into the same acquisition
-and typed query paths used by an interactive request; it does not create a
-second demo-only execution path.
+The optional workspace definition, query preset, and view or navigation preset
+remain separate. A **demo scenario** names one composition of them. A
+workspace-free scenario omits the workspace definition but still names the
+embedded input or typed acquisition location used by its source- or
+artifact-scoped query. A discovery-first scenario may use a typed query result
+to instantiate a workspace in a later authorized stage. Several scenarios may
+reuse one workspace definition, and a host may inspect the definition without
+running a preset or acquiring its inputs.
+
+Selecting a scenario lowers into the same acquisition and typed query paths
+used by an interactive request; it does not create a second demo-only execution
+path.
 
 A bundle contains no live streams, `PEReader` instances, sessions, acquisition
 registrations, candidate ids, catalog generations, join tokens, cached verdicts,
-or authorization decisions. Runtime instantiation asks the normal acquisition
-owners to create fresh descriptors and registrations, then builds catalogs
-under the current request's policy. A persistent host may retain the resulting
-workspace afterward under the normal lifetime and budget rules.
+or authorization decisions. Loading a bundle materializes only immutable
+definitions and presets. It performs no source discovery, artifact acquisition,
+registration, image opening, or catalog construction.
+
+The first authorized query plan that needs an input asks the normal acquisition
+owner to create its descriptor and registration lazily, then asks the domain
+owner for a catalog under that plan's policy snapshot. A persistent host may
+retain the resulting workspace afterward under the normal lifetime and budget
+rules.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included
@@ -297,6 +320,14 @@ normal owner and capability gates for those sources. This keeps the model
 compatible with trimming, NativeAOT, both online and offline Wasm demos, and
 non-browser hosts.
 
+Embedding artifact bytes is a build-time publication decision. The publisher
+must be authorized to distribute that content to every build recipient; runtime
+scenario authorization cannot conceal bytes already shipped in a Wasm or native
+binary. Private or otherwise non-redistributable content must remain outside the
+bundle and use an appropriately protected runtime acquisition location. A
+digest provides integrity evidence, not confidentiality or redistribution
+authority.
+
 Build inclusion makes bundled bytes available. Selecting a scenario forms a
 request for its declared inputs and capabilities; the host
 authorizes that request under the same input, cost, and capability policy as any
@@ -305,10 +336,10 @@ or other expensive-work gate. The bytes remain untrusted inspection data, are
 parsed rather than loaded, retain bundled acquisition provenance, and cross the
 same budgets and presentation boundaries as user-supplied content.
 
-A bundle may carry revalidatable producer data only as a versioned cache entry
-under the same semantic-key and validation rules as any other cache. It cannot
-ship a bound result, retained authorization verdict, or old producer verdict as
-authority.
+An inspection bundle contains no precomputed query results or producer,
+correspondence, or authorization verdicts. A future build-time result-cache
+feature would require its own semantic-key, producer-version, validation, and
+publication contract; bundle inclusion does not imply one.
 
 ### Query plan
 
@@ -317,7 +348,7 @@ query declares:
 
 | Property | Question answered |
 | --- | --- |
-| Scope | Does it run for one assembly, one context group, or several groups? |
+| Scope | Does it run without a workspace, for one source or artifact, one assembly, one context group, or several groups? |
 | Inputs | Which typed content and prior results does it consume? |
 | Cost | Is the work bounded, network-bound, source-content-bound, or exhaustive? |
 | Capabilities | What must the caller authorize? |
