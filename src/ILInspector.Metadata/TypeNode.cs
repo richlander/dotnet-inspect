@@ -430,16 +430,16 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Generic type or method parameters (T, TKey, etc.).</summary>
-internal sealed class GenericParameterNode(string name) : TypeNode
+internal sealed class GenericParameterNode(string name, bool hasValueTypeConstraint) : TypeNode
 {
-    public override bool IsReferenceType => false; // unknown; annotation still applies
+    public override bool IsReferenceType => false;
 
     public override string Render(bool canonicalTuples) => IsNullableAnnotated ? $"{name}?" : name;
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
         byte b = ConsumeByte(bytes, ref position, defaultByte);
-        if (b == 2) IsNullableAnnotated = true;
+        if (!hasValueTypeConstraint && b == 2) IsNullableAnnotated = true;
     }
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
