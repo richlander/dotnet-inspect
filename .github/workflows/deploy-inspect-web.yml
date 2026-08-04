@@ -49,6 +49,3 @@ jobs:
           app_location: artifacts/inspect-web-publish/wwwroot
           output_location: ''
           skip_app_build: true
-          skip_api_build: true
-          # Change this and the push branch above to main when the prototype lands.
-          production_branch: prototype/wasm-command-ui
