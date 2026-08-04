@@ -1135,7 +1135,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void MatchesCrossAssembly_MatchesConstructedGenericMemberAgainstOpenTarget()
+    public void MatchesResolvedCrossAssembly_MatchesConstructedGenericMemberSignature()
     {
         // Open target Box<T>.Store(T): declaring type is the open List`1-style definition, the
         // parameter is the type parameter T.
@@ -1147,13 +1147,13 @@ public class LibraryBodyIndexTests
         var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
         var callSite = new MemberRef(constructedBox, "Store", [TypeRef.CoreLib("System", "Int32")], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
 
-        Assert.True(pattern.MatchesCrossAssembly(callSite));
+        Assert.True(pattern.MatchesResolvedCrossAssembly(callSite));
         // The exact same-assembly matcher cannot bridge the open/closed spelling gap.
         Assert.False(pattern.Matches(callSite));
     }
 
     [Fact]
-    public void MatchesCrossAssembly_StillDiscriminatesGenericMembersByArity()
+    public void MatchesResolvedCrossAssembly_StillDiscriminatesGenericMembersByArity()
     {
         // A generic member is erased to arity, not dropped entirely: a one-parameter target must
         // not absorb a two-parameter call site on the same generic type.
@@ -1168,7 +1168,7 @@ public class LibraryBodyIndexTests
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
 
-        Assert.False(pattern.MatchesCrossAssembly(twoArg));
+        Assert.False(pattern.MatchesResolvedCrossAssembly(twoArg));
     }
 
     // #1741: two Ping overloads whose parameter types share the FQN Shared.Token but come

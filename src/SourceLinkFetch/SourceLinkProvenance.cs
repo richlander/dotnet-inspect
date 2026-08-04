@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Reflection.Metadata;
 
 namespace SourceLinkFetch;
 
@@ -204,31 +203,6 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// Determines provenance directly from a PDB, over the documents that PDB declares.
-    /// </summary>
-    /// <returns>
-    /// A result whose <see cref="SourceLinkProvenanceResult.Origin"/> is null, with a reason, when
-    /// the PDB carries no SourceLink map or no attributable single origin.
-    /// </returns>
-    public static SourceLinkProvenanceResult Determine(MetadataReader pdbReader)
-    {
-        ArgumentNullException.ThrowIfNull(pdbReader);
-
-        SourceLinkResolver? resolver = SourceLinkResolver.Create(pdbReader);
-        return resolver is null
-            ? new SourceLinkProvenanceResult(null, "the PDB carries no SourceLink map")
-            : Determine(resolver, EnumerateDocumentNames(pdbReader));
-    }
-
-    private static IEnumerable<string> EnumerateDocumentNames(MetadataReader pdbReader)
-    {
-        foreach (DocumentHandle handle in pdbReader.Documents)
-        {
-            yield return pdbReader.GetString(pdbReader.GetDocument(handle).Name);
-        }
-    }
-
-    /// <summary>
     /// Converts a resolved GitHub raw-content URL into a browsable URL for the same content.
     /// </summary>
     /// <returns>
@@ -373,7 +347,7 @@ public static class SourceLinkProvenance
     /// <remarks>
     /// <para>
     /// The reported origin is artifact text: it is assembled from a URL that came out of a
-    /// downloaded package's PDB, and <c>AssemblyInspector</c> renders <c>RepositoryUrl</c>. So a
+    /// downloaded package's PDB, and <c>SourceLinkInspector</c> renders <c>RepositoryUrl</c>. So a
     /// hostile map can aim a terminal escape or a bidi override at the reader unless something
     /// stops it.
     /// </para>

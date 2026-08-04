@@ -17,31 +17,62 @@ public record CodeViewInfo(Guid Guid, int Age, string PdbFileName, bool IsPortab
 /// <paramref name="Checksum"/> is the document hash recorded in the PDB and
 /// <paramref name="ChecksumAlgorithm"/> its algorithm name (e.g. "SHA256"); both may be null.
 /// </summary>
-public record SourceDocument(
+public record PdbDocumentInfo(
     string FilePath,
-    bool IsEmbedded,
-    string? ResolvedUrl,
     byte[]? Checksum = null,
     string? ChecksumAlgorithm = null,
-    int DocumentRowId = 0,
-    string? CanonicalPath = null);
+    int DocumentRowId = 0);
+
+public enum PdbCustomDebugInformationStatus
+{
+    Absent,
+    Present,
+    Duplicate,
+}
+
+/// <summary>
+/// One custom-debug-information value selected by parent and kind.
+/// A duplicate is reported without choosing or materializing either value.
+/// </summary>
+public sealed record PdbCustomDebugInformationResult(
+    PdbCustomDebugInformationStatus Status,
+    byte[]? Value);
 
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
-/// The metadata token and document row identify the same-version coordinates; the
-/// member anchor and canonical document path provide cross-version identity.
+/// The metadata token and document row identify same-version coordinates; the
+/// member anchor provides cross-version identity.
 /// </summary>
-public sealed record MemberSourceInfo(
+public sealed record PdbMemberDocumentInfo(
     MemberAnchor Anchor,
     int MetadataToken,
     int DocumentRowId,
     string FilePath,
-    string CanonicalPath,
-    string? ResolvedUrl,
     int StartLine,
     int EndLine,
     bool IsPrimaryDocument = false,
     bool IsFinalizer = false);
+
+/// <summary>A method's portable-PDB document and visible source range.</summary>
+public sealed record PdbMethodDocumentInfo(
+    string FilePath,
+    int StartLine,
+    int EndLine,
+    byte[]? Checksum = null,
+    string? ChecksumAlgorithm = null);
+
+/// <summary>A source location recovered from portable-PDB sequence points.</summary>
+public sealed record PdbILOffsetLocation(
+    string? MethodName,
+    string FilePath,
+    int Line,
+    int MatchedOffset);
+
+/// <summary>Documents associated with one metadata type through method debug information.</summary>
+public sealed record PdbTypeDocumentInfo(
+    string TypeFullName,
+    string TypeSimpleName,
+    IReadOnlyList<string> FilePaths);
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -94,9 +125,7 @@ public class PdbContext : IDisposable
 
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
-    private SourceLinkResolver? _resolver;
     private bool? _isReferenceAssembly;
-    private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
     private MethodBodySource? _methodBodies;
     private bool _disposed;
@@ -178,14 +207,11 @@ public class PdbContext : IDisposable
     public CodeViewInfo? PdbId { get; private set; }
     public bool NeedsPdb => PdbId != null && !HasPdb;
     public bool HasPdb { get; private set; }
+    public int PdbVersion { get; private set; }
     public bool WindowsPdbDetected { get; set; }
     public string? PdbFormat { get; private set; }
     public string? PdbLocation { get; private set; }
     public string? SymbolServer { get; private set; }
-
-    // --- SourceLink ---
-    public string? SourceLinkJson { get; private set; }
-    public bool HasSourceLink => SourceLinkJson != null;
 
     private PdbContext(
         Stream peStream,
@@ -257,7 +283,7 @@ public class PdbContext : IDisposable
     /// Opens a PE file with its complete image prefetched so downstream body
     /// producers can safely share the reader during parallel analysis.
     /// </summary>
-    internal static PdbContext OpenPrefetched(
+    public static PdbContext OpenPrefetched(
         string assemblyPath,
         Action<string>? log = null)
         => Open(
@@ -316,6 +342,10 @@ public class PdbContext : IDisposable
     /// </summary>
     public AssemblyInfo ExtractAssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_peReader, includeReferences);
+
+    /// <summary>Extracts full assembly info from the already-open PE image.</summary>
+    public AssemblyInfo ExtractFullAssemblyInfo()
+        => AssemblyInspector.ExtractFullAssemblyInfo(_peReader);
 
     /// <summary>Extracts an API surface from the already-open PE image.</summary>
     public ApiSurface ExtractApiSurface(
@@ -378,14 +408,11 @@ public class PdbContext : IDisposable
             _pdbReader = reader;
 
             HasPdb = true;
+            PdbVersion++;
             PdbFormat = "Portable";
             PdbLocation = pdbLocation ?? "Standalone";
             PortablePdbPath = pdbFilePath;
             SymbolServer = symbolServer;
-
-            SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
-            _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
-            _resolver = _pdbReader != null ? SourceLinkResolver.Create(_pdbReader) : null;
 
             _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
         }
@@ -393,18 +420,6 @@ public class PdbContext : IDisposable
         {
             _log?.Invoke($"Error loading PDB: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Resolves source information for a type by name.
-    /// </summary>
-    public SourceLinkResolver.TypeSourceInfo? ResolveTypeSource(string typeName)
-    {
-        if (_resolver == null || _pdbReader == null || !_peReader.HasMetadata)
-            return null;
-
-        var metadataReader = _peReader.GetMetadataReader();
-        return _resolver.ResolveTypeSource(metadataReader, _pdbReader, typeName);
     }
 
     /// <summary>
@@ -665,28 +680,24 @@ public class PdbContext : IDisposable
         }
     }
 
-    /// <summary>
-    /// Resolves source file and line range for a specific method overload.
-    /// </summary>
-    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false, int metadataToken = 0)
+    /// <summary>Resolves a method to its portable-PDB document and visible line range.</summary>
+    public PdbMethodDocumentInfo? ResolveMethodDocument(
+        string typeName,
+        string methodName,
+        int overloadIndex,
+        bool publicOnly = false,
+        int metadataToken = 0)
     {
-        if (_resolver == null || _pdbReader == null || !_peReader.HasMetadata)
+        if (_pdbReader == null || !_peReader.HasMetadata)
             return null;
 
         var reader = _peReader.GetMetadataReader();
-
-        // When the caller already resolved the exact member, resolve source by its
-        // metadata token rather than name + overload index. Name/index resolution
-        // counts methods in raw metadata order and can drift from the extractor's
-        // visibility-filtered overload numbering (e.g. a finalizer preceded in
-        // metadata by an unrelated private method also named "Finalize"), which
-        // would otherwise return the wrong member's source.
         if (metadataToken != 0)
         {
             var tokenHandle = MetadataTokens.Handle(metadataToken);
-            if (tokenHandle.Kind != HandleKind.MethodDefinition)
-                return null;
-            return _resolver.ResolveMethodSourceRange(_pdbReader, (MethodDefinitionHandle)tokenHandle);
+            return tokenHandle.Kind == HandleKind.MethodDefinition
+                ? ResolveMethodDocumentRange((MethodDefinitionHandle)tokenHandle)
+                : null;
         }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -701,18 +712,56 @@ public class PdbContext : IDisposable
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != methodName)
                     continue;
-
-                if (publicOnly && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                if (publicOnly
+                    && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                {
                     continue;
-
-                if (matchCount == overloadIndex)
-                    return _resolver.ResolveMethodSourceRange(_pdbReader, methodHandle);
-
-                matchCount++;
+                }
+                if (matchCount++ == overloadIndex)
+                    return ResolveMethodDocumentRange(methodHandle);
             }
         }
 
         return null;
+    }
+
+    PdbMethodDocumentInfo? ResolveMethodDocumentRange(MethodDefinitionHandle methodHandle)
+    {
+        try
+        {
+            var debugInfo = _pdbReader!.GetMethodDebugInformation(
+                methodHandle.ToDebugInformationHandle());
+            if (debugInfo.Document.IsNil)
+                return null;
+
+            int minLine = int.MaxValue;
+            int maxLine = 0;
+            foreach (var point in debugInfo.GetSequencePoints())
+            {
+                if (point.IsHidden)
+                    continue;
+                minLine = Math.Min(minLine, point.StartLine);
+                maxLine = Math.Max(maxLine, point.EndLine);
+            }
+            if (minLine == int.MaxValue)
+                return null;
+
+            var document = _pdbReader.GetDocument(debugInfo.Document);
+            return new PdbMethodDocumentInfo(
+                _pdbReader.GetString(document.Name),
+                minLine,
+                maxLine,
+                document.Hash.IsNil ? null : _pdbReader.GetBlobBytes(document.Hash),
+                document.Hash.IsNil
+                    ? null
+                    : MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm)));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static string FormatMemberSignature(
@@ -817,34 +866,16 @@ public class PdbContext : IDisposable
             ? TypeResolver.GetTypeName(reader, region.CatchType)
             : null;
 
-    /// <summary>
-    /// Enumerates all source documents in the PDB for strict verification.
-    /// </summary>
-    public IEnumerable<SourceDocument> EnumerateSourceDocuments()
+    /// <summary>Enumerates all named documents in the portable PDB.</summary>
+    public IEnumerable<PdbDocumentInfo> EnumeratePdbDocuments()
     {
         if (_pdbReader == null)
             yield break;
-
-        // GUID for embedded source: 0E8A571B-6926-466E-B4AD-8AB04611F5FE
-        var embeddedSourceGuid = new Guid("0E8A571B-6926-466E-B4AD-8AB04611F5FE");
 
         foreach (var docHandle in _pdbReader.Documents)
         {
             var document = _pdbReader.GetDocument(docHandle);
             string filePath = _pdbReader.GetString(document.Name);
-
-            bool isEmbedded = false;
-            foreach (var cdiHandle in _pdbReader.GetCustomDebugInformation(docHandle))
-            {
-                var cdi = _pdbReader.GetCustomDebugInformation(cdiHandle);
-                if (_pdbReader.GetGuid(cdi.Kind) == embeddedSourceGuid)
-                {
-                    isEmbedded = true;
-                    break;
-                }
-            }
-
-            var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
 
             byte[]? checksum = null;
             string? checksumAlgorithm = null;
@@ -854,22 +885,31 @@ public class PdbContext : IDisposable
                 checksumAlgorithm = MapHashAlgorithm(_pdbReader.GetGuid(document.HashAlgorithm));
             }
 
-            yield return new SourceDocument(
+            yield return new PdbDocumentInfo(
                 filePath,
-                isEmbedded,
-                sourceLink.ResolvedUrl,
                 checksum,
                 checksumAlgorithm,
-                MetadataTokens.GetRowNumber(docHandle),
-                sourceLink.CanonicalPath);
+                MetadataTokens.GetRowNumber(docHandle));
         }
+    }
+
+    /// <summary>
+    /// Enumerates portable-PDB document paths without reading their checksum blobs.
+    /// </summary>
+    public IEnumerable<string> EnumeratePdbDocumentPaths()
+    {
+        if (_pdbReader == null)
+            yield break;
+
+        foreach (var docHandle in _pdbReader.Documents)
+            yield return _pdbReader.GetString(_pdbReader.GetDocument(docHandle).Name);
     }
 
     /// <summary>
     /// Enumerates method-to-document mappings from visible portable-PDB sequence points.
     /// A method may produce multiple rows when sequence points span multiple documents.
     /// </summary>
-    public IEnumerable<MemberSourceInfo> EnumerateMemberSources(
+    public IEnumerable<PdbMemberDocumentInfo> EnumerateMemberDocuments(
         IReadOnlySet<int>? metadataTokens = null)
     {
         if (_pdbReader == null || !_peReader.HasMetadata)
@@ -922,20 +962,143 @@ public class PdbContext : IDisposable
             {
                 var document = _pdbReader.GetDocument(documentHandle);
                 string filePath = _pdbReader.GetString(document.Name);
-                var sourceLink = _sourceDocumentPathResolver.Resolve(filePath);
-                yield return new MemberSourceInfo(
+                yield return new PdbMemberDocumentInfo(
                     anchor,
                     metadataToken,
                     MetadataTokens.GetRowNumber(documentHandle),
                     filePath,
-                    sourceLink.CanonicalPath,
-                    sourceLink.ResolvedUrl,
                     range.StartLine,
                     range.EndLine,
                     IsPrimaryDocument: documentHandle == primaryDocument,
                     IsFinalizer: isFinalizer);
             }
         }
+    }
+
+    /// <summary>
+    /// Enumerates type-to-document relationships recovered from method debug information.
+    /// </summary>
+    public IEnumerable<PdbTypeDocumentInfo> EnumerateTypeDocuments()
+    {
+        if (_pdbReader == null || !_peReader.HasMetadata)
+            yield break;
+
+        var metadata = _peReader.GetMetadataReader();
+        foreach (var typeHandle in metadata.TypeDefinitions)
+        {
+            var type = metadata.GetTypeDefinition(typeHandle);
+            string fullName = metadata.GetFullTypeName(type);
+            if (string.IsNullOrEmpty(fullName) || fullName == "<Module>")
+                continue;
+
+            List<string> paths = [];
+            HashSet<string> seenPaths = new(StringComparer.Ordinal);
+            foreach (var methodHandle in type.GetMethods())
+            {
+                try
+                {
+                    if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
+                        continue;
+                    var debugInfo = _pdbReader.GetMethodDebugInformation(
+                        methodHandle.ToDebugInformationHandle());
+                    if (debugInfo.Document.IsNil)
+                        continue;
+                    var document = _pdbReader.GetDocument(debugInfo.Document);
+                    string path = _pdbReader.GetString(document.Name);
+                    if (!string.IsNullOrEmpty(path) && seenPaths.Add(path))
+                        paths.Add(path);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentOutOfRangeException)
+                {
+                }
+            }
+
+            yield return new PdbTypeDocumentInfo(
+                fullName,
+                metadata.GetString(type.Name),
+                paths);
+        }
+    }
+
+    /// <summary>
+    /// Reads the unique module custom-debug-information value having
+    /// <paramref name="kind"/>.
+    /// </summary>
+    public PdbCustomDebugInformationResult ReadModuleCustomDebugInformation(Guid kind)
+        => ReadCustomDebugInformation(EntityHandle.ModuleDefinition, kind);
+
+    /// <summary>
+    /// Reads the unique document custom-debug-information value having
+    /// <paramref name="kind"/>.
+    /// </summary>
+    public PdbCustomDebugInformationResult ReadDocumentCustomDebugInformation(
+        int documentRowId,
+        Guid kind)
+    {
+        if (_pdbReader == null
+            || documentRowId <= 0
+            || documentRowId > _pdbReader.GetTableRowCount(TableIndex.Document))
+        {
+            return new(PdbCustomDebugInformationStatus.Absent, null);
+        }
+
+        return ReadCustomDebugInformation(
+            MetadataTokens.DocumentHandle(documentRowId),
+            kind);
+    }
+
+    /// <summary>
+    /// Whether a document carries custom debug information having <paramref name="kind"/>.
+    /// </summary>
+    public bool HasDocumentCustomDebugInformation(int documentRowId, Guid kind)
+    {
+        if (_pdbReader == null
+            || documentRowId <= 0
+            || documentRowId > _pdbReader.GetTableRowCount(TableIndex.Document))
+        {
+            return false;
+        }
+
+        foreach (var handle in _pdbReader.GetCustomDebugInformation(
+            MetadataTokens.DocumentHandle(documentRowId)))
+        {
+            var info = _pdbReader.GetCustomDebugInformation(handle);
+            if (_pdbReader.GetGuid(info.Kind) == kind)
+                return true;
+        }
+
+        return false;
+    }
+
+    PdbCustomDebugInformationResult ReadCustomDebugInformation(
+        EntityHandle parent,
+        Guid kind)
+    {
+        if (_pdbReader == null)
+            return new(PdbCustomDebugInformationStatus.Absent, null);
+
+        BlobHandle value = default;
+        bool found = false;
+        foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+        {
+            var info = _pdbReader.GetCustomDebugInformation(handle);
+            if (_pdbReader.GetGuid(info.Kind) != kind)
+                continue;
+
+            if (found)
+                return new(PdbCustomDebugInformationStatus.Duplicate, null);
+
+            found = true;
+            value = info.Value;
+        }
+
+        return found
+            ? new(
+                PdbCustomDebugInformationStatus.Present,
+                _pdbReader.GetBlobBytes(value))
+            : new(PdbCustomDebugInformationStatus.Absent, null);
     }
 
     private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(
@@ -991,56 +1154,57 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Establishes where this PDB's source is actually fetched from, over the documents the PDB
-    /// declares. Returns a result that says why when no single origin describes them all.
+    /// Resolves a method token and IL offset through portable-PDB sequence points.
     /// </summary>
-    public SourceLinkFetch.SourceLinkProvenanceResult Provenance()
-        => _resolver is null || _pdbReader is null
-            ? new SourceLinkFetch.SourceLinkProvenanceResult(null, "the PDB carries no SourceLink map")
-            : _resolver.Provenance(_pdbReader);
-
-    /// <summary>
-    /// Extracts the repository URL from SourceLink information, or null when no single origin
-    /// describes every document the assembly resolves.
-    /// </summary>
-    public string? ExtractRepositoryUrl()
-        => Provenance().Origin?.RepositoryUrl;
-
-    /// <summary>
-    /// Resolves source file and line number from a method token and IL offset.
-    /// Works even without SourceLink (returns file path + line, no URL).
-    /// </summary>
-    public SourceLinkResolver.ILOffsetSourceInfo? ResolveByILOffset(int methodToken, int ilOffset)
+    public PdbILOffsetLocation? ResolvePdbLocation(int methodToken, int ilOffset)
     {
         if (_pdbReader == null || !_peReader.HasMetadata)
             return null;
 
-        var metadataReader = _peReader.GetMetadataReader();
+        try
+        {
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
 
-        if (_resolver != null)
-            return _resolver.ResolveByILOffset(metadataReader, _pdbReader, methodToken, ilOffset);
+            var metadata = _peReader.GetMetadataReader();
+            var methodHandle = (MethodDefinitionHandle)handle;
+            var method = metadata.GetMethodDefinition(methodHandle);
+            var type = metadata.GetTypeDefinition(method.GetDeclaringType());
+            string methodName =
+                $"{metadata.GetFullTypeName(type)}.{metadata.GetString(method.Name)}";
 
-        return SourceLinkResolver.ResolveByILOffsetDirect(metadataReader, _pdbReader, methodToken, ilOffset);
+            var debugInfo = _pdbReader.GetMethodDebugInformation(
+                methodHandle.ToDebugInformationHandle());
+            if (debugInfo.SequencePointsBlob.IsNil)
+                return null;
+
+            SequencePoint? bestPoint = null;
+            foreach (var point in debugInfo.GetSequencePoints())
+            {
+                if (point.Offset > ilOffset)
+                    break;
+                if (!point.IsHidden)
+                    bestPoint = point;
+            }
+            if (bestPoint is not { } matched)
+                return null;
+
+            var document = _pdbReader.GetDocument(matched.Document);
+            return new PdbILOffsetLocation(
+                methodName,
+                _pdbReader.GetString(document.Name),
+                matched.StartLine,
+                matched.Offset);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or ArgumentException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
-
-    /// <summary>
-    /// Gets the SourceLinkResolver for batch operations (e.g. resolving multiple types).
-    /// Returns null if no PDB/SourceLink is available.
-    /// </summary>
-    internal SourceLinkResolver? GetResolver() => _resolver;
-
-    /// <summary>
-    /// Gets the PDB MetadataReader for batch operations.
-    /// Returns null if no PDB is loaded.
-    /// </summary>
-    internal MetadataReader? GetPdbReader() => _pdbReader;
-
-    /// <summary>
-    /// Gets the PE MetadataReader for batch operations.
-    /// Returns null if no metadata is available.
-    /// </summary>
-    internal MetadataReader? GetMetadataReader()
-        => _peReader.HasMetadata ? _peReader.GetMetadataReader() : null;
 
     /// <summary>
     /// Cheap metadata-backed presence flags for section discovery, using the
@@ -1061,8 +1225,6 @@ public class PdbContext : IDisposable
         _disposables.Clear();
         _pdbProvider = null;
         _pdbReader = null;
-        _resolver = null;
-
         try { _peReader.Dispose(); } catch { }
         try { _peStream.Dispose(); } catch { }
     }
@@ -1130,10 +1292,7 @@ public class PdbContext : IDisposable
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
                 HasPdb = true;
-
-                SourceLinkJson = AssemblyInspector.ExtractSourceLinkFromReader(_pdbReader);
-                _sourceDocumentPathResolver = SourceDocumentPath.CreateResolver(SourceLinkJson);
-                _resolver = SourceLinkResolver.Create(_pdbReader);
+                PdbVersion++;
 
                 _log?.Invoke("Using embedded PDB");
             }

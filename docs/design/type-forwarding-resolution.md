@@ -1436,6 +1436,7 @@ public abstract class DefinitionCorrespondence
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
     }
+
 }
 
 public sealed class DuplicateArtifactCandidateEvidence
@@ -1957,7 +1958,9 @@ under the inspection catalog:
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
    Every pair is contributed as a binding-only discovery root and frozen before
-   reverse closure begins.
+   reverse closure begins. The command-selected target descriptor is
+   authoritative for an exact reference to its identity; competing non-target
+   scope roots remain ambiguous.
 4. Expand assembly-level forwarding adjacency. For every candidate selected by
    an adjacency edge or resolution root, read its `ExportedType` inventory and
    collect only the `AssemblyRef` targets that terminate valid forwarder
@@ -2088,6 +2091,11 @@ public abstract class TypeCorrespondenceFailure
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
     }
+
+    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
+    {
+        internal IncompleteMetadata() { }
+    }
 }
 
 public abstract class CandidateTypeRelation
@@ -2113,6 +2121,11 @@ public abstract class CandidateTypeRelation
     }
 }
 ```
+
+`IncompleteMetadata` retains a candidate whose name inventory could not be
+completed even though the image remained openable. It is separate from
+`Resolution` because no decoder-produced origin exists for a malformed row
+from which to construct a resolution request.
 
 All remaining gates consume projections of this relation:
 
@@ -2535,6 +2548,13 @@ an inspected assembly name into a path.
   `MatchesCrossAssembly` as one coherent gate migration.
 - Port #3476's real framework fixture and close negative controls.
 - Do not port `ForwardedTypeAliases`.
+
+Slice 5 is delivered. Analysis retains exact decoder-produced origins, one
+reachability plan supplies both caller projections, Metadata owns
+generation-scoped definition correspondence, and final call-site matching
+consumes the plan's per-origin relation. The spelling-based scope filters and
+`MatchesCrossAssembly` have been removed rather than retained as compatibility
+paths.
 
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.

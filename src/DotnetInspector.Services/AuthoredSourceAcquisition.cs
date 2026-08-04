@@ -49,7 +49,7 @@ public static class AuthoredSourceAcquisition
         ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(fetcher);
 
-        var memberInspection = MetadataFindings.InspectMemberSources(
+        var memberInspection = SourceLinkFindings.InspectMemberSources(
             source,
             subject,
             new MemberSourceQuery(new HashSet<int> { metadataToken }));
@@ -68,7 +68,7 @@ public static class AuthoredSourceAcquisition
         if (mapping is null)
             return Absent("The selected member has no portable-PDB source mapping.");
 
-        var documentInspection = MetadataFindings.InspectSourceDocuments(
+        var documentInspection = SourceLinkFindings.InspectSourceDocuments(
             source,
             subject,
             new SourceDocumentQuery(mapping.CanonicalPath));

@@ -1,5 +1,3 @@
-using System.Reflection.Metadata;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -92,9 +90,6 @@ public readonly record struct SourceLinkResolution(
 /// </remarks>
 public partial class SourceLinkResolver
 {
-    // SourceLink GUID: CC110556-A091-4D38-9FEC-25AB9A351A6A
-    private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
-
     /// <summary>
     /// A single validated map entry, pre-split so that matching does no parsing.
     /// <paramref name="PathPrefix"/> is the key with its trailing <c>*</c> removed when
@@ -172,17 +167,6 @@ public partial class SourceLinkResolver
         DocumentKeys = [.. mappings.Keys];
         RejectedKeys = rejected;
         ParseError = null;
-    }
-
-    /// <summary>
-    /// Creates a resolver from a PDB metadata reader. Returns null when the PDB carries no
-    /// SourceLink map at all; a map that is present but unusable yields a resolver whose
-    /// <see cref="ParseError"/> or <see cref="RejectedKeys"/> says so.
-    /// </summary>
-    public static SourceLinkResolver? Create(MetadataReader pdbReader)
-    {
-        string? sourceLinkJson = ExtractSourceLinkJson(pdbReader);
-        return sourceLinkJson is null ? null : Parse(sourceLinkJson);
     }
 
     /// <summary>
@@ -747,23 +731,4 @@ public partial class SourceLinkResolver
         return mappings;
     }
 
-    /// <summary>
-    /// Extracts SourceLink JSON from a PDB metadata reader.
-    /// </summary>
-    internal static string? ExtractSourceLinkJson(MetadataReader reader)
-    {
-        foreach (CustomDebugInformationHandle handle in reader.CustomDebugInformation)
-        {
-            CustomDebugInformation info = reader.GetCustomDebugInformation(handle);
-            Guid kind = reader.GetGuid(info.Kind);
-
-            if (kind == SourceLinkGuid)
-            {
-                byte[] bytes = reader.GetBlobBytes(info.Value);
-                return Encoding.UTF8.GetString(bytes);
-            }
-        }
-
-        return null;
-    }
 }
