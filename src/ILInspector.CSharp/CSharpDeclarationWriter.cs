@@ -215,6 +215,7 @@ internal static class CSharpDeclarationWriter
         foreach (var scope in scopeList)
         {
             declaredSimpleNames.Add(CSharpFormatter.StripArity(scope.Type.Name));
+            AddNamespaceShadowingNames(declaredSimpleNames, scope.Type.Namespace);
             declaredSimpleNames.UnionWith(CollectShadowingNames(scope.Type, scope.Members));
         }
 
@@ -284,6 +285,20 @@ internal static class CSharpDeclarationWriter
                 names.Add(name);
         }
         return names;
+    }
+
+    static void AddNamespaceShadowingNames(
+        HashSet<string> names,
+        string? containingNamespace)
+    {
+        if (string.IsNullOrWhiteSpace(containingNamespace))
+            return;
+        foreach (var segment in containingNamespace.Split(
+            '.',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            names.Add(segment);
+        }
     }
 
     static HashSet<string> CollidingSimpleNames(IReadOnlyList<TypeRef> typeRefs)
@@ -2186,6 +2201,9 @@ internal static class CSharpDeclarationWriter
 
             var effectiveShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
             effectiveShadowingNames.UnionWith(options.AdditionalShadowingNames);
+            AddNamespaceShadowingNames(
+                effectiveShadowingNames,
+                options.ContainingNamespace);
             if (typeRefs.Any(r => string.Equals(r.SimpleName, declaredTypeName, StringComparison.Ordinal)
                 && !string.Equals(r.Namespace, options.ContainingNamespace, StringComparison.Ordinal)))
             {

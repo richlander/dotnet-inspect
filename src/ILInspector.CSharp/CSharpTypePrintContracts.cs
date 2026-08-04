@@ -279,6 +279,8 @@ public sealed record CSharpTypePrintOptions
     /// keeps references qualified and derives no imports.
     /// <see cref="CSharpTypeNamePolicy.ContextualShort"/> shortens only against the
     /// declaring namespace and the caller-supplied <see cref="Usings"/>.
+    /// Complete-unit collision safety is gated by the collision, shadowing, and
+    /// namespace-segment tests in <c>CSharpTypePrinterTests</c>.
     /// </summary>
     public CSharpTypeNamePolicy TypeNamePolicy { get; init; } =
         CSharpTypeNamePolicy.ShortWithUsings;

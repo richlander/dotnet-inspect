@@ -1163,6 +1163,23 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ReferenceCollidingWithNamespaceSegmentStaysQualified()
+    {
+        var type = CreateEmptyType("Samples.Models", "Worker");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "External.Models";
+        type.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using External;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public External.Models Get();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AttributeArgumentEnumAccessDoesNotDeriveTypeAsNamespace()
     {
         // The attribute argument `UnmanagedType.I4` is a value expression, not a type

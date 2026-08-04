@@ -176,6 +176,35 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void NamespaceSegmentKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType { Namespace = "Samples.Models", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "External.Models",
+                MemberName = "Get"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public External.Models Get()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(declaration.Usings);
+    }
+
+    [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {
         var parameters = new ApiParameter[]

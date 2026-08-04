@@ -11,6 +11,9 @@ public enum CSharpTypeNamePolicy
     /// <summary>
     /// Derive collision-safe namespace imports for the complete output unit and
     /// shorten only references that remain exact under that shared import set.
+    /// Collision and shadow safety is gated by
+    /// <c>CSharpFormatterTests.NamespaceSegmentKeepsSameNamedReferenceQualified</c>
+    /// and the complete-unit collision gates in <c>CSharpTypePrinterTests</c>.
     /// </summary>
     ShortWithUsings,
 
