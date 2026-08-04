@@ -1180,6 +1180,44 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ReferenceCollidingWithDerivedNamespaceRootStaysQualified()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var widget = CreateMethod("GetWidget");
+        widget.SignatureModel!.ReturnType = "Alpha.Beta.Widget";
+        var alpha = CreateMethod("GetAlpha");
+        alpha.SignatureModel!.ReturnType = "Zeta.Alpha";
+        type.Members.Add(widget);
+        type.Members.Add(alpha);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Equal(["Alpha.Beta"], result.Usings);
+        Assert.Contains("public Widget GetWidget();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Zeta.Alpha GetAlpha();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferenceCollidingWithCallerNamespaceRootStaysQualified()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var alpha = CreateMethod("GetAlpha");
+        alpha.SignatureModel!.ReturnType = "Zeta.Alpha";
+        type.Members.Add(alpha);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                Usings = ["Alpha.Beta"]
+            });
+
+        Assert.Equal(["Alpha.Beta"], result.Usings);
+        Assert.DoesNotContain("using Zeta;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Zeta.Alpha GetAlpha();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AttributeArgumentEnumAccessDoesNotDeriveTypeAsNamespace()
     {
         // The attribute argument `UnmanagedType.I4` is a value expression, not a type

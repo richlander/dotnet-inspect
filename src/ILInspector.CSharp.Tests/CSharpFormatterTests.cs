@@ -205,6 +205,51 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void KnownNamespaceRootKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetWidget",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Alpha.Beta.Widget",
+                        MemberName = "GetWidget"
+                    }
+                },
+                new ApiMember
+                {
+                    Name = "GetAlpha",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Zeta.Alpha",
+                        MemberName = "GetAlpha"
+                    }
+                }
+            ]
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatTypeUnit(type, type.Members);
+
+        Assert.Contains("public Widget GetWidget();", declaration.Text, StringComparison.Ordinal);
+        Assert.Contains("public Zeta.Alpha GetAlpha();", declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(["Alpha.Beta"], declaration.Usings);
+    }
+
+    [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {
         var parameters = new ApiParameter[]

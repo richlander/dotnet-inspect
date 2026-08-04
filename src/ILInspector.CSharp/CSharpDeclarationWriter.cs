@@ -193,7 +193,8 @@ internal static class CSharpDeclarationWriter
         IEnumerable<(
             ApiType Type,
             IEnumerable<ApiMember> Members,
-            IEnumerable<ApiParameter> AdditionalParameters)> scopes)
+            IEnumerable<ApiParameter> AdditionalParameters)> scopes,
+        IEnumerable<string>? contextualNamespaces = null)
     {
         var scopeList = scopes
             .Select(scope => (
@@ -212,6 +213,11 @@ internal static class CSharpDeclarationWriter
             .ToList();
 
         var declaredSimpleNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var typeRef in typeRefs)
+            AddNamespaceRoot(declaredSimpleNames, typeRef.Namespace);
+        if (contextualNamespaces is not null)
+            foreach (var ns in contextualNamespaces)
+                AddNamespaceRoot(declaredSimpleNames, ns);
         foreach (var scope in scopeList)
         {
             declaredSimpleNames.Add(CSharpFormatter.StripArity(scope.Type.Name));
@@ -299,6 +305,18 @@ internal static class CSharpDeclarationWriter
         {
             names.Add(segment);
         }
+    }
+
+    static void AddNamespaceRoot(
+        HashSet<string> names,
+        string? ns)
+    {
+        if (string.IsNullOrWhiteSpace(ns))
+            return;
+        int separator = ns.IndexOf('.');
+        string root = (separator < 0 ? ns : ns[..separator]).Trim();
+        if (root.Length > 0)
+            names.Add(root);
     }
 
     static HashSet<string> CollidingSimpleNames(IReadOnlyList<TypeRef> typeRefs)
@@ -2201,6 +2219,10 @@ internal static class CSharpDeclarationWriter
 
             var effectiveShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
             effectiveShadowingNames.UnionWith(options.AdditionalShadowingNames);
+            foreach (var typeRef in typeRefs)
+                AddNamespaceRoot(effectiveShadowingNames, typeRef.Namespace);
+            foreach (var ns in options.Usings)
+                AddNamespaceRoot(effectiveShadowingNames, ns);
             AddNamespaceShadowingNames(
                 effectiveShadowingNames,
                 options.ContainingNamespace);

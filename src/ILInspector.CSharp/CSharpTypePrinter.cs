@@ -128,7 +128,9 @@ public sealed class CSharpTypePrinter
         foreach (var prepared in preparedTypes)
             Flatten(prepared);
 
-        return CSharpDeclarationWriter.DeriveContextualUsings(scopes)
+        return CSharpDeclarationWriter.DeriveContextualUsings(
+                scopes,
+                options.Usings)
             .Where(ns => !declaringNamespaces.Contains(ns))
             .ToArray();
     }
