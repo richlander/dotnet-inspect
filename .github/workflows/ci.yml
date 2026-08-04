@@ -585,10 +585,13 @@ jobs:
     # Job timeout raised 45 -> 55 with the step timeout below (#3495 follow-up).
     # The two must move together: the design depends on the *step* timeout
     # firing first, with enough of the job budget left for the checker and the
-    # artifact upload to still run and fail loudly. At step 35 and ~5 minutes of
-    # preceding setup and build, the step gives up around minute 40, which needs
-    # more than the old 45-minute job budget to stay a loud failure, not a
-    # cancel.
+    # artifact upload to still run and fail loudly. Measured on this job: setup
+    # and build are 2m54s, so a step that burns its full 35 gives up around
+    # minute 38. That would still fit a 45-minute job, but with only ~7 minutes
+    # covering the checker, the artifact upload, and any runner-side variance in
+    # setup and build -- thin enough that a slow runner could turn the loud
+    # failure this job exists to produce back into a silent cancel. 55 makes the
+    # gap unambiguous. A healthy run finishes in 24m35s.
     timeout-minutes: 55
     env:
       DOTNET_INSPECT_TIPS: q
@@ -653,11 +656,16 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
-      # 35 is sized to a measurement, not a guess. The preset runs 44 tests in
-      # 11m42s locally; the CI runner is roughly 1.6x slower on these classes
-      # (#3495's per-class table against the same machine), so expect ~20
-      # minutes. 35 leaves ~75% headroom over that while staying 20 minutes
-      # under the job timeout, which is what keeps a hang loud.
+      # 35 is sized to a measurement, not a guess, and the measurement is from
+      # this job on this runner: the 6-class preset runs 44 tests in 21m30s
+      # (build 2m37s, discovery 2s, checker 4s, job total 24m35s). 35 leaves
+      # ~63% headroom over that while staying 20 minutes under the job timeout,
+      # which is what keeps a hang loud.
+      #
+      # Raising this from 25 was required, not cosmetic: at 21m30s the old
+      # budget had 3m30s of margin, so a slightly slow runner would have hit a
+      # timeout on a perfectly healthy run. Re-measure and re-tune both numbers
+      # together whenever a class is added to the preset.
       #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
