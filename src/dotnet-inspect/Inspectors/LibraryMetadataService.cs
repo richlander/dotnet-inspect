@@ -82,6 +82,27 @@ internal static class LibraryMetadataService
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
                 nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
 
+                if (queryRegistry is not null && requiredQueries is not null)
+                {
+                    using var queryContext = new Sections.ScannerContext
+                    {
+                        AssemblyPath = path,
+                        Model = nativeAudit,
+                        Logger = logger,
+                        MetadataContext = pdbContext,
+                        BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
+                        Trace = trace,
+                    };
+                    RunTypedQueries(
+                        path,
+                        nativeAudit,
+                        logger,
+                        queryRegistry,
+                        requiredQueries,
+                        queryContext,
+                        trace);
+                }
+
                 return nativeAudit;
             }
 
@@ -192,14 +213,14 @@ internal static class LibraryMetadataService
 
                 if (queryRegistry is not null && requiredQueries is not null)
                 {
-                    Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
-                        ? null
-                        : trace.RecordQueryExecution;
-                    InspectionQueryResults results = queryRegistry.Run(
+                    RunTypedQueries(
+                        path,
+                        inspection,
+                        logger,
+                        queryRegistry,
                         requiredQueries,
                         scannerContext,
-                        recordQuery);
-                    ApplyQueryResults(path, inspection, logger, results);
+                        trace);
                 }
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
@@ -1799,6 +1820,25 @@ internal static class LibraryMetadataService
             logger.LogWarning(
                 $"Error reading metadata image of {path}: {failed.Error.Message}");
         }
+    }
+
+    private static void RunTypedQueries(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        InspectionQueryRegistry<ScannerContext> queryRegistry,
+        HashSet<InspectionQueryDefinition> requiredQueries,
+        ScannerContext scannerContext,
+        Sections.InspectionTrace? trace)
+    {
+        Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
+            ? null
+            : trace.RecordQueryExecution;
+        InspectionQueryResults results = queryRegistry.Run(
+            requiredQueries,
+            scannerContext,
+            recordQuery);
+        ApplyQueryResults(path, inspection, logger, results);
     }
 
     static FindingInspection<T> FailedInspection<T>(

@@ -205,9 +205,14 @@ Metadata-image inspection is the first vertical L1 canary:
   mutating `LibraryInspection`.
 - Metadata sections bind to the query definition by object identity. The
   diagnostic name is never a lookup key.
+- An executor can read only its declared transitive prerequisite results. A
+  hidden dependency therefore fails whether or not another requested query
+  happened to populate the shared run, and cannot understate cost.
 - `MetadataImageOverview.MetadataVersion` remains an `InertString` from the
   metadata producer through query results to the rendering sink. Inspection
   trace fields and lines use the same query-to-sink currency.
+- A demanded metadata-image query executes for native PE images too, producing
+  `NoMetadata` and a truthful trace rather than returning before execution.
 
 This is a canary, not the completed split. The remaining boundaries are
 intentional and visible:

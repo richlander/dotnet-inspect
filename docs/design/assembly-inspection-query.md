@@ -142,6 +142,13 @@ generic definition says what one facet returns and costs; it is not the
 non-generic aggregate request above, which will carry the target, selected
 facets, and options when the acquisition seam migrates.
 
+Each facet executor receives a result view restricted to its declared
+transitive prerequisite closure. Reading an undeclared result throws even when
+another requested facet happened to run first, so execution order cannot hide a
+dependency from cost calculation. The metadata facet also executes against a
+borrowed native PE image and returns `NoMetadata`; native input does not turn a
+demanded query into an unexecuted trace entry.
+
 `MemberSelector` is the `MemberQuery` / `ILCoordinateQuery` union. A plain assembly inspection
 leaves `Selector` null; a member or coordinate inspection sets it.
 

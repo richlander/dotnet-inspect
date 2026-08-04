@@ -1432,12 +1432,31 @@ public class SectionPipelineTests
             {
                 order.Add("second");
                 return results.Get(prerequisite) + results.Get(first);
-            }, prerequisite, first);
+            }, first);
 
         InspectionQueryResults results = registry.Run([first, second], context: null);
 
         Assert.Equal(["prerequisite", "first", "second"], order);
         Assert.Equal(3, results.Get(second));
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_RejectsUndeclaredResultDependencies()
+    {
+        var hidden = new InspectionQuery<int>("hidden", InspectionCost.Unbounded);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(hidden, _ => 42)
+            .Add(query, (_, results) => results.Get(hidden));
+
+        var present = Assert.Throws<InvalidOperationException>(
+            () => registry.Run([hidden, query], context: null));
+        var absent = Assert.Throws<InvalidOperationException>(
+            () => registry.Run([query], context: null));
+
+        Assert.Contains("not a declared prerequisite", present.Message, StringComparison.Ordinal);
+        Assert.Equal(present.Message, absent.Message);
+        Assert.Equal(InspectionCost.NetworkFree, registry.CostOf(query));
     }
 
     [Fact]

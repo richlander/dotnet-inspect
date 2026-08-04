@@ -36,19 +36,40 @@ public sealed class InspectionQuery<TResult> : InspectionQueryDefinition
 }
 
 /// <summary>
-/// Results produced by an <see cref="InspectionQueryRegistry{TContext}"/>.
+/// Results produced by an <see cref="InspectionQueryRegistry{TContext}"/>. The completed result
+/// set exposes every produced query; the view passed to an executor exposes only that query's
+/// declared transitive prerequisites.
 /// </summary>
 public sealed class InspectionQueryResults
 {
-    private readonly Dictionary<InspectionQueryDefinition, object?> _values = [];
+    private readonly Dictionary<InspectionQueryDefinition, object?> _values;
+    private readonly IReadOnlySet<InspectionQueryDefinition>? _accessible;
+
+    internal InspectionQueryResults()
+    {
+        _values = [];
+    }
+
+    private InspectionQueryResults(
+        Dictionary<InspectionQueryDefinition, object?> values,
+        IReadOnlySet<InspectionQueryDefinition> accessible)
+    {
+        _values = values;
+        _accessible = accessible;
+    }
 
     internal void Set<TResult>(InspectionQuery<TResult> query, TResult result)
         => _values.Add(query, result);
+
+    internal InspectionQueryResults RestrictTo(
+        IReadOnlySet<InspectionQueryDefinition> accessible)
+        => new(_values, accessible);
 
     /// <summary>Gets the result produced for <paramref name="query"/>.</summary>
     public TResult Get<TResult>(InspectionQuery<TResult> query)
     {
         ArgumentNullException.ThrowIfNull(query);
+        EnsureAccessible(query);
         if (!_values.TryGetValue(query, out object? value))
             throw new InvalidOperationException($"Query '{query.Name}' did not produce a result.");
 
@@ -61,6 +82,7 @@ public sealed class InspectionQueryResults
         [MaybeNullWhen(false)] out TResult result)
     {
         ArgumentNullException.ThrowIfNull(query);
+        EnsureAccessible(query);
         if (_values.TryGetValue(query, out object? value))
         {
             result = (TResult)value!;
@@ -69,6 +91,15 @@ public sealed class InspectionQueryResults
 
         result = default;
         return false;
+    }
+
+    private void EnsureAccessible(InspectionQueryDefinition query)
+    {
+        if (_accessible is not null && !_accessible.Contains(query))
+        {
+            throw new InvalidOperationException(
+                $"Query '{query.Name}' is not a declared prerequisite of the query being executed.");
+        }
     }
 }
 
@@ -209,7 +240,12 @@ public sealed class InspectionQueryRegistry<TContext>
         long start = Stopwatch.GetTimestamp();
         try
         {
-            registration.Execute(context, results);
+            HashSet<InspectionQueryDefinition> prerequisites =
+                ExpandRequired(registration.Requires);
+            registration.Execute(
+                context,
+                results,
+                results.RestrictTo(prerequisites));
         }
         finally
         {
@@ -229,7 +265,10 @@ public sealed class InspectionQueryRegistry<TContext>
     {
         public InspectionQueryDefinition Query { get; } = query;
         public ImmutableArray<InspectionQueryDefinition> Requires { get; } = requires;
-        public abstract void Execute(TContext context, InspectionQueryResults results);
+        public abstract void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults);
     }
 
     private sealed class Registration<TResult>(
@@ -238,7 +277,10 @@ public sealed class InspectionQueryRegistry<TContext>
         ImmutableArray<InspectionQueryDefinition> requires)
         : Registration(query, requires)
     {
-        public override void Execute(TContext context, InspectionQueryResults results)
-            => results.Set(query, execute(context, results));
+        public override void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults)
+            => results.Set(query, execute(context, prerequisiteResults));
     }
 }

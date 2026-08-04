@@ -84,7 +84,7 @@ public sealed class ScannerContext : IDisposable
         _sessionOpenAttempted = true;
         try
         {
-            if (MetadataContext is { HasMetadata: true } context)
+            if (MetadataContext is { } context)
             {
                 _session = AssemblyInspectionSession.Borrow(context);
                 Trace?.RecordResource(
