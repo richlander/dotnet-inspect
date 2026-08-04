@@ -285,9 +285,9 @@ consumption. Resource budgets remain an open requirement below.
 ### Untrusted JSON rejects duplicate properties
 
 JSON does not define how duplicate object keys resolve, so two readers of one payload can
-disagree. `DotnetInspector.Core.HardenedJson` (and its `ILInspector.Metadata.SourceLinkJson`
-counterpart, kept separate because Metadata sits below the Core infrastructure layer) parses with
-`AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
+disagree. `DotnetInspector.Core.HardenedJson` and SourceLinkFetch's map parser reject duplicate
+properties, while `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
+persistent type-index cache. Such payloads fail visibly instead of binding one of
 several possible readings.
 
 This is generic hardening, not a fix for a known divergence. The SourceLink

@@ -5,9 +5,9 @@ using ILInspector.Decompiler.Annotations;
 /// <summary>
 /// Which language a line came from. This is the only discriminator the
 /// correlation layer needs: each medium pretty-prints its own lines (indent,
-/// braces, IL alignment, inline annotations already live in the text), so the
-/// merge owns nothing but the cross-medium framing — and framing an IL line
-/// differs from a C# line by exactly this bit.
+/// braces, IL alignment, and medium-owned commentary), so the merge owns
+/// nothing but the cross-medium framing and research-annotation rendering —
+/// and framing an IL line differs from a C# line by exactly this bit.
 /// </summary>
 public enum SourceLineKind
 {
@@ -56,5 +56,76 @@ public sealed record BoundSourceLine(
     public BoundSourceLine(string Text, int Offset, SourceLineKind Kind)
         : this(Text, Offset, Kind, [])
     {
+    }
+}
+
+/// <summary>
+/// Portable line currency for consumers outside the decompiler process. Each
+/// line carries annotation data rather than rendered labels, so a consumer can
+/// choose a gesture, filter facts, or render clean text without parsing
+/// <paramref name="Text"/>.
+/// </summary>
+/// <remarks>
+/// Unlike <see cref="BoundSourceLine"/>, this type contains no
+/// <see cref="IAnnotation"/> references. Annotation extents use the coordinate
+/// space of the containing stream; constructing that stream and rebasing its
+/// extents is the producer's responsibility.
+/// </remarks>
+public sealed record AnnotatedSourceLine
+{
+    /// <summary>Creates a portable annotated source line.</summary>
+    /// <param name="Text">The medium's rendered line without research annotations.</param>
+    /// <param name="Offset">The anchoring IL offset, or <c>-1</c> when unanchored.</param>
+    /// <param name="Kind">The language this line came from.</param>
+    /// <param name="Annotations">Portable annotations attached to this line.</param>
+    public AnnotatedSourceLine(
+        string Text,
+        int Offset,
+        SourceLineKind Kind,
+        IReadOnlyList<PrintedAnnotationSpan> Annotations)
+    {
+        ArgumentNullException.ThrowIfNull(Text);
+        ArgumentNullException.ThrowIfNull(Annotations);
+        if (Offset < -1)
+            throw new ArgumentOutOfRangeException(nameof(Offset), Offset, "A line offset must be -1 or non-negative.");
+        if (!Enum.IsDefined(Kind))
+            throw new ArgumentException($"Unknown source line kind: {Kind}.", nameof(Kind));
+
+        this.Text = Text;
+        this.Offset = Offset;
+        this.Kind = Kind;
+        this.Annotations = Array.AsReadOnly(Annotations.ToArray());
+    }
+
+    /// <summary>The medium's rendered line without research annotations.</summary>
+    public string Text { get; }
+
+    /// <summary>The anchoring IL offset, or <c>-1</c> when unanchored.</summary>
+    public int Offset { get; }
+
+    /// <summary>The language this line came from.</summary>
+    public SourceLineKind Kind { get; }
+
+    /// <summary>Portable annotations attached to this line.</summary>
+    public IReadOnlyList<PrintedAnnotationSpan> Annotations { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceLine? other)
+        => other is not null
+            && Text == other.Text
+            && Offset == other.Offset
+            && Kind == other.Kind
+            && Annotations.SequenceEqual(other.Annotations);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Text);
+        hash.Add(Offset);
+        hash.Add(Kind);
+        foreach (var annotation in Annotations)
+            hash.Add(annotation);
+        return hash.ToHashCode();
     }
 }

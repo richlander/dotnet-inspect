@@ -19,6 +19,43 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class OutputFormatterTests
 {
+    /// <summary>
+    /// This is the named non-vacuity gate for product-owned artifact framing. It fails when the
+    /// count-file writer or printable-document JSONL writer inherits CRLF from the Windows host
+    /// instead of emitting the repository's LF artifact contract.
+    /// </summary>
+    [Fact]
+    public void ArtifactNewlineGate_ProductOwnedFramingUsesLf()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("artifact-newline-gate-");
+        try
+        {
+            var countPath = Path.Combine(tempDirectory.FullName, "count.txt");
+            CountOutput.WriteCount(7, countPath);
+
+            var printPath = Path.Combine(tempDirectory.FullName, "print.jsonl");
+            var printExit = PrintProjectionOutput.Write(
+                [new PrintableDocument(1, "Docs", "README", "README.md", null, "body")],
+                new PrintProjectionOptions(
+                    Row: null,
+                    JsonOutput: false,
+                    Jsonl: true,
+                    JsonArray: false,
+                    Bare: false,
+                    OutputPath: printPath));
+
+            Assert.Equal(0, printExit);
+            Assert.Equal("7\n", File.ReadAllText(countPath));
+            Assert.Equal(
+                "{\"row\":1,\"section\":\"Docs\",\"label\":\"README\",\"path\":\"README.md\",\"content\":\"body\"}\n",
+                File.ReadAllText(printPath));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void ResourceTriageFailure_IsVisible()
     {
