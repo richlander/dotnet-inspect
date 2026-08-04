@@ -1,4 +1,6 @@
-namespace ILInspector.Metadata;
+using ILInspector.Metadata;
+
+namespace ILInspector.SourceLink;
 
 /// <summary>
 /// Audit-relevant information extracted from a PE assembly's debug directory and PDB.

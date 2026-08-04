@@ -1507,7 +1507,7 @@ public class SourceLinkProvenanceTests
     /// <para>
     /// <c>RepositoryUrl</c> is built from segments of a URL that came out of a downloaded
     /// package's PDB, and unlike <c>Reason</c> — which every caller currently drops — it is
-    /// rendered: <c>AssemblyInspector</c> puts it in <c>audit.RepositoryUrl</c>. So it is the
+    /// rendered: <c>SourceLinkInspector</c> puts it in <c>audit.RepositoryUrl</c>. So it is the
     /// live path, and the rule from <c>docs/design/untrusted-data-threat-model.md</c> that
     /// artifact text must not reach a sink as-is applies to it today, not eventually.
     /// </para>
