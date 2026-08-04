@@ -594,6 +594,22 @@ public class InspectionAcquisitionPlanTests
         Task disposeTask = StartConcurrent(plan.Dispose);
         try
         {
+            // Rejection is the observable that Dispose has set _disposed before waiting.
+            bool disposeStarted = SpinWait.SpinUntil(
+                () =>
+                {
+                    try
+                    {
+                        plan.Register(descriptor);
+                        return false;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return true;
+                    }
+                },
+                TimeSpan.FromSeconds(5));
+            Assert.True(disposeStarted);
             Assert.False(disposeTask.IsCompleted);
         }
         finally

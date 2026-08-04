@@ -3552,7 +3552,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Jso", "-S", "Classes", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Classes", "--tips", "q");
 
         Assert.Equal(0, exit);
 
@@ -3563,7 +3563,7 @@ public partial class CommandExecutionTests
 
         // A name valid for neither pipeline still fails on this route.
         var (bogusExit, _, bogusError) = await RunAppAsync(
-            "type", "System.Text.Jso", "-S", "Zzznosuchsection", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
     }

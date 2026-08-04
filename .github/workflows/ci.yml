@@ -151,6 +151,9 @@ jobs:
               # `ci-required` passes on a `skipped`.
               eng/restore-iltools.sh) CODE=true ;;
               eng/activate-iltools.sh) CODE=true ;;
+              # Controls checkout line endings on Windows, including the raw
+              # string fixtures this lane exists to validate.
+              .gitattributes) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.
