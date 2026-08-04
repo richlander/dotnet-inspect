@@ -122,13 +122,22 @@ public sealed class PackagingSurfaceTests
         foreach (var (path, project) in projects)
         {
             string relativePath = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
-            var isTestProject = Assert.Single(
-                project.Descendants(),
-                static element => element.Name.LocalName == "IsTestProject");
-            var outputType = Assert.Single(
-                project.Descendants(),
-                static element => element.Name.LocalName == "OutputType");
+            var isTestProjects = project.Descendants()
+                .Where(static element => element.Name.LocalName == "IsTestProject")
+                .ToArray();
+            var outputTypes = project.Descendants()
+                .Where(static element => element.Name.LocalName == "OutputType")
+                .ToArray();
 
+            Assert.True(
+                isTestProjects.Length == 1,
+                $"{relativePath} must declare exactly one IsTestProject property; found {isTestProjects.Length}.");
+            Assert.True(
+                outputTypes.Length == 1,
+                $"{relativePath} must declare exactly one OutputType property; found {outputTypes.Length}.");
+
+            var isTestProject = isTestProjects[0];
+            var outputType = outputTypes[0];
             Assert.Null(isTestProject.Attribute("Condition"));
             Assert.Equal("true", isTestProject.Value.Trim(), ignoreCase: true);
             Assert.True(
