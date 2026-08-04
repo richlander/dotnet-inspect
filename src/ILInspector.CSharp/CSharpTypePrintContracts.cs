@@ -236,18 +236,26 @@ public sealed record CSharpTypePrintOptions
     /// <see cref="CSharpTypePrintResult.Source"/>. Escaped, de-duplicated, and
     /// ordinal-ordered at composition time. Ignored when <see cref="IncludeUsings"/>
     /// is false. The per-type <see cref="CSharpTypePrintResult.Units"/> never carry
-    /// their own using directives; under <see cref="ShortenTypeNames"/> a unit's
-    /// <see cref="CSharpTypeSourceUnit.Source"/> is therefore file-context-relative —
-    /// its shortened names resolve only against this using block in the composed
-    /// <see cref="CSharpTypePrintResult.Source"/>. A per-unit consumer must compose
-    /// against <see cref="CSharpTypePrintResult.Source"/> or set
-    /// <see cref="ShortenTypeNames"/> to false to get self-contained unit source.
+    /// their own using directives; under
+    /// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/> or
+    /// <see cref="CSharpTypeNamePolicy.ContextualShort"/> a unit's
+    /// <see cref="CSharpTypeSourceUnit.Source"/> may therefore be
+    /// file-context-relative. Its shortened cross-namespace names resolve against
+    /// the using block in the composed <see cref="CSharpTypePrintResult.Source"/>.
+    /// A per-unit consumer must compose against that source or select
+    /// <see cref="CSharpTypeNamePolicy.Qualified"/> for self-contained unit text.
+    /// Caller-supplied namespace identities do not inventory every type they contain,
+    /// so callers remain responsible for the suitability of that external context.
+    /// Known references are shortened against it only when the namespace is also
+    /// collision-safe for the complete output unit.
     /// </summary>
     public IReadOnlyList<string> Usings { get; init; } = [];
 
     /// <summary>
     /// When true (the default), <see cref="Usings"/> are emitted in the composed
-    /// source. Set false to suppress the using block entirely.
+    /// source. Set false to suppress the using block entirely; cross-namespace
+    /// references then stay qualified under both shortening policies so the
+    /// composed source never depends on imports it does not emit.
     /// </summary>
     public bool IncludeUsings { get; init; } = true;
 
@@ -264,13 +272,16 @@ public sealed record CSharpTypePrintOptions
     public IReadOnlyList<string> ModuleAttributes { get; init; } = [];
 
     /// <summary>
-    /// When true (the default), type references in rendered declarations are
-    /// shortened to their simple names wherever doing so is unambiguous across the
-    /// compilation unit, and the namespaces that makes that possible are emitted as
-    /// <c>using</c> directives in the composed <see cref="CSharpTypePrintResult.Source"/>.
-    /// Set false to keep every reference fully qualified.
+    /// Controls type-name spelling across the complete output unit. The default,
+    /// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/>, derives one
+    /// collision-safe namespace set for the unit and shortens only references that
+    /// remain exact under that set. <see cref="CSharpTypeNamePolicy.Qualified"/>
+    /// keeps references qualified and derives no imports.
+    /// <see cref="CSharpTypeNamePolicy.ContextualShort"/> shortens only against the
+    /// declaring namespace and the caller-supplied <see cref="Usings"/>.
     /// </summary>
-    public bool ShortenTypeNames { get; init; } = true;
+    public CSharpTypeNamePolicy TypeNamePolicy { get; init; } =
+        CSharpTypeNamePolicy.ShortWithUsings;
 
     /// <summary>
     /// When true, the composed source begins with <c>#pragma warning disable</c>.
@@ -281,9 +292,11 @@ public sealed record CSharpTypePrintOptions
 
 /// <summary>
 /// One rendered type declaration. Under
-/// <see cref="CSharpTypePrintOptions.ShortenTypeNames"/> the <paramref name="Source"/>
-/// is file-context-relative: its shortened type names resolve against the using block
-/// in the composed <see cref="CSharpTypePrintResult.Source"/>, not in isolation.
+/// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/> or
+/// <see cref="CSharpTypeNamePolicy.ContextualShort"/> the
+/// <paramref name="Source"/> may be file-context-relative: its shortened
+/// cross-namespace type names resolve against the using block in the composed
+/// <see cref="CSharpTypePrintResult.Source"/>, not in isolation.
 /// </summary>
 public sealed record CSharpTypeSourceUnit(string? Namespace, string Source);
 
@@ -296,11 +309,14 @@ public sealed record CSharpTypePrintResult
     public CSharpTypePrintResult(
         ImmutableArray<CSharpTypeSourceUnit> units,
         ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
+        ImmutableHashSet<string> usings,
         Func<string> sourceFactory)
     {
+        ArgumentNullException.ThrowIfNull(usings);
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
         Diagnostics = diagnostics;
+        Usings = usings;
         _source = new Lazy<string>(sourceFactory);
     }
 
@@ -309,19 +325,27 @@ public sealed record CSharpTypePrintResult
     public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
 
     /// <summary>
+    /// The immutable set of raw namespace identities emitted as using directives
+    /// in <see cref="Source"/>. Names are escaped only while rendering source.
+    /// Empty when <see cref="CSharpTypePrintOptions.IncludeUsings"/> is false.
+    /// </summary>
+    public ImmutableHashSet<string> Usings { get; }
+
+    /// <summary>
     /// The composed compilation-unit source. Composed lazily on first access so
     /// callers that only read <see cref="Units"/> do not pay for it.
     /// </summary>
     public string Source => _source.Value;
 
-    // Value equality is defined over the eagerly-known content (Units, Diagnostics)
-    // only. The lazy source field is excluded so equality neither forces composition
-    // nor degrades to reference identity of the Lazy wrapper.
+    // Value equality is defined over the eagerly-known content (Units, Diagnostics,
+    // Usings) only. The lazy source field is excluded so equality neither forces
+    // composition nor degrades to reference identity of the Lazy wrapper.
     public bool Equals(CSharpTypePrintResult? other)
         => other is not null
             && Units.SequenceEqual(other.Units)
-            && Diagnostics.SequenceEqual(other.Diagnostics);
+            && Diagnostics.SequenceEqual(other.Diagnostics)
+            && Usings.SetEquals(other.Usings);
 
     public override int GetHashCode()
-        => HashCode.Combine(Units.Length, Diagnostics.Length);
+        => HashCode.Combine(Units.Length, Diagnostics.Length, Usings.Count);
 }

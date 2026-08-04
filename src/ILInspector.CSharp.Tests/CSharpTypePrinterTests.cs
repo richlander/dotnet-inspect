@@ -721,11 +721,83 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Equal(["System.Threading.Tasks"], result.Usings);
         Assert.Contains("public Task Run();", result.Units[0].Source, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ShortenTypeNamesDisabledKeepsReferencesQualified()
+    public void DerivationUsesOnlySelectedMembers()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var selected = CreateMethod("Open");
+        selected.SignatureModel!.ReturnType = "System.IO.Stream";
+        var omitted = CreateMethod("CreateTimer");
+        omitted.SignatureModel!.ReturnType = "System.Windows.Forms.Timer";
+        type.Members.Add(selected);
+        type.Members.Add(omitted);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type, members: [selected]));
+
+        Assert.Equal(["System.IO"], result.Usings);
+        Assert.Contains("public Stream Open();", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("System.Windows.Forms", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DerivationIncludesPrimaryConstructorParameters()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            primaryConstructorParameters:
+            [
+                new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" }
+            ]));
+
+        Assert.Equal(["System.IO"], result.Usings);
+        Assert.Contains("public class Worker(TextWriter writer)", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortWithUsingsReturnsFieldWriterImportsAsRawNamespaceSet()
+    {
+        var type = CreateEmptyType("Markout.Writers", "FieldWriter");
+        type.Members.Add(new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.Options.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            ["Markout.Formatting", "Markout.Options", "System.IO"],
+            result.Usings.Order(StringComparer.Ordinal));
+        Assert.All(result.Usings, ns => Assert.DoesNotContain("using ", ns, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void QualifiedPolicyKeepsReferencesQualified()
     {
         var type = CreateEmptyType("Samples", "Worker");
         var member = CreateMethod("Run");
@@ -734,13 +806,69 @@ public sealed class CSharpTypePrinterTests
 
         var result = _printer.Print(
             new CSharpTypePrintRequest(type),
-            new CSharpTypePrintOptions { ShortenTypeNames = false });
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
 
         Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
             "public System.Threading.Tasks.Task Run();",
             result.Units[0].Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ContextualShortUsesOnlyCallerSuppliedNamespaceContext()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        type.Members.Add(new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "System.Threading.CancellationToken",
+                        Name = "cancellationToken"
+                    }
+                ]
+            }
+        });
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                Usings = ["System.Threading.Tasks"]
+            });
+
+        Assert.Equal(["System.Threading.Tasks"], result.Usings);
+        Assert.Contains(
+            "public Task Run(System.Threading.CancellationToken cancellationToken);",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("using System.Threading;", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RejectsUndefinedTypeNamePolicy()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("Samples", "Worker")),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = (CSharpTypeNamePolicy)42
+            }));
+
+        Assert.Contains("type-name policy", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -810,6 +938,160 @@ public sealed class CSharpTypePrinterTests
         Assert.DoesNotContain("using MyNamespace;", result.Source, StringComparison.Ordinal);
         Assert.Contains("public System.String M1();", result.Source, StringComparison.Ordinal);
         Assert.Contains("public MyNamespace.String N1();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CollisionDoesNotBlockUnrelatedSameNamespaceShortening()
+    {
+        var type = CreateEmptyType("Alpha", "Widget");
+        type.Members.Add(new ApiMember
+        {
+            Name = "GetPanel",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Panel",
+                MemberName = "GetPanel"
+            }
+        });
+        type.Members.Add(new ApiMember
+        {
+            Name = "Pair",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Button",
+                MemberName = "Pair",
+                Parameters =
+                [
+                    new ApiParameter { Type = "Beta.Button", Name = "other" },
+                    new ApiParameter { Type = "Alpha.Panel", Name = "panel" }
+                ]
+            }
+        });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("public Panel GetPanel();", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Alpha.Button Pair(Beta.Button other, Panel panel);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedDeclaredTypeShadowsSameNamespaceTopLevelReference()
+    {
+        var outer = CreateEmptyType("Alpha", "Widget");
+        var member = CreateMethod("GetButton");
+        member.SignatureModel!.ReturnType = "Alpha.Button";
+        outer.Members.Add(member);
+        var nested = CreateEmptyType("Alpha", "Button");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            outer,
+            nestedTypes: [new CSharpTypePrintRequest(nested)]));
+
+        Assert.Contains(
+            "public Alpha.Button GetButton();",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains("public class Button", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EnclosingTypeParameterShadowsSameNamespaceReferencesInNestedType()
+    {
+        var outer = CreateEmptyType("Alpha", "Widget`1");
+        outer.TypeParameters = [new TypeParameter { Name = "T" }];
+        var nested = CreateEmptyType("Alpha", "Inner");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "Alpha.T";
+        nested.Members.Add(member);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            outer,
+            nestedTypes:
+            [
+                new CSharpTypePrintRequest(
+                    nested,
+                    primaryConstructorParameters:
+                    [
+                        new ApiParameter { Type = "Alpha.T", Name = "value" }
+                    ])
+            ]));
+
+        Assert.Contains(
+            "public class Inner(Alpha.T value)",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains("public Alpha.T Get();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ContextualShortFiltersCollidingCallerImportsAcrossUnit()
+    {
+        var first = CreateEmptyType("Samples", "First");
+        first.Members.Add(new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.Widget",
+                MemberName = "Get"
+            }
+        });
+        var second = CreateEmptyType("Samples", "Second");
+        second.Members.Add(new ApiMember
+        {
+            Name = "Get",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Beta.Widget",
+                MemberName = "Get"
+            }
+        });
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(first), new CSharpTypePrintRequest(second)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                Usings = ["Alpha", "Beta"]
+            });
+
+        Assert.Contains("using Alpha;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Alpha.Widget Get();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Beta.Widget Get();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortWithUsingsDerivesAlongsideCallerImports()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("CreateTimer");
+        member.SignatureModel!.ReturnType = "System.Windows.Forms.Timer";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+                Usings = ["System.Threading"]
+            });
+
+        Assert.Equal(
+            ["System.Threading", "System.Windows.Forms"],
+            result.Usings.Order(StringComparer.Ordinal));
+        Assert.Contains("using System.Windows.Forms;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public Timer CreateTimer();",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -990,8 +1272,11 @@ public sealed class CSharpTypePrinterTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void UsingsSuppressedKeepsReferencesQualified()
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort)]
+    public void UsingsSuppressedKeepsCrossNamespaceReferencesQualified(
+        CSharpTypeNamePolicy policy)
     {
         // With IncludeUsings=false the composed Source omits using directives, so
         // shortening a cross-namespace reference would leave it unresolvable.
@@ -1002,13 +1287,80 @@ public sealed class CSharpTypePrinterTests
 
         var result = _printer.Print(
             new CSharpTypePrintRequest(type),
-            new CSharpTypePrintOptions { IncludeUsings = false });
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = policy,
+                Usings = ["System.Threading.Tasks"],
+                IncludeUsings = false
+            });
 
         Assert.DoesNotContain("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
             "public System.Threading.Tasks.Task Run();",
             result.Units[0].Source,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.Qualified, "System.Threading.Tasks.Task", false)]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "Task", true)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort, "Task", true)]
+    public void TypeNamePolicyAppliesToCompleteMemberWithBodyComposition(
+        CSharpTypeNamePolicy policy,
+        string expectedReturnType,
+        bool expectsImport)
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Run");
+        member.SignatureModel!.ReturnType = "System.Threading.Tasks.Task";
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        member,
+                        CSharpBodyPolicy.Full,
+                        new CSharpBlockBody("return default!;"))
+                ]),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = policy,
+                Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                    ? ["System.Threading.Tasks"]
+                    : []
+            });
+
+        Assert.Contains($"public {expectedReturnType} Run()", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Contains("return default!;", result.Units[0].Source, StringComparison.Ordinal);
+        Assert.Equal(expectsImport, result.Usings.Contains("System.Threading.Tasks"));
+    }
+
+    [Fact]
+    public void ResultEqualityIncludesRawUsingSet()
+    {
+        var request = new CSharpTypePrintRequest(CreateEmptyType("Samples", "Worker"));
+        var alpha = _printer.Print(
+            request,
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                Usings = ["Alpha"]
+            });
+        var beta = _printer.Print(
+            request,
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                Usings = ["Beta"]
+            });
+
+        Assert.Equal(alpha.Units, beta.Units);
+        Assert.Equal(alpha.Diagnostics, beta.Diagnostics);
+        Assert.NotEqual(alpha, beta);
     }
 
     [Theory]

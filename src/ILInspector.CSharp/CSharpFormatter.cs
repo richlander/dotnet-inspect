@@ -5,8 +5,19 @@ namespace ILInspector.CSharp;
 
 public enum CSharpTypeNamePolicy
 {
+    /// <summary>Keep referenced type names qualified and derive no namespace imports.</summary>
     Qualified,
+
+    /// <summary>
+    /// Derive collision-safe namespace imports for the complete output unit and
+    /// shorten only references that remain exact under that shared import set.
+    /// </summary>
     ShortWithUsings,
+
+    /// <summary>
+    /// Shorten only references in the declaring namespace or in caller-supplied
+    /// namespace context; derive no additional imports.
+    /// </summary>
     ContextualShort
 }
 
@@ -20,7 +31,15 @@ public sealed record CSharpFormatOptions
 {
     public CSharpTypeNamePolicy TypeNamePolicy { get; init; } = CSharpTypeNamePolicy.Qualified;
     public string? ContainingNamespace { get; init; }
+
+    /// <summary>
+    /// Caller-supplied namespace context. Under <see cref="CSharpTypeNamePolicy.ContextualShort"/>
+    /// it is the only cross-namespace context. Under
+    /// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/>, collision-safe imports are
+    /// derived in addition to this context.
+    /// </summary>
     public IReadOnlyCollection<string> Usings { get; init; } = [];
+    internal IReadOnlyCollection<string> AdditionalShadowingNames { get; init; } = [];
     public CSharpNamespacePolicy NamespacePolicy { get; init; } = CSharpNamespacePolicy.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -110,24 +129,10 @@ public sealed class CSharpFormatter
         IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _declarationOptions);
-        if (primaryConstructorParameters is not { Count: > 0 })
-            return declaration;
-
-        string declarationWithoutAttributes = CSharpDeclarationWriter.RenderTypeDeclaration(
+        return CSharpDeclarationWriter.RenderTypeDeclaration(
             type,
-            _declarationOptions with { IncludeCustomAttributes = false });
-        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
-        }
-
-        string attributePrefix = declaration[..^declarationWithoutAttributes.Length];
-        return attributePrefix
-            + AddPrimaryConstructorParameters(
-                declarationWithoutAttributes,
-                primaryConstructorParameters);
+            _declarationOptions,
+            primaryConstructorParameters);
     }
 
     public string FormatDelegate(ApiType type, ApiMember invoke)
@@ -502,6 +507,7 @@ public sealed class CSharpFormatter
             },
             ContainingNamespace = options.ContainingNamespace,
             Usings = usings,
+            AdditionalShadowingNames = options.AdditionalShadowingNames,
             NamespaceMode = options.NamespacePolicy switch
             {
                 CSharpNamespacePolicy.Omit => CSharpNamespaceMode.Omit,
@@ -526,17 +532,4 @@ public sealed class CSharpFormatter
             ? $"{variance} {CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name)}"
             : CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name);
 
-    static string AddPrimaryConstructorParameters(
-        string declaration,
-        IReadOnlyList<ApiParameter> parameters)
-    {
-        string parameterList = FormatParameterList(parameters);
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
-        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
-            ? head[..inheritance] + parameterList + head[inheritance..] + tail
-            : $"{head}{parameterList}{tail}";
-    }
 }
