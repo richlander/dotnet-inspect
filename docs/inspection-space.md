@@ -160,7 +160,7 @@ authority.
 - Cache hits are valid only when the current request authorizes and identifies
   the stored result.
 - Reader-local handles, catalog keys, and other bound currencies cannot outlive
-  or escape the owner that gives them meaning.
+  or be interpreted outside the owner scope that gives them meaning.
 - Equality, path spelling, display text, and durable addresses do not substitute
   for owner-issued correspondence.
 - Artifact-derived work is bounded so hostile input cannot silently turn a
@@ -638,7 +638,7 @@ The required correspondence changes with scope:
 | One rendered stream | Annotation extents are interpreted in that stream's coordinate plane. |
 | One context group | Cross-assembly correspondence uses one frozen binding catalog generation. |
 | Several groups | Each portable subject is bound independently; bound handles, keys, and tokens never cross the group boundary. |
-| Several versions | Producer-owned exact or soft correspondence retains its tier, ambiguity, and match provenance. |
+| Several versions | Exact correspondence remains distinct from accepted soft correspondence; accepted soft matches retain tier and match provenance, and ambiguity is never promoted to a match. |
 
 Cross-group comparison is explicit work, not an exception to group isolation.
 It consumes portable projections or independently resolved subjects from each
