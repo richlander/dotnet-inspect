@@ -175,8 +175,8 @@ cleaner for the independence story; resolve it then, not now.
 ## Decision (2026-06): stop after step 3
 
 **Steps 1–3 are complete (#578/#579/#580) and stand. Do not do step 4 (Analysis
-adopts) or step 5 (Pipeline adopts) now.** Keep `Analysis` at zero project
-references; keep the `ILInspector.Metadata` namespace on the moved primitives.
+adopts) or step 5 (Pipeline adopts) now.** Keep Analysis's structural decoder
+local; keep the `ILInspector.Metadata` namespace on the moved primitives.
 
 The migration sequence above was written without a real second consumer of
 `Analysis`, so step 4's payoff was a hypothesis. The memory-safety unsafe-mode
@@ -190,9 +190,10 @@ note is about. It turns the hypothesis into evidence:
   produces display **strings** and cannot answer "is there a pointer in this
   signature." `Analysis`'s own `TypeRefDecoder → TypeRef` is what makes the check
   possible. A shared model would have forced `Analysis` to keep its own anyway.
-- **`Analysis`'s independence is a product boundary.** The whole detector
-  shipped SRM-direct with no dependency negotiation. That is the property step
-  4 spends.
+- **Analysis's structural identity is a product boundary.** The whole detector
+  remains SRM-direct for signature shape even though Analysis now references
+  Metadata for acquisition, structured binding, and definition correspondence.
+  Adopting display-oriented primitives would not replace that local decoder.
 - **The real duplication is tiny and stable.** `Analysis` hand-rolled
   `AttributeTypeName` (ctor → declaring-type namespace+name, `MemberReference`
   vs `MethodDefinition`) — the same SRM walk as
@@ -201,9 +202,9 @@ note is about. It turns the hypothesis into evidence:
   `TryDecode`/`CustomAttributeValue` argument decode. The shareable slice is
   ~15 lines of mechanical SRM that does not churn.
 
-The trade-off, now concrete: sharing buys deleting ~15 stable lines; it costs
-`Analysis` its first project reference and the zero-dependency independence that
-just paid off. Tolerate the duplication.
+The trade-off, now concrete: sharing buys deleting ~15 stable lines while
+coupling Analysis's structural decoder to a display-oriented primitive surface
+that cannot replace it. Tolerate the duplication.
 
 **Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline` also
 needs attribute-name reads, that is rule-of-three across projects — at that point

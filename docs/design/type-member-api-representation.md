@@ -328,24 +328,12 @@ Counting `Metadata`'s string-producing `SignatureDecoder` as the third, there ar
 string, evidence matching, and codegen IR (`docs/metadata-primitives.md:14-15`) — and
 `Non-goals` lists "A unified `TypeRef`" outright.
 
-Note one stale premise in those two documents. Both justify the split partly by
-saying `ILInspector.Analysis` keeps "zero project references" and so can ship
-standalone. **That is no longer true**:
-`src/ILInspector.Analysis/ILInspector.Analysis.csproj:25-28` declares four
-`ProjectReference` entries, including `ILInspector.Metadata`. The wording was
-written in [#710](https://github.com/richlander/dotnet-inspect/pull/710) and the
-`ILInspector.Metadata` reference arrived later, in
-[#2105](https://github.com/richlander/dotnet-inspect/pull/2105); the prose was
-never updated. Tracked in
-[#3512](https://github.com/richlander/dotnet-inspect/issues/3512) against those
-owning documents — do not cite the zero-reference claim.
-
-The **conclusion** survives the stale premise, because the load-bearing argument
-is a capability argument and is independently verifiable: Analysis's decoder
-cannot represent the shapes a shared model would have to carry
+The boundary is capability-based, not dependency-count-based. Analysis already
+references Metadata for acquisition, structured binding, and definition
+correspondence, while retaining its own structural decoder. That decoder cannot
+represent the shapes a shared model would have to carry
 (`src/ILInspector.Analysis/TypeRefDecoder.cs:232-234`), so a shared model "would
-have forced `Analysis` to keep its own anyway." Rely on that, not on the
-dependency count.
+have forced `Analysis` to keep its own anyway."
 
 There is exactly one documented condition that reopens it, and it is narrow:
 
