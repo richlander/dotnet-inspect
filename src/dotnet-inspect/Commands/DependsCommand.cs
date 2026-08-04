@@ -135,7 +135,7 @@ public class DependsCommand
             }
 
             var graph = (LibraryDependencyGraphResult.Graph)result;
-            var treeNodes = BuildNestedDependencyTree(graph.References);
+            var treeNodes = AssemblyReferenceTreeView.Build(graph.References);
 
             if (options.Count)
             {
@@ -279,34 +279,6 @@ public class DependsCommand
         }).ToList();
     }
 
-    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
-    {
-        List<TreeNode> result = [];
-        int i = 0;
-        BuildNestedNodes(nodes, ref i, 0, result);
-        return result;
-    }
-
-    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
-    {
-        while (index < nodes.Count && nodes[index].Depth == currentDepth)
-        {
-            var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
-            label = ContainLabel(label);
-            index++;
-
-            List<TreeNode> children = [];
-            if (index < nodes.Count && nodes[index].Depth > currentDepth)
-            {
-                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
-            }
-
-            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
-        }
-    }
 
     /// <summary>
     /// Writes standalone mermaid output using the MermaidFormatter.

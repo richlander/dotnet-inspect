@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using InertText;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Fixtures;
@@ -9,6 +11,7 @@ using DotnetInspector.CommandLine;
 using CoreFactory = DotnetInspector.Core.HttpClientFactory;
 using DotnetInspector.Models;
 using DotnetInspector.Views;
+using ILInspector.Metadata;
 using ILInspector.Research;
 using DotnetInspector.Output;
 using Markout;
@@ -1359,6 +1362,42 @@ public class LibraryViewShapeDerivedContainmentTests
     private const string Hazard = "\u000B";
     private const string Hostile = $"H{Hazard}INJECTED";
 
+    [Fact]
+    public void DependencyNode_CarriesInertTextThroughMarkdownAndJsonSinks()
+    {
+        const string Tag = "\U000E0001";
+        var inspection = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo
+            {
+                TransitiveReferences =
+                [
+                    new AssemblyReferenceNode
+                    {
+                        Name = new InertString(TextPolicy.Field, $"Ab{Tag}Cd"),
+                        Version = new InertString(TextPolicy.Field, "1.0\u000B"),
+                        Company = new InertString(TextPolicy.Field, "Co\u202E"),
+                    },
+                ],
+            },
+        };
+
+        var markdown = MarkoutSerializer.Serialize(
+            new LibraryInspectionView(inspection),
+            InspectionContext.Default);
+        var json = JsonSerializer.Serialize(inspection, JsonContext.Default.LibraryInspection);
+        using var document = JsonDocument.Parse(json);
+        var reference = document.RootElement
+            .GetProperty("assembly_info")
+            .GetProperty("transitive_references")[0];
+
+        Assert.DoesNotContain(Tag, markdown, StringComparison.Ordinal);
+        Assert.Contains("\\U000E0001", markdown);
+        Assert.Equal("Ab\\U000E0001Cd", reference.GetProperty("name").GetString());
+        Assert.Equal("1.0\\^K", reference.GetProperty("version").GetString());
+        Assert.Equal("Co\\u202E", reference.GetProperty("company").GetString());
+    }
+
     /// <summary>
     /// The members a reflection fixture cannot reach, and why.
     /// </summary>
@@ -1590,6 +1629,26 @@ public class LibraryViewShapeDerivedContainmentTests
                     else
                     {
                         Declined.Add($"{site}: string with no setter");
+                    }
+
+                    continue;
+                }
+
+                if (type == typeof(InertString))
+                {
+                    if (property.CanWrite)
+                    {
+                        property.SetValue(target, new InertString(TextPolicy.Field, Hostile));
+                        Filled++;
+                    }
+                    else if (property.GetValue(target) is InertString already
+                        && already.ToString().Contains("INJECTED", StringComparison.Ordinal))
+                    {
+                        Filled++;
+                    }
+                    else
+                    {
+                        Declined.Add($"{site}: inert string with no setter");
                     }
 
                     continue;
@@ -1841,6 +1900,12 @@ public class LibraryViewShapeDerivedContainmentTests
             {
                 Filled++;
                 return Hostile;
+            }
+
+            if (type == typeof(InertString))
+            {
+                Filled++;
+                return new InertString(TextPolicy.Field, Hostile);
             }
 
             if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))

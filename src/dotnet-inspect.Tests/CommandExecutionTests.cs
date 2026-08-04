@@ -11416,10 +11416,19 @@ public partial class CommandExecutionTests
         foreach (var name in coordinateScoped)
             Assert.Contains(name, bound);
 
+        // Dependencies is an opt-in, unbounded traversal whose data deliberately enriches the
+        // Signals section when both are selected. Signals alone must not pay that cost, so equality
+        // across a run containing Dependencies would assert the opposite of progressive
+        // disclosure. Dependencies has its own composition gate below.
+        var opportunisticEnrichers = new[] { SectionNames.Dependencies };
+        foreach (var name in opportunisticEnrichers)
+            Assert.Contains(name, bound);
+
         var names = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
+            .Where(n => !opportunisticEnrichers.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
@@ -11447,6 +11456,25 @@ public partial class CommandExecutionTests
         // Non-vacuity: comparing two absent sections would pass without proving anything, so the
         // sections that carry the removed fan-out's data must actually have rendered.
         Assert.True(rendered > 2, $"Only {rendered} sections rendered; the comparison was near-vacuous.");
+    }
+
+    [Fact]
+    public async Task Dependencies_ComposesWithoutChangingItsTree_AndEnrichesSignals()
+    {
+        var (aloneExit, aloneOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", SectionNames.Dependencies, "--tips", "q");
+        var (togetherExit, togetherOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S",
+            $"{SectionNames.Dependencies},{SectionNames.Signals}", "--tips", "q");
+
+        Assert.Equal(0, aloneExit);
+        Assert.Equal(0, togetherExit);
+        Assert.Equal(
+            TryExtractSectionBody(aloneOutput, SectionNames.Dependencies),
+            TryExtractSectionBody(togetherOutput, SectionNames.Dependencies));
+        Assert.Contains(
+            "Transitive assembly references",
+            TryExtractSectionBody(togetherOutput, SectionNames.Signals));
     }
 
     private static string? TryExtractSectionBody(string output, string sectionName)

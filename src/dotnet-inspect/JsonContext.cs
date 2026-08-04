@@ -12,7 +12,8 @@ namespace DotnetInspector;
 [JsonSourceGenerationOptions(
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    Converters = [typeof(InertStringJsonConverter)])]
 [JsonSerializable(typeof(InspectionResult))]
 [JsonSerializable(typeof(InspectionResult[]))]
 [JsonSerializable(typeof(LibraryInspection))]

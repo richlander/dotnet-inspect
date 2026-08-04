@@ -1,4 +1,5 @@
 using System.Globalization;
+using InertText;
 using DotnetInspector.Output;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -1656,6 +1657,7 @@ public class SectionPipelineTests
             ["httpClient"] = "a transport, not request state",
             ["scanners"] = "varied as `request`, which is what the read is allowed to consult",
             ["scannerRegistry"] = "the registry under test; varied by the structural gates",
+            ["trace"] = "an observation sink, not request state",
         };
 
         var varied = InspectAsyncArgumentVariants
@@ -3546,7 +3548,14 @@ public class SectionPipelineTests
             AssemblyInfo = new AssemblyInfo
             {
                 References = [new AssemblyReference("System.Runtime", "1.0.0.0", null, null)],
-                TransitiveReferences = [new AssemblyReferenceNode { Name = "System.Runtime", Version = "1.0.0.0" }]
+                TransitiveReferences =
+                [
+                    new AssemblyReferenceNode
+                    {
+                        Name = new InertString(TextPolicy.Field, "System.Runtime"),
+                        Version = new InertString(TextPolicy.Field, "1.0.0.0"),
+                    },
+                ]
             },
             PdbPath = "test.pdb",
             HasSourceLink = true,
@@ -4748,21 +4757,21 @@ public class SectionPipelineTests
                     new VerboseLogger(false));
             });
 
-            var traversing = Assert.Single(nodes, n => n.Name == "../payload");
+            var traversing = Assert.Single(nodes, n => n.Name.ToString() == "../payload");
             Assert.Null(traversing.Path);
             Assert.Null(traversing.ResolvedFrom);
             Assert.Null(traversing.Company);
 
             // The reference is still reported -- refusing to resolve must not hide the evidence.
-            Assert.Contains(nodes, n => n.Name == "../payload");
+            Assert.Contains(nodes, n => n.Name.ToString() == "../payload");
 
             // Positive control: a normal sibling in the same directory still resolves, so the guard
             // is refusing the traversal specifically and not simply disabling local resolution.
-            var doubleDot = Assert.Single(nodes, n => n.Name == "Valid..Dependency");
+            var doubleDot = Assert.Single(nodes, n => n.Name.ToString() == "Valid..Dependency");
             Assert.NotNull(doubleDot.Path);
             Assert.Equal(sourceDir, Path.GetDirectoryName(doubleDot.Path));
 
-            var legit = Assert.Single(nodes, n => n.Name == "Legit.Neighbor");
+            var legit = Assert.Single(nodes, n => n.Name.ToString() == "Legit.Neighbor");
             Assert.Equal("local", legit.ResolvedFrom);
             Assert.NotNull(legit.Path);
         }

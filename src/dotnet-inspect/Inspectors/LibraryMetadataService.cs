@@ -3,6 +3,7 @@ using DotnetInspector.Models;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using InertText;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -659,44 +660,6 @@ internal static class LibraryMetadataService
     /// it. Naming it as a gate here would describe a line that enforces nothing.
     /// </para>
     /// </summary>
-    /// <summary>
-    /// Renders an attacker-controlled name safe to write into a one-line diagnostic.
-    /// </summary>
-    /// <remarks>
-    /// The refusal message is the one place a rejected name is echoed back, so the names it prints
-    /// are exactly the hostile ones. Written verbatim, a name containing U+000A forges additional
-    /// diagnostic lines and one containing U+001B injects terminal escape sequences into the
-    /// operator's console. Escaping is a display concern only: the node keeps the raw
-    /// <c>reference.Name</c> as its identity, because identity and presentation are separate and
-    /// the structured writers escape on their own terms.
-    /// A name that passes <see cref="IsSafeAssemblySimpleName"/> contains no control characters, so
-    /// this is a no-op for every name that is not already refused.
-    /// </remarks>
-    internal static string DescribeUntrustedName(string? name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return string.Empty;
-
-        var builder = new StringBuilder(name.Length);
-        foreach (var c in name)
-        {
-            var category = char.GetUnicodeCategory(c);
-            if (char.IsControl(c)
-                || category == UnicodeCategory.Format
-                || category == UnicodeCategory.LineSeparator
-                || category == UnicodeCategory.ParagraphSeparator)
-            {
-                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:X4}");
-            }
-            else
-            {
-                builder.Append(c);
-            }
-        }
-
-        return builder.ToString();
-    }
-
     internal static bool IsSafeAssemblySimpleName(string? name)
     {
         if (string.IsNullOrWhiteSpace(name)
@@ -708,52 +671,12 @@ internal static class LibraryMetadataService
             return false;
         }
 
-        // Unpaired surrogates are checked before the rune scan, because EnumerateRunes replaces a
-        // lone half with U+FFFD -- which is not Format -- so a malformed name would otherwise be
-        // scanned as a well-formed one.
-        for (var i = 0; i < name.Length; i++)
+        // TextPolicy.Field owns the Unicode rule for a name: every non-graphic scalar is
+        // refused, including malformed surrogate input. Do not restate its categories here.
+        // The previous copy drifted from the diagnostic copy over supplementary-plane format
+        // characters, leaving a name correctly refused but its cause invisible in the warning.
+        if (!InertString.IsPermitted(TextPolicy.Field, name))
         {
-            if (!char.IsSurrogate(name[i]))
-                continue;
-
-            if (i + 1 >= name.Length
-                || !char.IsHighSurrogate(name[i])
-                || !char.IsLowSurrogate(name[i + 1]))
-            {
-                return false;
-            }
-
-            i++;
-        }
-
-        foreach (var rune in name.EnumerateRunes())
-        {
-            var category = Rune.GetUnicodeCategory(rune);
-            if (!Rune.IsControl(rune)
-                && category != UnicodeCategory.Format
-                && category != UnicodeCategory.LineSeparator
-                && category != UnicodeCategory.ParagraphSeparator)
-            {
-                continue;
-            }
-
-            // U+2028 and U+2029 are line and paragraph separators: not Control, not Format, and
-            // not rejected by the edge-whitespace check when they sit mid-name. They are the same
-            // failure as the Format characters below, one category further along -- a renderer or
-            // log processor that honours them breaks "Ab<U+2028>Cd" across two lines, so the tree
-            // shows a node that does not exist and the name displayed is not the name resolved.
-            // char.IsControl does not cover them either, and neither does U+0085's Control
-            // classification, so they need naming explicitly.
-
-            // Format characters are invisible: a zero-width space or a bidi override renders as
-            // nothing, or reorders what follows it, so the name shown in the reference tree is not
-            // the name being resolved. That is the Trojan Source problem (CVE-2021-42574) applied
-            // to an identifier read from untrusted metadata. char.IsControl does not cover these.
-            //
-            // The scan is over RUNES, not chars. The Plane 14 tag block (U+E0000-U+E007F) is
-            // entirely Format, but each of its code points is a surrogate pair, so a per-char scan
-            // sees two Surrogate halves, finds neither Control nor Format, and accepts a name that
-            // renders as nothing.
             return false;
         }
 
@@ -1071,8 +994,8 @@ internal static class LibraryMetadataService
 
             var node = new AssemblyReferenceNode
             {
-                Name = reference.Name,
-                Version = reference.Version,
+                Name = new InertString(TextPolicy.Field, reference.Name),
+                Version = new InertString(TextPolicy.Field, reference.Version),
                 PublicKeyToken = reference.PublicKeyToken,
                 Depth = depth
             };
@@ -1102,7 +1025,9 @@ internal static class LibraryMetadataService
             // in the metadata, and dropping it would hide evidence; only resolution is refused.
             if (!IsSafeAssemblySimpleName(reference.Name))
             {
-                logger.Warn($"refusing to resolve reference with unsafe assembly name: '{DescribeUntrustedName(reference.Name)}'");
+                logger.Warn(InertString.Format(
+                    TextPolicy.Field,
+                    $"refusing to resolve reference with unsafe assembly name: '{node.Name}'").ToString());
                 nodes.Add(node);
                 continue;
             }
@@ -1139,7 +1064,7 @@ internal static class LibraryMetadataService
                 try
                 {
                     var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
-                    node.Company = company;
+                    node.Company = company is null ? null : new InertString(TextPolicy.Field, company);
                     if (childRefs.Count > 0)
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);

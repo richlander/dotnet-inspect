@@ -325,7 +325,7 @@ internal static class AuditSignalBuilder
         private static SignalValue? ResolveDependenciesTransitiveAssemblyReferences(in LibrarySignalContext context) =>
             context.Inspection.AssemblyInfo?.TransitiveReferences is { Count: > 0 } transitive
                 ? new SignalValue(
-                    transitive.Select(r => r.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
+                    transitive.Select(r => r.Name.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).Count().ToString(),
                     "resolved assembly reference closure")
                 : null;
 

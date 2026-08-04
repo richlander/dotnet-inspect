@@ -1,3 +1,5 @@
+using InertText;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -15,8 +17,19 @@ public record AssemblyReference(
 /// </summary>
 public class AssemblyReferenceNode
 {
-    public string Name { get; set; } = "";
-    public string Version { get; set; } = "";
+    /// <summary>
+    /// The visually encoded assembly name. Resolution uses the raw metadata name before this
+    /// presentation value is stored and carried to output sinks.
+    /// </summary>
+    /// <remarks>
+    /// Gated through the Markdown and JSON sinks by
+    /// <c>DependencyNode_CarriesInertTextThroughMarkdownAndJsonSinks</c>.
+    /// </remarks>
+    public InertString Name { get; set; } = InertString.Empty;
+
+    /// <summary>The visually encoded assembly version.</summary>
+    public InertString Version { get; set; } = InertString.Empty;
+
     public string? PublicKeyToken { get; set; }
 
     /// <summary>
@@ -42,7 +55,7 @@ public class AssemblyReferenceNode
     /// <summary>
     /// Company name from the assembly's metadata.
     /// </summary>
-    public string? Company { get; set; }
+    public InertString? Company { get; set; }
 }
 
 public class AssemblyInfo

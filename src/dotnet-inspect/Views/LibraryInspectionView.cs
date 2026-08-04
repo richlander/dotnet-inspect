@@ -135,7 +135,7 @@ public class LibraryInspectionView
     [MarkoutSection(Name = "Dependencies")]
     public List<TreeNode>? DependenciesSection =>
         _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
-        BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
+        AssemblyReferenceTreeView.Build(_data.AssemblyInfo.TransitiveReferences);
 
     [MarkoutIgnore]
     public bool HasExtensionMethods => _data.ExtensionMethods is { Count: > 0 };
@@ -971,33 +971,6 @@ public class LibraryInspectionView
     public static bool AllocationContextChurnedTypeIsEmpty(List<ILOffsetAllocationContextRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.ChurnedType));
 
-    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
-    {
-        List<TreeNode> result = [];
-        int i = 0;
-        BuildNestedNodes(nodes, ref i, 0, result);
-        return result;
-    }
-
-    private static void BuildNestedNodes(List<AssemblyReferenceNode> nodes, ref int index, int currentDepth, List<TreeNode> target)
-    {
-        while (index < nodes.Count && nodes[index].Depth == currentDepth)
-        {
-            var node = nodes[index];
-            var label = !string.IsNullOrEmpty(node.Company)
-                ? $"{node.Name} {node.Version} [{node.Company}]"
-                : $"{node.Name} {node.Version}";
-            index++;
-
-            List<TreeNode> children = [];
-            if (index < nodes.Count && nodes[index].Depth > currentDepth)
-            {
-                BuildNestedNodes(nodes, ref index, currentDepth + 1, children);
-            }
-
-            target.Add(children.Count > 0 ? new TreeNode(label) { Children = children } : new TreeNode(label));
-        }
-    }
 }
 
 /// <summary>
