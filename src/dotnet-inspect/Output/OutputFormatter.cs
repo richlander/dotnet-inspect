@@ -153,7 +153,8 @@ public static class OutputFormatter
     /// This is deliberately *not* the terminator used by <see cref="WriteLimitedMarkdown"/>: those
     /// callers still receive CRLF interiors from the string-returning <c>MarkoutSerializer</c>
     /// overloads, so switching only their terminator would introduce the very mixing described
-    /// above. Interior and terminator have to move together, tracked in #3596.
+    /// above. Interior and terminator have to move together; that coherent platform-native
+    /// terminal path is outside this artifact-framing helper's contract.
     /// </remarks>
     public static void WriteLfLine(TextWriter output, string payload)
     {

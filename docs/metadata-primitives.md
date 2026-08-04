@@ -79,7 +79,7 @@ helper is SRM-only. `Analysis` stays independent of `Metadata`.
 ### What stays
 
 - attribute **rendering** to C# (`RenderAttributes` and the `[...]` formatting)
-- `ApiSurfaceExtractor`, `SourceLink`, `PdbContext`, and the rest of the
+- `ApiSurfaceExtractor`, `PdbContext`, ILInspector.SourceLink, and the rest of the
   metadata *product* surface
 - each consumer's own `TypeRef`/IR model and its `ISignatureTypeProvider<T>`
 

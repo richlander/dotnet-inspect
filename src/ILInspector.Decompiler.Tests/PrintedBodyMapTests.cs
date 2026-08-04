@@ -130,6 +130,64 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void PortableAnnotatedLineSnapshotsAndReplaysStructuredFacts()
+    {
+        var annotations = new List<PrintedAnnotationSpan>
+        {
+            new(
+                "alloc.box",
+                "Allocation",
+                AnnotationConditionality.CachedOnce,
+                "Box",
+                new PrintedExtent(3, 7, 3, 10),
+                "int",
+                12),
+        };
+        var line = new AnnotatedSourceLine(
+            "IL_000C: box int32",
+            12,
+            SourceLineKind.Il,
+            annotations);
+
+        annotations.Clear();
+
+        var fact = Assert.Single(line.Annotations);
+        Assert.Equal("alloc.box", fact.Descriptor);
+        Assert.DoesNotContain("alloc.box", line.Text);
+
+        string json = JsonSerializer.Serialize(line);
+        var replayed = JsonSerializer.Deserialize<AnnotatedSourceLine>(json);
+        Assert.Equal(line, replayed);
+
+        var clean = new AnnotatedSourceLine(line.Text, line.Offset, line.Kind, []);
+        Assert.Equal(line.Text, clean.Text);
+        Assert.Empty(clean.Annotations);
+
+        Type[] portablePropertyTypes =
+        [
+            typeof(string),
+            typeof(int),
+            typeof(SourceLineKind),
+            typeof(IReadOnlyList<PrintedAnnotationSpan>),
+        ];
+        foreach (var property in typeof(AnnotatedSourceLine).GetProperties())
+            Assert.Contains(property.PropertyType, portablePropertyTypes);
+    }
+
+    [Fact]
+    public void PortableAnnotatedLineRejectsInvalidConstruction()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new AnnotatedSourceLine(null!, 0, SourceLineKind.CSharp, []));
+        Assert.Throws<ArgumentNullException>(
+            () => new AnnotatedSourceLine("", 0, SourceLineKind.CSharp, null!));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new AnnotatedSourceLine("", -2, SourceLineKind.CSharp, []));
+        Assert.Throws<ArgumentException>(
+            () => new AnnotatedSourceLine("", 0, (SourceLineKind)42, []));
+    }
+
+    [Fact]
     public void SurvivesSerialisationAndReplays()
     {
         var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
