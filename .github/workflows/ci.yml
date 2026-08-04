@@ -890,25 +890,7 @@ jobs:
         # tools/netX.0/any/. This makes the pointer TFM-agnostic: any SDK that
         # understands RID-specific tools can read it, regardless of TFM. The
         # pointer carries no implementation, so SelfContained pulls in no runtime.
-        run: |
-          set -euo pipefail
-          dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
-
-          mapfile -t pointer_packages < <(
-            find artifacts/package/release -maxdepth 1 -type f \
-              -name 'dotnet-inspect.[0-9]*.nupkg' -print
-          )
-          if [[ ${#pointer_packages[@]} -ne 1 ]]; then
-            echo "ERROR: expected one pointer package, found ${#pointer_packages[@]}"
-            printf '  %s\n' "${pointer_packages[@]}"
-            exit 1
-          fi
-
-          pointer_path=$(
-            unzip -Z1 "${pointer_packages[0]}" |
-              grep -E '^tools/any/any/DotnetToolSettings\.xml$'
-          )
-          echo "pointer package: ${pointer_packages[0]} -> $pointer_path"
+        run: dotnet pack src/dotnet-inspect -c Release -p:SelfContained=true -p:OfficialBuild=true
 
       - name: Upload pointer package
         uses: actions/upload-artifact@v7
