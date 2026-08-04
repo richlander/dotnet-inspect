@@ -614,9 +614,10 @@ public static class MetadataDeclarationQuery
             var attributes = parameterInfo.Attributes.ToList();
             string? defaultValueText = null;
             var hasDefault = false;
-            if (TryFormatAttributedParameterDefault(
+            if (parameterInfo.CustomAttributes is { } customAttributes
+                && TryFormatAttributedParameterDefault(
                     reader,
-                    parameterInfo.CustomAttributes,
+                    customAttributes,
                     out var attributedDefaultValue,
                     out var attributedDefaultAttributes))
             {
@@ -670,7 +671,7 @@ public static class MetadataDeclarationQuery
         string? RefKind,
         IReadOnlyList<string> Attributes,
         Parameter? DefaultParameter,
-        CustomAttributeHandleCollection CustomAttributes);
+        CustomAttributeHandleCollection? CustomAttributes);
 
     static ParameterInfo GetParameterInfo(MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
@@ -702,7 +703,7 @@ public static class MetadataDeclarationQuery
                 attributes);
         }
 
-        return new ParameterInfo(null, false, null, [], null, default);
+        return new ParameterInfo(null, false, null, [], null, null);
     }
 
     static IReadOnlyList<string> ReturnAttributes(MetadataReader reader, ParameterHandleCollection handles)
