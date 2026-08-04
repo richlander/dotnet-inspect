@@ -511,8 +511,8 @@ Known instances, kept here as a live list:
   from display text; reused by the CLI `XmlDocFileParser`.
 - `FidelityCheck.Evaluate`'s `Func<string, bool> typeFilter`
   ([#3495](https://github.com/richlander/dotnet-inspect/pull/3495)) — defensible
-  as *selection* rather than identity, but string-matching a display spelling and
-  currently unguarded against zero matches ([#3504](https://github.com/richlander/dotnet-inspect/issues/3504)).
+  as *selection* rather than identity; [#3504](https://github.com/richlander/dotnet-inspect/issues/3504)
+  guards both zero processable matches and an excessive admitted population.
 
 Adding to this list is not automatically a defect — a cheap selection predicate
 that admits a superset and leaves real selection to a downstream exact check is a
