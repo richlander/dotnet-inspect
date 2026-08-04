@@ -1,3 +1,4 @@
+using System.Reflection.PortableExecutable;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -54,6 +55,31 @@ public class FidelityCheckSelectionGuardTests
     }
 
     [Fact]
+    public void Evaluate_PeWithoutManagedMetadata_PreservesUnfilteredBehaviorButRejectsFilter()
+    {
+        string path = CreatePeWithoutManagedMetadata();
+
+        try
+        {
+            using (var pe = new PEReader(File.OpenRead(path)))
+                Assert.False(pe.HasMetadata);
+
+            Assert.Empty(FidelityCheck.Evaluate(path));
+
+            var error = Assert.Throws<ArgumentException>(
+                "typeFilter",
+                () => FidelityCheck.Evaluate(path, _ => true));
+
+            Assert.Contains("selected no processable top-level class or struct", error.Message);
+            Assert.Contains("does not contain managed metadata", error.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Evaluate_FocusedFilterOnLargeAssembly_StillRuns()
     {
@@ -64,6 +90,27 @@ public class FidelityCheckSelectionGuardTests
             row => row.Type == fixtureType && row.Method == nameof(FidelityCheckSelectionGuardFixture.Increment));
 
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    static string CreatePeWithoutManagedMetadata()
+    {
+        byte[] bytes = File.ReadAllBytes(TestAssembly);
+
+        using (var pe = new PEReader(new MemoryStream(bytes)))
+        {
+            var header = pe.PEHeaders.PEHeader!;
+            // Data directories follow the PE32/PE32+ optional-header fixed part;
+            // COR20 is directory 14.
+            int directoryBase = pe.PEHeaders.PEHeaderStartOffset
+                + (header.Magic == PEMagic.PE32Plus ? 112 : 96);
+            Array.Clear(bytes, directoryBase + (14 * 8), 8);
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-no-metadata-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, bytes);
+        return path;
     }
 }
 

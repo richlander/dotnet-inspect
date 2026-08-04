@@ -434,7 +434,17 @@ static class FidelityCheck
         var results = new List<CompileBackResult>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)
+        {
+            if (typeFilter is not null)
+            {
+                throw new ArgumentException(
+                    $"The type filter selected no processable top-level class or struct because "
+                    + $"'{assemblyPath}' does not contain managed metadata.",
+                    nameof(typeFilter));
+            }
+
             return results;
+        }
         var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
         var reader = pe.GetMetadataReader();
         var selectedTypes = SelectEvaluationTypes(reader, assemblyPath, typeFilter);
