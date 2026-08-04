@@ -14,11 +14,11 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No assembly-backed command runs through a workspace or
-typed query plan today. Existing foundations include shared image and inspection
-session ownership, catalog generations, `CoreCache`, typed provenance and
-resolution currencies, and `InertString`; the workspace and query-plan model
-describes how those pieces will be composed.
+govern its migration. No command runs through a workspace or typed query plan
+today. Existing foundations include shared image and inspection session
+ownership, catalog generations, `CoreCache`, typed provenance and resolution
+currencies, and `InertString`; the workspace and query-plan model describes how
+those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -633,7 +633,7 @@ The required correspondence changes with scope:
 
 | Scope | Rule |
 | --- | --- |
-| One live image | Reader-local handles are exact only inside that image. |
+| One live reader | Reader-local handles are exact only inside that reader. |
 | One body | IL offsets are interpreted beside the physical member and body binding. |
 | One rendered stream | Annotation extents are interpreted in that stream's coordinate plane. |
 | One context group | Cross-assembly correspondence uses one frozen binding catalog generation. |
