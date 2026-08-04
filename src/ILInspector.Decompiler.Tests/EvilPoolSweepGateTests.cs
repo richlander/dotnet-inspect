@@ -660,9 +660,11 @@ public class EvilPoolSweepGateTests
     /// <para>The first run leaves a complete pool and the record that names it. The second
     /// run would record only the lead, but its <c>assemblies.txt</c> replacement is made to
     /// fail after the replacement temporary has been written. That failure exits 2 before
-    /// the manifest write, so the first run's record and manifest remain the durable
-    /// description of the pool. Reconciliation before the failed write would delete the
-    /// subject from under that surviving description.</para>
+    /// the new record is committed, so the first run's assembly record remains the durable
+    /// description of the pool. The previous manifest is deliberately invalidated when
+    /// the mutable phase starts, making the failed run visible without weakening the
+    /// record/pool guarantee. Reconciliation before the failed write would delete the
+    /// subject from under the surviving record.</para>
     ///
     /// <para>A directory planted at the record path is the deterministic cross-platform
     /// way to make the atomic move fail. The fixture moves the first record aside and moves
@@ -692,7 +694,54 @@ public class EvilPoolSweepGateTests
         File.Move(savedRecord, world.PooledListPath);
 
         Assert.True(second.ExitCode == 2, world.Explain(second, "an assemblies.txt that cannot be replaced"));
-        world.AssertPoolMatchesRecord(removals: []);
+        world.AssertPoolMatchesRecordWithoutManifest();
+    }
+
+    /// <summary>
+    /// A sweep invalidates the previous manifest before this run can change the pool.
+    ///
+    /// <para>The first run publishes a manifest naming both assemblies. The second copies
+    /// bytes the pin refuses and removes that subject from the pool, then is prevented
+    /// from publishing its new <c>assemblies.txt</c>. Its failure therefore lands after
+    /// the pool has diverged from the first manifest but before replacement metadata can
+    /// be committed. Leaving that manifest in place would present the missing subject as
+    /// a selected assembly from a completed run.</para>
+    ///
+    /// <para>The prior assembly record is moved aside only to make the replacement fail,
+    /// then restored as the same file. The manifest is not moved or reconstructed: its
+    /// absence after the failed run is the behavior under test.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepInvalidatesThePreviousManifestBeforeThePoolCanChange()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        Assert.Equal("selected", world.ReportedStatus(first));
+
+        byte[] impostor = [.. world.FixtureBytes, 0];
+        File.WriteAllBytes(world.CachedAssemblyPath, impostor);
+
+        string savedRecord = Path.Combine(world.Scratch, "assemblies.first.txt");
+        File.Move(world.PooledListPath, savedRecord);
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var second = world.Run();
+
+        Directory.Delete(world.PooledListPath);
+        File.Move(savedRecord, world.PooledListPath);
+
+        Assert.True(
+            second.ExitCode == 2,
+            world.Explain(second, "an assemblies.txt that cannot be replaced after the pool changed"));
+        Assert.False(
+            File.Exists(world.SubjectDestination),
+            "the refused subject is still present, so the pool did not diverge from the prior manifest.");
+        Assert.True(File.Exists(world.LeadDestination), "the second run did not pool the lead.");
+        Assert.False(
+            File.Exists(world.ManifestPath),
+            "the failed run left the previous manifest describing a pool that no longer exists.");
     }
 
     /// <summary>
@@ -1889,6 +1938,31 @@ public class EvilPoolSweepGateTests
         /// </summary>
         public void AssertPoolMatchesRecord(string[] removals)
         {
+            AssertPoolFilesMatchRecord(includeManifest: true);
+
+            var manifest = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
+            Assert.Null(manifest["Unreconciled"]?.GetValue<string>());
+            string[] recordedRemovals =
+                [.. (manifest["RemovedFromPool"]?.AsArray() ?? [])
+                    .Select(removed => removed!.GetValue<string>())];
+            Assert.Equal<IEnumerable<string>>(
+                [.. removals.Order(StringComparer.Ordinal)], recordedRemovals);
+        }
+
+        /// <summary>
+        /// The pool still matches its durable record after a failed mutable run, and no
+        /// manifest presents that incomplete run as committed.
+        /// </summary>
+        public void AssertPoolMatchesRecordWithoutManifest()
+        {
+            Assert.False(
+                File.Exists(ManifestPath),
+                $"the failed run left '{ManifestPath}' looking authoritative.");
+            AssertPoolFilesMatchRecord(includeManifest: false);
+        }
+
+        void AssertPoolFilesMatchRecord(bool includeManifest)
+        {
             if (!Directory.Exists(OutputDirectory))
                 return;
 
@@ -1900,14 +1974,14 @@ public class EvilPoolSweepGateTests
             string[] present =
                 [.. Directory.GetFiles(OutputDirectory, "*", SearchOption.AllDirectories)
                     .Order(StringComparer.Ordinal)];
-            string[] expected =
-                [.. File.ReadAllLines(PooledListPath)
-                    .Where(line => line.Length > 0)
-                    .Append(PooledListPath)
-                    .Append(ManifestPath)
-                    .Order(StringComparer.Ordinal)];
+            IEnumerable<string> expected = File.ReadAllLines(PooledListPath)
+                .Where(line => line.Length > 0)
+                .Append(PooledListPath);
+            if (includeManifest)
+                expected = expected.Append(ManifestPath);
 
-            Assert.Equal(expected, present);
+            string[] expectedFiles = [.. expected.Order(StringComparer.Ordinal)];
+            Assert.Equal(expectedFiles, present);
 
             // Directories, not only files. This assertion read the pool with
             // `Directory.GetFiles` alone for its whole life, so it could not see a pool
@@ -1928,7 +2002,7 @@ public class EvilPoolSweepGateTests
                 [.. Directory.GetDirectories(OutputDirectory, "*", SearchOption.AllDirectories)
                     .Order(StringComparer.Ordinal)];
             var expectedDirectories = new SortedSet<string>(StringComparer.Ordinal);
-            foreach (string pooled in expected)
+            foreach (string pooled in expectedFiles)
             {
                 for (string? at = Path.GetDirectoryName(pooled);
                     at is not null && at.Length > OutputDirectory.Length;
@@ -1939,14 +2013,6 @@ public class EvilPoolSweepGateTests
             }
 
             Assert.Equal<IEnumerable<string>>(expectedDirectories, presentDirectories);
-
-            var manifest = JsonNode.Parse(File.ReadAllText(ManifestPath))!;
-            Assert.Null(manifest["Unreconciled"]?.GetValue<string>());
-            string[] recordedRemovals =
-                [.. (manifest["RemovedFromPool"]?.AsArray() ?? [])
-                    .Select(removed => removed!.GetValue<string>())];
-            Assert.Equal<IEnumerable<string>>(
-                [.. removals.Order(StringComparer.Ordinal)], recordedRemovals);
         }
 
         public void Dispose()

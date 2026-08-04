@@ -411,6 +411,27 @@ if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
     return;
 }
 
+string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+try
+{
+    // A manifest describes a committed pool, so the previous run's manifest stops being
+    // authoritative before this run can copy or remove anything. If any later step
+    // fails, absence is an honest incomplete-run signal; leaving the old manifest
+    // would make new pool bytes look like the previous run's result.
+    //
+    // A directory at this path is not an earlier manifest. Leave it for the final
+    // atomic write to refuse, which keeps that metadata-write failure observable.
+    if (!Directory.Exists(manifestPath))
+        File.Delete(manifestPath);
+}
+catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine(
+        $"Could not invalidate previous manifest '{manifestPath}': {ex.Message}");
+    Environment.ExitCode = 2;
+    return;
+}
+
 // The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
@@ -950,7 +971,6 @@ var manifest = new PackageSweepManifest(
     Packages: results,
     RemovedFromPool: removedFromPool,
     Unreconciled: unreconciled);
-string manifestPath = Path.Combine(outputDirectory, "manifest.json");
 // JSON values are the manifest contract; terminal whitespace is not. This newline is
 // text-file convenience and is deliberately not gated.
 unwritable = (await ReplaceTextOrReport(
