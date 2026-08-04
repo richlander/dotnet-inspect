@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
@@ -1172,6 +1173,25 @@ public sealed class CSharpTypePrinterTests
         Assert.Equal(alpha.Units, beta.Units);
         Assert.Equal(alpha.Diagnostics, beta.Diagnostics);
         Assert.NotEqual(alpha, beta);
+    }
+
+    [Fact]
+    public void ResultEqualityNormalizesUsingSetComparers()
+    {
+        var insensitive = new CSharpTypePrintResult(
+            [],
+            [],
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "Alpha"),
+            () => "");
+        var ordinal = new CSharpTypePrintResult(
+            [],
+            [],
+            ImmutableHashSet.Create(StringComparer.Ordinal, "alpha"),
+            () => "");
+
+        Assert.False(insensitive.Equals(ordinal));
+        Assert.False(ordinal.Equals(insensitive));
+        Assert.Same(StringComparer.Ordinal, insensitive.Usings.KeyComparer);
     }
 
     [Theory]

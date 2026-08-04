@@ -303,7 +303,7 @@ public sealed record CSharpTypePrintResult
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
         Diagnostics = diagnostics;
-        Usings = usings;
+        Usings = usings.ToImmutableHashSet(StringComparer.Ordinal);
         _source = new Lazy<string>(sourceFactory);
     }
 
