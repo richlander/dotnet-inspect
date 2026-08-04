@@ -244,11 +244,6 @@ internal static class LibraryMetadataService
             inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
-            // Build transitive reference tree if requested. The Dependencies section requests the
-            // same work through the ScannerTransitiveRefs scanner, which runs below.
-            if (options.IncludeDependencies)
-                ScanTransitiveReferences(path, inspection, logger);
-
             // Run registered scanners for the requested sections
             if (scannerRegistry != null && requiredScanners != null)
             {
@@ -592,8 +587,7 @@ internal static class LibraryMetadataService
 
     /// <summary>
     /// Populates <see cref="AssemblyInfo.TransitiveReferences"/> for the Dependencies section.
-    /// Idempotent: the <c>--dependencies</c> flag builds the tree before the scanner registry runs,
-    /// so an already-populated tree is left alone rather than rebuilt.
+    /// Idempotent so repeated scanner demand leaves an already-populated tree alone.
     /// </summary>
     public static void ScanTransitiveReferences(string path, LibraryInspection model, VerboseLogger logger)
     {

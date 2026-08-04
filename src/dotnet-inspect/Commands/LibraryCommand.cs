@@ -41,6 +41,14 @@ public class LibraryCommand
     private static readonly (string Reason, string Scanner)[] DiscoveryScanners =
         [("discovery catalog", LibrarySections.ScannerMetadata)];
 
+    /// <summary>
+    /// The legacy dependency-tree view predates section selection, so no section expresses its
+    /// scanner demand. Keeping it as command demand still routes the work through the one scanner
+    /// registry and makes it visible to <c>--trace</c>.
+    /// </summary>
+    internal static readonly (string Reason, string Scanner)[] LegacyDependencyViewScanners =
+        [("legacy --dependencies", LibrarySections.ScannerTransitiveRefs)];
+
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
         if (!options.Trace)
@@ -325,9 +333,18 @@ public class LibraryCommand
         // Compute which scanners are needed for the requested sections
         if (trace is not null)
             trace.Verbosity = options.Verbosity.ToString();
+        // Discovery probes the bounded catalog, independent of any render selector supplied beside
+        // -D. Passing that selector through would let `-D Dependencies -S Dependencies` execute an
+        // unbounded traversal whose tree discovery never renders. Detailed verbosity asks for all
+        // bounded non-explicit sections; DiscoveryScanners adds the cheap metadata-row-count probe.
+        var scannerSections = effectiveDiscovery ? null : options.IncludeSections;
+        var commandScanners = effectiveDiscovery
+            ? DiscoveryScanners
+            : options.IncludeDependencies
+                ? LegacyDependencyViewScanners
+                : null;
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
-            effectiveDiscovery ? DiscoveryScanners : null);
+            options.Verbosity, scannerSections, options.FixedOverview, trace, commandScanners);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&

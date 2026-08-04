@@ -9065,18 +9065,43 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_LegacyDependenciesFlag_RendersTransitiveTree()
     {
-        // The legacy flag reaches the traversal independently of section-scanner selection.
-        // Removing its IncludeDependencies branch left every selector test green while this route
-        // returned only the report header and a success exit code.
-        var (exit, output, _) = await RunAppAsync(
-            "library", "System.Text.Json", "--dependencies", "--tips", "q");
+        // The legacy flag is command demand on the same registered scanner as -S Dependencies.
+        // Removing that demand left every selector test green while this route returned only the
+        // report header and a success exit code.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "--dependencies", "--trace", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("System.Runtime", output);
         Assert.Contains(
+            $"legacy --dependencies -> {LibrarySections.ScannerTransitiveRefs}",
+            error);
+        Assert.Contains(
             SplitOutputLines(output),
             line => line.StartsWith("├─ ", StringComparison.Ordinal)
                 || line.StartsWith("└─ ", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryCommand_DiscoveryDoesNotRunUnboundedDependencyTraversal(bool legacyFlag)
+    {
+        List<string> args =
+        [
+            "library", "System.Text.Json", "-D", SectionNames.Dependencies,
+            "--trace", "--tips", "q",
+        ];
+        if (legacyFlag)
+            args.Add("--dependencies");
+        else
+            args.AddRange(["-S", SectionNames.Dependencies]);
+
+        var (exit, _, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(LibrarySections.ScannerMetadata, error);
+        Assert.DoesNotContain(LibrarySections.ScannerTransitiveRefs, error);
     }
 
     [Fact]

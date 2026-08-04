@@ -2205,7 +2205,12 @@ public class PackageCommand
         if (requiredVerbosity > libraryOptions.Verbosity)
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
-        var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var scanners = pipeline.GetRequiredScanners(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            commandDemand: libraryOptions.IncludeDependencies
+                ? LibraryCommand.LegacyDependencyViewScanners
+                : null);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
