@@ -21,7 +21,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <PackAsTool>true</PackAsTool>
+    <IsTool>true</IsTool>
     <ToolCommandName>mdi</ToolCommandName>
     <VersionPrefix>0.1.0</VersionPrefix>
     <PackageId>mdi</PackageId>

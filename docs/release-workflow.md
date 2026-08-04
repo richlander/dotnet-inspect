@@ -43,11 +43,13 @@ the GitHub release tag.
 
 Pack and publish flows are separate from the normal build and build
 `src/dotnet-inspect` directly. Packaging is off by default (`IsPackable=false`
-in the root `Directory.Build.props`), so only `src/dotnet-inspect` and
-`src/runfaster` opt back in and no other project can ship however pack is
-invoked. Internal libraries have no versioning story and no API-stability
-commitment; treat their public surface as an internal design constraint, not an
-external compatibility surface. `PackagingSurfaceTests` pins both halves.
+in the root `Directory.Build.props`). Every CLI project declares `IsTool`, and
+`Directory.Build.targets` opts it into `IsPackable` and the SDK tool layout
+while excluding API documentation from publish output. This enables
+`dotnet pack`; it does not add a project to a publishing workflow. Internal
+libraries remain non-packable and may still generate XML documentation in
+their own build outputs. `PackagingSurfaceTests` pins the default, tool census,
+and centralized overrides.
 
 ## Prerequisites
 
