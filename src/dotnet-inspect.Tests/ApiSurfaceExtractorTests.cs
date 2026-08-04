@@ -605,6 +605,152 @@ public class ApiSurfaceExtractorTests
             });
     }
 
+    /// <summary>
+    /// Nullable context bytes do not annotate a parameter carrying the metadata value-type
+    /// constraint flag, whether it belongs to a method or type. Unconstrained parameters
+    /// remain eligible. This is the extraction gate for issue #3729: removing the flag
+    /// from <c>GenericContext</c> produces <c>Nullable&lt;T?&gt;</c>, <c>Handler&lt;T?&gt;</c>,
+    /// and a spurious bare <c>T?</c>.
+    /// </summary>
+    [Fact]
+    public void Extract_DoesNotApplyNullableAnnotationsToValueConstrainedParameters()
+    {
+        using var stream = File.OpenRead(typeof(ValueTypeNullabilityFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ValueTypeNullabilityFixture).FullName);
+        var nullable = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.NullableValue));
+        var plain = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.PlainValue));
+        var open = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.Open));
+
+        Assert.Contains("System.Nullable<T> value", nullable.Signature, StringComparison.Ordinal);
+        Assert.Contains("Handler<T> message", nullable.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("T?>", nullable.Signature, StringComparison.Ordinal);
+
+        Assert.Contains("(T value,", plain.Signature, StringComparison.Ordinal);
+        Assert.Contains("Handler<T> message", plain.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("T?", plain.Signature, StringComparison.Ordinal);
+        Assert.Contains("Open<T>(T? value)", open.Signature, StringComparison.Ordinal);
+
+        var valueContainer = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ValueTypeNullabilityContainer<>).FullName);
+        var valueField = Assert.Single(
+            valueContainer.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityContainer<int>.Value));
+        var maybeField = Assert.Single(
+            valueContainer.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityContainer<int>.Maybe));
+        Assert.Equal("T", valueField.ReturnType);
+        Assert.Equal("System.Nullable<T>", maybeField.ReturnType);
+
+        var openContainer = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(OpenNullabilityContainer<>).FullName);
+        var openMaybeField = Assert.Single(
+            openContainer.Members,
+            candidate => candidate.Name == nameof(OpenNullabilityContainer<int>.Maybe));
+        Assert.Equal("T?", openMaybeField.ReturnType);
+    }
+
+    /// <summary>
+    /// The same rule applies to a declaring type's parameter. The compiler fixture above
+    /// gates real method metadata; this synthesized seam case isolates a type-level
+    /// <c>NullableContextAttribute(2)</c>, which causes <c>T?</c> and
+    /// <c>Nullable&lt;T?&gt;</c> if <c>GenericContext.ForType</c> drops the constraint flag.
+    /// </summary>
+    [Fact]
+    public void Extract_DoesNotApplyNullableContextToValueConstrainedTypeParameter()
+    {
+        string path = EmitValueConstrainedTypeNullableContextSample();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name.StartsWith(
+                    "ValueConstrainedType",
+                    StringComparison.Ordinal));
+            var value = Assert.Single(type.Members, candidate => candidate.Name == "Value");
+            var maybe = Assert.Single(type.Members, candidate => candidate.Name == "Maybe");
+
+            Assert.Equal("T", value.ReturnType);
+            Assert.Equal("System.Nullable<T>", maybe.ReturnType);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    static string EmitValueConstrainedTypeNullableContextSample()
+    {
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ValueConstrainedTypeEmit"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("ValueConstrainedTypeEmit");
+
+        var attributeBuilder = module.DefineType(
+            "System.Runtime.CompilerServices.NullableContextAttribute",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class
+                | System.Reflection.TypeAttributes.Sealed,
+            typeof(Attribute));
+        var attributeConstructor = attributeBuilder.DefineConstructor(
+            System.Reflection.MethodAttributes.Public,
+            System.Reflection.CallingConventions.Standard,
+            [typeof(byte)]);
+        var attributeIl = attributeConstructor.GetILGenerator();
+        attributeIl.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        attributeIl.Emit(
+            System.Reflection.Emit.OpCodes.Call,
+            typeof(Attribute).GetConstructor(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null)!);
+        attributeIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var nullableContextAttribute = attributeBuilder.CreateType();
+
+        var typeBuilder = module.DefineType(
+            "ValueConstrainedType",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        typeBuilder.SetCustomAttribute(new System.Reflection.Emit.CustomAttributeBuilder(
+            nullableContextAttribute.GetConstructor([typeof(byte)])!,
+            [(byte)2]));
+        var parameter = Assert.Single(typeBuilder.DefineGenericParameters("T"));
+        parameter.SetGenericParameterAttributes(
+            System.Reflection.GenericParameterAttributes.NotNullableValueTypeConstraint
+                | System.Reflection.GenericParameterAttributes.DefaultConstructorConstraint);
+        parameter.SetBaseTypeConstraint(typeof(ValueType));
+        typeBuilder.DefineField(
+            "Value",
+            parameter,
+            System.Reflection.FieldAttributes.Public);
+        typeBuilder.DefineField(
+            "Maybe",
+            typeof(Nullable<>).MakeGenericType(parameter),
+            System.Reflection.FieldAttributes.Public);
+        typeBuilder.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"value-constrained-type-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     [Fact]
     public void Extract_ExtractsCovariance()
     {
