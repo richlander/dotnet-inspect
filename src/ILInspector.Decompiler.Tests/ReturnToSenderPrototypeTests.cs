@@ -5629,6 +5629,64 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    /// <summary>
+    /// Gates the invariant the compile-back floor's safety argument rests on (#3783):
+    /// fault isolation is never produced for a source member with no authored body.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A bodyless source member is exactly the input that drives
+    /// <c>ReturnToSenderSourceProbe.AddBodylessSourceResult</c>, which is a second
+    /// producer of <see cref="ReturnToSenderSourceOutcome.Invalid"/> reachable with a
+    /// successful floor status. That path could only contaminate `invalidBreakdown`
+    /// if such a row could also carry attribution — and it cannot, because the
+    /// producer below requires an authored body while the bodyless path requires the
+    /// absence of one. The two are mutually exclusive on the same index lookup.
+    /// </para>
+    /// <para>
+    /// This test isolates that guard: the request and assembly are real, and only the
+    /// source index is substituted so the lookup succeeds with a null body. Without
+    /// the substitution a miss would return null for the wrong reason and prove nothing.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("Bodyless.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            var bodyless = ReturnToSenderSourceIndex.FromMembers(
+            [
+                new ReturnToSenderSourceMember("Class1", "M", 0, "", sourcePath, Body: null),
+            ]);
+
+            // Same target and same rejected body that yields BodyDefect against a
+            // real index; only the authored body is absent.
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                sourceIndexOverride: bodyless));
+
+            Assert.NotNull(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
     static string WriteTempSource(string fileName, string source, out string directory)
     {
         directory = Path.Combine(Path.GetTempPath(), $"rts-signature-{Guid.NewGuid():N}");
@@ -5652,7 +5710,8 @@ public class ReturnToSenderPrototypeTests
     static ReturnToSender.FaultIsolationResult? TryIsolateRecompileFailureForMethod(
         string assemblyPath,
         string sourcePath,
-        string rejectedTargetBody)
+        string rejectedTargetBody,
+        ReturnToSenderSourceIndex? sourceIndexOverride = null)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         var reader = pe.GetMetadataReader();
@@ -5675,7 +5734,7 @@ public class ReturnToSenderPrototypeTests
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
             ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
-        var sourceIndex = ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        var sourceIndex = sourceIndexOverride ?? ReturnToSenderSourceIndex.TryCreate([sourcePath]);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,

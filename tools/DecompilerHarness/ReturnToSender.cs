@@ -912,8 +912,18 @@ static class ReturnToSender
     /// </para>
     /// <para>
     /// The superseded verdict is preserved in <see cref="Result.Detail"/> as
-    /// provenance of the discarded attempt. The gate for both behaviors is
-    /// <c>CompileBackFloorFaultIsolationTests</c>.
+    /// provenance of the discarded attempt, which the standalone RTS report
+    /// surfaces through <c>ExampleLayerAndDetail</c>'s
+    /// <see cref="Result.UsedCompileBackFloor"/> branch. It is not visible in
+    /// authored-corpus rows: <c>ReturnToSenderSourceProbe</c> overwrites
+    /// <see cref="Result.Detail"/> before emitting them.
+    /// </para>
+    /// <para>
+    /// The gate for both behaviors is <c>CompileBackFloorFaultIsolationTests</c>.
+    /// Clearing here cannot change the invalid breakdown, because a row carrying
+    /// isolation necessarily had an authored body and so cannot reach the bodyless
+    /// invalid path; that invariant's gate is
+    /// <c>ReturnToSenderPrototypeTests.TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody</c>.
     /// </para>
     /// </remarks>
     internal static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)

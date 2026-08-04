@@ -60,6 +60,12 @@ public class CompileBackFloorFaultIsolationTests
         Assert.Contains("superseded-fault-isolation: ShellOrClosureDefect (SpanMeasured)", rescued.Detail);
     }
 
+    /// <summary>
+    /// Negative case for the provenance marker only: it must be emitted conditionally,
+    /// not unconditionally. This test deliberately does not assert that
+    /// <c>FaultIsolation</c> is null — with a null input that would hold with or
+    /// without the clearing, and the two tests above are what gate the clearing.
+    /// </summary>
     [Fact]
     public void WithCompileBackFloor_LeavesDetailUnmarkedWhenNothingWasIsolated()
     {
@@ -67,7 +73,6 @@ public class CompileBackFloorFaultIsolationTests
 
         var rescued = ReturnToSender.WithCompileBackFloor(failed, Floor(FidelityCheck.CompileBackStatus.Exact));
 
-        Assert.Null(rescued.FaultIsolation);
         Assert.DoesNotContain("superseded-fault-isolation", rescued.Detail);
     }
 
