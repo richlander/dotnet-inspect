@@ -8,6 +8,90 @@ There are three major aspects in play:
 - Filter (data to shave off / retain)
 - How to render the data
 
+## Section UX
+
+The user can select and customize a view model. This is done via the `-D` (discovery)
+and `-S` (select) flags. There are a lot of sections, many of which don't apply to a
+given library. In addition, it can be beneficial to request multiple related sections
+at once. The overall experience should be highly ergonomic.
+
+There are three primary ergonomic systems:
+
+- `-D` prints "effective" sections, those that will produce > 0 rows when selects with `-S`.
+- Categories are groups of sections. They only print effective sections.
+- There is a bias to IsEffective being calculated only for cheap sections (largely a function of network-free).
+
+The section model is used and queried in a variety of ways to produce desired output, for example bare `-S`.
+The final section output should always be deterministic based on a well-defined model.
+A well-defined model is part of the UX.
+
+Here is example output:
+
+```bash
+rich@richs-MacBook-Pro dotnet-inspect % di System.Text.Json -D  
+| Name | Kind |
+| ---- | ---- |
+| @Audit | category |
+| @Metadata | category |
+| @Performance | category |
+| @SourceLink | category |
+| @Surface | category |
+| Async Methods | section |
+| Custom Attributes | section |
+| Dependencies | section |
+| Extension Methods | section |
+| Library Info | section |
+| References | section |
+| Resources | section |
+| Signals | section |
+| Switches | section |
+| Symbols | section |
+| Type Forwarders | section |
+```
+
+This view is the set of categories and sections in scope for this command. The
+sections are the set that cheap to calculate for IsEffective. -D needs to return
+in well under 1s, ideally well under 0.5s.
+
+The bare `-S` command is even further filtered: local-only, IsEffective, and fixed length.
+
+These is still some mystery where this list of sections comes from. The following
+is the ideal structure.
+
+- All sections are captured by one or more categories.
+- The base set offered by `-D` are the cheap+IsEffective set from specific categories.
+- Bare `-S` is the cheap+IsEffective+Fixed-Length set from those same categories.
+- `-D --effective` returns the IsEffective result for all sections in those same categories.
+- `-S --effective` selects those same sections.
+- `-S --count` and `-S --effective --count` work
+- `-D --schema` returns all sections and categories.
+- `-D @Performance`, for example, returns all the sections in a specific categories.
+- `-S @Performance`, for example, returns all IsEffective sections
+- `-S @Performance --count`for example, returns the count of all sections (including 0 row sections)
+
+There are no sections labeled as "opt-in". All sections are opt-in except for those that are
+auto-displayed (like `-S` or `-v:d`), either as actual section content or via `-D`.
+
+See (needs to be corrected):
+
+```bash
+rich@richs-MacBook-Pro dotnet-inspect % di System.Text.Json -D @Metadata
+| Name | Kind |
+| ---- | ---- |
+| Metadata: #Blob | section (opt-in) |
+| Metadata: #GUID | section (opt-in) |
+| Metadata: #Strings | section (opt-in) |
+```
+
+The verbosity system sits on top of this infra.
+
+- `-v:q` -- compact field list from one section (like "Library Info")
+- `-v:m` -- one section
+- `-v:n` -- all the IsEffective+network-free+cheap base sections
+- `-v:d` -- all the IsEffective base sections
+
+The compact field list is limited to `-v:q`. It should not be displayed elsewhere.
+
 ## Section taxonomy
 
 Sections grew organically into a tangle of overlapping flags — `Info`,
