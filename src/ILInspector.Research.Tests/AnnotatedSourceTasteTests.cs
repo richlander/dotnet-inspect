@@ -180,6 +180,8 @@ public sealed class AnnotatedTasteFixture
         return _count + Extra + len;
     }
 
+    public object[] AllocateAndRead() => [_count, Extra, new object()];
+
     // Both arms variable, so the default pipeline declines the short-circuit fold
     // (no such fold is opcode-faithful) and leaves the guarded return flat — the
     // shape the byte-divergent conditional-return lens rewrites.

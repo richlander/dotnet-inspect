@@ -353,6 +353,25 @@ pointers. Multi-line nodes remain in the projection rather than disappearing,
 and a fact whose node could not be placed remains present with a null extent
 rather than inheriting a guessed position.
 
+`AnnotatedSourceMap` is the transport envelope that combines those two planes.
+Its `Lines` are the portable interleaved `AnnotatedSourceLine` stream; `Nodes`
+and `Regions` are the C# extents rebased into that stream; and
+`UnplacedAnnotations` retains only facts for which neither medium emitted a
+placement. A fact with a C# extent and an exact-offset IL instruction appears on
+both lines, with medium-specific extents. The portable merge preserves C# line
+order and strictly increasing IL offsets simultaneously: when reconstructed C#
+orders statements differently from the instruction stream, an IL instruction is
+deferred until its target C# line has appeared rather than emitted out of method
+order. The human `Annotated Source` renderer keeps its established C#-adjacent
+layout; this stronger ordering is the machine payload's contract.
+
+The CLI exposes the envelope as the explicit-only `Annotated Source Map` member
+section. Markdown renders the source-generated JSON in a fenced block, while
+`-S "Annotated Source Map" --json` emits the envelope directly using the normal
+snake-case JSON convention. Production is opt-in and uses an isolated import:
+printing and style lenses mutate IR, so sharing that graph would let selecting
+the payload alter sibling projections.
+
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case
 where the body is empty. The scalar render reads no offset axis, but that is a

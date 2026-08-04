@@ -37,7 +37,8 @@ public static partial class ResearchViews
         ResearchFactRegistry? Registry = null,
         int? MethodToken = null,
         PrinterOptions? PrinterOptions = null,
-        string? CaretFocus = null);
+        string? CaretFocus = null,
+        bool SourceMap = false);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -53,7 +54,13 @@ public static partial class ResearchViews
         /// renders — so without this a mistyped focus is indistinguishable from
         /// a correct one.
         /// </summary>
-        IReadOnlyList<string>? UnmatchedFocusAlternatives = null);
+        IReadOnlyList<string>? UnmatchedFocusAlternatives = null,
+
+        /// <summary>
+        /// Portable interleaved source, produced only when
+        /// <see cref="MemberProjectionRequest.SourceMap"/> is requested.
+        /// </summary>
+        AnnotatedSourceMap? SourceMap = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -82,6 +89,27 @@ public static partial class ResearchViews
             var headerFacts = request.CostOverlay || request.FactRows
                 ? effectiveRegistry.CollectHeaderFacts(context)
                 : [];
+
+            AnnotatedSourceMap? sourceMap = null;
+            if (request.SourceMap)
+            {
+                // Printing mutates the raised graph. Produce the portable map
+                // first and from its own import so selecting it cannot reshape
+                // any sibling projection.
+                var mapFunction = ImportFunction()
+                    ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                sourceMap = BuildAnnotatedSourceMap(
+                    request.Source,
+                    request.Type,
+                    request.Method,
+                    mapFunction,
+                    facts,
+                    request.AnnotatedStage,
+                    request.OverloadIndex,
+                    request.PublicOnly,
+                    request.MethodToken,
+                    request.PrinterOptions);
+            }
 
             DecompilerResult? annotatedSource = null;
             if (request.AnnotatedSource)
@@ -148,11 +176,12 @@ public static partial class ResearchViews
                 semanticsOverlay,
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
-                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts));
+                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
+                sourceMap);
         }
         catch (Exception ex)
         {
-            if (request.FactRows)
+            if (request.FactRows || request.SourceMap)
                 throw;
 
             var failure = DecompilerResult.Failure(
@@ -294,6 +323,228 @@ public static partial class ResearchViews
         var extents = AnnotationAnchor.ComputeCaretExtents(
             annotations, AnnotationAnchor.ComputeSpans(imported), printedRanges);
         return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
+    }
+
+    static AnnotatedSourceMap BuildAnnotatedSourceMap(
+        MetadataSource source,
+        string type,
+        string method,
+        IrFunction imported,
+        IReadOnlyList<IAnnotation> annotations,
+        AnnotationStage stage,
+        int overloadIndex,
+        bool publicOnly,
+        int? methodToken,
+        PrinterOptions? printerOptions)
+    {
+        IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
+        var csResult = stage == AnnotationStage.Lowered
+            ? CSharpPrinter.PrintLowered(
+                imported,
+                out var printedRanges,
+                importMethodBody: ImportMethodBody,
+                options: printerOptions)
+            : CSharpPrinter.PrintRaised(
+                imported,
+                out printedRanges,
+                importMethodBody: ImportMethodBody,
+                typesProvablyDisjoint: source.AreProvablyDisjoint,
+                options: printerOptions);
+        if (csResult.Output is not { } csText)
+            return AnnotatedSourceMap.Empty;
+
+        bool lensApplied = csResult.Metadata.Decisions
+            .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
+        var ilLines = lensApplied
+            ? []
+            : methodToken is null
+                ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+                : IlProjection.RenderIlBodyLines(source, methodToken.Value);
+
+        var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
+        var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
+        return MakePortable(stream, csharpMap);
+    }
+
+    static IReadOnlyList<BoundSourceLine> CorrelatePortableSource(
+        IrFunction imported,
+        string csText,
+        PrintedRangeMap printedRanges,
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlyList<SourceLine> ilLines)
+    {
+        var spans = AnnotationAnchor.ComputeSpans(imported);
+        var csharpLines = RenderCSharpBodyLines(csText, printedRanges);
+        var factsByOffset = FactsByOffset(annotations);
+        var positionedIl = new List<(int TargetLine, SourceLine Line)>(ilLines.Count);
+        foreach (var line in ilLines.OrderBy(line => line.Offset))
+        {
+            int targetLine = csharpLines.Count - 1;
+            if (AnnotationAnchor.Best(spans, line.Offset) is { } owner)
+            {
+                if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out targetLine)
+                    && !printedRanges.TryGetInsertionLine(owner, out targetLine))
+                {
+                    targetLine = csharpLines.Count - 1;
+                }
+            }
+            positionedIl.Add((Math.Max(0, targetLine), line));
+        }
+
+        var stream = new List<BoundSourceLine>(csharpLines.Count + positionedIl.Count);
+        int nextIl = 0;
+        for (int csharpLine = 0; csharpLine < csharpLines.Count; csharpLine++)
+        {
+            var line = csharpLines[csharpLine];
+            stream.Add(new BoundSourceLine(
+                line.Text,
+                line.Offset,
+                SourceLineKind.CSharp));
+
+            // IL stays in method order. If an earlier instruction targets a
+            // later C# line, it blocks later instructions until that target has
+            // appeared rather than letting the stream regress.
+            while (nextIl < positionedIl.Count
+                && positionedIl[nextIl].TargetLine <= csharpLine)
+            {
+                var il = positionedIl[nextIl++].Line;
+                stream.Add(new BoundSourceLine(
+                    il.Text,
+                    il.Offset,
+                    SourceLineKind.Il,
+                    factsByOffset.GetValueOrDefault(il.Offset) ?? []));
+            }
+        }
+
+        while (nextIl < positionedIl.Count)
+        {
+            var il = positionedIl[nextIl++].Line;
+            stream.Add(new BoundSourceLine(
+                il.Text,
+                il.Offset,
+                SourceLineKind.Il,
+                factsByOffset.GetValueOrDefault(il.Offset) ?? []));
+        }
+        return stream;
+    }
+
+    static AnnotatedSourceMap MakePortable(
+        IReadOnlyList<BoundSourceLine> stream,
+        PrintedBodyMap csharpMap)
+    {
+        var csharpToStream = new List<int>(csharpMap.Lines.Count);
+        for (int streamLine = 0; streamLine < stream.Count; streamLine++)
+            if (stream[streamLine].Kind == SourceLineKind.CSharp)
+                csharpToStream.Add(streamLine);
+        if (csharpToStream.Count != csharpMap.Lines.Count)
+        {
+            throw new InvalidOperationException(
+                $"The correlated stream has {csharpToStream.Count} C# lines but the printed map has {csharpMap.Lines.Count}.");
+        }
+
+        PrintedExtent Rebase(PrintedExtent extent) => new(
+            csharpToStream[extent.StartLine],
+            extent.StartColumn,
+            csharpToStream[extent.EndLine],
+            extent.EndColumn);
+
+        var annotationsByLine = Enumerable.Range(0, stream.Count)
+            .Select(_ => new List<PrintedAnnotationSpan>())
+            .ToArray();
+
+        foreach (var annotation in csharpMap.Annotations)
+        {
+            if (annotation.Extent is not { } extent)
+                continue;
+            var rebased = annotation with { Extent = Rebase(extent) };
+            annotationsByLine[rebased.Extent!.Value.StartLine].Add(rebased);
+        }
+
+        var ilPlacements = new Dictionary<FactIdentity, int>();
+        for (int streamLine = 0; streamLine < stream.Count; streamLine++)
+        {
+            var line = stream[streamLine];
+            if (line.Kind != SourceLineKind.Il)
+                continue;
+
+            var extent = new PrintedExtent(streamLine, 0, streamLine, line.Text.Length);
+            foreach (var annotation in line.Annotations)
+            {
+                var portable = new PrintedAnnotationSpan(
+                    annotation.Descriptor.Id,
+                    annotation.Descriptor.Category.ToString(),
+                    annotation.Conditionality,
+                    "Instruction",
+                    extent,
+                    annotation.Detail,
+                    annotation.SourceOffset);
+                annotationsByLine[streamLine].Add(portable);
+                var identity = FactIdentity.From(portable);
+                ilPlacements[identity] = ilPlacements.GetValueOrDefault(identity) + 1;
+            }
+        }
+
+        var unplaced = new List<PrintedAnnotationSpan>();
+        foreach (var annotation in csharpMap.Annotations)
+        {
+            if (annotation.Extent is not null)
+                continue;
+            var identity = FactIdentity.From(annotation);
+            if (ilPlacements.GetValueOrDefault(identity) > 0)
+                ilPlacements[identity]--;
+            else
+                unplaced.Add(annotation);
+        }
+
+        var lines = new AnnotatedSourceLine[stream.Count];
+        for (int i = 0; i < stream.Count; i++)
+        {
+            annotationsByLine[i].Sort(CompareAnnotations);
+            var line = stream[i];
+            lines[i] = new AnnotatedSourceLine(
+                line.Text,
+                line.Offset,
+                line.Kind,
+                annotationsByLine[i]);
+        }
+
+        var nodes = csharpMap.Nodes
+            .Select(node => node with { Extent = Rebase(node.Extent) })
+            .ToArray();
+        var regions = csharpMap.Regions
+            .Select(region => region with { Extent = Rebase(region.Extent) })
+            .ToArray();
+        return new AnnotatedSourceMap(lines, nodes, regions, unplaced);
+    }
+
+    static int CompareAnnotations(PrintedAnnotationSpan left, PrintedAnnotationSpan right)
+    {
+        int c = left.SourceOffset.CompareTo(right.SourceOffset);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Descriptor, right.Descriptor);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Category, right.Category);
+        if (c != 0) return c;
+        c = left.Conditionality.CompareTo(right.Conditionality);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Detail, right.Detail);
+        if (c != 0) return c;
+        return string.CompareOrdinal(left.Kind, right.Kind);
+    }
+
+    readonly record struct FactIdentity(
+        string Descriptor,
+        string Category,
+        AnnotationConditionality Conditionality,
+        string? Detail,
+        int SourceOffset)
+    {
+        internal static FactIdentity From(PrintedAnnotationSpan annotation) => new(
+            annotation.Descriptor,
+            annotation.Category,
+            annotation.Conditionality,
+            annotation.Detail,
+            annotation.SourceOffset);
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the

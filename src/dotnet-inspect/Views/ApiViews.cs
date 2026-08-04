@@ -847,6 +847,14 @@ public class MemberCodeView
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
 
+    [MarkoutSection(Name = SectionNames.AnnotatedSourceMap)]
+    public CodeSection AnnotatedSourceMapCode { get; set; }
+
+    /// <summary>The structured value backing <see cref="AnnotatedSourceMapCode"/>.</summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.AnnotatedSourceMap? AnnotatedSourceMap { get; set; }
+
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }
 

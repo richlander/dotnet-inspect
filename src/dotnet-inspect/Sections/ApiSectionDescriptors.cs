@@ -133,6 +133,7 @@ public static class ApiMemberSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceMap>()
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -601,6 +602,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceMap>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
@@ -654,6 +656,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<FidelityCauses>()
             .Add<AppliedTaste>()
             .Add<AnnotatedSource>()
+            .Add<AnnotatedSourceMap>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
             .Add<OriginalSource>()
@@ -727,6 +730,20 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    /// <summary>The portable machine-readable annotated source payload.</summary>
+    public sealed class AnnotatedSourceMap : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.AnnotatedSourceMap;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>

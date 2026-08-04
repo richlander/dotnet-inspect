@@ -3112,7 +3112,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(31, pipeline.AllSectionNames.Length);
+        Assert.Equal(32, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -3147,6 +3147,7 @@ public class SectionPipelineTests
         Assert.Contains("Source Files", names);
         Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
+        Assert.Contains("Annotated Source Map", names);
         Assert.Contains("Original Source", names);
         Assert.Contains("Source Diff", names);
         Assert.Contains("Custom Attributes", names);

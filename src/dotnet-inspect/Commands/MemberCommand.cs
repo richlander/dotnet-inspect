@@ -521,6 +521,7 @@ public static class MemberCommand
         SectionNames.FidelityCauses,
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
+        SectionNames.AnnotatedSourceMap,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,

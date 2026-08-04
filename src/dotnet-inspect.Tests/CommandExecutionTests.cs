@@ -6351,6 +6351,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section (opt-in) |", output);
+        Assert.Contains("| Annotated Source Map | section (opt-in) |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section (opt-in) |", output);
@@ -6553,6 +6554,73 @@ public partial class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_AnnotatedSourceMap_UsesStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Map", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var replayed = JsonSerializer.Deserialize(
+            output,
+            AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap);
+        Assert.NotNull(replayed);
+
+        using var document = JsonDocument.Parse(output);
+        var root = document.RootElement;
+        var lines = root.GetProperty("lines").EnumerateArray().ToArray();
+        Assert.NotEmpty(lines);
+        Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "CSharp");
+        Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "Il");
+        Assert.True(root.GetProperty("nodes").GetArrayLength() > 0);
+        Assert.True(root.GetProperty("regions").GetArrayLength() > 0);
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("unplaced_annotations").ValueKind);
+
+        var csharpFacts = lines
+            .Where(line => line.GetProperty("kind").GetString() == "CSharp")
+            .SelectMany(line => line.GetProperty("annotations").EnumerateArray())
+            .Select(FactIdentity)
+            .Order()
+            .ToArray();
+        var ilFacts = lines
+            .Where(line => line.GetProperty("kind").GetString() == "Il")
+            .SelectMany(line => line.GetProperty("annotations").EnumerateArray())
+            .Select(FactIdentity)
+            .Order()
+            .ToArray();
+        Assert.NotEmpty(csharpFacts);
+        Assert.Equal(csharpFacts, ilFacts);
+
+        var ilOffsets = lines
+            .Where(line => line.GetProperty("kind").GetString() == "Il")
+            .Select(line => line.GetProperty("offset").GetInt32())
+            .ToArray();
+        Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
+        Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
+
+        static string FactIdentity(JsonElement fact) => string.Join(
+            "|",
+            fact.GetProperty("source_offset").GetInt32(),
+            fact.GetProperty("descriptor").GetString(),
+            fact.GetProperty("category").GetString(),
+            fact.GetProperty("conditionality").GetString(),
+            fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceMapJson_RejectsAmbiguousDocumentComposition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Signature,Annotated Source Map", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
     }
 
     [Fact]
@@ -7302,7 +7370,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Cost Overlay        section (opt-in)", output);
+        Assert.Matches(@"Cost Overlay\s+section \(opt-in\)", output);
     }
 
     [Fact]
@@ -7356,7 +7424,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Semantics Overlay   section (opt-in)", output);
+        Assert.Matches(@"Semantics Overlay\s+section \(opt-in\)", output);
     }
 
     [Fact]
@@ -9336,6 +9404,7 @@ public partial class CommandExecutionTests
         "Custom Attributes",
         "Decompiled Source",
         "Annotated Source",
+        "Annotated Source Map",
         "Cost Overlay",
         "Semantics Overlay",
         "Original Source",

@@ -1051,13 +1051,21 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
+        if (IsInvalidAnnotatedSourceMapJsonSelection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.AnnotatedSourceMap}' must be the only selected section under --json.");
+            return 1;
+        }
+
         if (options is TypeOptions { ShapeOutput: true } && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
+        bool sourceMapJson = IsAnnotatedSourceMapJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceMapJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1233,6 +1241,22 @@ public class ApiCommand
 
             PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
 
+        }
+
+        if (sourceMapJson)
+        {
+            if (view.MemberCode?.AnnotatedSourceMap is not { } sourceMap)
+            {
+                CommandError.Write($"section '{SectionNames.AnnotatedSourceMap}' produced no payload.");
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                sourceMap,
+                AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap,
+                AnnotatedSourceMapCompactJsonContext.Default.AnnotatedSourceMap,
+                options.CompactJson);
+            return 0;
         }
 
         // Whole-type decompilation (type command; member flows populate per
@@ -2086,6 +2110,7 @@ public class ApiCommand
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
+
         else if (members != type.Members)
         {
             outputType = new ApiType
@@ -2124,6 +2149,20 @@ public class ApiCommand
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
+
+    private static bool IsAnnotatedSourceMapJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceMap);
+
+    private static bool IsInvalidAnnotatedSourceMapJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: > 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceMap);
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

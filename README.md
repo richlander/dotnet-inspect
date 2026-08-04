@@ -333,6 +333,7 @@ lens actually rewrote. See
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source Map" --json
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
 dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 ```

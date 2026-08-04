@@ -190,6 +190,39 @@ public static class AnnotationAnchor
     }
 
     /// <summary>
+    /// Resolves each fact to the narrowest printed node that names it, including
+    /// the nearest printed descendant adopted for an unprinted owner.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="ComputeCaretExtents"/>, this keeps multi-line nodes and
+    /// does not require the selected node to start on the statement's line. It
+    /// is the process-bound half of producing portable
+    /// <see cref="PrintedAnnotationSpan"/> values.
+    /// </remarks>
+    internal static IReadOnlyDictionary<IAnnotation, IrNode> ComputePrintedNodes(
+        IReadOnlyList<IAnnotation> annotations,
+        IrFunction function,
+        PrintedRangeMap printedRanges)
+    {
+        var result = new Dictionary<IAnnotation, IrNode>();
+        if (annotations.Count == 0 || printedRanges.Count == 0)
+            return result;
+
+        var statements = ComputeSpans(function);
+        var narrowest = NarrowestPrintedByOffset(printedRanges);
+        var adopted = AdoptedPrintedByOffset(annotations, statements, printedRanges, narrowest);
+        foreach (var annotation in annotations)
+        {
+            if (narrowest.TryGetValue(annotation.SourceOffset, out var node)
+                || adopted.TryGetValue(annotation.SourceOffset, out node))
+            {
+                result[annotation] = node;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Shrinks an extent onto the printed characters it covers, dropping
     /// whitespace at either end.
     /// </summary>

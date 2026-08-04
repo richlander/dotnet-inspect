@@ -93,6 +93,9 @@ public static class SectionNames
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
     public const string AnnotatedSource = "Annotated Source";
 
+    /// <summary>Section for the portable interleaved source, structure, and fact payload.</summary>
+    public const string AnnotatedSourceMap = "Annotated Source Map";
+
     /// <summary>Section for explicit inter-method cost annotations over the decompiled C# method body.</summary>
     public const string CostOverlay = "Cost Overlay";
 

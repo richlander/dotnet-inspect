@@ -188,6 +188,77 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void AnnotatedSourceMapSnapshotsValidatesAndReplays()
+    {
+        var fact = new PrintedAnnotationSpan(
+            "alloc.new",
+            "Allocation",
+            AnnotationConditionality.Always,
+            "Instruction",
+            new PrintedExtent(1, 0, 1, 19),
+            "object",
+            0);
+        var lines = new List<AnnotatedSourceLine>
+        {
+            new("return new object();", 0, SourceLineKind.CSharp, []),
+            new("IL_0000: newobj ...", 0, SourceLineKind.Il, [fact]),
+        };
+        var map = new AnnotatedSourceMap(
+            lines,
+            [new PrintedNodeSpan("NewObject", new PrintedExtent(0, 7, 0, 19))],
+            [],
+            []);
+
+        lines.Clear();
+        Assert.Equal(2, map.Lines.Count);
+
+        string json = JsonSerializer.Serialize(map);
+        var replayed = JsonSerializer.Deserialize<AnnotatedSourceMap>(json);
+        Assert.NotNull(replayed);
+        Assert.Equal(map.Lines, replayed!.Lines);
+        Assert.Equal(map.Nodes, replayed.Nodes);
+        Assert.Equal(map.Regions, replayed.Regions);
+        Assert.Equal(map.UnplacedAnnotations, replayed.UnplacedAnnotations);
+    }
+
+    [Fact]
+    public void AnnotatedSourceMapRejectsFalsePlacementClaims()
+    {
+        var misplaced = new PrintedAnnotationSpan(
+            "alloc.new",
+            "Allocation",
+            AnnotationConditionality.Always,
+            "Instruction",
+            new PrintedExtent(0, 0, 0, 1),
+            null,
+            2);
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceMap(
+            [
+                new AnnotatedSourceLine("x", 0, SourceLineKind.CSharp, []),
+                new AnnotatedSourceLine("IL_0002", 2, SourceLineKind.Il, [misplaced]),
+            ],
+            [],
+            [],
+            []));
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceMap(
+            [
+                new AnnotatedSourceLine("IL_0002", 2, SourceLineKind.Il, []),
+                new AnnotatedSourceLine("IL_0001", 1, SourceLineKind.Il, []),
+            ],
+            [],
+            [],
+            []));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceMap(
+            [new AnnotatedSourceLine("x", 0, SourceLineKind.CSharp, [])],
+            [new PrintedNodeSpan("Bad", new PrintedExtent(0, -1, 0, 1))],
+            [],
+            []));
+    }
+
+    [Fact]
     public void SurvivesSerialisationAndReplays()
     {
         var (_, ranges) = Print(nameof(AllocSampleClass.SumList));

@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -1456,6 +1457,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceMap: requestedSections.Contains(SectionNames.AnnotatedSourceMap),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1685,7 +1687,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceMap)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1725,6 +1727,17 @@ public static class ApiOutputFormatter
             {
                 RequestTelemetry.Breadcrumb("il-render", member.Name);
                 memberCode.ILCode = new CodeSection("il", ilText);
+                hasCode = true;
+            }
+
+            if (code.SourceMap is { } sourceMap)
+            {
+                memberCode.AnnotatedSourceMap = sourceMap;
+                memberCode.AnnotatedSourceMapCode = new CodeSection(
+                    "json",
+                    JsonSerializer.Serialize(
+                        sourceMap,
+                        AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap));
                 hasCode = true;
             }
 
