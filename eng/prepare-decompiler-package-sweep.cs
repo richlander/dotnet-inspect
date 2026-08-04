@@ -386,6 +386,31 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or N
     return;
 }
 
+// The pool root has to be a directory this step owns, because everything downstream is
+// bounded by it: the copies land under it, and the reconciliation deletes what it finds
+// under it. ReconcilePool refuses to descend through a link precisely so that deletion
+// cannot leave the pool -- but that argument is only as good as the boundary it starts
+// from, and CreateDirectory is satisfied by an existing symlink. Measured: with the pool
+// root a link, a sweep wrote its assemblies outside the output directory, deleted a file
+// outside it, and exited 0.
+//
+// Refused rather than replaced. Removing the link would be this step deleting something
+// the caller put there, on a path the caller named, which is a bigger liberty than
+// refusing to run.
+//
+// Gated by EvilPoolSweepGateTests.ASweepRefusesAPoolDirectoryThatIsALinkOutOfTheOutputDirectory,
+// which holds the directory the link points at to its exact contents. It asserted a
+// single composed path before, and passed with this refusal deleted outright.
+if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
+{
+    Console.Error.WriteLine(
+        $"The pool directory '{packageDirectory}' is a link to '{pooledElsewhere}'. "
+        + "This step writes and deletes under that directory, so it must be a real "
+        + "directory rather than a link out of the output directory.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 // The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
@@ -728,9 +753,13 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
+// This is an interchange file for shell tooling, so its bytes are part of the
+// contract: UTF-8 without a BOM, one LF-terminated path per line. ReplaceTextOrReport
+// supplies the encoding; EvilPoolSweepGateTests.ASweepPoolsTheBytesThePinNames gates
+// the complete file.
 string? unwritable = (await ReplaceTextOrReport(
     assembliesPath,
-    string.Concat(assemblies.Select(assembly => assembly + Environment.NewLine)))).Error;
+    string.Concat(assemblies.Select(assembly => assembly + '\n')))).Error;
 if (unwritable is not null)
 {
     Console.Error.WriteLine(unwritable);
@@ -762,11 +791,12 @@ if (unwritable is not null)
 // How the walk itself is bounded, and why every removal is recorded, is on ReconcilePool.
 var removedFromPool = new List<string>();
 
-// Ordinal, because these are paths on a filesystem that distinguishes case, and
-// comparing them any other way would let an unrecorded file whose name differs from a
-// recorded one only in case pass for the recorded one and stay in the pool. That is
-// unverified: no case here plants such a file, because whether the assertion means
-// anything depends on the filesystem the suite happens to run on.
+// Ordinal, because these are paths, and comparing them any other way would let an
+// unrecorded file whose name differs from a recorded one only in case pass for the
+// recorded one and stay in the pool. Gated where the filesystem can tell the two names
+// apart, and skipped where it cannot, rather than left unverified: the earlier claim
+// that such a case "would pass whichever way the code was written" was simply wrong on
+// a case-sensitive filesystem, where the two files coexist and only one is recorded.
 var recordedAssemblies = new HashSet<string>(
     assemblies.Select(Path.GetFullPath), StringComparer.Ordinal);
 string? unreconciled = null;
@@ -806,7 +836,35 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
 // recorded removal is an operator convenience and is not itself gated.
 static void ReconcilePool(string directory, HashSet<string> recorded, List<string> removed)
 {
-    foreach (FileSystemInfo entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
+    // Materialized before anything is deleted, because this loop deletes what it is
+    // walking. Whether an entry removed before the enumeration reached it is still
+    // returned is unspecified -- POSIX permits readdir to skip it -- and a skipped entry
+    // here is an unrecorded file left in the pool, unreported, over an exit code of 0.
+    // That is the state this whole step exists to prevent, arrived at silently. The
+    // enumeration this replaced materialized for its own reasons; it is spelled out here
+    // so the property is not re-lost by someone making the walk lazy again.
+    //
+    // That much is unverified, and stays unverified: no gate here enforces it. A case
+    // asserting it would pass on this filesystem whichever way the code was written,
+    // because the skip readdir is permitted to make does not appear to happen on the
+    // ext4 the tests run on. The property is kept by this comment and by materializing,
+    // not by a check -- said plainly rather than implied by a green suite.
+    //
+    // Sorted, so that a destructive walk visits the pool in an order that does not depend
+    // on how the filesystem happens to lay a directory out. What this step did before a
+    // failure is part of what it reports, so which removals precede a failure has to be a
+    // fact about the pool rather than about readdir -- otherwise the case that holds the
+    // report to the disk is only sometimes exercising the path it is about.
+    //
+    // Gated by EvilPoolSweepGateTests.ASweepThatCannotReconcileThePoolSaysSoAndFails,
+    // which plants a removable leftover that sorts before the undeletable one and holds
+    // the manifest's removal record to it. Unsorted, that case would be flaky-green
+    // rather than red, which is why the ordering is a property and not an incidental.
+    FileSystemInfo[] entries =
+        [.. new DirectoryInfo(directory).EnumerateFileSystemInfos()
+            .OrderBy(entry => entry.FullName, StringComparer.Ordinal)];
+
+    foreach (FileSystemInfo entry in entries)
     {
         // Non-null for a symlink alone, so a real directory is descended into and a hard
         // link -- indistinguishable from the file it is, and whose removal frees only
@@ -821,6 +879,47 @@ static void ReconcilePool(string directory, HashSet<string> recorded, List<strin
         if (entry is DirectoryInfo child)
         {
             ReconcilePool(child.FullName, recorded, removed);
+
+            // A directory is a pool entry too. The pool's shape is
+            // `<rank>-<id>/<version>/`, so a skeleton left where a package used to be
+            // reads, to anything enumerating the pool by directory, as a package that
+            // shipped nothing -- which is precisely the state a recorded-only pool is
+            // supposed to make unrepresentable. Removing the files inside it and leaving
+            // it standing reconciles the bytes and not the shape.
+            //
+            // Checked after the recursion, so a directory holding nothing but unrecorded
+            // files leaves with them, and asked of the child by its parent rather than of
+            // itself, so the pool root -- which this walk is entered on, and which the
+            // sweep owns and must keep -- is never a candidate for removal.
+            //
+            // `Delete()` without recursion on purpose: it throws if the directory turned
+            // out not to be empty, which is a failure to reconcile and is reported as one,
+            // rather than a silent recursive delete of whatever raced in.
+            //
+            // That last part is unverified, and no gate here enforces it. The only way to
+            // observe the difference is for a file to appear between the emptiness check
+            // and the delete, so a case would have to drive a race this harness has no way
+            // to schedule; measured, changing this to `Delete(true)` leaves every case
+            // green. Stated as a choice rather than as a property the suite protects.
+            //
+            // Not passed to `Record`, unlike every other removal here. That record exists
+            // so that content this step destroys is visible to whoever reads the manifest
+            // -- a leak it would otherwise quietly tidy away cannot then pass for a clean
+            // pool. An empty directory has no content to destroy, and the sweep creates
+            // and abandons these itself whenever a package is refused or fails to copy, so
+            // reporting them would put an entry in `RemovedFromPool` for every such run
+            // and dilute exactly the signal it is kept for. The shape is instead held by
+            // the pool being equal to its record, which is a property of the whole pool
+            // rather than of one run's removals.
+            //
+            // Gated by SweepWorld.AssertPoolMatchesRecord, whose directory assertion
+            // derives the directories a pool may contain from the ancestors of the files
+            // the sweep says it pooled. Removing this check reddens five cases. It was
+            // ungatable before that assertion existed, which read the pool with
+            // Directory.GetFiles alone and so could not see a pool entry holding nothing.
+            if (!child.EnumerateFileSystemInfos().Any())
+                child.Delete();
+
             continue;
         }
 
@@ -852,6 +951,8 @@ var manifest = new PackageSweepManifest(
     RemovedFromPool: removedFromPool,
     Unreconciled: unreconciled);
 string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+// JSON values are the manifest contract; terminal whitespace is not. This newline is
+// text-file convenience and is deliberately not gated.
 unwritable = (await ReplaceTextOrReport(
     manifestPath,
     JsonSerializer.Serialize(manifest, jsonContext.PackageSweepManifest) + Environment.NewLine)).Error;
@@ -928,6 +1029,9 @@ if (refreshPin)
     Console.WriteLine($"Recorded {recorded.Length} pinned packages in {Path.GetRelativePath(root, pinPath)}.");
 }
 
+// Console output is operator convenience, not an output protocol. The manifest and
+// exit code are the stable contract; the wording and presence of these diagnostics are
+// deliberately not gated.
 Console.WriteLine(
     $"Selected {assemblies.Count} of {selected.Length} requested packages; "
     + $"manifest: {Path.Combine(outputDirectory, "manifest.json")}");
