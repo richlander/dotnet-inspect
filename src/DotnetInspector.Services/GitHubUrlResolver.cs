@@ -82,12 +82,14 @@ public static class GitHubUrlResolver
     /// </summary>
     public static string ConvertRawToBlobUrl(string url)
     {
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
-            && uri.Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+        // The raw-to-browse conversion has one owner. Doing it here as well would be a second
+        // implementation of a shared rule, and the two would drift on exactly the inputs that
+        // matter: a URL that traverses out of the repository it appears to name must not be
+        // dressed up as a github.com link. The owner returns null for those, and the passthrough
+        // below shows the URL as it is instead.
+        if (SourceLinkFetch.SourceLinkProvenance.BrowseUrl(url) is { } browseUrl)
         {
-            var parts = uri.AbsolutePath.TrimStart('/').Split('/', 4);
-            if (parts.Length == 4)
-                return $"https://github.com/{parts[0]}/{parts[1]}/blob/{parts[2]}/{parts[3]}";
+            return browseUrl;
         }
 
         return url.Replace("/raw/", "/blob/", StringComparison.Ordinal);

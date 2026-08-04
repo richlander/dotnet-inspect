@@ -23,7 +23,9 @@ public class RouterVersionTests
         // Ensure the package is cached by downloading it first
         await EnsurePackageCached("System.CommandLine");
 
-        var version = NuGetCache.TryGetLatestCachedVersion("System.CommandLine");
+        var version = NuGetCache.TryGetLatestCachedVersion(
+            "System.CommandLine",
+            NuGetSourceResolver.ResolveSourceKeys(null));
         Assert.NotNull(version);
 
         var root = CommandLineBuilder.CreateRootCommand();
@@ -57,7 +59,9 @@ public class RouterVersionTests
     {
         await EnsurePackageCached("System.CommandLine");
 
-        var version = NuGetCache.TryGetLatestCachedVersion("System.CommandLine");
+        var version = NuGetCache.TryGetLatestCachedVersion(
+            "System.CommandLine",
+            NuGetSourceResolver.ResolveSourceKeys(null));
 
         Assert.NotNull(version);
         Assert.Matches(@"^\d+\.\d+\.\d+", version);

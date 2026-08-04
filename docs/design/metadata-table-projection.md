@@ -217,8 +217,8 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-**Status: implemented**, except the `--heap` coordinate carrier noted below. The
-commands and outputs below are the shipping surface.
+**Status: implemented.** The commands and outputs below are the shipping
+surface.
 
 Each metadata table is **one section**, and the tables together form a section
 category, `@Metadata`, registered the same way `@Performance` is:
@@ -306,17 +306,48 @@ coordinate-scoped section available and discoverable only when present (see the
 coordinate-carrier family in [output-shapes.md](output-shapes.md)):
 
 ```bash
-# bounded heap preview — just a section
+# what this heap holds — just a section
 dotnet-inspect library My.dll -S "Metadata: #Strings"
 
 # one address — a coordinate
 dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 ```
 
-**Status: the heap carrier above is designed, not yet implemented.** The table
-lens, the `Metadata: Image` section, and the shape ladder ship;
-`--heap` and the `Metadata: #Strings` preview sections do not, and are tracked
-separately. Everything else in this section runs today.
+**Status: implemented**
+([#3467](https://github.com/richlander/dotnet-inspect/issues/3467)). Both
+spellings of a heap name are accepted (`#Strings` and `String`), and an address
+is decimal unless it carries an explicit `0x`. Hex is never *inferred*: a bare
+`1a4` is rejected rather than read as `0x1a4`, because guessing would silently
+address a different entry than the one a dump printed.
+
+### Heaps are not tables
+
+A heap listing cannot be what a table listing is, and the difference is a
+property of ECMA-335 rather than of this projection. A table has a row count and
+fixed-width rows, so "row 40 000" is arithmetic. `#Strings` and `#Blob` are
+length-prefixed byte soup with no index, and `System.Reflection.Metadata`
+exposes no walker for them — only random access from an address a table cell
+already holds. So each heap section is listed by the strongest honest means
+available, and `MetadataHeapCoverage` makes *which one* part of the answer
+rather than a footnote:
+
+| Heap | Coverage | What is listed |
+| --- | --- | --- |
+| `#GUID` | `Complete` | Every entry. Records are a fixed 16 bytes, so the count is `size / 16` and each is read by index. |
+| `#Strings`, `#Blob` | `ReferencedOnly` | The distinct values projected table rows point at, address-ordered. An entry no row references is invisible. |
+| `#US` | `NotEnumerable` | Nothing. No table column points into `#US` — its references are `ldstr` operands in method bodies — so there is no reference set to list. |
+
+Every listing renders its coverage as a caveat, so a referenced-values listing
+never reads as a walk of the heap and `#US`'s empty table never reads as an
+empty heap. `#US` keeps its section rather than being hidden: the section is how
+a caller learns the heap exists, how large it is, and that `--heap "#US:<addr>"`
+still reads any address in it.
+
+Reference scanning deliberately ignores a `--tables` filter. An entry is
+referenced by the *image*, not by whichever subset of tables the caller happens
+to be looking at, so honoring the filter would drop entries and undercount
+references while looking complete. A row window is different — it is a stated
+bound — so a short window is honored and reported as `RowsTruncated`.
 
 Deep paging into the middle of a table needs no metadata-specific gesture. It is
 a general row-selection concern, and `--rows` now carries it
@@ -329,24 +360,504 @@ library concern, served by `ProjectRow` and the row window.
 ## Safety
 
 Raw table projection reads untrusted metadata and can amplify a tiny artifact
-into unbounded work or output, so it inherits the existing contracts rather than
-inventing new ones:
+into unbounded work or output. This section aligns with and is an application
+of [untrusted-data-threat-model.md](untrusted-data-threat-model.md), and is the
+worked example that document points at.
+
+### Inherited contracts
 
 - **Bounded traversal.** Row enumeration, handle resolution, and text/heap
   projection are budgeted per
   [bounded-metadata-traversal.md](bounded-metadata-traversal.md): a bounded
-  number of rows visited, edges followed, and characters projected. Exceeding a
-  budget yields a **typed rejection**, never a plausible truncated value or a
-  success-shaped empty table.
-- **Untrusted input.** SRM-only, parse-never-load, NativeAOT-friendly,
-  Roslyn-free, per
-  [untrusted-data-threat-model.md](untrusted-data-threat-model.md). Heap and
-  name text is rendered as **data** — escaped so it cannot inject terminal
-  control sequences or break structured output. A malformed coded index resolves
-  to a visible failure marker, not a fabricated target.
+  number of rows visited, edges followed, and characters projected. Today a
+  budget produces a **successful projection carrying an explicit `Truncation`
+  marker**, not a typed rejection — visible, but not yet the rejection model
+  that contract describes. Gated by
+  `MetadataTableProjectionTests.RowBudget_TruncatesExplicitly_NeverSilently`,
+  `StringBudget_ProjectsBoundedPreviewWithExplicitTruncation`, and
+  `BlobBudget_ProjectsBoundedHexPreviewWithExplicitTruncation`. Those three
+  gate that truncation is *explicit*; the one that gates the bound itself is
+  `StringPreview_NeverExceedsCharBudgetEvenWhenEscaped`, because
+  `StringBudget_…` asserts only that the full length is reported and the
+  preview is non-empty.
+- **Parse, never load — the tool is execution incapable.** Reading is SRM-only,
+  and the shipped tool is Native AOT: there is no JIT, so `Assembly.Load` and
+  friends cannot bring new IL to life. Nothing the tool downloads can be
+  executed, whatever the metadata says. That is a structural property, not a
+  convention. The gate is the AOT build itself — `PublishAot` is `true` by
+  default for `src/dotnet-inspect`, and `release.yml` builds every shipped
+  RID-specific package that way, so a change that needed runtime code
+  generation would fail to build rather than fail a test. The one caveat worth
+  naming: the RID-neutral `any` fallback package is deliberately non-AOT
+  (`-p:PublishAot=false`), so on that package the property rests on the code
+  being SRM-only rather than on the runtime being unable to comply. A malformed
+  coded index resolves to a visible failure marker, not a fabricated target.
 - **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
-  amplification surface, so they are never dumped by default; a bounded, escaped
-  preview stands in until explicitly requested.
+  amplification surface, so nothing that merely asks for *more output* may turn
+  one on — only naming a heap section does. Verbosity is the axis that would
+  otherwise leak them, which is what
+  `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing` gates: it
+  runs the two maximal requests the CLI accepts, `-v:d` (defined by the output
+  contract as "all sections") and `-S @All`, and asserts no heap section
+  renders under either. `-v:m` and `-v:n` are not run and do not need to be —
+  they are strict subsets of `-v:d`, so a section absent there cannot appear
+  under them.
+
+### Two orthogonal axes
+
+Safety here is two independent decisions, and conflating them into one flag is
+a design error. One decides whether hostile input is *tolerated*; the other
+decides how artifact text is *spelled*.
+
+**Trust** — what happens when a concerning pattern is found:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | abort at the first one |
+| `--survey` | keep going and report each site — offset and pattern kind, never content — up to the traversal budget, which truncates explicitly like any other budget |
+| `--dangerously-skip-checks` | keep going and render the values anyway |
+
+**Rendering** — how artifact text is spelled once something is printed:
+
+| Flag | Behavior |
+| --- | --- |
+| *(default)* | visually encoded: control characters re-spelled into an inert form |
+| `--dangerously-print-raw-text` | artifact text passed through without visual encoding; the output format's own structural escaping still applies, so JSON stays parseable |
+
+The axes are independent, and that is the whole design. Visual encoding is the
+default on **every** artifact-text path, including under
+`--dangerously-skip-checks` — which is exactly what makes that flag defensible.
+It means "do not refuse," not "it is fine to put my terminal at risk."
+Reaching a live `ESC` on a terminal therefore takes **both** flags: one to stop
+refusing, one to stop encoding. Two separately named mistakes.
+
+`--survey` is the mode that keeps a hostile image inspectable without handing
+over its bytes: it reports *where* and *what kind*, never *what*. This is the
+shape `grep` has had for decades — `Binary file X matches` by default, content
+only under `-a`/`--text`.
+
+### Constrain the grammar first, encode only what cannot be
+
+The scenario this hardening is scoped to is narrow on purpose, because a
+universal answer is not available at this size. It is a business developer who
+has vetted the packages their project depends on and who now points
+**autonomous agents** at those same packages — using this tool to raise
+throughput without lowering the security bar. Having pre-vetted the set, they
+reasonably conclude that reading it is safe.
+
+Two assumptions inside that conclusion do not hold:
+
+- **A vetted package does not stay vetted.** Credentials get stolen, and a new
+  version of a real, previously-reviewed package ships malicious content. The
+  name on the reference is the one that was approved; the artifact behind it is
+  not.
+- **The reference graph is not spelled uniformly.** Vetting happens over a set
+  of names, but names enter a build from many places — package references
+  across several projects, transitive dependencies, floating versions. One
+  reference spelled slightly differently is all a typosquat needs, and it will
+  not be the one anybody read closely.
+
+Both are **identity** attacks: the artifact is not the thing its name claims to
+be. That observation orders everything below.
+
+Autonomous agents sharpen this rather than softening it. An agent consumes this
+tool's output without a human reading it, so output that misrepresents identity
+is acted on directly, and a rendering hazard stops being bounded by whether
+someone happens to be watching a terminal.
+
+**Encoding is a deny list, and a deny list cannot solve identity.** The
+category rule in the next section is a better deny list than an enumerated one
+— categories do not drift the way lists do — but it is still an enumeration of
+what is bad, and the central typosquatting vector defeats it outright. Cyrillic
+`а` (`U+0430`) and Latin `a` (`U+0061`) are the same glyph and different code
+points, and both are general category `Ll`. Neither is in any hazard category,
+and neither should be: they are ordinary letters. A rule built from hazard
+categories will never catch the attack this work was scoped to stop.
+
+**So where a field's grammar is known, validate against an allow list and
+reject.** An allow list inverts the burden: anything not positively permitted
+is refused, including the next hazard nobody has named yet. It is also the
+cheapest thing in this document to audit — a reader checks one small set
+against one field — and the fastest to run, since it needs no Unicode tables at
+all. This is the same "reject, do not sanitize" rule the threat model states,
+applied one level earlier: at the point the value is admitted, not at the point
+it is printed.
+
+That gives three sink classes, and the rendering rules differ by class:
+
+| Sink class | Examples | Rule |
+| --- | --- | --- |
+| **Constrained identifier** | package id, package version | Allow list matching the field's published grammar; reject on violation |
+| **Assembly-derived name** | type, member, namespace, file name | Visual encoding, widest category set |
+| **Prose** | package description, release notes | Visual encoding, minus the `CR`/`LF`/`TAB` exemption |
+
+A constrained identifier gets the strongest treatment because it is the only
+class whose grammar is externally defined and small. A NuGet package id is not
+free text, so nothing is lost by refusing everything outside its grammar, and
+homoglyphs, emoji, bidi controls, and invisible joiners all fall out of scope
+in a single rule rather than four.
+
+Assembly-derived names cannot be treated the same way. Real assemblies
+legitimately carry non-ASCII type and member names, so an ASCII allow list
+would reject valid input; that class keeps visual encoding. Prose is genuinely
+multi-line and genuinely international, so it keeps encoding with the narrower
+exempt set described below.
+
+Nothing here validates identifiers today. `NuGetCache.ValidatePathComponent` is
+a six-pattern deny list — `..`, `/`, `\`, `:`, `NUL`, rooted — which admits
+`ESC`, Cyrillic, and zero-width joiners without comment. Replacing it with the
+allow list for its class is the first concrete application of this section.
+
+### The predicate and the speller are separate
+
+Deny lists and allow lists differ in what they *permit*, but not in how a
+violation is written down. Keeping those two concerns apart is what lets one
+shared component serve both, and it is the difference between a re-spelling
+library and a policy library:
+
+- The **predicate** answers "is this scalar permitted *here*?" It is per-sink
+  and it is where policy lives. Deny-shaped for free-form text (is it in a
+  hazard category), allow-shaped for constrained identifiers (is it in the
+  grammar).
+- The **speller** answers "how do I write a scalar that is not permitted?" It
+  is one shared function, **total over Unicode**, and it never learns *why* a
+  scalar was refused.
+
+Because the speller is total, no per-hazard spelling table is needed anywhere.
+That is what makes the allow-list case work at all: an allow-list sink has no
+hazard set to consult, and needs none — anything outside the grammar is spelled
+by the same function.
+
+That yields the payoff for the two continue-anyway modes, where the allow list
+*is* the encoding predicate:
+
+- **`--survey`** reports the coordinate and the classification, never the
+  rendered character: an offset, the code point as `U+XXXX`, and its category.
+  `U+XXXX` is ASCII, so it is inert by construction, and for a homoglyph it is
+  strictly more informative than the character would be — printing `е` conveys
+  nothing, because it is indistinguishable from `e`. Only violations are
+  reported, never every scalar in the field, so survey output cannot
+  reconstruct the value.
+- **`--dangerously-skip-checks`** renders the value with every non-conforming
+  scalar spelled. A hijacked `Nеwtonsoft.Json` carrying a Cyrillic `е` displays
+  as `N\u0435wtonsoft.Json`: the mode that says "show me anyway" shows exactly
+  why the tool objected, in a form that cannot lie.
+
+A category-based predicate cannot produce that second line. Cyrillic `е` is
+`Ll` and sits in no hazard category, so a deny-shaped encoder renders it raw
+and the substitution stays invisible. Identity is only recoverable when the
+predicate is the grammar.
+
+The speller belongs in a shared, dependency-free component — the `InertText`
+work, which shipped as that component in #3636 — and its obligations are
+exactly these:
+
+- **Total.** Defined on every Unicode scalar, including the 127 encoded
+  scalars above the BMP.
+- **Injective and invertible.** Ships with its decoder and the round-trip
+  sweep described below. Injectivity is a claim about *both* directions: the
+  decoder must refuse spellings the encoder never emits, or one scalar has
+  several encodings and the transform is no longer unique. Where a scalar has a
+  canonical short form, the long form of it is such a spelling.
+- **Scalar-based, not code-unit-based.** See the surrogate rule below.
+- **Policy-free.** It takes the predicate as input. A speller that hard-codes a
+  hazard set has absorbed policy and cannot serve an allow-list sink.
+- **Able to report which forms it emitted**, so the caller can write the stderr
+  legend described below without keeping its own copy of the spelling table.
+- **Not responsible for structural escaping.** That belongs to each
+  serializer's grammar and stays mandatory in every mode.
+- **Available as a value, not only as a returned `string`.** The encoded result
+  is offered as a distinct type, constructible only by applying a predicate. A
+  sink that accepts only that type cannot be handed untreated text by accident,
+  which turns "what does this sink accept" from a call-graph trace into a type
+  search. There is no conversion *from* `string`. Conversion *to* `string` is
+  unrestricted, and is safe here in a way it usually is not: the customary
+  objection is that `ToString` launders the wrapper, but that assumes the
+  payload is dangerous and the wrapper is what restrains it. Here the payload
+  is already inert, so losing the wrapper loses provenance, not protection.
+- **One-way as a value.** The value type holds the treated text and offers no
+  route back to what it was built from. The decoder is a separate type in a
+  separate namespace, so importing the namespace that supplies the value type
+  does not supply the decoder. Holding a value, then, is not the same as being
+  able to reverse it — and which of the two a file can do is legible in its
+  import list.
+
+These last two obligations are separate claims and are worth keeping apart. The
+first is about what a *sink* accepts, and it is answered by a type. The second
+is about what a *file* can do, and a type cannot answer it: if the decoder is a
+member of the value type, then every file holding a value is one member access
+away from the original, and a search for the type name finds mentions rather
+than capabilities. Splitting the namespace is what makes the second question
+answerable, and it is answerable by reading a file's imports rather than
+tracing its calls.
+
+This does not contradict the invertibility obligation above, but the two have
+to be stated precisely to avoid appearing to. The component must *ship* a
+decoder — splice repair below is unsatisfiable without one — and the value type
+may *use* it internally to conform a mismatched part. What it must not do is
+*expose* it, because that is what would let a holder recover the original. Ship
+it, use it, do not offer it.
+
+State the limit plainly: this is an audit boundary, not a capability barrier.
+Nothing stops a file from adding the import or writing the name out in full,
+and nothing should — the decoder is a legitimate operation with legitimate
+callers. What the boundary buys is that the reversing half cannot arrive
+unnoticed, which is the achievable goal. A test should enforce the value type's
+side of it by enumerating every public member of the value namespace that
+returns text and accounting for each one, so that adding a decode convenience
+is a test failure rather than a review question.
+
+That first obligation pays for itself immediately. Encoding on its own is
+transactional — a `string` goes in and a `string` comes out — so a treated
+value and an untreated one have the same type, and deciding whether a sink is
+safe means tracing every path that reaches it, again after every change.
+Retyping a single return value on the NuGet failure path (#3563) turned a live
+hole into a build error: a package name, which arrives from a command line or a
+dependency graph, was being interpolated into a printed message untouched, and
+it had survived review.
+
+Composition has to be part of that contract, or callers fall back to
+`$"...{treated}..."` and drop the guarantee at the moment it matters most. An
+interpolated string handler that applies the predicate to each part as it is
+appended covers this. It must encode *literals* as well as holes — an invariant
+with an exception in it has to be re-argued at every use.
+
+An already-treated part must not be encoded a second time, but it must not be
+trusted either, and the difference between those two is not obvious. The type
+records that *a* predicate was applied, not *which* one, and values are
+routinely built for one sink and spliced into a message bound for another. A
+prose predicate that permits a line feed and a field predicate that exists to
+remove one are both legitimate; splicing the first into the second unexamined
+puts a raw newline into a single-line record and reports no encoded forms for
+it. That is the injection the encoding exists to prevent, arriving with the
+type system apparently vouching for it. Two independent reviews of #3563 found
+this; it was reachable in a shipped API.
+
+So the rule is: on splice, re-check the part against the predicate in force,
+and where it does not satisfy that predicate, decode it and re-spell it. This
+is the second thing invertibility buys, and it is worth noticing that the
+requirement is unsatisfiable without a decoder — a mismatched part can only be
+repaired if the original text can be recovered exactly. Encode-without-a-decoder
+fails here a second time, having already failed the uniqueness test above.
+
+Survey names the code point and its general category, both of which .NET
+supplies. It deliberately does not name the *script* — "Cyrillic" would read
+far better for a typosquat, but .NET exposes no script lookup, so it means
+owning and maintaining a table. See the recognizability rule below for the
+second reason it stays out.
+
+### Visual encoding, not neutralization
+
+The rendering axis does not remove or replace dangerous characters; it
+**visually encodes** them so the sink cannot interpret them. The term and the
+contract are borrowed from BSD [`vis(3)`](https://man.netbsd.org/vis.3), which
+encodes arbitrary input into graphic characters only and pairs every encoder
+with a decoder (`unvis`) so the transform is unique and invertible.
+
+**What is encoded** is defined by Unicode general category, not by a list.
+Lists drift, and the drift is invisible: a list written against terminal
+escapes will not contain the character that attacks a *different* sink.
+
+| Category | Contains | Sink it attacks |
+| --- | --- | --- |
+| `Cc` | C0, `DEL`, C1 | terminal control sequences |
+| `Cf` ⊇ `Bidi_Control` | bidi overrides, isolates, marks | visual reordering — Trojan Source |
+| `Cs` | *unpaired* surrogates only | UTF-8 conversion |
+| `Zl`, `Zp` | `U+2028`, `U+2029` | line-oriented and JS-adjacent consumers |
+
+The bidi characters are the ones a hand-written list always misses, and not one
+of them is anywhere near C1, so a rule stated as "C0, `DEL`, and C1" excludes
+every one. Two sets get conflated here, so name them separately:
+
+- `rustc` made **nine** code points a deny-by-default error after Trojan Source
+  (CVE-2021-42574): the embeddings and overrides `U+202A`–`U+202E` and the
+  isolates `U+2066`–`U+2069`. That is the whole of its `TEXT_FLOW_CONTROL_CHARS`.
+- Unicode's **`Bidi_Control`** property is those nine plus the three marks
+  `U+200E` LRM, `U+200F` RLM, and `U+061C` ALM — twelve. This is the set
+  `ApiOutputFormatter.IsBidiControl` already implements.
+
+**Past bidi, the encoded set is all of `Cf`.** `Cf` is `Bidi_Control` plus the
+invisible formatting characters: `U+200C` ZWNJ, `U+200D` ZWJ, `U+2060` WORD
+JOINER, `U+00AD` SOFT HYPHEN, `U+FEFF`. This repository chose the narrower set
+once, deliberately, with the reason recorded in `ApiOutputFormatter.cs`:
+
+> Deliberately narrower than the Cf category — a zero-width joiner or a BOM
+> does not reorder its neighbors, and legitimate identifiers may contain format
+> characters, so escaping all of Cf would corrupt ordinary names.
+
+That is correct about the C# grammar — the language admits `Cf` in
+`identifier_part_character` — and it is the right answer to the question it was
+asked, which was about rendering an API surface faithfully. It is the wrong
+answer to the question this section asks, which is about identity. The two
+groups are different attacks: `Bidi_Control` *reorders*, while ZWJ and its
+neighbours are *invisible*, and an invisible character is precisely how two
+distinct identities come to render identically. Against hijack and
+typosquatting, an invisible character in a name is evidence, not a name.
+
+The cost is real and worth stating plainly: Persian `می‌خواهم`, Devanagari
+`क्‍ष`, and emoji ZWJ sequences render with visible escapes. That cost lands on
+prose, where those sequences belong, and not on the identifier classes above,
+where they do not. It is accepted here because the encoding is lossless and
+invertible — the reader can still recover exactly what was in the field — which
+is a different bargain from `ApiOutputFormatter`'s, where escaping is terminal.
+
+Where the two sections disagree, they disagree because they serve different
+questions. Unify them upward if that divergence ever becomes confusing;
+do not narrow this one to match.
+
+Counts: `Cc` 65, `Cf` 43, `Cs` 2,048, `Zl` and `Zp` one each — 2,158 BMP code
+points. CJK, combining diacritics, and precomposed ligatures such as `U+FB01`
+are untouched.
+
+**Encode by scalar, not by UTF-16 code unit.** Every non-BMP character — every
+emoji, every rare CJK ideograph — is stored in a .NET `string` as *two* `Cs`
+code units. A loop over `char` calling `GetUnicodeCategory` per unit therefore
+encodes all of them, turning 😀 into `\uD83D\uDE00`. Only an **unpaired**
+surrogate is a hazard. Enumerate `Rune`s and encode a surrogate only when it
+has no partner; the gate below must include a paired-surrogate case, or this
+bug ships looking correct.
+
+`Rune` is the right iteration type and the wrong *reporting* type, which is
+easy to get backwards. Its invariant excludes `U+D800`–`U+DFFF` outright, so it
+cannot carry the very thing the `Cs` rule exists to catch, and a violation
+record that names the offending scalar as a `Rune` has no way to say which
+unpaired surrogate it found. The natural workaround — decoding to the
+replacement character first — gives one wrong answer for all 2,048 of them, and
+pairs `U+FFFD` with a `Surrogate` category it does not have. Report the raw
+code unit as an integer. The check that catches this is that the reported code
+point and the encoder's own `\uXXXX` spelling of the same input must agree.
+
+**How it is spelled** is `vis(3)`'s: introduce with a backslash, and put
+standard **caret notation** — `cat -v`'s and `less`'s convention, dating to the
+PDP-6 up-arrow the 1967 ASCII revision replaced with `^` — inside it.
+
+| Input | Spelling | Source |
+| --- | --- | --- |
+| C0 (`U+0000`–`U+001F`) | `\^` + (code point + `0x40`); `ESC` is `\^[` | `vis(3)` + caret notation |
+| `DEL` (`U+007F`) | `\^?` | `vis(3)` + caret notation |
+| every other encoded scalar in the BMP | `\u` plus four hex digits; `U+202E` is `\u202E` | `vis(3)` shape, C# spelling |
+| every other encoded scalar above the BMP | `\U` plus eight hex digits; `U+13430` is `\U00013430` | `vis(3)` shape, C# spelling |
+| literal `\` | `\\` | `vis(3)` |
+
+Past the two caret rows, the speller is not a table at all: it is the code
+point printed in hex. There is nothing to enumerate, nothing to maintain, and
+no character it can fail to name.
+
+**A mapping table has to earn its place, and the test is recognizability.** A
+small table with real audit value is worth having — the two caret rows are two
+lines of arithmetic, and `\^[` is the spelling the terminal-security literature
+actually uses for `ESC`. But a mapping is only worth its cost if the reader
+recognizes what it produced. `\^[` is obvious to someone who knows `cat -v` and
+opaque to everyone else, and a spelling the reader cannot decode is worse than
+no spelling: it looks like data. So the rule is that any table beyond the plain
+code-point form must come with the legend that makes it readable.
+
+**The legend goes to stderr.** Stdout is the data channel and stays exactly
+what the sink asked for, so a legend there would corrupt structured output and
+break pipelines. Stderr is where a human at a terminal will see it and where a
+pipe discards it, which is precisely the split we want. Three constraints keep
+the legend honest:
+
+- **Emit it only when something was encoded**, so ordinary runs stay quiet.
+- **Derive it from the forms actually emitted**, not from a second copy of the
+  table. A legend written independently drifts; one projected from the encoder
+  cannot. That is also its gate: assert that every form present in the output
+  is named in the legend.
+- **Name forms, never values.** The legend says what `\^[` means; it never
+  repeats the field it came from. Artifact data does not belong on the
+  diagnostic channel.
+
+This is also the second, independent reason the script table stays out: ~160
+scripts is not small, and naming a script is not a spelling, so no legend can
+rescue it.
+
+`\uXXXX` alone is **not** total: it reaches only the BMP, and 127 code points
+in the encoded categories live above it — `U+110BD` KAITHI NUMBER SIGN, the
+Egyptian hieroglyph format controls `U+13430`–`U+1343F`, the musical-symbol
+format characters. A speller that stops at `\uXXXX` cannot express any of them,
+so it is neither total nor invertible on exactly the inputs an attacker would
+reach for. C#'s `\UXXXXXXXX` covers the rest and keeps the spelling within one
+borrowed vocabulary.
+
+The `\uXXXX` form diverges from `vis(3)`'s meta notation deliberately: meta
+notation describes a *byte* with its high bit set, and our input is a .NET
+`string` of code points. `\uXXXX` is C#'s own spelling, and it is already the
+spelling the rest of this repository uses for these characters.
+
+**Do not introduce with the caret**, which is the obvious simplification and is
+wrong. Caret notation alone is not invertible, and the collision is not exotic:
+`U+001E` (RS) is `0x1E + 0x40 = 0x5E`, which *is* `^`, so RS spells `^^` — the
+same as any escape of a literal `^`. `cat -v` lives with this because it never
+claims to be reversible; `vis(3)` avoids it by introducing with a character
+outside the caret image. That is the whole reason for the backslash, and it is
+worth writing down because the caret-introduced version looks correct and
+survives casual inspection.
+
+**The exempt set is per-sink, and only ever shrinks the C0 part.** A metadata
+name has no business containing `CR`, `LF`, or `TAB`, so a field sink encodes
+them. Prose — a package description — is legitimately multi-line, so a prose
+sink exempts those three and nothing else. `vis(3)` parameterizes exactly this
+(`VIS_NL`, `VIS_TAB`, `VIS_SAFE`). No sink may exempt `Bidi_Control`: there is
+no rendering context in which an artifact needs to reorder the reader's screen.
+
+The properties that matter are `vis(3)`'s: the output is **inert**, **lossless**
+(nothing is dropped, so the view still answers "what is actually in this
+field"), and **invertible** (a decoder recovers the original exactly).
+Neutralization has none of the three.
+
+"Inert" is scoped, and the scope matters: it means no *terminal* interprets the
+text as control, and no *bidi algorithm* reorders it. It does **not** mean the
+text is safe to drop into a structured format. A `|` still breaks a Markdown
+table cell, a backtick still opens a span, and a `"` still terminates a JSON
+string — none of those is in any encoded category, and none should be, because
+they are ordinary characters that the *serializer* is responsible for escaping
+for its own grammar. Visual encoding and structural escaping are separate
+obligations that compose; neither substitutes for the other, and structural
+escaping stays mandatory in every mode, including raw.
+
+Those three are an asserted property, so the encoding ships with the gate that
+proves them: a decoder, plus a round-trip over every scalar in `U+0000`–
+`U+10FFFF`, plus a round-trip-and-injectivity sweep over strings built from the
+characters that can collide — `\`, `^`, `u`, `U`, `?`, `@`, `[`, hex digits,
+and a representative of each encoded category — plus a paired-surrogate case,
+so that the scalar-versus-code-unit bug above fails the gate instead of
+shipping. The category rule needs its own gate, asserting membership for the
+nine `rustc` code points and the twelve `Bidi_Control` code points by name
+rather than by category lookup, so that a future narrowing of the rule fails
+rather than silently stops covering them. Encode-without-a-decoder is not this
+pattern, and an invertibility claim with no decoder in the test is not
+evidence: a caret-introduced spelling passes every casual inspection and fails
+this sweep on `U+001E`.
+
+Because the encoding is inert, it needs no opt-in. It is the default on every
+artifact-text path, with exactly one named opt-out
+(`--dangerously-print-raw-text`) rather than a per-call-site choice. Gating it
+behind an opt-in would buy no safety and would recreate the inheritance failure
+described below — a path that forgets to ask for it. Nothing passes a flag to
+make `System.Text.Json` escape `\u001b`.
+
+### Failure messages carry no artifact bytes
+
+A rejection names the **user-supplied** input — the path or coordinate the
+caller passed — the rule that fired, and the location. It does not quote the
+offending value. The rejected value is by construction the most hostile string
+in the image, and an error path that echoes it re-opens on `stderr` exactly the
+channel the check just closed.
+
+### Status
+
+The bounded-traversal budgets, execution-incapable parsing, and opt-in heaps are
+implemented, with their gates named above. So are the visual-encoding spelling
+(#3636, extended to Unicode general categories in #3628), the failure-message
+rule, and both the trust and rendering axes, which `mdi` exposes as
+`--show-untrusted-text` and `--dangerously-print-raw`.
+
+The identifier allow lists and `--survey` remain the **target model**: nothing
+validates an identifier's grammar, and refusal stops at the first violation
+rather than surveying them all. The projector itself still encodes and
+continues by default — the axes are a property of the command line, not of the
+library, because containment is a guarantee every caller gets while refusing is
+a policy only a caller can choose. See the threat model's open work.
 
 ## Prior art: `mdv` / `MetadataVisualizer`
 
@@ -451,6 +962,72 @@ Formats differ only in how a row's table is identified. Markdown introduces each
 table with a `## <Name> (rows)` heading over a pipe table; TSV and JSONL carry a
 leading `Table` column so every row self-identifies, keeping those outputs pure
 machine-readable streams (one `WriteTable` block per table).
+
+Containment is inherited, not reimplemented — but only along paths that
+actually go through the projection. `mdi` performs no escaping of its own, and
+each projected view hands the renderer text the projection has already made
+safe. That is what makes `mdi` the reference example of consuming the
+projection: a consumer should render `MetadataValue` cases and add nothing,
+rather than defend itself.
+
+The cost of that arrangement is that the escaping lives in exactly one place —
+the projector — so any text that reaches output *around* the projector is never
+escaped at all. Nothing at the call site reveals it: rendering an already-safe
+string and rendering a raw one are the same line of code.
+
+That is not hypothetical. The metadata root's version stamp is an
+artifact-derived counted string, and `MetadataImageInspector` reported it
+straight into the image overview without projecting it, so a hostile assembly
+could emit a live `ESC` in Markdown and TSV from both `mdi --overview` and the
+CLI's `Metadata: Image` section. #3518 fixed it by routing the value through
+the projector's escaper.
+
+That fix was right, but the defect argues for more than itself. Containment
+applied by *calling a function* is containment you can forget, and `string` is
+the type of both a contained and an uncontained value, so neither a reviewer
+nor the compiler can tell which one a given variable holds. The durable fix is
+for artifact-derived text to be its own type that a renderer cannot accept as a
+raw `string` — the shape `HardenedJson` already uses, where the guarantee comes
+from choosing the type rather than from remembering the call. Auditing then
+becomes a search for a type rather than an argument about coverage.
+
+That durable fix shipped in #3687: `HeapReference.Text`/`.Preview`,
+`HandleRef.Display`, `MetadataImageOverview.MetadataVersion` and
+`Malformed.Detail` are `InertString`, and there is no conversion admitting a
+`string` into any of them. The enforcement is the compiler rather than a gate.
+
+It also decides where the rendering axis can act. Because the model cannot hold
+untreated text, `--dangerously-print-raw` cannot be served by carrying a second
+raw copy through the projection; raw output is produced at the sink by running
+the encoder backwards, which the encoding supports by construction — it is
+lossless and invertible, and a literal backslash is always rewritten so the
+inverse is unique. The trust axis is unaffected and still acts upstream, inside
+`ContainCellText`, because refusal asks about the raw text and must therefore
+see it before anything is spelled. That is why `ContainCellText` still takes a
+`string` while returning an `InertString`: the parameter is the last place the
+untreated value legitimately exists.
+
+That is also why the property needs its own gate rather than a comment.
+`MdiContainmentTests` splices a payload spanning all three control ranges the
+projector recognizes — a live `ESC [ 3 1 m` sequence, `BEL`, `DEL`, and a C1
+control — into a real `#Strings` entry *and* into the version stamp, then renders
+the patched assembly through every view and format. The three views that carry
+artifact text — table, heap, and overview — each assert both that no raw control
+character survives and that the neutralized form of every control is present, so
+they cannot pass by rendering nothing, and the multi-range payload means
+narrowing containment to `ESC` alone fails rather than passes. Coverage is driven
+from `MetadataTableFormat` itself, so a new format is gated on arrival. The
+`--references` view renders only coordinates and counts, so it carries no
+artifact text and is asserted against raw controls alone, as a regression net
+rather than a payload-carrying case; the file says so.
+
+That payload covers only what the projector recognizes today, which is `Cc`.
+It contains no `Cf` character, so the gate would not notice a bidi override
+reaching output. Widening the payload is part of adopting the category rule.
+
+Those tests gate the *current* neutralizing behavior. Adopting the target model
+changes what they assert — a control character in a name becomes a rejection
+rather than a rendered substitution — but not that the property is gated.
 
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be
@@ -685,8 +1262,11 @@ tables never reference the `#US` heap, this is also the only way to browse the
 user strings that IL points at.
 
 What is deliberately *not* here: heap **enumeration**. SRM exposes no public way
-to walk every entry of a heap, so the surface is overview plus random access,
-and says so rather than faking a walk by scanning bytes.
+to walk every entry of a heap, so `mdi`'s surface is overview plus random access,
+and says so rather than faking a walk by scanning bytes. The `library` heap
+sections go one step further without crossing that line — they list what the
+projection can *prove* is in a heap, and name their coverage (see
+[Heaps are not tables](#heaps-are-not-tables)).
 
 Both facets hang off `AssemblyInspectionSession` (`MetadataImage()`,
 `MetadataHeapValue(...)`), render through `MetadataProjectionRenderer`, and are
@@ -873,6 +1453,51 @@ caching state and lifetime questions to the projector. If `mdi`'s default path
 becomes a memory complaint, this table says to start with `Scalar`/`Flags`
 interning and the `Nil` singleton, and the probe says how to prove it moved.
 
+## Implemented: hex table selection
+
+`-S "Metadata: 0x02"` and `-S "Metadata: TypeDef"` are the same selector. The
+motivation is mechanical: this tool's own output prints hex tokens, so a reader
+following a `0x02000015` reference already has the table index in hand and
+should not have to translate `0x02` to `TypeDef` before asking for the table.
+
+The alias rewrites the **input selector**; it does not register a second
+section. That is the whole design, and it is what makes the two spellings *one*
+section rather than two that happen to render alike. A hex alias registered in
+the catalog would print its own heading, sort independently in the section
+order, count separately under `--count`, and appear as a second entry under
+`-D`. Rewriting at the boundary means everything downstream — the orderer, the
+heading, `--count`, the document schema, the effective-section cache key — only
+ever sees the canonical name, so those failure modes are not merely untested but
+unreachable.
+
+`MetadataSectionNames.TryGetTable` therefore stays canonical-only. Teaching it
+hex as well would put alias resolution in two places, and would make
+`IsMetadataSection` claim a name that selection resolution — which matches
+against the canonical catalog — would still reject.
+
+Three rules follow from treating the hex form as an address rather than a name:
+
+- **Hex carries its `0x`.** A bare `02` is a table *name* position, and
+  inferring a radix would let one spelling mean two things. This matches the
+  `--heap` address rule.
+- **Only projected tables resolve.** The alias table is derived from
+  `MetadataTableProjector.ProjectedTables`, the same array the canonical names
+  come from, so a table the projection does not cover cannot become selectable
+  by its index. The rejection names the projected tables in both spellings,
+  because a caller who pasted an index is thinking in hex.
+- **A metadata token is not a table.** `0x02000015` addresses a *row*; its high
+  byte is the table. Width is checked **textually** — a table index is one byte,
+  hence one or two hex digits — because a numeric range check alone accepts an
+  eight-digit token whose value happens to fit, so `0x00000001` (a Module row
+  token) would resolve as table `0x01`, TypeRef.
+
+A bad index fails the run even beside a selector that does match — a deliberate
+divergence from the unknown-*name* rule, which tolerates a miss when something
+else matched. That tolerance exists for names that may exist in one inspected
+assembly and not another; a hex index outside the projection is not that, since
+no image can ever supply it. Tolerating it would silently drop a selector the
+caller definitely got wrong.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
@@ -917,8 +1542,14 @@ Resolved:
   dedicated command. Metadata tables introduce no new currency, so section
   selection already addresses them. This also avoids a collision: `--table` is
   already taken as a presentation modifier ("render as a pretty table").
-- **Heap surfacing flags.** Bounded per-heap previews are ordinary sections
+- **Heap surfacing flags.** Per-heap listings are ordinary sections
   (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
   a carrier: `--heap "#Strings:0x1a4"`.
+- **What a heap listing contains.** Not a byte scan, and not nothing. Each heap
+  is listed by the strongest honest means it admits — complete for `#GUID`,
+  referenced-values-only for `#Strings` and `#Blob`, nothing at all for `#US` —
+  and the listing states which, so a partial view is never mistaken for a whole
+  one. See [Heaps are not tables](#heaps-are-not-tables).
 - **Table selection grammar.** Both, since output already prints hex tokens and
-  users will paste them: `TypeDef` and `0x02` address the same table.
+  users will paste them: `TypeDef` and `0x02` address the same table. See
+  [Hex table selection](#implemented-hex-table-selection).

@@ -56,7 +56,6 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
 
-    public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
 
@@ -88,12 +87,11 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Drops the computed <c>@All</c> and <c>@Default</c> poles from this pipeline's category map,
-    /// making them unresolvable as selectors rather than merely undiscoverable. They are artifacts
-    /// of the legacy catalog: <c>@All</c> renders a superset nobody asked for, and <c>@Default</c>
-    /// restates what bare <c>-S</c> already means. A command whose sections are reachable through
-    /// topical doors and verbosity does not need either, and keeping them resolvable-but-unlisted
-    /// leaves a surface no discovery output describes.
+    /// Drops the computed <c>@All</c> pole from this pipeline's category map, making it
+    /// unresolvable as a selector rather than merely undiscoverable. It is an artifact of the
+    /// legacy catalog: it renders a superset nobody asked for. A command whose sections are
+    /// reachable through topical doors and verbosity does not need it, and keeping it
+    /// resolvable-but-unlisted leaves a surface no discovery output describes.
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
@@ -223,6 +221,16 @@ public sealed class SectionPipeline<TModel>
         .ToHashSet(StringComparer.Ordinal)!;
 
     /// <summary>
+    /// Section names paired with the scanner key each declares, for sections that declare one.
+    /// Exposed so a test can derive the sections affected by a scanner property — for example
+    /// "which sections depend on a scanner that declares prerequisites" — from the registration
+    /// rather than restating a literal list that would drift.
+    /// </summary>
+    public IEnumerable<(string Name, string ScannerKey)> ScannerBoundSections => _entries
+        .Where(e => e.ScannerKey != null)
+        .Select(e => (e.Name, e.ScannerKey!));
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.
@@ -241,15 +249,35 @@ public sealed class SectionPipeline<TModel>
         .Select(e => e.Name)
         .ToArray();
 
-    /// <summary>Sections in the curated @Default preset, in registration order.</summary>
+    /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
+
+    /// <summary>
+    /// The bare <c>-S</c> overview, in registration order: sections whose row set does not grow
+    /// with the target and that touch no network.
+    /// </summary>
+    /// <remarks>
+    /// Curated pipelines reach this membership through the <c>fixedOverview</c> flag, which
+    /// <see cref="IsRequested"/> evaluates in place. Pipelines that are not curated cannot, because
+    /// their verbosity ladder is positional and the sections kept out of their default view are
+    /// marked <see cref="ISectionDescriptor{TModel}.ExplicitOnly"/> - which <see cref="IsRequested"/>
+    /// honours before it considers the overview at all. Those commands resolve bare <c>-S</c> to an
+    /// explicit section set instead, and take it from here so both routes share one definition of
+    /// what "fixed overview" means.
+    /// </remarks>
+    public string[] FixedOverviewSectionNames => _entries
+        .Where(e => IsSelectable(e) && IsFixedOverviewMember(e))
+        .Select(e => e.Name)
+        .ToArray();
+
+    private static bool IsFixedOverviewMember(SectionEntry<TModel> entry)
+        => entry.SizeClass == SectionSizeClass.Fixed && entry.Cost == SectionCost.NetworkFree;
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
     {
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
         if (_computedPoles)
         {
-            categories[DefaultCategory] = InfoSectionNames;
             categories[AllCategory] = _curatedCatalog
                 ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
                 : SelectableSectionNames;
@@ -299,7 +327,7 @@ public sealed class SectionPipeline<TModel>
     /// Maps each section name to a short annotation for discovery output:
     /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
     /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
-    /// sections that render only outside the compact <c>@Default</c> preset.
+    /// sections that render only outside the compact default preset.
     /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
@@ -585,8 +613,21 @@ public sealed class SectionPipeline<TModel>
     /// Returns the set of scanner keys needed to satisfy all requested sections.
     /// Sections with a null scanner key are always collected and not included.
     /// </summary>
+    /// <param name="trace">
+    /// When supplied, records which section demanded which scanner. This is the demand side of the
+    /// pipeline and the only place the section-to-scanner attribution exists — downstream, the
+    /// registry sees a set of keys with no memory of who asked for them.
+    /// </param>
+    /// <param name="commandDemand">
+    /// Scanners the caller needs for reasons no section expresses, each paired with the reason.
+    /// They belong here rather than being added to the returned set afterwards: this method is the
+    /// one place that knows the full requested set, so anything added later is a scanner the trace
+    /// cannot attribute and will misreport as prerequisite expansion.
+    /// </param>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null, bool fixedOverview = false)
+        HashSet<string>? include = null, bool fixedOverview = false,
+        InspectionTrace? trace = null,
+        IReadOnlyList<(string Reason, string Scanner)>? commandDemand = null)
     {
         HashSet<string> scanners = [];
         for (int i = 0; i < _entries.Count; i++)
@@ -595,8 +636,22 @@ public sealed class SectionPipeline<TModel>
             if (entry.ScannerKey == null)
                 continue;
             if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            {
                 scanners.Add(entry.ScannerKey);
+                trace?.RecordDemand(entry.Name, entry.ScannerKey);
+            }
         }
+
+        if (commandDemand is not null)
+        {
+            foreach (var (reason, scanner) in commandDemand)
+            {
+                scanners.Add(scanner);
+                trace?.RecordCommandDemand(reason, scanner);
+            }
+        }
+
+        trace?.RecordRequested(scanners);
         return scanners;
     }
 
@@ -645,8 +700,7 @@ public sealed class SectionPipeline<TModel>
         // every package: structurally Fixed sections that touch no network. This is deliberately
         // narrower than the -v:n ladder (which also admits package-growing Terse/Informative rows).
         if (fixedOverview && _curatedCatalog)
-            return entry.SizeClass == SectionSizeClass.Fixed
-                && entry.Cost == SectionCost.NetworkFree;
+            return IsFixedOverviewMember(entry);
 
         // Curated catalog: the verbosity ladder is driven by declared size class + cost, not
         // section position. Everything else (@All/@Hidden, catalog listing) is computed from these.

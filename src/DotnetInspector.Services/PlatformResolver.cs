@@ -942,84 +942,49 @@ public static class PlatformResolver
     }
 
     /// <summary>
-    /// Scans all platform ref assemblies in the runtime framework to find which
-    /// library contains a given type. Returns the library name (without .dll), or null.
+    /// Resolves a user type pattern against the trusted runtime reference-pack
+    /// catalog without choosing a first-enumerated assembly.
     /// </summary>
-    public static string? FindLibraryContainingType(string typeName)
+    public static PlatformTypeLookupOutcome LookupType(string typeName)
     {
         var frameworks = GetInstalledFrameworks();
         var runtime = frameworks.FirstOrDefault(f => f.ShortName == "runtime");
-        if (runtime == null) return null;
-
-        var refPath = GetRefAssemblyPath(runtime.Path, runtime.LatestVersion);
-        if (refPath == null) return null;
-
-        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
-        string? forwarderMatch = null;
-
-        // Prefer assemblies with actual type definitions over type forwarders.
-        // e.g., Dictionary`2 is defined in System.Collections, not mscorlib (which only forwards).
-        foreach (var dll in Directory.GetFiles(refPath, "*.dll"))
+        if (runtime == null)
         {
-            if (ILInspector.Metadata.TypeForwardResolver.DefinesType(dll, normalized))
-                return System.IO.Path.GetFileNameWithoutExtension(dll);
-            if (forwarderMatch == null && ILInspector.Metadata.TypeForwardResolver.ForwardsType(dll, normalized))
-                forwarderMatch = System.IO.Path.GetFileNameWithoutExtension(dll);
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "The runtime reference catalog is unavailable."));
         }
 
-        return forwarderMatch;
+        var refPath = GetRefAssemblyPath(runtime.Path, runtime.LatestVersion);
+        if (refPath == null)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "The runtime reference catalog is unavailable."));
+        }
+
+        return PlatformTypeCatalog.Lookup(
+            typeName,
+            refPath,
+            runtime.ShortName,
+            runtime.LatestVersion);
     }
 
     /// <summary>
-    /// Returns true when an assembly is a facade-only surface: it has metadata,
-    /// one or more type forwarders, and no meaningful public type definitions.
+    /// Classifies a platform assembly through Metadata's typed declaration
+    /// inventory. The path is acquisition input, never metadata-derived.
     /// </summary>
-    public static bool IsFacadeOnlyAssembly(string assemblyPath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
-                return false;
-
-            var reader = peReader.GetMetadataReader();
-            bool hasForwarders = false;
-            foreach (var handle in reader.ExportedTypes)
-            {
-                if (reader.GetExportedType(handle).IsForwarder)
-                {
-                    hasForwarders = true;
-                    break;
-                }
-            }
-
-            if (!hasForwarders)
-                return false;
-
-            foreach (var handle in reader.TypeDefinitions)
-            {
-                var typeDef = reader.GetTypeDefinition(handle);
-                if (IsMeaningfulPublicType(reader, typeDef))
-                    return false;
-            }
-
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsMeaningfulPublicType(MetadataReader reader, TypeDefinition typeDef)
-    {
-        if (!typeDef.IsPublic)
-            return false;
-
-        var name = reader.GetString(typeDef.Name);
-        return name.Length > 0 && !TypeFilters.IsCompilerGenerated(name);
-    }
+    public static AssemblySurfaceClassificationOutcome ClassifyAssemblySurface(
+        string assemblyPath) =>
+        AssemblySurfaceClassifier.Classify(
+            assemblyPath,
+            AssemblyResolutionProvenance.Platform(
+                "InstalledPlatform",
+                frameworkVersion: null,
+                "PlatformResolver"));
 
     /// <summary>
     /// Lightweight type existence check using raw metadata.

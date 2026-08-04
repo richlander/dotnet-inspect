@@ -73,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public string? ILOffsetParameter { get; init; }
 
     /// <summary>
+    /// Heap coordinate (<c>Heap:Address</c>) for the coordinate-scoped metadata heap section.
+    /// </summary>
+    public string? HeapParameter { get; init; }
+
+    /// <summary>
     /// Path to a text file containing sparse MethodDef token + IL offset coordinates.
     /// </summary>
     public string? ILOffsetsPath { get; init; }
@@ -138,6 +143,13 @@ public record LibraryOptions : IProjectionOptions
     public bool Verbose { get; init; }
 
     /// <summary>
+    /// Report the work the run actually did — selected sections, the scanners they demanded, what
+    /// prerequisite expansion added, execution times, and expensive resource acquisition — on
+    /// stderr. Diagnostic only: stdout is unchanged, so a caller parsing the document is unaffected.
+    /// </summary>
+    public bool Trace { get; init; }
+
+    /// <summary>
     /// Output verbosity level.
     /// </summary>
     public Verbosity Verbosity { get; init; } = Verbosity.Normal;
@@ -177,6 +189,13 @@ public record LibraryOptions : IProjectionOptions
     /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
 
     /// <summary>
     /// Column names to include. Null means all.

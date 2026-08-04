@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
+using InertText;
 using Mdi;
 
 namespace DotnetInspector.MetadataRendering.Tests;
@@ -18,6 +19,14 @@ namespace DotnetInspector.MetadataRendering.Tests;
 /// </summary>
 public class MetadataImageOverviewRendererTests
 {
+
+    /// <summary>
+    /// Builds fixture cell text through the projector's own containment, so a fixture
+    /// can never assert on a spelling the product would not produce — and cannot
+    /// fabricate a value that claims to be truncated without having been cut.
+    /// </summary>
+    static InertString Cell(string value, int maxChars = int.MaxValue)
+        => MetadataTableProjector.ContainCellText(value, maxChars);
     static readonly string SelfPath = typeof(MetadataImageOverviewRendererTests).Assembly.Location;
 
     static MetadataImageOverview SelfOverview()
@@ -33,6 +42,72 @@ public class MetadataImageOverviewRendererTests
         var output = new StringWriter();
         MetadataProjectionRenderer.Render(overview, output, format);
         return output.ToString();
+    }
+
+    /// <summary>
+    /// Rebuilds an overview with a chosen version stamp and truncation state.
+    /// The record's properties are get-only, so <c>with</c> is unavailable.
+    /// </summary>
+    static MetadataImageOverview WithVersion(
+        MetadataImageOverview overview, InertString version)
+        => new(
+            version,
+            overview.Kind,
+            overview.IsAssembly,
+            overview.MetadataOffset,
+            overview.MetadataSize,
+            overview.Heaps,
+            overview.Tables,
+            overview.Headers);
+
+    /// <summary>
+    /// The metadata root's version stamp is a counted string read out of the
+    /// image, so a malformed image can carry one too long to neutralize within
+    /// the display budget. When that happens the value is a prefix, and this
+    /// file's standing claim — a limit is never silent — applies to it exactly as
+    /// it does to a clipped heap string: the ellipsis must be there, or a prefix
+    /// reads as the whole stamp.
+    /// </summary>
+    [Fact]
+    public void Markdown_MarksATruncatedVersionStampSoAPrefixIsNotReadAsTheWholeValue()
+    {
+        string markdown = Render(
+            WithVersion(SelfOverview(), Cell("v4.0.30319", 8)), MetadataTableFormat.Markdown);
+
+        Assert.Contains("v4.0.303…", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The close negative case: an untruncated stamp must not acquire an
+    /// ellipsis, or the marker would mean nothing.
+    /// </summary>
+    [Fact]
+    public void Markdown_LeavesAnUntruncatedVersionStampUnmarked()
+    {
+        string markdown = Render(
+            WithVersion(SelfOverview(), Cell("v4.0.303")), MetadataTableFormat.Markdown);
+
+        Assert.Contains("v4.0.303", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("v4.0.303…", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The budget is sized so it cannot bind on a conforming stamp: ECMA-335
+    /// II.24.2.1 caps the field at 255 bytes and neutralization expands a control
+    /// character to six characters, so 255 * 6 is the widest a conforming value
+    /// can become. Pinning that arithmetic here means shrinking the budget, or
+    /// widening the escape expansion, fails rather than silently starts clipping
+    /// well-formed images.
+    /// </summary>
+    [Fact]
+    public void ConformingVersionStamp_CannotTripTheBudget()
+    {
+        const int maxConformingBytes = 255;
+        const int escapeExpansion = 6;
+
+        var overview = SelfOverview();
+        Assert.False(overview.MetadataVersion.IsTruncated);
+        Assert.True(overview.MetadataVersion.Length <= maxConformingBytes * escapeExpansion);
     }
 
     // --- Overview rendering ------------------------------------------------
@@ -145,7 +220,7 @@ public class MetadataImageOverviewRendererTests
     public void Caveats_AreEmptyOnlyWhenNothingWasLeftOut()
     {
         var complete = new MetadataImageOverview(
-            "v4.0.30319",
+            Cell("v4.0.30319"),
             MetadataKind.Ecma335,
             IsAssembly: true,
             MetadataOffset: 1,
@@ -167,7 +242,7 @@ public class MetadataImageOverviewRendererTests
     public void Markdown_ReportsAnAbsentCliHeaderRatherThanBlankFields()
     {
         var native = new MetadataImageOverview(
-            "v4.0.30319",
+            Cell("v4.0.30319"),
             MetadataKind.Ecma335,
             IsAssembly: false,
             MetadataOffset: 1,
@@ -195,7 +270,7 @@ public class MetadataImageOverviewRendererTests
     public void Markdown_DistinguishesAManagedEntryPointFromANativeOne(int raw, CorFlags flags, string expected)
     {
         var overview = new MetadataImageOverview(
-            "v4.0.30319",
+            Cell("v4.0.30319"),
             MetadataKind.Ecma335,
             IsAssembly: true,
             MetadataOffset: 1,
@@ -233,29 +308,29 @@ public class MetadataImageOverviewRendererTests
     [Fact]
     public void HeapValue_MarkdownEchoesTheAddressItAnswered()
     {
-        var value = new MetadataValue.HeapReference(HeapKind.String, 42, 5, "hello", "hello", Truncated: false);
+        var value = new MetadataValue.HeapReference(HeapKind.String, 42, 5, Cell("hello"), Cell("hello"), Truncated: false);
 
         string markdown = RenderHeap(value, HeapKind.String, 42, MetadataTableFormat.Markdown);
 
-        Assert.Contains("## String heap at 42", markdown);
-        Assert.Contains("| String | 42 | 5 | no | hello |", markdown);
+        Assert.Contains("## #Strings heap at 42", markdown);
+        Assert.Contains("| #Strings | 42 | 5 | no | hello |", markdown);
     }
 
     [Fact]
     public void HeapValue_MarksATruncatedPreviewSoItIsNotReadAsWhole()
     {
-        var value = new MetadataValue.HeapReference(HeapKind.Blob, 7, 64, null, "0011", Truncated: true);
+        var value = new MetadataValue.HeapReference(HeapKind.Blob, 7, 64, null, Cell("0011"), Truncated: true);
 
         string markdown = RenderHeap(value, HeapKind.Blob, 7, MetadataTableFormat.Markdown);
 
-        Assert.Contains("| Blob | 7 | 64 | yes |", markdown);
+        Assert.Contains("| #Blob | 7 | 64 | yes |", markdown);
         Assert.Contains("0011\u2026", markdown);
     }
 
     [Fact]
     public void HeapValue_KeepsAMalformedReadVisible()
     {
-        var value = new MetadataValue.Malformed("past the end");
+        var value = new MetadataValue.Malformed(Cell("past the end"));
 
         string markdown = RenderHeap(value, HeapKind.Guid, 99, MetadataTableFormat.Markdown);
 
@@ -268,17 +343,17 @@ public class MetadataImageOverviewRendererTests
         string tsv = RenderHeap(new MetadataValue.Nil(), HeapKind.String, 0, MetadataTableFormat.Tsv);
 
         Assert.Contains("nil", tsv);
-        Assert.Contains("String\t0\t\tno\tnil", tsv);
+        Assert.Contains("#Strings\t0\t\tno\tnil", tsv);
     }
 
     [Fact]
     public void HeapValue_JsonlIsSelfDescribing()
     {
-        var value = new MetadataValue.HeapReference(HeapKind.UserString, 1, 3, "abc", "abc", Truncated: false);
+        var value = new MetadataValue.HeapReference(HeapKind.UserString, 1, 3, Cell("abc"), Cell("abc"), Truncated: false);
 
         string jsonl = RenderHeap(value, HeapKind.UserString, 1, MetadataTableFormat.Jsonl);
 
-        Assert.Contains("\"heap\":\"UserString\"", jsonl);
+        Assert.Contains("\"heap\":\"#US\"", jsonl);
         Assert.Contains("\"address\":\"1\"", jsonl);
         Assert.Contains("\"value\":\"abc\"", jsonl);
     }
@@ -357,7 +432,7 @@ public class MetadataImageOverviewRendererTests
             SelfPath, HeapKind.Guid, 1, new MetadataProjectionOptions(), MetadataTableFormat.Markdown, output, error);
 
         Assert.Equal(0, code);
-        Assert.Contains("## Guid heap at 1", output.ToString());
+        Assert.Contains("## #GUID heap at 1", output.ToString());
         Assert.DoesNotContain("malformed", output.ToString());
     }
 
@@ -394,9 +469,17 @@ public class MetadataImageOverviewRendererTests
     [InlineData("guid:1", HeapKind.Guid, 1)]
     [InlineData(" UserString : 0 ", HeapKind.UserString, 0)]
     [InlineData("Blob:0", HeapKind.Blob, 0)]
+    [InlineData("#Strings:1234", HeapKind.String, 1234)]
+    [InlineData("#GUID:1", HeapKind.Guid, 1)]
+    [InlineData("#US:0", HeapKind.UserString, 0)]
+    [InlineData("#Blob:0", HeapKind.Blob, 0)]
+    [InlineData("#Strings:0x1a4", HeapKind.String, 0x1a4)]
+    [InlineData("#Strings:0X1A4", HeapKind.String, 0x1a4)]
+    [InlineData("Strings:10", HeapKind.String, 10)]
+    [InlineData("us:5", HeapKind.UserString, 5)]
     public void TryParseHeapLocation_AcceptsAHeapAndAddress(string spec, HeapKind heap, int address)
     {
-        Assert.True(MdiCommand.TryParseHeapLocation(spec, out var parsedHeap, out int parsedAddress, out string? error));
+        Assert.True(MetadataHeapCoordinate.TryParse(spec, out var parsedHeap, out int parsedAddress, out string? error));
         Assert.Equal(heap, parsedHeap);
         Assert.Equal(address, parsedAddress);
         Assert.Null(error);
@@ -405,13 +488,44 @@ public class MetadataImageOverviewRendererTests
     [Theory]
     [InlineData("String", "not a heap reference")]
     [InlineData("Nope:1", "unknown heap")]
+    [InlineData("#Str:1", "unknown heap")]
     [InlineData("String:abc", "not a heap address")]
     [InlineData("String:-1", "not a heap address")]
+    [InlineData("String:0x", "not a heap address")]
+    [InlineData("String:", "not a heap address")]
+    // Hex is opt-in, never inferred: a bare "1a4" would otherwise silently address a different
+    // entry than the "0x1a4" a metadata dump printed.
+    [InlineData("String:1a4", "not a heap address")]
+    // NumberStyles.AllowHexSpecifier on a signed int *wraps* rather than overflows, so these
+    // parsed successfully as -2147483648 and -1 and produced a malformed heap read that still
+    // exited 0. An address that cannot exist is a parse error.
+    [InlineData("String:0x80000000", "not a heap address")]
+    [InlineData("String:0xFFFFFFFF", "not a heap address")]
+    [InlineData("String:0x100000000", "not a heap address")]
+    [InlineData("String:2147483648", "not a heap address")]
+    // Reported by adversarial review of #3497: a last-colon split handed the stray colon to the
+    // heap half and reported `unknown heap '#Strings:0x1a4'` -- blaming the half the caller got
+    // right. No accepted heap spelling contains a colon, so the first one is the separator.
+    [InlineData("#Strings:0x1a4:0x1b4", "not a heap address")]
     public void TryParseHeapLocation_NamesTheHalfThatIsWrong(string spec, string expected)
     {
-        Assert.False(MdiCommand.TryParseHeapLocation(spec, out _, out _, out string? error));
+        Assert.False(MetadataHeapCoordinate.TryParse(spec, out _, out _, out string? error));
         Assert.NotNull(error);
         Assert.Contains(expected, error);
+    }
+
+    /// <summary>
+    /// The boundary the overflow rejection must not overshoot: <c>int.MaxValue</c> is still a
+    /// representable address and stays accepted in both radixes.
+    /// </summary>
+    [Theory]
+    [InlineData("String:0x7FFFFFFF")]
+    [InlineData("String:2147483647")]
+    public void TryParseHeapLocation_AcceptsTheLargestRepresentableAddress(string spec)
+    {
+        Assert.True(MetadataHeapCoordinate.TryParse(spec, out _, out int address, out string? error));
+        Assert.Equal(int.MaxValue, address);
+        Assert.Null(error);
     }
 
     [Fact]
@@ -431,6 +545,12 @@ public class MetadataImageOverviewRendererTests
     {
         var root = MdiCommand.CreateRootCommand();
         var error = new StringWriter();
+
+        // Capturing the stream is the point of the test, so the stderr-ownership
+        // rule (#3319) is suppressed here rather than switched off for the
+        // project: mdi is a separate entry point outside the CLI's reference
+        // closure, but the rest of this project should stay covered.
+#pragma warning disable RS0030
         var original = Console.Error;
         try
         {
@@ -444,5 +564,6 @@ public class MetadataImageOverviewRendererTests
         {
             Console.SetError(original);
         }
+#pragma warning restore RS0030
     }
 }

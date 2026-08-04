@@ -45,16 +45,48 @@ public static class ApiOutputFormatter
             api.Types = api.Types.Take(options.Limit.Value).ToList();
         }
 
+        // The compact fields list is the whole of the -v:q view, and only that. Everywhere else the
+        // same facts are available as the bounded API Info section, so carrying them as a document
+        // scalar too would print identity twice on any view that shows both -- which is exactly
+        // what bare -S started doing once it began selecting API Info. Quiet keeps the line because
+        // at quiet there are no sections to carry it. See #3547.
+        //
+        // An active --fields/--columns projection is the exception, and not as a special case for
+        // its own sake: markout renders the document title alongside these scalars, so once a
+        // projection is active and no scalar survives it drops the H1 as well. Emptying them
+        // therefore did not merely hide a line -- it turned `--fields Types` into the Classes table
+        // with no title, and `--columns Type` into a headless table. Suppressing the line is a
+        // decision about the DEFAULT view, so a caller who names fields or columns opts out of it.
+        var projectionActive = options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+        var showCompactFields = options.Verbosity == Verbosity.Quiet
+            ? options.IncludeSections is not { Count: > 0 }
+            : projectionActive;
+
         var view = new CliApiSurface
         {
             Name = api.Name,
-            Library = api.Library,
-            Types = api.PublicTypeCount,
-            Methods = api.PublicMethodCount,
-            Properties = api.PublicPropertyCount,
-            Source = api.Source,
-            Version = api.Version,
-            Tfm = api.Tfm
+            Library = showCompactFields ? api.Library : null,
+            Types = showCompactFields ? api.PublicTypeCount : null,
+            Methods = showCompactFields ? api.PublicMethodCount : null,
+            Properties = showCompactFields ? api.PublicPropertyCount : null,
+            Source = showCompactFields ? api.Source : null,
+            Version = showCompactFields ? api.Version : null,
+            Tfm = showCompactFields ? api.Tfm : null,
+
+            // Deliberately the same values the compact fields list carries, not a second spelling
+            // of them: this section is a promotion of that line into a selectable fixed section, so
+            // a reader who selects it and a reader who reads the line must not see two different
+            // answers to the same question.
+            ApiInfo = new ApiInfoSection
+            {
+                Assembly = api.Library,
+                Types = api.PublicTypeCount,
+                Methods = api.PublicMethodCount,
+                Properties = api.PublicPropertyCount,
+                Version = api.Version,
+                Tfm = api.Tfm,
+                Source = api.Source
+            }
         };
 
         if (api.InspectionFailures.Count > 0
@@ -182,7 +214,7 @@ public static class ApiOutputFormatter
         options is MemberOptions { OverloadIndex: not null }
         && options.IncludeSections is { Count: > 0 }
         && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
         && !options.Count
         && !options.JsonOutput
         && !options.Tabular;
@@ -205,7 +237,7 @@ public static class ApiOutputFormatter
         options.Verbosity != Verbosity.Minimal
         || ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options)
         || SectionRequested(options.IncludeSections, SectionNames.Methods)
-        || (!SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
+        || (!SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             && (SectionRequested(options.IncludeSections, SectionNames.Operators)
                 || SectionRequested(options.IncludeSections, SectionNames.ExplicitInterfaceImplementations)
                 || SectionRequested(options.IncludeSections, SectionNames.ExtensionMethods)))
@@ -225,7 +257,25 @@ public static class ApiOutputFormatter
         options.Verbosity == Verbosity.Minimal
         && !ShouldRenderMemberRows(options)
         && (options.IncludeSections is null
-            || SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections));
+            || SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections));
+
+    /// <summary>
+    /// True when the type-listing tabular view must project the fixed fact table rather than type
+    /// rows.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="BuildSurfaceTableView"/> filters by mapping selected section names to type
+    /// <em>kinds</em>. A selection it cannot map to a kind -- which is every selection that is not
+    /// a per-kind table, including <see cref="SectionNames.ApiInfo"/> -- leaves that filter empty,
+    /// and an empty filter means "no filter", so it emits every type. That is a success-shaped
+    /// answer to a different question than the one <c>-S</c> asked, and it disagrees with both the
+    /// markdown rendering and <c>--count</c> of the same invocation. Routing this one selection to
+    /// the document serializer, exactly as the single-type path does for a single selected section,
+    /// keeps the three in agreement.
+    /// </remarks>
+    internal static bool ShouldRenderSurfaceFactTableView(ApiOptions options)
+        => options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.ApiInfo);
 
     internal static bool ShouldRenderSectionedTabularView(ApiType type, ApiOptions options)
     {
@@ -312,7 +362,7 @@ public static class ApiOutputFormatter
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
                 : string.Join(", ", memberFilter);
-            Console.Error.WriteLine($"No matching members for filter: {filterDesc}");
+            CommandError.WriteLine($"No matching members for filter: {filterDesc}");
         }
         else
         {
@@ -343,18 +393,25 @@ public static class ApiOutputFormatter
             new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
         var modifiers = projection.Identity.Modifiers;
-        string? baseType = projection.BaseType;
+        string? baseType = projection.BaseType is { } rawBaseType
+            ? CSharpIdentifier.ContainRenderedText(rawBaseType)
+            : null;
 
-        // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
-        string? typeParamsInline = null;
-        if (type.TypeParameters.Count > 0 && options.Verbosity == Verbosity.Quiet)
+        // Type parameter summary. Computed unconditionally because Type Info reports it as an
+        // identity fact at any verbosity; only the inline header placement is quiet-only, since
+        // at Minimal+ the section replaces the inline line.
+        string? typeParamsSummary = null;
+        if (type.TypeParameters.Count > 0)
         {
             var paramDescriptions = type.TypeParameters
                 .Select(tp => tp.Constraints.Count > 0
                     ? $"{tp.DisplayName} : {ConstraintSummary(type.TypeParameters, tp)}"
                     : tp.DisplayName);
-            typeParamsInline = string.Join(", ", paramDescriptions);
+            typeParamsSummary = string.Join(", ", paramDescriptions);
         }
+
+        string? typeParamsInline = options.Verbosity == Verbosity.Quiet ? typeParamsSummary : null;
+
 
         // Description (from docs) — suppressed at quiet
         string? description = null;
@@ -380,7 +437,7 @@ public static class ApiOutputFormatter
         if (!memberFilterActive && type.Interfaces.Count > 0)
         {
             interfaceRows = projection.Interfaces
-                .Select(i => new InterfaceRow { Interface = i })
+                .Select(i => new InterfaceRow { Interface = CSharpIdentifier.ContainRenderedText(i) })
                 .ToList();
         }
 
@@ -429,6 +486,20 @@ public static class ApiOutputFormatter
             TypeParameterRows = typeParameterRows,
             InterfaceRows = interfaceRows,
             BaseclassRows = baseclassRows,
+            TypeInfo = memberDetail ? null : new TypeInfoSection
+            {
+                Type = FormatGenericFullName(type),
+                Kind = type.Kind,
+                Modifiers = modifiers.Count > 0 ? string.Join(", ", modifiers) : null,
+                BaseType = baseType,
+                TypeParameters = typeParamsSummary,
+                Interfaces = NullIfZero(type.Interfaces.Count),
+                Assembly = foundIn,
+                Package = packageName,
+                Version = packageVersion,
+                Tfm = selectedTfm,
+                Source = apiSource,
+            },
         };
 
         static int? NullIfZero(int count) => count > 0 ? count : null;
@@ -515,7 +586,7 @@ public static class ApiOutputFormatter
                 {
                     return groups
                         .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
-                        .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                         .ToList();
                 }
 
@@ -526,7 +597,7 @@ public static class ApiOutputFormatter
                             .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                             .ToList();
                         if (ordered.Count == 1)
-                            return new TreeNode(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name));
+                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name)));
 
                         var displayName = OperatorNames.FormatDisplayName(g.Key);
                         return new TreeNode($"{displayName} ({ordered.Count} overloads)");
@@ -539,7 +610,7 @@ public static class ApiOutputFormatter
                 .Select(m => new TreeNode(
                     m.IsFinalizer
                         ? ShapeDestructorSpelling(declaringTypeName)
-                        : m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                 .ToList();
         }
 
@@ -561,7 +632,10 @@ public static class ApiOutputFormatter
             int tick = name.IndexOf('`');
             if (tick >= 0)
                 name = name[..tick];
-            return $"~{name}()";
+            // Contained on the composed spelling rather than at the call site:
+            // the sibling branch there contains its own text, and a finalizer
+            // node reached output raw because only that one branch was covered.
+            return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 
         static bool IsOverloadGroupedKind(string kind)
@@ -592,14 +666,22 @@ public static class ApiOutputFormatter
             // Inheritance
             if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
             {
-                nodes.Insert(0, new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
+                nodes.Insert(0, new TreeNode("Inherits")
+                {
+                    Children = [new TreeNode(CSharpIdentifier.ContainRenderedText(type.BaseType))]
+                });
             }
 
             // Interfaces
             if (type.Interfaces.Count > 0)
             {
                 var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
-                nodes.Insert(insertAt, new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
+                nodes.Insert(insertAt, new TreeNode("Implements")
+                {
+                    Children = type.Interfaces
+                        .Select(i => new TreeNode(CSharpIdentifier.ContainRenderedText(i)))
+                        .ToList()
+                });
             }
 
             // Type parameters with constraints
@@ -669,7 +751,7 @@ public static class ApiOutputFormatter
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
-            Name = m.Name,
+            Name = OperatorNames.FormatDisplayName(m.Name),
             Value = m.EnumValue.ToString()!,
             Description = hasAnyDocs ? (m.Documentation.Summary ?? "") : null
         }).ToList();
@@ -1060,7 +1142,7 @@ public static class ApiOutputFormatter
                     {
                         var m = e.members[0];
                         return new PropertySummaryRow(
-                            m.Name,
+                            OperatorNames.FormatDisplayName(m.Name),
                             MemberReturnType(m),
                             MemberAccessors(m),
                             SignatureDecodeMarker(e.members));
@@ -1072,8 +1154,8 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new FieldSummaryRow(
-                            e.members[0].Name,
-                            e.members[0].ReturnType ?? "",
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            CSharpIdentifier.ContainRenderedText(e.members[0].ReturnType ?? ""),
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
                     break;
@@ -1083,7 +1165,9 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                     {
                         var m = e.members[0];
-                        return new EventSummaryRow(m.Name, m.ReturnType ?? m.Signature ?? "");
+                        return new EventSummaryRow(
+                            OperatorNames.FormatDisplayName(m.Name),
+                            CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""));
                     }).ToList();
                     eventsView.SummaryRows = rows;
                     break;
@@ -1111,16 +1195,26 @@ public static class ApiOutputFormatter
     /// not be fully decoded. The default member tables no longer carry a Decode column, so
     /// this keeps signature-decode failures visible without cluttering successful output.
     /// </summary>
-    internal static void WriteSignatureDecodeWarning(TypeView view, TextWriter error)
+    /// <summary>
+    /// Warns that some signatures could not be fully decoded, listing them.
+    /// </summary>
+    /// <remarks>
+    /// The listed signatures come from the inspected assembly, so they are
+    /// untrusted. This wrote them to a <see cref="TextWriter"/> parameter that
+    /// every caller filled with <c>Console.Error</c>; the alias hid a real
+    /// <c>Warning:</c> line from the CLI's single writer and from the source
+    /// scan that pins it, and the signatures reached stderr uncontained
+    /// (issue #3319).
+    /// </remarks>
+    internal static void WriteSignatureDecodeWarning(TypeView view)
     {
         if (view.DegradedSignatureMembers is not { Count: > 0 } degraded)
             return;
 
-        error.WriteLine(
-            $"Warning: {degraded.Count} member signature(s) could not be fully decoded from " +
-            "metadata; the displayed signature(s) may be incomplete or approximate:");
-        foreach (var signature in degraded)
-            error.WriteLine($"  - {signature}");
+        CommandError.WriteWarning(
+            $"{degraded.Count} member signature(s) could not be fully decoded from " +
+            "metadata; the displayed signature(s) may be incomplete or approximate:",
+            [.. degraded.Select(signature => $"- {signature}")]);
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)
@@ -1156,7 +1250,7 @@ public static class ApiOutputFormatter
             var overloadView = new ConstructorOverloadView
             {
                 Title = $"Overload {i + 1}: {paramCount} parameter{(paramCount != 1 ? "s" : "")}",
-                Signature = new CodeSection("csharp", $"new {type.Name}{ConstructorCall(type, ctor)}")
+                Signature = new CodeSection("csharp", CSharpIdentifier.ContainRenderedText($"new {type.Name}{ConstructorCall(type, ctor)}"))
             };
 
             if (paramInfo.Count > 0)
@@ -1823,39 +1917,7 @@ public static class ApiOutputFormatter
     // which keeps the identity legible instead of dropping characters that are
     // part of the real name.
     private static string NeutralizeForSideComment(string value)
-    {
-        var folded = value.ReplaceLineEndings(" ");
-        if (!folded.Any(IsRenderingHazard))
-            return folded;
-
-        var builder = new StringBuilder(folded.Length);
-        foreach (var ch in folded)
-        {
-            if (IsRenderingHazard(ch))
-                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
-            else
-                builder.Append(ch);
-        }
-
-        return builder.ToString();
-
-        // Tab is deliberately allowed: it is legal in a comment and renders as
-        // space. Vertical tab is not a C# line terminator, so ReplaceLineEndings
-        // leaves it, but it does move the cursor down a line in a terminal — it is
-        // caught here as the C0 control it is.
-        static bool IsRenderingHazard(char ch) =>
-            ch != '\t' && (char.IsControl(ch) || IsBidiControl(ch));
-
-        // Exactly Unicode's Bidi_Control set: ALM, LRM/RLM, the LRE/RLE/PDF/LRO/RLO
-        // embeddings and overrides, and the LRI/RLI/FSI/PDI isolates. Deliberately
-        // narrower than the Cf category — a zero-width joiner or a BOM does not
-        // reorder its neighbors, and legitimate identifiers may contain format
-        // characters, so escaping all of Cf would corrupt ordinary names.
-        static bool IsBidiControl(char ch) =>
-            ch is '\u061C' or '\u200E' or '\u200F'
-                or >= '\u202A' and <= '\u202E'
-                or >= '\u2066' and <= '\u2069';
-    }
+        => CSharpIdentifier.ContainRenderedText(value);
 
     static string TrimLensPrefix(string ruleId)
         => ruleId.StartsWith("style-lens.", StringComparison.Ordinal)
@@ -2034,7 +2096,7 @@ public static class ApiOutputFormatter
                     item.Region.FilterStart is { } filterStart && item.Region.FilterEnd is { } filterEnd
                         ? FormatILRange(filterStart, filterEnd)
                         : null,
-                    item.Region.CaughtType))
+                    CSharpIdentifier.ContainRenderedText(item.Region.CaughtType ?? "")))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.ExceptionRegions))
@@ -2362,7 +2424,7 @@ public static class ApiOutputFormatter
     }
 
     private static string DiagnosticComment(Decompiler.DecompilerResult result)
-        => string.Join(Environment.NewLine, result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
+        => string.Join("\n", result.Diagnostics.Select(diagnostic => $"// {diagnostic}"));
 
     private static CodeSection FormatCSharpResult(
         ApiType type,
@@ -2452,7 +2514,7 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
         {
             return declarationTrailingComment is { Length: > 0 } bareComment
-                ? $"// {bareComment}{Environment.NewLine}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
+                ? $"// {bareComment}{"\n"}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
                 : Decompiler.Annotations.AnnotationCaret.Flatten(body);
         }
 
@@ -2476,7 +2538,7 @@ public static class ApiOutputFormatter
                 .Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[0]));
             for (int i = 1; i < multilineExpression.Count; i++)
             {
-                expression.Append(Environment.NewLine);
+                expression.Append("\n");
                 expression.Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[i]));
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
@@ -2495,13 +2557,13 @@ public static class ApiOutputFormatter
         // or the carets shear away from the code they point at.
         string bodyIndent = new(' ', Decompiler.Annotations.AnnotationCaret.BodyIndentWidth);
         var indentedBody = string.Join(
-            Environment.NewLine,
+            "\n",
             lines.Select(line =>
                 line.Length == 0 ? ""
                 : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
                 : bodyIndent + line));
 
-        return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+        return $"{Annotate(declaration)}{"\n"}{{{"\n"}{indentedBody}{"\n"}}}";
     }
 
     private static string FormatMemberDeclaration(
@@ -2546,14 +2608,27 @@ public static class ApiOutputFormatter
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
+    /// <summary>
+    /// The type's full name for display. Containment is applied here and not in
+    /// <see cref="MetadataTypeNameFormatter"/>, because that formatter also feeds
+    /// <c>ApiMemberIdentity</c> and <c>MemberTargetResolver</c>, where the name is
+    /// identity rather than presentation (issue #3319).
+    /// </summary>
     internal static string FormatGenericFullName(ApiType type)
-        => MetadataTypeNameFormatter.FormatFullName(type);
+        => CSharpIdentifier.ContainRenderedText(MetadataTypeNameFormatter.FormatFullName(type));
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
         => ApiMemberIdentity.GetMemberSignatureSortKey(member);
 
+    /// <remarks>
+    /// <see cref="ApiMember.Signature"/> and <see cref="ApiMember.ReturnType"/> are
+    /// deliberately stored raw — canonical identity is rebuilt from them after a JSON
+    /// round-trip — so the display helpers that read them contain here, at the
+    /// rendering boundary (issue #3319).
+    /// </remarks>
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
-        => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";
+        => CSharpIdentifier.ContainRenderedText(
+            member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}");
 
     private static string GetMemberSelectorName(ApiMember member)
         => ApiMemberIdentity.GetMemberSelectorName(member);
@@ -2579,6 +2654,7 @@ public static class ApiOutputFormatter
     };
 
     private static bool IsCompilerGenerated(string name) => MemberFilters.IsCompilerGenerated(name);
+
 
     private static readonly string[] MemberKinds =
     [
@@ -2638,7 +2714,7 @@ public static class ApiOutputFormatter
             var returnType = e.kind switch
             {
                 "constructor" or "finalizer" => "",
-                "event" => m.ReturnType ?? m.Signature ?? "",
+                "event" => CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""),
                 _ => MemberReturnType(m)
             };
             var detail = e.kind switch
@@ -2655,18 +2731,24 @@ public static class ApiOutputFormatter
         return (new ApiTypeTableView { Rows = rows }, truncated);
     }
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberReturnType(ApiMember member)
-        => member.SignatureModel?.ReturnType
-           ?? member.ReturnType
-           ?? SignatureParser.ExtractReturnType(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.ReturnType
+            ?? member.ReturnType
+            ?? SignatureParser.ExtractReturnType(member.Signature));
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberAccessors(ApiMember member)
-        => member.SignatureModel?.PublicAccessorsSummary
-           ?? SignatureParser.ExtractAccessors(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.PublicAccessorsSummary
+            ?? SignatureParser.ExtractAccessors(member.Signature));
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberParameterTypes(ApiMember member)
-        => member.SignatureModel?.ParameterTypesSummary
-           ?? SignatureParser.ExtractParamList(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.ParameterTypesSummary
+            ?? SignatureParser.ExtractParamList(member.Signature));
 
     /// <summary>
     /// Builds a unified tabular view for a full API surface (all types).

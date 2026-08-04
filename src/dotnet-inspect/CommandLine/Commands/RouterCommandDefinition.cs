@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
@@ -17,7 +18,7 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
-    public static Command Create(RootCommand rootCommand)
+    public static Command Create(RootCommand rootCommand, SharedOptions opts)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
         {
@@ -42,31 +43,46 @@ public static class RouterCommandDefinition
                 return 0;
             }
 
+            // The router intentionally captures all options as raw tokens so the rewritten
+            // command remains the authority on their semantics. Parse a package-shaped probe
+            // with the shared option instances to obtain the caller's NuGet scope without
+            // maintaining a second command-line parser here.
+            var sourceParseResult = rootCommand.Parse([PackageCommand.Name, .. tokens]);
+            var sourceErrors = GetSourceOptionErrors(sourceParseResult, opts);
+            if (sourceErrors.Count > 0)
+            {
+                foreach (var error in sourceErrors)
+                    CommandError.Write(error.Message);
+                return 1;
+            }
+
+            var sourceOptions = opts.ParseNuGetSourceOptions(sourceParseResult);
+
             if (TryGetCommandTypoSuggestion(tokens[0]) is { } suggestion)
             {
-                Console.Error.WriteLine($"Error: Unknown command '{tokens[0]}'.");
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
-                Console.Error.WriteLine($"  {suggestion}");
+                CommandError.Write($"Unknown command '{tokens[0]}'.");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
+                CommandError.WriteLine($"  {suggestion}");
                 return 1;
             }
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
             {
-                Console.Error.WriteLine($"Note: interpreting bare token '{tokens[0]}' as a package or platform target.");
-                Console.Error.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
-                Console.Error.WriteLine();
+                CommandError.WriteNote($"interpreting bare token '{tokens[0]}' as a package or platform target.");
+                CommandError.WriteLine("      Use 'dotnet-inspect --help' to list commands, or 'dotnet-inspect package --help' for package help.");
+                CommandError.WriteBlankLine();
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
-            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens);
+            var rewritten = await RouterTokenRewriter.RewriteAsync(tokens, sourceOptions);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
                 $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
 
             if (rewritten.Length == tokens.Length && rewritten.SequenceEqual(tokens))
             {
-                Console.Error.WriteLine($"Error: Could not route '{tokens[0]}'.");
+                CommandError.Write($"Could not route '{tokens[0]}'.");
                 return 1;
             }
 
@@ -77,6 +93,34 @@ public static class RouterCommandDefinition
         });
 
         return routerCommand;
+    }
+
+    private static List<ParseError> GetSourceOptionErrors(
+        ParseResult parseResult,
+        SharedOptions opts)
+    {
+        OptionResult? source = parseResult.GetResult(opts.Source);
+        OptionResult? additionalSource = parseResult.GetResult(opts.AddSource);
+        OptionResult? config = parseResult.GetResult(opts.NuGetConfig);
+
+        return
+        [
+            .. parseResult.Errors.Where(error =>
+                IsWithin(error.SymbolResult, source)
+                || IsWithin(error.SymbolResult, additionalSource)
+                || IsWithin(error.SymbolResult, config)),
+        ];
+    }
+
+    private static bool IsWithin(SymbolResult? result, SymbolResult? ancestor)
+    {
+        for (; result != null; result = result.Parent)
+        {
+            if (ReferenceEquals(result, ancestor))
+                return true;
+        }
+
+        return false;
     }
 
     private static readonly string[] CommandSuggestionNames =
@@ -128,7 +172,9 @@ public static class RouterCommandDefinition
 
     private static class RouterTokenRewriter
     {
-        public static async Task<string[]> RewriteAsync(string[] tokens)
+        public static async Task<string[]> RewriteAsync(
+            string[] tokens,
+            NuGetSourceOptions sourceOptions)
         {
             var target = tokens[0];
             var tail = tokens[1..];
@@ -156,10 +202,12 @@ public static class RouterCommandDefinition
 
             var hasVersionQuery = ContainsOption(tokens, "--version")
                 || ContainsOption(tokens, "--latest-version")
-                || ContainsOption(tokens, "--versions");
+                || ContainsOption(tokens, "--versions")
+                || ContainsOption(tokens, "--versions-with-feed");
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
+            var sourceKeys = NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
             {
@@ -169,15 +217,38 @@ public static class RouterCommandDefinition
                     context.Logger.Log);
                 if (resolvedPath != null && resolvedError == null)
                 {
-                    if (target.Count(c => c == '.') >= 2 && PlatformResolver.IsFacadeOnlyAssembly(resolvedPath))
-                        return ["type", target, .. tail];
+                    AssemblySurfaceClassificationOutcome classification =
+                        PlatformResolver.ClassifyAssemblySurface(resolvedPath);
+                    if (classification
+                        is AssemblySurfaceClassificationOutcome.Rejected rejected)
+                    {
+                        CommandError.Write(
+                            $"Could not classify the platform assembly surface ({rejected.Failure.Kind}).");
+                        return tokens;
+                    }
 
-                    return ["library", target, .. tail];
+                    bool isFacade =
+                        ((AssemblySurfaceClassificationOutcome.Classified)
+                            classification).Classification.Kind
+                        == AssemblySurfaceKind.Facade;
+                    return target.Count(c => c == '.') >= 2 && isFacade
+                        ? ["type", target, .. tail]
+                        : ["library", target, .. tail];
                 }
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(target, allowPlatformPrefixFallback);
+            string? platformLookupFailure = null;
+            var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
+                target,
+                sourceKeys,
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                CommandError.Write(platformLookupFailure);
+                return tokens;
+            }
             if (memberSplit != null)
             {
                 var probe = memberSplit.Value.Probe;
@@ -203,7 +274,7 @@ public static class RouterCommandDefinition
             var memberFind = await TypeFindIfMissResolver.ResolvePlatformMemberAsync(
                 target,
                 includeAll: false,
-                sourceOptions: NuGetSourceOptions.Default,
+                sourceOptions,
                 context.HttpClient,
                 context.Logger);
             if (memberFind.Status == TypeFindIfMissStatus.Found)
@@ -212,7 +283,16 @@ public static class RouterCommandDefinition
                 return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberFind.MemberSelector, .. tail];
             }
 
-            var typeProbe = SourceResolver.TryResolveQualifiedTypeName(target, allowPlatformPrefixFallback);
+            var typeProbe = SourceResolver.TryResolveQualifiedTypeName(
+                target,
+                sourceKeys,
+                allowPlatformPrefixFallback,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+            {
+                CommandError.Write(platformLookupFailure);
+                return tokens;
+            }
             if (typeProbe != null)
             {
                 if (typeProbe.Kind == SourceResolver.LocalSourceKind.Platform
@@ -233,19 +313,19 @@ public static class RouterCommandDefinition
             var typeFind = await TypeFindIfMissResolver.ResolvePlatformAsync(
                 target,
                 includeAll: false,
-                sourceOptions: NuGetSourceOptions.Default,
+                sourceOptions,
                 context.HttpClient,
                 context.Logger);
             if (typeFind.Status == TypeFindIfMissStatus.Found)
             {
                 var match = typeFind.Match!;
-                Console.Error.WriteLine($"Note: Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
+                CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
                 return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
             }
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {
-                if (await PackageExistsAsync(target, context))
+                if (await PackageExistsAsync(target, sourceKeys, sourceOptions, context))
                     return ["package", .. tokens];
 
                 return ["type", target, .. tail];
@@ -261,9 +341,15 @@ public static class RouterCommandDefinition
         private static string[] FrameworkArgs(string source)
             => string.IsNullOrWhiteSpace(source) ? [] : ["--framework", source];
 
-        private static async Task<bool> PackageExistsAsync(string packageName, CommandContext context)
+        private static async Task<bool> PackageExistsAsync(
+            string packageName,
+            IReadOnlyList<string> sourceKeys,
+            NuGetSourceOptions sourceOptions,
+            CommandContext context)
         {
-            if (NuGetCache.TryGetLatestCachedVersion(packageName) != null)
+            if (NuGetCache.TryGetLatestCachedVersion(
+                    packageName,
+                    sourceKeys) != null)
                 return true;
 
             try
@@ -274,7 +360,7 @@ public static class RouterCommandDefinition
                     includePrerelease: true,
                     limit: 1,
                     log: context.Logger.Log,
-                    sourceOptions: NuGetSourceOptions.Default);
+                    sourceOptions);
                 return versions is { Count: > 0 };
             }
             catch (Exception ex)

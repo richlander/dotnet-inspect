@@ -7,15 +7,15 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class CountOutput
 {
-    public const string SingleSectionRequiredMessage = "Error: --count requires -S/--select to match exactly one section.";
-    public const string SectionRequiredMessage = "Error: --count requires -S/--select to match at least one section.";
+    public const string SingleSectionRequiredMessage = "--count requires -S/--select to match exactly one section.";
+    public const string SectionRequiredMessage = "--count requires -S/--select to match at least one section.";
 
     public static bool ValidateSingleSection(HashSet<string>? includeSections)
     {
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine(SingleSectionRequiredMessage);
+        CommandError.Write(SingleSectionRequiredMessage);
         return false;
     }
 
@@ -29,7 +29,7 @@ public static class CountOutput
         if (includeSections is { Count: >= 1 })
             return true;
 
-        Console.Error.WriteLine(SectionRequiredMessage);
+        CommandError.Write(SectionRequiredMessage);
         return false;
     }
 
@@ -86,7 +86,7 @@ public static class CountOutput
         if (string.IsNullOrEmpty(outputPath))
             Console.WriteLine(text);
         else
-            File.WriteAllText(outputPath, text + Environment.NewLine);
+            File.WriteAllText(outputPath, text + '\n');
     }
 
     public static void WriteCountFromMarkdown(string markdown)

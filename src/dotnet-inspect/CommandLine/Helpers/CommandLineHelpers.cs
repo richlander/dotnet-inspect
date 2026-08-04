@@ -1,8 +1,24 @@
+using DotnetInspector.Output;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Text.Json;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.CommandLine;
+
+/// <summary>
+/// Thrown when <c>--package-prefix</c> could not be expanded because the feed could not be
+/// reached or understood.
+/// </summary>
+/// <remarks>
+/// Distinct from a prefix that expands to nothing. An empty expansion is an answer: the feed was
+/// searched and matched no package, so the command proceeds and exits 0. A failed expansion is
+/// not an answer — the set of packages the user asked about is unknown, and continuing with an
+/// empty set reports "nothing found" for packages that were never looked at. It is carried as an
+/// exception because expansion happens while binding options, before a command has any result to
+/// attach a failure to; Program.cs renders it as the standard <c>Error:</c> line and exit 1.
+/// </remarks>
+public sealed class PrefixResolutionException(string message) : Exception(message);
 
 /// <summary>
 /// Shared helper methods for command-line argument processing.
@@ -42,8 +58,16 @@ public static class CommandLineHelpers
     /// is set, or null otherwise. Centralizes the convention that verbose diagnostic
     /// output goes to stderr, keeping stdout reserved for machine-readable results.
     /// </summary>
+    /// <remarks>
+    /// This is the same channel as <see cref="DotnetInspector.Output.VerboseLogger"/>
+    /// in delegate form, so it gets the same owner: progress text quotes paths
+    /// and exception messages from untrusted input (issue #3319).
+    /// </remarks>
     public static Action<string>? CreateVerboseLogger(bool verbose)
-        => verbose ? msg => Console.Error.WriteLine(msg) : null;
+    {
+        var logger = new VerboseLogger(verbose);
+        return verbose ? logger.Log : null;
+    }
 
     /// <summary>
     /// Resolves a package ID prefix and merges with existing packages.
@@ -66,11 +90,25 @@ public static class CommandLineHelpers
         var client = HttpClientFactory.Shared;
 
         log?.Invoke($"Resolving packages with prefix: {prefix}");
-        var results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+
+        List<NuGetSearchResult> results;
+        try
+        {
+            results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+            or InvalidOperationException or TaskCanceledException)
+        {
+            // The command cannot proceed honestly: it does not know which packages the prefix
+            // named. Reported as a clean CLI error rather than an escaping stack trace, and never
+            // as an empty expansion, which would exit 0 having inspected nothing.
+            throw new PrefixResolutionException(
+                $"Could not resolve packages for prefix \"{prefix}\": {ex.Message}");
+        }
 
         if (results.Count == 0)
         {
-            Console.Error.WriteLine($"Warning: No packages found matching prefix \"{prefix}\"");
+            CommandError.WriteWarning($"No packages found matching prefix \"{prefix}\"");
             return [];
         }
 

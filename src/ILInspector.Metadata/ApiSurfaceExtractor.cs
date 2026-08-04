@@ -58,6 +58,13 @@ public static class ApiSurfaceExtractor
                 Namespace = typeNamespace,
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDefHandle),
+                DefinitionName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeDefHandle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -527,7 +534,7 @@ public static class ApiSurfaceExtractor
                     Name = reader.GetString(evt.Name),
                     Kind = "event",
                     ReturnType = eventType,
-                    Signature = $"{eventType} {reader.GetString(evt.Name)}",
+                    Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
@@ -618,6 +625,13 @@ public static class ApiSurfaceExtractor
 
                 surface.TypeForwarders.Add(new TypeForwarder
                 {
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            exportedTypeHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 });
@@ -662,6 +676,11 @@ public static class ApiSurfaceExtractor
         bool includeVariance)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list because `where T : U` chains run through it: answering
+        // each parameter from scratch would rewalk the chain's whole tail, which is
+        // quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
@@ -711,6 +730,12 @@ public static class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
+            typeParam.TypeKind = TypeParameterKindClassifier.Classify(
+                reader,
+                paramHandle,
+                hasValueTypeConstraint: (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
+                hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                chain);
             parameters.Add(typeParam);
         }
 
@@ -1116,7 +1141,7 @@ public static class ApiSurfaceExtractor
     /// impersonates a core-library name but lacks (or forges) a matching
     /// public-key token is rejected.
     /// </summary>
-    private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+    internal static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
@@ -1624,7 +1649,13 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
+        // MemberName carries identity (ApiMemberIdentity parses it for docids and
+        // the generic-parameter map), so it keeps the raw metadata spelling; only
+        // the rendered signature is sanitized (issue #3319).
+        var displayName = context.MethodParameters.Count > 0
+            ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
+            : SanitizeMemberDisplayName(name);
+        return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
@@ -1715,9 +1746,14 @@ public static class ApiSurfaceExtractor
                 bool isParams = AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
                     || AttributeReader.HasAttribute(reader, attributes, KnownAttributeNames.ParamCollectionAttribute);
                 var renderedAttributes = AttributeReader.RenderParameterAttributes(reader, handle);
-                string? refKind = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0
+                // An interop-marshalled `ref` parameter sets both In and Out, so
+                // neither flag alone identifies a C# `out`/`in`. Spelling such a
+                // parameter `out` breaks definite assignment in the body.
+                bool isOut = (param.Attributes & System.Reflection.ParameterAttributes.Out) != 0;
+                bool isIn = (param.Attributes & System.Reflection.ParameterAttributes.In) != 0;
+                string? refKind = isOut && !isIn
                     ? "out"
-                    : (param.Attributes & System.Reflection.ParameterAttributes.In) != 0
+                    : isIn && !isOut
                         ? "in"
                         : null;
 
@@ -1917,8 +1953,12 @@ public static class ApiSurfaceExtractor
         '\r' => "\\r",
         '\t' => "\\t",
         '\v' => "\\v",
-        '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)c:x4}",
-        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        // Bidi overrides are category Cf, so char.IsControl is false for them and
+        // they would reach the terminal raw (issue #3319). No end-to-end gate
+        // covers this particular escaper — every probe reached the sibling
+        // escaper below instead — so treat it as unverified hardening that keeps
+        // the two spellings consistent, not as a proven-reachable fix.
+        _ when CSharpIdentifierCore.RequiresLiteralEscape(c) => $"\\u{(int)c:x4}",
         _ => c.ToString()
     };
 
@@ -1931,7 +1971,7 @@ public static class ApiSurfaceExtractor
         object? defaultValue,
         bool acceptsNullDefault)
     {
-        var escapedName = EscapeIdentifier(name);
+        var escapedName = SanitizeIdentifier(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
         if (!hasDefault)
             return parameter;
@@ -1945,8 +1985,25 @@ public static class ApiSurfaceExtractor
         return $"{parameter} = {FormatDefaultValue(reader, defaultValue, type, acceptsNullDefault)}";
     }
 
-    private static string EscapeIdentifier(string name)
-        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
+    /// <summary>
+    /// The spelling for a metadata name entering emitted C# declaration text.
+    /// Keyword escaping alone leaves an unspellable name (one carrying a line
+    /// terminator, say) intact, which lets it break out of the surrounding code
+    /// fence or tree layout; sanitizing folds it to identifier characters
+    /// instead (issue #3319). Byte-neutral for names that are already legal
+    /// identifiers, which covers every well-formed assembly.
+    /// </summary>
+    /// <summary>
+    /// The display spelling of a member name. A member name is not always a simple
+    /// identifier — <c>.ctor</c>, and an explicit interface implementation spells
+    /// <c>System.IConvertible.ToBoolean</c> — so this contains it rather than
+    /// sanitizing it into one, which would mangle both.
+    /// </summary>
+    private static string SanitizeMemberDisplayName(string name)
+        => CSharpIdentifierCore.ContainComposedName(name);
+
+    private static string SanitizeIdentifier(string name)
+        => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
 
     private static string FormatDecimalLiteral(decimal value)
         => value.ToString("G29", CultureInfo.InvariantCulture) + "m";
@@ -1978,7 +2035,7 @@ public static class ApiSurfaceExtractor
                 '\r' => "\\r",
                 '\t' => "\\t",
                 '\v' => "\\v",
-                _ when char.IsControl(c) => $"\\u{(int)c:X4}",
+                _ when CSharpIdentifierCore.RequiresLiteralEscape(c) => $"\\u{(int)c:X4}",
                 _ => c.ToString()
             });
         }
@@ -2381,7 +2438,7 @@ public static class ApiSurfaceExtractor
                     || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
 
         return (
-            $"{requiredPrefix}{returnType} {name} {accessorStr}",
+            $"{requiredPrefix}{returnType} {SanitizeIdentifier(name)} {accessorStr}",
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));

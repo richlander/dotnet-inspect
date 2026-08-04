@@ -18,12 +18,14 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="ILInspector.SourceLink" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <!-- The corpus gate drives PdbContext end to end over real assemblies. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <!-- Fixture assemblies land in the test output directory, which is what
          SliceCorpus() scans. They are corpus inputs, not references in code;
          LastMemberOfAType_ExtractsThroughItsOwnClosingBraceOnly names a member

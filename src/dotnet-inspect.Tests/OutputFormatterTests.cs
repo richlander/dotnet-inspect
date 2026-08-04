@@ -15,8 +15,47 @@ using Markout;
 
 namespace DotnetInspector.Tests;
 
+// Captures Console.Error, which is process-wide state.
+[Collection("Console")]
 public class OutputFormatterTests
 {
+    /// <summary>
+    /// This is the named non-vacuity gate for product-owned artifact framing. It fails when the
+    /// count-file writer or printable-document JSONL writer inherits CRLF from the Windows host
+    /// instead of emitting the repository's LF artifact contract.
+    /// </summary>
+    [Fact]
+    public void ArtifactNewlineGate_ProductOwnedFramingUsesLf()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("artifact-newline-gate-");
+        try
+        {
+            var countPath = Path.Combine(tempDirectory.FullName, "count.txt");
+            CountOutput.WriteCount(7, countPath);
+
+            var printPath = Path.Combine(tempDirectory.FullName, "print.jsonl");
+            var printExit = PrintProjectionOutput.Write(
+                [new PrintableDocument(1, "Docs", "README", "README.md", null, "body")],
+                new PrintProjectionOptions(
+                    Row: null,
+                    JsonOutput: false,
+                    Jsonl: true,
+                    JsonArray: false,
+                    Bare: false,
+                    OutputPath: printPath));
+
+            Assert.Equal(0, printExit);
+            Assert.Equal("7\n", File.ReadAllText(countPath));
+            Assert.Equal(
+                "{\"row\":1,\"section\":\"Docs\",\"label\":\"README\",\"path\":\"README.md\",\"content\":\"body\"}\n",
+                File.ReadAllText(printPath));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void ResourceTriageFailure_IsVisible()
     {
@@ -1000,7 +1039,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void PopulateMemberSections_CollectsDegradedSignaturesForStderrWarning()
+    public async Task PopulateMemberSections_CollectsDegradedSignaturesForStderrWarning()
     {
         var type = new ApiType
         {
@@ -1037,19 +1076,15 @@ public class OutputFormatterTests
         Assert.Contains("Run", degraded);
         Assert.DoesNotContain("Ok", degraded);
 
-        var writer = new StringWriter();
-        ApiOutputFormatter.WriteSignatureDecodeWarning(view, writer);
-        var warning = writer.ToString();
+        var warning = await CaptureErrorAsync(() => ApiOutputFormatter.WriteSignatureDecodeWarning(view));
         Assert.Contains("could not be fully decoded", warning);
         Assert.Contains("Run", warning);
     }
 
     [Fact]
-    public void WriteSignatureDecodeWarning_EmitsNothingWhenNoMemberDegraded()
+    public async Task WriteSignatureDecodeWarning_EmitsNothingWhenNoMemberDegraded()
     {
-        var writer = new StringWriter();
-        ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView(), writer);
-        Assert.Empty(writer.ToString());
+        Assert.Empty(await CaptureErrorAsync(() => ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView())));
     }
 
     [Fact]
@@ -2565,5 +2600,21 @@ public class OutputFormatterTests
         Assert.Contains("Size", platformFields);
         Assert.Contains("Source", platformFields);
         Assert.Contains("Modified", platformFields);
+    }
+
+    /// <summary>
+    /// Captures stderr. These diagnostics now go to <c>CommandError</c>, which
+    /// owns the severity prefix and the containment, so the test can no longer
+    /// hand in a writer of its own.
+    /// </summary>
+    /// <remarks>
+    /// Routed through <see cref="ConsoleCapture"/> rather than redirecting
+    /// directly: the console is process-global and xUnit runs these in
+    /// parallel, which is the #3416 flake.
+    /// </remarks>
+    private static async Task<string> CaptureErrorAsync(Action action)
+    {
+        var (_, error) = await ConsoleCapture.RunAsync(action);
+        return error;
     }
 }

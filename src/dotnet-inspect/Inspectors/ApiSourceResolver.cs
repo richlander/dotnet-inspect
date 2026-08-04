@@ -45,7 +45,7 @@ internal static class ApiSourceResolver
             bool isRange = PackageVersionRange.TryParse(packagePath, out var range, out var rangeError);
             if (rangeError is not null)
             {
-                Console.Error.WriteLine(rangeError);
+                CommandError.Write(rangeError);
                 return (null!, 1);
             }
 
@@ -53,9 +53,9 @@ internal static class ApiSourceResolver
             {
                 if (string.IsNullOrWhiteSpace(options.PackageRangeAddress))
                 {
-                    Console.Error.WriteLine(
-                        $"Error: Package range '{packagePath}' requires --at <version|#N|first|last>.");
-                    Console.Error.WriteLine(
+                    CommandError.Write(
+                        $"Package range '{packagePath}' requires --at <version|#N|first|last>.");
+                    CommandError.WriteLine(
                         $"List its addressable versions with 'dotnet-inspect package {packagePath} --versions'.");
                     return (null!, 1);
                 }
@@ -69,7 +69,7 @@ internal static class ApiSourceResolver
                         context.Logger.Log);
                     if (!vector.TrySelect(options.PackageRangeAddress, out var address, out var addressError))
                     {
-                        Console.Error.WriteLine($"Error: {addressError}");
+                        CommandError.Write($"{addressError}");
                         return (null!, 1);
                     }
 
@@ -83,19 +83,19 @@ internal static class ApiSourceResolver
                     or InvalidOperationException
                     or ArgumentException)
                 {
-                    Console.Error.WriteLine($"Error: {ex.Message}");
+                    CommandError.Write($"{ex.Message}");
                     return (null!, 1);
                 }
             }
             else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
             {
-                Console.Error.WriteLine("Error: --at requires a package version range such as Package@A..B.");
+                CommandError.Write("--at requires a package version range such as Package@A..B.");
                 return (null!, 1);
             }
         }
         else if (!string.IsNullOrWhiteSpace(options.PackageRangeAddress))
         {
-            Console.Error.WriteLine("Error: --at requires --package Package@A..B.");
+            CommandError.Write("--at requires --package Package@A..B.");
             return (null!, 1);
         }
 
@@ -104,7 +104,7 @@ internal static class ApiSourceResolver
             var outcome = await PackageExtractor.ExtractPackageAsync(context.HttpClient, packagePath, context.Logger.Log, "inspect-api", options.SourceOptions);
             if (!outcome.IsSuccess)
             {
-                Console.Error.WriteLine($"Error: {outcome.ErrorMessage}");
+                CommandError.Write($"{outcome.ErrorMessage}");
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
@@ -117,7 +117,7 @@ internal static class ApiSourceResolver
                 var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(searchPath, options.AssemblyPath, options.Tfm);
                 if (matchedAssembly == null)
                 {
-                    Console.Error.WriteLine($"Error: Library '{options.AssemblyPath}' not found in package.");
+                    CommandError.Write($"Library '{options.AssemblyPath}' not found in package.");
                     return (null!, 1);
                 }
                 searchPath = matchedAssembly;
@@ -142,7 +142,7 @@ internal static class ApiSourceResolver
                 var tfmAssembly = TfmSelector.FindAssemblyByTfm(searchPath, options.Tfm, packageName);
                 if (tfmAssembly == null)
                 {
-                    Console.Error.WriteLine($"Error: No library found for TFM '{options.Tfm}'.");
+                    CommandError.Write($"No library found for TFM '{options.Tfm}'.");
                     return (null!, 1);
                 }
                 searchPath = tfmAssembly;
@@ -154,7 +154,7 @@ internal static class ApiSourceResolver
         {
             if (!File.Exists(options.AssemblyPath))
             {
-                Console.Error.WriteLine($"Error: File not found: {options.AssemblyPath}");
+                CommandError.Write($"File not found: {options.AssemblyPath}");
                 return (null!, 1);
             }
             searchPath = options.AssemblyPath;
@@ -164,13 +164,13 @@ internal static class ApiSourceResolver
         {
             if (!ProjectAssetsParser.TryFindAssets(options.ProjectPath, out projectAssetsPath, out var assetsStatus))
             {
-                Console.Error.WriteLine($"Error: {ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
+                CommandError.Write($"{ProjectAssetsParser.DescribeMissingAssets(options.ProjectPath, assetsStatus)}");
                 return (null!, 1);
             }
 
             if (string.IsNullOrWhiteSpace(typeName))
             {
-                Console.Error.WriteLine("Error: --project requires a type name for type/member resolution.");
+                CommandError.Write("--project requires a type name for type/member resolution.");
                 return (null!, 1);
             }
 
@@ -192,7 +192,7 @@ internal static class ApiSourceResolver
                 goto ProjectResolved;
             }
 
-            Console.Error.WriteLine($"Error: Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
+            CommandError.Write($"Type '{typeName}' not found in project assets '{projectAssetsPath}'.");
             return (null!, 1);
 
         ProjectResolved:
@@ -251,7 +251,7 @@ internal static class ApiSourceResolver
 
                         if (foundElsewhere != null)
                         {
-                            Console.Error.WriteLine($"Note: '{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
+                            CommandError.WriteNote($"'{typeName}' not in {frameworkShortName}, found in {foundElsewhere.Framework}");
                             searchPath = foundElsewhere.AssemblyPath;
                             apiSource = SourceKind.Platform;
                             apiVersion = foundElsewhere.Version;
@@ -273,14 +273,14 @@ internal static class ApiSourceResolver
                         }
                         else
                         {
-                            Console.Error.WriteLine($"Error: Type '{typeName}' not found in any platform framework.");
+                            CommandError.Write($"Type '{typeName}' not found in any platform framework.");
                             return (null!, 1);
                         }
                     }
                 }
                 else
                 {
-                    Console.Error.WriteLine($"Error: {error}");
+                    CommandError.Write($"{error}");
                     return (null!, 1);
                 }
             }
@@ -306,11 +306,11 @@ internal static class ApiSourceResolver
         }
         else
         {
-            Console.Error.WriteLine("Error: No package, library, or platform specified.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Examples:");
-            Console.Error.WriteLine("  dotnet-inspect type --package System.Text.Json");
-            Console.Error.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
+            CommandError.Write("No package, library, or platform specified.");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Examples:");
+            CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
+            CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
             return (null!, 1);
         }
 
@@ -340,7 +340,7 @@ internal static class ApiSourceResolver
                 }
                 else if (dlls.Count > 1)
                 {
-                    Console.Error.WriteLine("Error: Multiple libraries found. Please specify one with --library or --tfm.");
+                    CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
                     return (null!, 1);
                 }
             }

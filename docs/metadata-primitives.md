@@ -1,5 +1,9 @@
 # Shared metadata primitives — target layering
 
+> **Map:** [Type, member, and API representation](design/type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 ## Problem
 
 Three layers read `System.Reflection.Metadata` (SRM) independently and each
@@ -75,7 +79,7 @@ helper is SRM-only. `Analysis` stays independent of `Metadata`.
 ### What stays
 
 - attribute **rendering** to C# (`RenderAttributes` and the `[...]` formatting)
-- `ApiSurfaceExtractor`, `SourceLink`, `PdbContext`, and the rest of the
+- `ApiSurfaceExtractor`, `PdbContext`, ILInspector.SourceLink, and the rest of the
   metadata *product* surface
 - each consumer's own `TypeRef`/IR model and its `ISignatureTypeProvider<T>`
 

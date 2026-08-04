@@ -1,5 +1,10 @@
 # NIGHTSHIFT.md — this repository's charter
 
+**This charter applies only in Nightshift mode.** If you have not been explicitly
+told that you are working a Nightshift shift this session, stop here: follow
+[`AGENTS.md`](AGENTS.md) instead, and do not adopt this document's roles, orders,
+tools, or gates.
+
 This document is the Nightshift engineering charter for **dotnet-inspect**. It is written for a
 **planner** to import at the start of a shift and use to turn this repo's issues into **orders** that
 workers execute. Read the planner skill (`nightshift skill planner`) for *how* to plan; this charter
@@ -91,11 +96,11 @@ theme into orders:
 
 ## How this composes with the repo's review gate
 
-`AGENTS.md` sets the repo's review policy: how much adversarial review a change needs scales with its
-triviality and risk — from none for a trivial change, to a single review, to two reviews from two
-different models for a high-risk one. **Nightshift is the stricter bar and it governs the shift:** a
-Nightshift **order** does **not** take the reduced tiers — **every order clears the two-clean gate on
-its final head**, two clean reviews from two different models, regardless of how small the order looks.
+`AGENTS.md` sets the repo's review policy: trivial changes need none; every other change gets the
+standard round with GPT-5.6 Sol and one other roster reviewer. **Nightshift is the stricter bar and it
+governs the shift:** a Nightshift **order** does **not** take the trivial exception — **every order
+clears the two-clean gate on its final head**, two clean reviews from two different models, regardless
+of how small the order looks.
 Scale the review *effort* to the blast radius, but never waive the two-clean bar itself. Keep the
 repo's readiness convention: when all merge-blocking validation and required review are complete, the
 clearance note is `Ready to merge`.

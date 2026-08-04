@@ -17,10 +17,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="ILInspector.SourceLink" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
   </ItemGroup>
 
 </Project>

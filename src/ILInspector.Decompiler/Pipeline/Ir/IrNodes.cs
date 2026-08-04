@@ -30,6 +30,34 @@ public readonly record struct ParameterDefault(bool HasDefault, object? Value);
 public enum AccessorKind { Unknown, None, PropertyGet, PropertySet, EventAdd, EventRemove }
 
 /// <summary>A materialized method reference — callee identity with symbolic types, no metadata handles.</summary>
+/// <summary>
+/// What <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> decided
+/// about a reference to a compiler-synthesized local-function method. Only that pass can
+/// answer this: before it runs, a local function that WILL be raised carries exactly the
+/// same <c>&lt;Enclosing&gt;g__Name|N_M</c> name as one that will not, so the name shape
+/// is not a discriminator (#3631).
+/// </summary>
+public enum LocalFunctionRaiseState
+{
+    /// <summary>The pass has not run, or this is not a local-function reference.</summary>
+    None,
+
+    /// <summary>
+    /// Raised: a <c>Name(...)</c> declaration IS emitted in the host body, so the source
+    /// spelling resolves. A reference must be spelled <c>Name</c> UNQUALIFIED — the
+    /// declaration is a local function, not a member of the declaring type, so the
+    /// <c>Type.Name</c> spelling a static method group would otherwise take is CS0117.
+    /// </summary>
+    Raised,
+
+    /// <summary>
+    /// Declined: no declaration is emitted, so the source spelling resolves to nothing.
+    /// The reference is sanitized to keep the compiler-generated identity visible, and
+    /// fidelity degrades to <see cref="DecompilationFidelity.Partial"/>.
+    /// </summary>
+    Declined,
+}
+
 public sealed record MethodRef(
     TypeRef DeclaringType,
     string Name,
@@ -37,6 +65,21 @@ public sealed record MethodRef(
     ImmutableArray<TypeRef> ParameterTypes,
     bool HasThis)
 {
+    /// <summary>
+    /// What <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> decided
+    /// about this reference to a compiler-synthesized local function. That pass is the
+    /// only component that can answer it: the mangled name alone cannot, because before
+    /// the pass runs every local-function reference still carries that name. Consumers
+    /// that must not present a source spelling with no matching declaration — the printer
+    /// via <see cref="CSharpNaming.SourceMethodName(MethodRef)"/> and
+    /// <c>CSharpPrinter</c>'s method-group paths, and fidelity via
+    /// <see cref="ILInspector.Decompiler.Pipeline.CSharpSpellability"/> — read this rather
+    /// than re-deriving it from display text (#3631). Left
+    /// <see cref="LocalFunctionRaiseState.None"/> on IR that has not been through the
+    /// pass, where the question is genuinely unanswerable.
+    /// </summary>
+    public LocalFunctionRaiseState LocalFunctionRaise { get; init; }
+
     /// <summary>Generic method type arguments (MethodSpec instantiations); empty for non-generic callees.</summary>
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
@@ -87,6 +130,27 @@ public sealed record MethodRef(
     /// backstop for any residual overload-resolution miss.
     /// </summary>
     public int SafeTrailingElidableCount { get; init; }
+
+    /// <summary>
+    /// The callee is a constructor with no observable effect beyond allocating the
+    /// fresh instance: its body is exactly <c>ldarg.0; call instance void
+    /// System.Object::.ctor(); ret</c> (a direct-<c>Object</c> parameterless ctor
+    /// that touches nothing — no field writes, no other calls, no static access, no
+    /// branches, no exception regions) AND its declaring type declares no static
+    /// constructor, so <c>newobj</c> triggers no type-initializer side effect. Set
+    /// only for a same-assembly <see cref="System.Reflection.Metadata.MethodDefinitionHandle"/>
+    /// constructor whose body proves the shape (see
+    /// <see cref="ConstructorConfinementFacts"/>); a cross-assembly, unresolvable,
+    /// or non-trivial ctor stays <see langword="false"/>.
+    ///
+    /// <para>Consumed by <see cref="Passes.ObjectInitializerPass"/> to admit hoisting
+    /// the enclosing call's <c>this</c>-field receiver read across the <c>newobj</c>
+    /// when folding an object-initializer argument. The proof is <em>Roslyn-faithful</em>,
+    /// not arbitrary-IL-sound: it assumes a non-null <c>this</c> (a hand-crafted
+    /// <c>call</c> with null <c>this</c> could make the receiver read throw), matching
+    /// the compiler-emitted IL the decompiler targets.</para>
+    /// </summary>
+    public bool ConstructorEffectFree { get; init; }
 
     /// <summary>
     /// The callee is <em>requires-unsafe</em>: under the updated memory-safety
@@ -307,6 +371,14 @@ public sealed class IrFunction : IrNode
         while (names.Length < index)
             names = names.Add(null);
         LocalNames = names.Add(name);
+        if (!LocalDeclaredInNestedScope.IsDefaultOrEmpty)
+        {
+            // A slot a pass invents has no PDB scope, so it is not nested.
+            var nested = LocalDeclaredInNestedScope;
+            while (nested.Length < index)
+                nested = nested.Add(false);
+            LocalDeclaredInNestedScope = nested.Add(false);
+        }
         return index;
     }
 
@@ -331,6 +403,10 @@ public sealed class IrFunction : IrNode
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        // The new numbering no longer names the same locals, so any scope evidence
+        // gathered for the old slots would be misattributed. Drop it: the printer then
+        // degrades to the byte-stable method-scope shape rather than guessing.
+        LocalDeclaredInNestedScope = [];
         _eliminatedLocalSlots = eliminatedSlots switch
         {
             null => ImmutableHashSet<int>.Empty,
@@ -385,23 +461,28 @@ public sealed class IrFunction : IrNode
     /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
     /// </summary>
     static bool LocalSlotReferencedInScope(IrNode node, int index)
+        => LocalSlotReferencesInScope(node, index).Any();
+
+    /// <summary>
+    /// Every node in <paramref name="node"/>'s subtree that binds or reads local slot
+    /// <paramref name="index"/>, under the same scope rules as
+    /// <see cref="LocalSlotReferencedInScope"/> — which delegates here, so the two
+    /// cannot drift. Yielding the nodes rather than a bool lets a caller ask *where*
+    /// the references are, which is what deciding a declaration's placement needs.
+    /// </summary>
+    internal static IEnumerable<IrNode> LocalSlotReferencesInScope(IrNode node, int index)
     {
         if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
-            return false;
+            yield break;
         if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
-            return false;
+            yield break;
         if (NodeBindsLocalSlot(node, index))
-            return true;
+            yield return node;
         foreach (var child in node.Children)
         {
-            if (child is Lambda lambda && CSharpPrinter.NeedsNestedLambdaScope(lambda))
-                continue;
-            if (child is LocalFunctionStatement localFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(localFunction))
-                continue;
-            if (LocalSlotReferencedInScope(child, index))
-                return true;
+            foreach (var reference in LocalSlotReferencesInScope(child, index))
+                yield return reference;
         }
-        return false;
     }
 
     /// <summary>
@@ -450,6 +531,25 @@ public sealed class IrFunction : IrNode
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>
+    /// Per entry in <see cref="Locals"/>, whether the portable PDB scoped the local to
+    /// something narrower than the whole method body — that is, whether the source
+    /// declared it inside a nested block. Empty when no PDB was available, which is
+    /// why placement never depends on a guess: with no evidence the printer keeps the
+    /// byte-stable hoisted shape. Length-aligned with <see cref="Locals"/> when
+    /// non-empty.
+    /// </summary>
+    public ImmutableArray<bool> LocalDeclaredInNestedScope { get; set; } = [];
+
+    /// <summary>
+    /// Whether the source declared local <paramref name="index"/> inside a nested
+    /// block. False when no PDB evidence exists for the slot, so callers degrade to
+    /// the method-scope shape rather than inferring placement.
+    /// </summary>
+    public bool IsLocalDeclaredInNestedScope(int index)
+        => index >= 0 && index < LocalDeclaredInNestedScope.Length && LocalDeclaredInNestedScope[index];
+
     public BlockContainer Body => (BlockContainer)Children[0];
     public List<DecompilerDiagnostic> Diagnostics { get; } = [];
 
@@ -1971,8 +2071,16 @@ public sealed class Call : IrExpression
             AddChild(argument);
     }
 
-    public MethodRef Callee { get; }
+    public MethodRef Callee { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <summary>
+    /// Stamps <see cref="MethodRef.LocalFunctionRaise"/> on this call's callee.
+    /// Only <see cref="ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass"/> may
+    /// call this, once it has run and left the call unraised.
+    /// </summary>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Callee = Callee with { LocalFunctionRaise = state };
 
     /// <summary>The constrained. prefix type for constrained callvirt; null otherwise.</summary>
     public TypeRef? ConstrainedTo { get; init; }
@@ -2728,8 +2836,12 @@ public sealed class LoadFunctionPointer : IrExpression
             AddChild(instance);
     }
 
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
 
     /// <summary>The receiver dispatched on for ldvirtftn; null for ldftn.</summary>
     public IrExpression? Instance => Children.Count > 0 ? (IrExpression)Children[0] : null;
@@ -2764,8 +2876,13 @@ public sealed class AddressOfMethod : IrExpression
         FunctionPointerType = functionPointerType;
     }
 
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public TypeRef? FunctionPointerType { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
+
     public override TypeRef? ResultType
         => FunctionPointerType ?? TypeRef.FunctionPointer(Method.ReturnType, Method.ParameterTypes, "");
     public override IEnumerable<TypeRef> DirectTypes
@@ -2797,8 +2914,13 @@ public sealed class DelegateCreation : IrExpression
     }
 
     public TypeRef DelegateType { get; }
-    public MethodRef Method { get; }
+    public MethodRef Method { get; private set; }
     public bool IsVirtual { get; }
+
+    /// <inheritdoc cref="Call.MarkLocalFunctionRaise"/>
+    internal void MarkLocalFunctionRaise(LocalFunctionRaiseState state)
+        => Method = Method with { LocalFunctionRaise = state };
+
     public IrExpression Target => (IrExpression)Children[0];
     public override TypeRef? ResultType => DelegateType;
     public override IEnumerable<TypeRef> DirectTypes

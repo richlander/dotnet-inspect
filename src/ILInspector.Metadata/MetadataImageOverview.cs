@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using InertText;
 
 namespace ILInspector.Metadata;
 
@@ -20,7 +21,7 @@ namespace ILInspector.Metadata;
 public sealed record MetadataImageOverview
 {
     public MetadataImageOverview(
-        string MetadataVersion,
+        InertString MetadataVersion,
         MetadataKind Kind,
         bool IsAssembly,
         int MetadataOffset,
@@ -29,7 +30,6 @@ public sealed record MetadataImageOverview
         ImmutableArray<MetadataTableSummary> Tables,
         MetadataImageHeaders Headers)
     {
-        ArgumentNullException.ThrowIfNull(MetadataVersion);
         ArgumentOutOfRangeException.ThrowIfNegative(MetadataOffset);
         ArgumentOutOfRangeException.ThrowIfNegative(MetadataSize);
         ArgumentNullException.ThrowIfNull(Headers);
@@ -52,7 +52,16 @@ public sealed record MetadataImageOverview
     /// The metadata root's version string (for example <c>v4.0.30319</c>). This
     /// is the metadata format stamp, not the assembly's target framework.
     /// </summary>
-    public string MetadataVersion { get; }
+    /// <remarks>
+    /// The stamp is read straight out of the image, so it is foreign text and is
+    /// carried contained. Its own <see cref="InertString.IsTruncated"/> reports
+    /// whether the retained value is a prefix, which consumers must render
+    /// distinguishably — the renderer appends an ellipsis — so that a clipped
+    /// stamp is never mistaken for a whole one. A conforming stamp can never be
+    /// clipped: ECMA-335 II.24.2.1 bounds the field at 255 bytes, which cannot
+    /// outgrow the budget even if every byte needs spelling out.
+    /// </remarks>
+    public InertString MetadataVersion { get; }
 
     /// <summary>Whether the metadata is plain ECMA-335 or a Windows-Runtime flavour.</summary>
     public MetadataKind Kind { get; }

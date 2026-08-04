@@ -7,7 +7,9 @@ It is built for both humans and agents. Markdown is the default output because h
 ## Core architecture
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
-- `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details. `MetadataFindings` projects API, source-document, member-source, and portable-PDB build-context observations and comparisons onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
+- `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
 - `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
@@ -31,6 +33,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
@@ -54,9 +58,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Capability section registry spike](design/capability-section-registry-spike.md): measured static lambda-table and precompiled-plan pilot layered on `SectionPipeline`.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
+- [Caret stacking](design/caret-stacking.md): `--focus` caret display model — one numbered caret per fact extent, with the fact texts listed below.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
+- [Package source model](design/package-source-model.md): source eligibility,
+  mapping, local stores, source-bound caches, selection, and enrichment.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

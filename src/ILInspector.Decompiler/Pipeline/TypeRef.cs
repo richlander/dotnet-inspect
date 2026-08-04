@@ -100,6 +100,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
 
+    /// <summary>
+    /// Exact metadata lookup name retained from the decoded TypeDef or TypeRef
+    /// relationship chain. Resolution never reconstructs it from
+    /// <see cref="Name"/>.
+    /// </summary>
+    internal MetadataTypeDefinitionName? DefinitionName { get; private init; }
+
+    /// <summary>
+    /// Exact terminal AssemblyRef identity retained from a decoded TypeRef.
+    /// Null for TypeDefs and non-assembly resolution scopes.
+    /// </summary>
+    internal AssemblyReferenceIdentity? ResolutionAssembly
+    {
+        get;
+        private init;
+    }
+
     /// <summary>The C# calling-convention spelling of a function pointer (empty = managed, e.g. <c>unmanaged</c>, <c>unmanaged[Cdecl]</c>); empty otherwise.</summary>
     public string CallingConvention { get; private init; } = "";
 
@@ -157,6 +174,44 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ValueTypeHint valueTypeHint = ValueTypeHint.Unknown,
         MetadataFactState inlineArray = MetadataFactState.Unknown,
         TypeRef? enclosingType = null)
+        => CreateDefinition(
+            assembly,
+            ns,
+            name,
+            valueTypeHint,
+            inlineArray,
+            enclosingType,
+            definitionName: null,
+            resolutionAssembly: null);
+
+    internal static TypeRef DefinitionWithResolution(
+        string assembly,
+        string ns,
+        string name,
+        ValueTypeHint valueTypeHint,
+        MetadataFactState inlineArray,
+        TypeRef? enclosingType,
+        MetadataTypeDefinitionName definitionName,
+        AssemblyReferenceIdentity? resolutionAssembly)
+        => CreateDefinition(
+            assembly,
+            ns,
+            name,
+            valueTypeHint,
+            inlineArray,
+            enclosingType,
+            definitionName,
+            resolutionAssembly);
+
+    static TypeRef CreateDefinition(
+        string assembly,
+        string ns,
+        string name,
+        ValueTypeHint valueTypeHint,
+        MetadataFactState inlineArray,
+        TypeRef? enclosingType,
+        MetadataTypeDefinitionName? definitionName,
+        AssemblyReferenceIdentity? resolutionAssembly)
         => new(TypeRefKind.Definition)
         {
             Assembly = assembly,
@@ -165,6 +220,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             ValueTypeHint = valueTypeHint,
             InlineArray = inlineArray,
             EnclosingType = enclosingType,
+            DefinitionName = definitionName,
+            ResolutionAssembly = resolutionAssembly,
         };
 
     /// <summary>
@@ -175,13 +232,44 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// returned unchanged.
     /// </summary>
     public TypeRef WithValueTypeHint(ValueTypeHint hint)
-        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, hint, InlineArray, EnclosingType) : this;
+        => Kind == TypeRefKind.Definition
+            ? CreateDefinition(
+                Assembly,
+                Namespace,
+                Name,
+                hint,
+                InlineArray,
+                EnclosingType,
+                DefinitionName,
+                ResolutionAssembly)
+            : this;
 
     public TypeRef WithInlineArrayFact(MetadataFactState fact)
-        => Kind == TypeRefKind.Definition ? Definition(Assembly, Namespace, Name, ValueTypeHint, fact, EnclosingType) : this;
+        => Kind == TypeRefKind.Definition
+            ? CreateDefinition(
+                Assembly,
+                Namespace,
+                Name,
+                ValueTypeHint,
+                fact,
+                EnclosingType,
+                DefinitionName,
+                ResolutionAssembly)
+            : this;
 
     public static TypeRef CoreLib(string ns, string name)
-        => Definition(CoreLibrary, ns, name);
+        => MetadataTypeDefinitionName.Create(ns, [name])
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? DefinitionWithResolution(
+                    CoreLibrary,
+                    ns,
+                    name,
+                    ValueTypeHint.Unknown,
+                    MetadataFactState.Unknown,
+                    enclosingType: null,
+                    valid.Name,
+                    resolutionAssembly: null)
+                : Unsupported("core-library metadata name is incomplete");
 
     public static TypeRef GenericInstance(TypeRef definition, ImmutableArray<TypeRef> typeArguments)
         => new(TypeRefKind.GenericInstance) { ElementType = definition, TypeArguments = typeArguments };
@@ -316,6 +404,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             GenericParameterName = GenericParameterName,
             UnsupportedReason = UnsupportedReason,
             MetadataNameFailure = MetadataNameFailure,
+            DefinitionName = DefinitionName,
+            ResolutionAssembly = ResolutionAssembly,
             CallingConvention = CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
             ValueTypeHint = ValueTypeHint,
@@ -493,7 +583,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter =>
-            GenericParameterName.Length > 0 ? CSharpNaming.EscapeIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
+            GenericParameterName.Length > 0 ? CSharpNaming.ContainedIdentifier(GenericParameterName) : $"!{GenericParameterIndex}",
         TypeRefKind.FunctionPointer => RenderFunctionPointer(scope),
         _ => $"<unsupported: {UnsupportedReason}>",
     };

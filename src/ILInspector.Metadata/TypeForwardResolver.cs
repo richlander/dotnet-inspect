@@ -23,7 +23,7 @@ public sealed record TypeLocation(
     Func<Stream> OpenRead,
     string AssemblyKey,
     AssemblyReferenceIdentity? Identity = null,
-    string? Provenance = null)
+    AssemblyResolutionProvenance? Provenance = null)
 {
     public TypeLocation(string assemblyPath, string fullTypeName)
         : this(
@@ -32,7 +32,7 @@ public sealed record TypeLocation(
             () => File.OpenRead(assemblyPath),
             Path.GetFullPath(assemblyPath),
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(assemblyPath), Version: null, Culture: null, PublicKeyToken: null),
-            Provenance: "Path")
+            Provenance: AssemblyResolutionProvenance.Local("Path"))
     {
     }
 
@@ -40,7 +40,7 @@ public sealed record TypeLocation(
         => new(assembly.Path, fullTypeName, assembly.OpenRead, AssemblyKeyFor(assembly), assembly.Identity, assembly.Provenance);
 
     public ResolvedAssemblyReference ToResolvedAssemblyReference()
-        => new(
+        => ResolvedAssemblyReference.Create(
             Identity ?? new AssemblyReferenceIdentity(
                 AssemblyPath is { Length: > 0 } path ? Path.GetFileNameWithoutExtension(path) : AssemblyKey,
                 Version: null,
@@ -48,7 +48,7 @@ public sealed record TypeLocation(
                 PublicKeyToken: null),
             AssemblyPath,
             OpenRead,
-            Provenance);
+            Provenance ?? AssemblyResolutionProvenance.Local("TypeLocation"));
 
     internal static string AssemblyKeyFor(ResolvedAssemblyReference assembly)
         => assembly.Path is { Length: > 0 } path
@@ -83,11 +83,14 @@ public static class TypeForwardResolver
         string assemblyPath, string fullTypeName, IAssemblyReferenceResolver resolver,
         int maxHops = DefaultMaxHops, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
     {
-        var start = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(assemblyPath), Version: null, Culture: null, PublicKeyToken: null),
-            assemblyPath,
-            () => File.OpenRead(assemblyPath),
-            Provenance: "StartAssembly");
+        if (!ResolvedAssemblyReference.TryCreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local("StartAssembly"),
+                out ResolvedAssemblyReference? start))
+        {
+            return null;
+        }
+
         return LocateType(start, fullTypeName, resolver, maxHops, scope);
     }
 

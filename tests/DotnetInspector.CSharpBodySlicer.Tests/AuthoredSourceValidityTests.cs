@@ -119,7 +119,7 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberSources"/>
+    /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberDocuments"/>
     /// supplies the same anchor, line range, and finalizer flag that
     /// <c>AuthoredSourceAcquisition</c> passes to the slicer, so nothing here reconstructs a
     /// range the product would compute differently.
@@ -143,10 +143,10 @@ public class AuthoredSourceValidityTests
 
             using (context)
             {
-                List<MemberSourceInfo> members;
+                List<PdbMemberDocumentInfo> members;
                 try
                 {
-                    members = context.EnumerateMemberSources().ToList();
+                    members = context.EnumerateMemberDocuments().ToList();
                 }
                 catch (BadImageFormatException)
                 {
@@ -1943,5 +1943,57 @@ public class AuthoredSourceValidityTests
         var slice = BodySlicer.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
 
         Assert.Equal(member, slice);
+    }
+
+    /// <summary>
+    /// A constructor recovered from below the type header must be recovered at the type's
+    /// member level, and an attribute list that never closes leaves the scanner unable to say
+    /// where member level is. The line below such a list reads exactly like a constructor
+    /// declaration -- and the scanner would accept it, presenting a fragment of an attribute
+    /// argument as authored source -- so the bracket depth is part of the member-level test,
+    /// not just the brace depth (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void ConstructorUnderAnUnclosedAttributeList_IsNotRecovered()
+    {
+        var source = string.Join('\n', [
+            "namespace N;",                                 // 1
+            "readonly struct Result",                       // 2
+            "{",                                            // 3
+            "    [Attr(",                                   // 4  <- never closes
+            "    Result(string name)",                      // 5
+            "    {",                                        // 6  <- StartLine
+            "        Name = name;",                         // 7
+            "    }",                                        // 8  <- EndLine
+            "}",                                            // 9
+        ]);
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 8, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The close negative of the case above. The same attribute list, closed on its second
+    /// line, leaves the constructor at member level, so recovery must still find it. This is
+    /// what separates "the brackets are open" from "the line carries brackets at all".
+    /// </summary>
+    [Fact]
+    public void ConstructorUnderAClosedMultiLineAttributeList_IsStillRecovered()
+    {
+        var source = string.Join('\n', [
+            "namespace N;",                                 // 1
+            "readonly struct Result",                       // 2
+            "{",                                            // 3
+            "    [Attr(",                                   // 4
+            "        1)]",                                  // 5  <- closes here
+            "    Result(string name)",                      // 6
+            "    {",                                        // 7  <- StartLine
+            "        Name = name;",                         // 8
+            "    }",                                        // 9  <- EndLine
+            "}",                                            // 10
+        ]);
+
+        Assert.Equal(
+            "Result(string name)\n{\n    Name = name;\n}",
+            BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 9, methodName: ".ctor"));
     }
 }
