@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-08-03T23:14:52.1438736+00:00",
+  "generatedUtc": "2026-08-04T01:26:20.8411566+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -4316,8 +4316,7 @@
       "fidelityCauses": [
         {
           "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 9
+          "discriminator": "display-class-type-name"
         }
       ],
       "displayMethod": "DotnetInspector.Packages!DotnetInspector.Packages.PackageExtractor::FetchVersionListingsFromSourceAsync#0"
@@ -11445,45 +11444,17 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass227_0",
-      "method": ".ctor",
+      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec",
+      "method": "\u003CTryPropertyPatternText\u003Eb__222_1",
       "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
+      "signature": "(corelib:System.ValueTuple\u00602\u003Ccorelib:System.String, corelib:System.String\u003E) -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
       "passBug": null,
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name"
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass227_0::.ctor#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass388_0",
-      "method": "\u003CTryCoerceEnumToInteger\u003Eb__0",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.String",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 6
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass388_0::\u003CTryCoerceEnumToInteger\u003Eb__0#0"
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec::\u003CTryPropertyPatternText\u003Eb__222_1#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -12816,6 +12787,21 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.PrintedBodyMap::get_Empty#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.PrintedRegion",
+      "method": "get_Extent",
+      "overload": 0,
+      "signature": "() -\u003E ILInspector.Decompiler:ILInspector.Decompiler.PrintedExtent",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.PrintedRegion::get_Extent#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -24007,8 +23993,8 @@
   ],
   "metrics": {
     "totalMethods": 1500,
-    "fullyRaisedMethods": 1267,
-    "fullyRaisedBasisPoints": 8447,
+    "fullyRaisedMethods": 1269,
+    "fullyRaisedBasisPoints": 8460,
     "conditionalBranchMethods": 40,
     "conditionalBranchBasisPoints": 267,
     "forwardMergeStoppedContainers": 27,
@@ -24020,7 +24006,7 @@
     "residualBuckets": {
       "eh: leave/endfinally": 1,
       "fidelity: DEC0008": 2,
-      "fidelity: DEC0009": 177,
+      "fidelity: DEC0009": 175,
       "fidelity: unsupported-node": 13,
       "structuring: conditional-branch": 40
     },
