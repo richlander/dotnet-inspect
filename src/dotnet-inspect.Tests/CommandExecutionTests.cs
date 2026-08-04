@@ -5509,7 +5509,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.True(File.Exists(path), "--out was ignored: the requested file was never written.");
-            Assert.Equal(8, int.Parse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture));
+            Assert.Equal("8\n", File.ReadAllText(path));
             Assert.Empty(output.Trim());
         }
         finally
@@ -12751,7 +12751,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("package docs\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("package docs\n", output);
         }
         finally
         {
@@ -12769,7 +12769,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -12789,7 +12789,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -13797,6 +13797,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(line);
 
             // Which document was selected is part of the payload rather than a side channel, so
@@ -14468,7 +14470,7 @@ public partial class CommandExecutionTests
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Equal("2\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("2\n", output);
         }
         finally
         {
@@ -14509,6 +14511,30 @@ public partial class CommandExecutionTests
             Assert.Contains("# README body", output);
             Assert.DoesNotContain("# Agent guidance", output);
             Assert.DoesNotContain("# PROJECT body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_JsonlUsesLfFraming()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Readme.Jsonl", "2.0.0", "README.md", "# README body"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("# README body", document.RootElement.GetProperty("content").GetString());
         }
         finally
         {

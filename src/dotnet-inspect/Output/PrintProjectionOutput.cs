@@ -107,7 +107,7 @@ public static class PrintProjectionOutput
         if (options.Jsonl)
         {
             WriteOutput(
-                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + Environment.NewLine,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n',
                 options.OutputPath);
             return 0;
         }

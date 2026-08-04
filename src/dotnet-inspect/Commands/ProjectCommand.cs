@@ -346,7 +346,7 @@ public class ProjectCommand
             ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
         var output = options.Count
-            ? rows.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine
+            ? rows.Count.ToString(CultureInfo.InvariantCulture) + '\n'
             : options.JsonOutput
                 ? JsonSerializer.Serialize(rows.ToArray(), ProjectCommandJsonContext.Default.ProjectSkillRowArray)
                 : options.Jsonl
@@ -541,7 +541,7 @@ public class ProjectCommand
         var output = options.JsonOutput
             ? JsonSerializer.Serialize(document, ProjectCommandJsonContext.Default.ProjectPackageDocument)
             : options.Jsonl
-                ? JsonSerializer.Serialize(document, ProjectCommandCompactJsonContext.Default.ProjectPackageDocument) + Environment.NewLine
+                ? JsonSerializer.Serialize(document, ProjectCommandCompactJsonContext.Default.ProjectPackageDocument) + '\n'
                 : document.Content;
 
         WriteOutput(output, options.OutputPath);
