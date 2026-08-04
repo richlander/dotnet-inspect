@@ -3552,7 +3552,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.IO.Fil", "-S", "Classes", "--tips", "q");
+            "type", "System.Text.Jso", "-S", "Classes", "--tips", "q");
 
         Assert.Equal(0, exit);
 
@@ -3563,7 +3563,7 @@ public partial class CommandExecutionTests
 
         // A name valid for neither pipeline still fails on this route.
         var (bogusExit, _, bogusError) = await RunAppAsync(
-            "type", "System.IO.Fil", "-S", "Zzznosuchsection", "--tips", "q");
+            "type", "System.Text.Jso", "-S", "Zzznosuchsection", "--tips", "q");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
     }
@@ -3923,7 +3923,8 @@ public partial class CommandExecutionTests
             .Where(cells => cells.Length == 2 && cells[0] != "Field" && !cells[0].StartsWith('-'))
             .ToDictionary(cells => cells[0], cells => cells[1], StringComparer.Ordinal);
 
-        Assert.NotEmpty(rows);
+        if (rows.Count == 0)
+            Assert.Fail($"API Info rows were absent from:{Environment.NewLine}{output}");
         Assert.Equal(inlineFields.Count, rows.Count);
         foreach (var (field, value) in inlineFields)
             Assert.Equal(value, rows[field]);

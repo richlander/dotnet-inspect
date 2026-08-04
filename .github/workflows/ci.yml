@@ -535,6 +535,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -594,7 +595,7 @@ jobs:
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- -longRunning 60
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
