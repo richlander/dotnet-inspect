@@ -251,13 +251,15 @@ public class EvilPoolPinTests
     /// declaration here. Set equality means a rule added without a case and a case whose
     /// rule disappeared both fail. Each whole-list tamper is placed at the end of the
     /// committed list, outside the requested rank 1-2 window, so deleting its intended
-    /// rule does not fall into a neighbouring list refusal. The sweep then reaches
-    /// offline acquisition and exits 1 instead. The three window cases similarly satisfy
-    /// every earlier rule and differ only in the requested window (#3715).</para>
+    /// rule does not fall into a neighbouring list refusal. Measured one rule at a time,
+    /// the cases then exit 134, 1, or 0 rather than the required 2. The three window cases
+    /// similarly satisfy every earlier rule and differ only in the requested window
+    /// (#3715).</para>
     ///
     /// <para>The committed pin accompanies every case so pin presence cannot become a
-    /// common exit-1 false positive. Acquisition is forced offline and isolated; a
-    /// missing rule therefore fails quickly rather than reaching the network.</para>
+    /// common exit-1 false positive. Any case that reaches acquisition after its rule is
+    /// removed is forced offline and isolated, so the mutation fails quickly rather than
+    /// reaching the network.</para>
     /// </summary>
     [Fact]
     public void TheSweepRefusesEveryRankedListRuleItDeclares()
