@@ -60,9 +60,35 @@ if (pushedSource["code"] != "true")
         $"Pushed source canary did not select code: {FormatValues(pushedSource)}");
 }
 
+Dictionary<string, string> unicodeSource = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "src/dotnet-inspect/\u00E9.cs",
+    outputs);
+if (unicodeSource["code"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Unicode source canary did not select code: {FormatValues(unicodeSource)}");
+}
+
+Dictionary<string, string> renamedBuildInput = RunDetection(
+    repository,
+    body,
+    "pull_request",
+    "notes/renamed.txt",
+    outputs,
+    previousFiles: "Directory.Build.props");
+if (renamedBuildInput["code"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Renamed build-input canary did not select code: " +
+        FormatValues(renamedBuildInput));
+}
+
 string brokenGhInvocation = body.Replace(
-    " --name-only)",
-    ")",
+    "| @base64'",
+    "'",
     StringComparison.Ordinal);
 if (brokenGhInvocation == body)
 {
@@ -261,6 +287,7 @@ static Dictionary<string, string> RunDetection(
     string eventName,
     string files,
     IReadOnlyCollection<string> expectedOutputs,
+    string previousFiles = "",
     bool resolutionSucceeds = true)
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -270,6 +297,10 @@ static Dictionary<string, string> RunDetection(
         .Replace(
             "${{ github.event.pull_request.number }}",
             "3704",
+            StringComparison.Ordinal)
+        .Replace(
+            "${{ github.repository }}",
+            "richlander/dotnet-inspect",
             StringComparison.Ordinal)
         .Replace("${{ github.event.before }}", Before, StringComparison.Ordinal)
         .Replace("${{ github.sha }}", Sha, StringComparison.Ordinal);
@@ -288,15 +319,28 @@ static Dictionary<string, string> RunDetection(
 
         const string FakeGh = """
             #!/bin/sh
-            if [ "$#" -ne 4 ] || [ "$1" != "pr" ] || [ "$2" != "diff" ] \
-               || [ "$3" != "3704" ] || [ "$4" != "--name-only" ]; then
+            if [ "$#" -ne 5 ] || [ "$1" != "api" ] || [ "$2" != "--paginate" ] \
+               || [ "$3" != "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
+               || [ "$4" != "--jq" ] \
+               || [ "$5" != '.[] | [.previous_filename?, .filename][] | select(. != null) | @base64' ]; then
               echo "unexpected gh invocation: $*" >&2
               exit 64
             fi
             if [ "$RESOLUTION_SUCCEEDS" != "true" ]; then
               exit 1
             fi
-            printf '%s' "$CHANGED_FILES"
+            if [ -n "$PREVIOUS_FILES" ]; then
+              printf '%s' "$PREVIOUS_FILES" | base64 -w0
+              printf '\n'
+            fi
+            if [ -n "$CHANGED_FILES" ]; then
+              while IFS= read -r file; do
+                printf '%s' "$file" | base64 -w0
+                printf '\n'
+              done <<EOF
+            $CHANGED_FILES
+            EOF
+            fi
             """;
         const string FakeGit = """
             #!/bin/sh
@@ -307,9 +351,16 @@ static Dictionary<string, string> RunDetection(
                && [ "$3" = "${EXPECTED_BEFORE}^{commit}" ]; then
               exit 0
             fi
-            if [ "$#" -eq 4 ] && [ "$1" = "diff" ] && [ "$2" = "--name-only" ] \
-               && [ "$3" = "$EXPECTED_BEFORE" ] && [ "$4" = "$EXPECTED_SHA" ]; then
-              printf '%s' "$CHANGED_FILES"
+            if [ "$#" -eq 6 ] && [ "$1" = "diff" ] && [ "$2" = "--no-renames" ] \
+               && [ "$3" = "--name-only" ] && [ "$4" = "-z" ] \
+               && [ "$5" = "$EXPECTED_BEFORE" ] && [ "$6" = "$EXPECTED_SHA" ]; then
+              if [ -n "$CHANGED_FILES" ]; then
+                while IFS= read -r file; do
+                  printf '%s\0' "$file"
+                done <<EOF
+            $CHANGED_FILES
+            EOF
+              fi
               exit 0
             fi
             echo "unexpected git invocation: $*" >&2
@@ -339,6 +390,7 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["GITHUB_OUTPUT"] = output;
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
+        startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
         startInfo.Environment["RESOLUTION_SUCCEEDS"] =
             resolutionSucceeds.ToString().ToLowerInvariant();
 

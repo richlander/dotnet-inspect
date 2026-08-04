@@ -95,8 +95,21 @@ jobs:
             # either case, over-run rather than let every gated job disappear.
             # An empty push diff remains resolved below because it means the
             # before and after trees do not differ.
-            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only) \
-               && [ -n "$FILES" ]; then
+            # The files API reports both sides of a rename. Encode the complete
+            # NUL-delimited path stream because shell variables cannot contain
+            # NULs and newline-delimited names cannot represent every Git path.
+            if FILES=$(
+              gh api --paginate \
+                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                --jq '.[] | [.previous_filename?, .filename][] | select(. != null) | @base64' |
+                while IFS= read -r encoded; do
+                  if ! printf '%s' "$encoded" | base64 --decode; then
+                    exit 1
+                  fi
+                  printf '\0'
+                done |
+                base64 -w0
+            ) && [ -n "$FILES" ]; then
               RESOLVED=true
             fi
           else
@@ -109,7 +122,12 @@ jobs:
               # change detection is asking. "What differs between the old tip
               # and the new tip" is exactly the two-dot diff, and for the
               # fast-forward pushes main receives the two agree anyway.
-              if FILES=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+              # Disable rename collapsing so both the deletion and addition are
+              # classified, then preserve arbitrary path bytes through base64.
+              if FILES=$(
+                git diff --no-renames --name-only -z "$BEFORE" "${{ github.sha }}" |
+                  base64 -w0
+              ); then
                 RESOLVED=true
               fi
             fi
@@ -136,7 +154,7 @@ jobs:
           ILROUNDTRIP=false
           PACKAGING=false
           SHIPPED=false
-          while IFS= read -r file; do
+          while IFS= read -r -d '' file; do
             case "$file" in
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
@@ -316,7 +334,7 @@ jobs:
               global.json|nuget.config|NuGet.config) SHIPPED=true ;;
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
-          done <<< "$FILES"
+          done < <(printf '%s' "$FILES" | base64 --decode)
           # `ilroundtrip` does not have a job of its own: its two steps live
           # inside the `test` job, which is gated on `code`. So an input that
           # sets only `ilroundtrip` computes an output nothing can act on --
@@ -339,8 +357,7 @@ jobs:
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
-          echo "Changed files:"
-          echo "$FILES"
+          echo "Changed files were decoded and classified without logging raw path bytes."
           echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1096,13 +1113,38 @@ jobs:
           forbidden = sorted(
               key for key in ("if", "continue-on-error")
               if key in workflow["jobs"]["changes"])
+          self_tests = [
+              step for step in workflow["jobs"]["changes"].get("steps", [])
+              if isinstance(step, dict)
+              and step.get("name") == "Self-test change detection"
+          ]
+          self_test_errors = []
+          if len(self_tests) != 1:
+              self_test_errors.append(
+                  "expected one Self-test change detection step, "
+                  f"found {len(self_tests)}")
+          else:
+              self_test = self_tests[0]
+              if self_test.get("run") != "dotnet run eng/test-ci-change-detection.cs":
+                  self_test_errors.append(
+                      "Self-test change detection must run the C# gate")
+              forbidden_step = sorted(
+                  key for key in ("if", "continue-on-error")
+                  if key in self_test)
+              if forbidden_step:
+                  self_test_errors.append(
+                      "Self-test change detection must not declare: "
+                      + ", ".join(forbidden_step))
           if missing:
               print("::error::ci-required does not depend on: " + ", ".join(missing))
           if extra:
               print("::error::ci-required depends on unknown jobs: " + ", ".join(extra))
           if forbidden:
               print("::error::changes job must not declare: " + ", ".join(forbidden))
-          sys.exit(1 if missing or extra or forbidden else 0)
+          for error in self_test_errors:
+              print("::error::" + error)
+          sys.exit(
+              1 if missing or extra or forbidden or self_test_errors else 0)
           '
           echo "Gate covers every job in the workflow."
 
