@@ -281,19 +281,20 @@ A bundle may contain:
 - a stable bundle id and descriptive metadata;
 - zero or more workspace definitions, each with one or more context-group
   definitions;
-- embedded artifact content or typed acquisition locations, with the identity,
-  digest, and provenance evidence appropriate to their source;
+- embedded artifact content, typed acquisition locations, or domain-typed
+  runtime input slots, with the identity, digest, and provenance evidence
+  appropriate to their source;
 - required producer capabilities; and
 - optional named query-plan and view presets.
 
 The optional workspace definition, query preset, and view or navigation preset
 remain separate. A **demo scenario** names one composition of them. A
 workspace-free scenario omits the workspace definition but still names the
-embedded input or typed acquisition location used by its source- or
-artifact-scoped query. A discovery-first scenario may use a typed query result
-to instantiate a workspace in a later authorized stage. Several scenarios may
-reuse one workspace definition, and a host may inspect the definition without
-running a preset or acquiring its inputs.
+embedded input, typed acquisition location, or domain-typed runtime input slot
+used by its source- or artifact-scoped query. A discovery-first scenario may use
+a typed query result to instantiate a workspace in a later authorized stage.
+Several scenarios may reuse one workspace definition, and a host may inspect
+the definition without running a preset or acquiring its inputs.
 
 Selecting a scenario lowers into the same acquisition and typed query paths
 used by an interactive request; it does not create a second demo-only execution
@@ -305,11 +306,13 @@ or authorization decisions. Loading a bundle materializes only immutable
 definitions and presets. It performs no source discovery, artifact acquisition,
 registration, image opening, or catalog construction.
 
-The first authorized query plan that needs an input asks the normal acquisition
-owner to create its descriptor and registration lazily, then asks the domain
-owner for a catalog under that plan's policy snapshot. A persistent host may
-retain the resulting workspace afterward under the normal lifetime and budget
-rules.
+For an assembly-backed input, the first authorized query plan that needs it asks
+the normal acquisition owner to create its descriptor and registration lazily,
+then asks the domain owner for a catalog under that plan's policy snapshot. A
+workspace-free query asks its source or artifact owner only for the narrow
+context its operation declares; no assembly registration, group, or catalog is
+implied. A persistent host may retain a resulting workspace afterward under the
+normal lifetime and budget rules.
 
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included
@@ -320,13 +323,23 @@ normal owner and capability gates for those sources. This keeps the model
 compatible with trimming, NativeAOT, both online and offline Wasm demos, and
 non-browser hosts.
 
-Embedding artifact bytes is a build-time publication decision. The publisher
-must be authorized to distribute that content to every build recipient; runtime
-scenario authorization cannot conceal bytes already shipped in a Wasm or native
-binary. Private or otherwise non-redistributable content must remain outside the
-bundle and use an appropriately protected runtime acquisition location. A
-digest provides integrity evidence, not confidentiality or redistribution
-authority.
+Bundle inclusion is a build-time publication decision for every field, not only
+embedded bytes. The publisher must be authorized to disclose its scenario
+metadata, presets, package ids, source endpoints, paths, and artifact content to
+every build recipient. Runtime scenario authorization cannot conceal
+information already shipped in a Wasm or native binary.
+
+Sensitive coordinates and sensitive acquisition locations remain outside the
+bundle. The bundle declares a domain-typed runtime input slot that a host
+supplies at runtime instead. The supplied value follows the same acquisition
+owner and input, cost, and capability gates as an interactive request; an
+unfilled or denied slot is a typed outcome. A slot is a domain-owned typed hole,
+not a universal input envelope or a stored secret.
+
+Private or otherwise non-redistributable content likewise uses an appropriately
+protected runtime acquisition location rather than embedded bytes. A digest
+provides integrity evidence, not confidentiality, disclosure authority, or
+redistribution authority.
 
 Build inclusion makes bundled bytes available. Selecting a scenario forms a
 request for its declared inputs and capabilities; the host
