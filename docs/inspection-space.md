@@ -46,6 +46,14 @@ The complete end-to-end claim that every presentation path accepts only inert
 artifact text remains **unverified**; the InertText document records the
 remaining boundary enumeration.
 
+The complete content-authorization claim is also target behavior. The current
+package implementation may read source-blind global-folder content and derive
+version candidates from content caches. The cache document records that
+deviation under
+[#3752](https://github.com/richlander/dotnet-inspect/issues/3752), with
+provenance-matched payload work in
+[#3767](https://github.com/richlander/dotnet-inspect/pull/3767).
+
 ## Goals: Rich, Fast, Safe
 
 The inspection space is organized around three goals:
@@ -119,8 +127,8 @@ The architecture gets speed from avoiding work:
 - **Shared lifetimes.** Open or materialize one artifact generation once, then
   reuse it through owner-controlled leases across the queries that consume it.
 - **Frozen contexts.** Reuse binding and correspondence work inside an explicit
-  catalog generation; advance the generation rather than mutating answers
-  underneath a query.
+  catalog generation and the resolution and authorization policy snapshot that
+  produced it; advance the generation rather than mutating its answers.
 - **Semantic caching.** Key reusable results by every input that can change
   their meaning, including content, source authorization, options, and producer
   version where applicable.
@@ -232,9 +240,21 @@ package versions or framework contexts without mixing their bindings.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
-the group itself remains alive. A query that consumes catalog-bound values runs
-against one frozen generation. Plan expansion establishes a new generation
-rather than changing the old answer set in place.
+the group itself remains alive. Each generation is scoped to the resolution and
+authorization policy snapshot that produced it. A later query plan may reuse
+the generation only when the domain owner verifies that the plan has a
+compatible policy; otherwise it requires a separate generation or catalog.
+Reauthorizing an image lease alone is insufficient because binding and
+correspondence answers can themselves reveal a candidate the later plan may not
+use.
+
+A query execution attempt that consumes catalog-bound values runs against one
+frozen generation. A domain may return a typed plan-expansion request when the
+manifest lacks required work. The inspection coordinator quiesces consumers of
+the predecessor, unions the request into the plan, asks the domain owner to
+freeze a successor, and restarts the affected work. The successor does not
+mutate the predecessor, but the owner may invalidate predecessor contexts,
+tokens, and leases when it publishes the successor.
 
 The smallest case remains cheap: one workspace, one group, one root assembly,
 and one requested query.
@@ -277,13 +297,16 @@ not alter:
 - result and row ordering;
 - acquisition or resource budgets;
 - failure visibility;
+- validity of bound currencies and frozen answers;
 - assembly, group, or producer provenance.
 
-It must also respect resource and generation barriers. A query pins one frozen
-generation, which expansion cannot mutate; the catalog may only publish a
-successor. Work that requires the successor waits for its owner to freeze it. A
-query cannot outlive a resource it borrowed. A producer may declare a resource
-safe for concurrent consumers; otherwise the executor serializes access. The
+It must also respect resource and generation barriers. Publishing a successor
+must not silently invalidate a live consumer. The executor quiesces predecessor
+consumers before an owner that invalidates on advance publishes the successor.
+An owner may instead permit concurrent publication only when its leases retain
+complete per-generation state until every consumer releases them. A query
+cannot outlive a resource it borrowed. A producer may declare a resource safe
+for concurrent consumers; otherwise the executor serializes access. The
 sequential executor satisfies these rules without requiring threads.
 
 Producers receive the narrow context named by their scope, not a mutable
@@ -313,8 +336,9 @@ It is not a repository-wide interchange type. Every currency has a contract:
 These properties are independent. A durable address may be portable but unable
 to prove that two artifacts correspond. An opaque catalog key may answer exact
 correspondence but only while one generation remains alive. A portable source
-line may survive serialization while its offset remains meaningful only inside
-the containing stream.
+line may survive serialization while its IL offset remains meaningful only
+beside the physical body; its annotation extents use the coordinate plane of
+the containing rendered stream.
 
 Bound and portable forms are therefore a matrix, not a ladder. Projection from
 a bound value into a portable value is explicit and names what authority it
@@ -343,7 +367,7 @@ An acquired assembly has several related but distinct scopes:
 | --- | --- |
 | Acquisition registration | Repeated policy selections name the same canonical candidate chosen by one acquisition owner. |
 | Image lifetime | Consumers read one opened byte generation through a format owner's session or lease. |
-| Catalog generation | Binding and correspondence answers share one frozen candidate universe. |
+| Catalog generation | Binding and correspondence answers share one frozen candidate universe and policy snapshot. |
 
 None implies another. Matching descriptor fields do not prove one registered
 candidate. Sharing one `PEReader` does not establish definition
@@ -374,8 +398,10 @@ current request authorizes the producer and coordinate that supplied it.
 Acquisition retains enough provenance and authorization evidence for the owner
 to make that decision. A persistent workspace may retain bytes or parsed
 resources, but a later query plan revalidates access under its own capabilities
-and source policy before receiving a lease. The cache answers only after that
-decision; it does not introduce candidates or widen authorization.
+and source policy before receiving a lease. It also reuses derived binding or
+correspondence results only when their authorization scope is compatible. The
+cache answers only after that decision; it does not introduce candidates or
+widen authorization.
 
 This is the acquisition analogue of other owner-issued safety currencies. The
 acquisition owner authorizes content, a catalog authorizes correspondence, and
@@ -391,6 +417,10 @@ as bad input.
 
 Partial group results are valid only when their failures are carried beside
 them and the result contract says partial inspection is meaningful.
+
+A plan-expansion request is a typed orchestration outcome, not absence or an
+empty result. The coordinator advances the owning domain's generation and
+restarts affected work before presentation.
 
 ### `CoreCache`
 
@@ -467,8 +497,9 @@ Source projection demonstrates the same pattern at another scale. An in-process
 correlation may retain live annotation objects and IR relationships. Its
 portable projection materializes annotation data and rebased extents so another
 consumer can retain, filter, or render the relation without those live objects.
-The projection remains scoped to its containing stream and does not claim to
-recover the original graph.
+The line's IL offset remains scoped to its physical body, while annotation
+extents use the containing rendered stream's coordinate plane. The projection
+does not claim to recover the original graph.
 
 These examples are precedents, not core types. Their owning documents define
 the exact currencies and conversions.
@@ -506,7 +537,8 @@ The required correspondence changes with scope:
 | Scope | Rule |
 | --- | --- |
 | One live image | Reader-local handles are exact only inside that image. |
-| One body or stream | Native offsets and extents are interpreted beside the containing subject and coordinate plane. |
+| One body | IL offsets are interpreted beside the physical member and body binding. |
+| One rendered stream | Annotation extents are interpreted in that stream's coordinate plane. |
 | One context group | Cross-assembly correspondence uses one frozen binding catalog generation. |
 | Several groups | Each portable subject is bound independently; bound handles, keys, and tokens never cross the group boundary. |
 | Several versions | Producer-owned exact or soft correspondence retains its tier, ambiguity, and match provenance. |
