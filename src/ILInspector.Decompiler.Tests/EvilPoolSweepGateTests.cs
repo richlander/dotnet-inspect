@@ -138,6 +138,72 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
+    /// A sweep that cannot write its assembly record refuses the output directory.
+    ///
+    /// <para>Exit 1 means the sweep ran and the corpus is short a package. This failure
+    /// is different: both packages were pooled, but the operator-supplied output path
+    /// prevented the record that makes them consumable from being written. Exit 2 keeps
+    /// that bad-output refusal distinct from a package failure.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotWriteItsAssemblyRecordRefusesTheOutputDirectory()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the assembly record path"));
+        Assert.Contains(
+            $"Could not write '{world.PooledListPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        // The run reached the record write after pooling both packages; this is not an
+        // earlier refusal that happened to return the same exit code.
+        Assert.True(File.Exists(world.LeadDestination), "the lead was not pooled.");
+        Assert.True(File.Exists(world.SubjectDestination), "the subject was not pooled.");
+        Assert.False(File.Exists(world.ManifestPath), "the sweep wrote a manifest without its assembly record.");
+    }
+
+    /// <summary>
+    /// A sweep that cannot invalidate its manifest refuses before changing the pool.
+    ///
+    /// <para>A directory at the manifest path makes deletion fail. The planted stale
+    /// assembly must remain while new package bytes and <c>assemblies.txt</c> stay absent,
+    /// proving invalidation precedes the first mutation rather than merely producing the
+    /// expected diagnostic after changing the pool.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotInvalidateItsManifestRefusesBeforeMutation()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.ManifestPath);
+
+        string stale = Path.Combine(
+            world.OutputDirectory, "packages", "999-sweep.stale", "1.0.0", "Sweep.Stale.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        File.WriteAllBytes(stale, world.FixtureBytes);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the manifest path"));
+        Assert.Contains(
+            $"Could not invalidate prior manifest '{world.ManifestPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        Assert.False(File.Exists(world.LeadDestination), "the sweep pooled the lead before invalidation.");
+        Assert.False(File.Exists(world.SubjectDestination), "the sweep pooled the subject before invalidation.");
+        Assert.False(File.Exists(world.PooledListPath), "the sweep wrote its assembly record before invalidation.");
+        Assert.True(File.Exists(stale), "the sweep reconciled the pool before invalidation.");
+    }
+
+    /// <summary>
     /// Bytes the pin does not name are refused, and are not left in the pool.
     ///
     /// <para>The defect this replays: the pin recorded a version and a TFM, which describe
@@ -607,16 +673,15 @@ public class EvilPoolSweepGateTests
     /// <para>The first run leaves a complete pool and the record that names it. The second
     /// run would record only the lead, but its <c>assemblies.txt</c> replacement is made to
     /// fail after the replacement temporary has been written. That failure exits 2 before
-    /// the manifest write, so the first run's record and manifest remain the durable
-    /// description of the pool. Reconciliation before the failed write would delete the
-    /// subject from under that surviving description.</para>
+    /// reconciliation, so the subject named by the first run's record must remain.
+    /// Manifest invalidation is the separate contract held by
+    /// <see cref="AFailedSweepLeavesNoManifestForThePoolItChanged"/>.</para>
     ///
     /// <para>A directory planted at the record path is the deterministic cross-platform
     /// way to make the atomic move fail. The fixture moves the first record aside and moves
     /// that same file back after the failed run; it does not reconstruct the expectation.
-    /// <see cref="SweepWorld.AssertPoolMatchesRecord"/> then derives the expected pool from
-    /// the restored durable record, so moving reconciliation ahead of the write makes this
-    /// case fail on the missing subject.</para>
+    /// Moving reconciliation ahead of the failed write makes this case fail on the missing
+    /// subject.</para>
     /// </summary>
     [Fact]
     public void ASweepDoesNotReconcileBeforeItsRecordIsDurable()
@@ -639,7 +704,49 @@ public class EvilPoolSweepGateTests
         File.Move(savedRecord, world.PooledListPath);
 
         Assert.True(second.ExitCode == 2, world.Explain(second, "an assemblies.txt that cannot be replaced"));
-        world.AssertPoolMatchesRecord(removals: []);
+        Assert.True(
+            File.Exists(world.SubjectDestination),
+            "the sweep reconciled the subject before its new record was durable.");
+        Assert.Equal(world.FixtureSha256, Sha256Of(world.SubjectDestination));
+    }
+
+    /// <summary>
+    /// A failed sweep leaves no previous manifest claiming that changed pool bytes still
+    /// hold.
+    ///
+    /// <para>The first run publishes a manifest naming the fixture hash. The second run
+    /// legitimately pools different pinned bytes, then fails while replacing
+    /// <c>assemblies.txt</c>, before it can publish its own manifest. The changed bytes
+    /// prove the run crossed the pool-mutation boundary; absence of the old manifest is
+    /// the only truthful artifact state at that point.</para>
+    /// </summary>
+    [Fact]
+    public void AFailedSweepLeavesNoManifestForThePoolItChanged()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        Assert.Equal(world.FixtureSha256, world.ReportedEntry(first)["Sha256"]!.GetValue<string>());
+
+        byte[] replacement = [.. world.FixtureBytes, 0];
+        string replacementSha = Sha256Of(replacement);
+        world.ReplaceSubjectBytesAndPin(replacement);
+
+        string savedRecord = Path.Combine(world.Scratch, "assemblies.first.txt");
+        File.Move(world.PooledListPath, savedRecord);
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var second = world.Run();
+
+        Directory.Delete(world.PooledListPath);
+        File.Move(savedRecord, world.PooledListPath);
+
+        Assert.True(second.ExitCode == 2, world.Explain(second, "a changed pool whose record cannot be replaced"));
+        Assert.Equal(replacementSha, Sha256Of(world.SubjectDestination));
+        Assert.False(
+            File.Exists(world.ManifestPath),
+            "the manifest survived after the pool bytes it described changed.");
     }
 
     /// <summary>
@@ -1626,6 +1733,18 @@ public class EvilPoolSweepGateTests
             _requestedPackage = package;
             WriteListAndPin(
                 Path.Combine(FakeRoot, "docs", "data"), package, version, tfm, FixtureSha256);
+        }
+
+        /// <summary>
+        /// Replaces the subject's cached assembly and updates its pin to name those bytes,
+        /// so the next sweep legitimately changes an existing pool destination.
+        /// </summary>
+        public void ReplaceSubjectBytesAndPin(byte[] bytes)
+        {
+            File.WriteAllBytes(CachedAssemblyPath, bytes);
+            WriteListAndPin(
+                Path.Combine(FakeRoot, "docs", "data"), FixturePackage, FixtureVersion, FixtureTfm,
+                Sha256Of(bytes));
         }
 
         /// <summary>

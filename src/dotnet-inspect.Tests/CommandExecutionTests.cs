@@ -3552,7 +3552,7 @@ public partial class CommandExecutionTests
     public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.IO.Fil", "-S", "Classes", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Classes", "--tips", "q");
 
         Assert.Equal(0, exit);
 
@@ -3563,7 +3563,7 @@ public partial class CommandExecutionTests
 
         // A name valid for neither pipeline still fails on this route.
         var (bogusExit, _, bogusError) = await RunAppAsync(
-            "type", "System.IO.Fil", "-S", "Zzznosuchsection", "--tips", "q");
+            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
     }
@@ -3910,13 +3910,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Library:", output, StringComparison.Ordinal);
 
-        var inline = quietOutput.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inline = SplitOutputLines(quietOutput)
+            .First(l => l.StartsWith("Library:", StringComparison.Ordinal));
         var inlineFields = inline
             .Split('|')
             .Select(part => part.Trim().Split(':', 2))
             .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.Ordinal);
 
-        var rows = output.Split('\n')
+        var rows = SplitOutputLines(output)
             .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
             .Where(l => l.StartsWith("| ", StringComparison.Ordinal))
             .Select(l => l.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()).ToArray())
