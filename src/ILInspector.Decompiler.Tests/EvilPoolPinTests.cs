@@ -15,14 +15,15 @@ namespace ILInspector.Decompiler.Tests;
 /// the weekly lane: there was nothing stable to compare against. #3353 pins the versions;
 /// these tests guard the pin itself.</para>
 ///
-/// <para>What is checked here is mostly what a file can prove. The one exception is
-/// <see cref="TheSweepRefusesEveryPinFileShapeThisSuiteRefuses"/>, which runs the sweep's
-/// own validator over tampered pin files so that the rules about a pin's shape live in
-/// one place instead of two that drift. That the sweep <em>honors</em> the pin -- acquires
-/// the pinned bytes and refuses anything else -- is a different question, and one this
-/// class cannot answer, because answering it means running a sweep that acquires a
-/// package. <see cref="EvilPoolSweepGateTests"/> answers it: it runs real sweeps offline
-/// against a scratch cache holding one synthetic package (#3560).</para>
+/// <para>What is checked here is mostly what a file can prove. The two exceptions are
+/// <see cref="TheSweepRefusesEveryPinFileShapeThisSuiteRefuses"/> and
+/// <see cref="TheSweepRefusesEveryRankedListRuleItDeclares"/>, which run the sweep over
+/// tampered inputs so its shape rules live in one place instead of two that drift. That
+/// the sweep <em>honors</em> the pin -- acquires the pinned bytes and refuses anything
+/// else -- is a different question, and one this class cannot answer, because answering
+/// it means running a sweep that acquires a package. <see cref="EvilPoolSweepGateTests"/>
+/// answers it: it runs real sweeps offline against a scratch cache holding synthetic
+/// packages (#3560).</para>
 /// </summary>
 [Trait("Area", "Corpus")]
 public class EvilPoolPinTests
@@ -243,6 +244,110 @@ public class EvilPoolPinTests
     }
 
     /// <summary>
+    /// Every ranked-list rule the sweep declares has an input that reaches it and is
+    /// refused at exit 2.
+    ///
+    /// <para>The rule names come from the sweep's enforcing tables, not from a second
+    /// declaration here. Set equality means a rule added without a case and a case whose
+    /// rule disappeared both fail. Each whole-list tamper is placed at the end of the
+    /// committed list, outside the requested rank 1-2 window, so deleting its intended
+    /// rule does not fall into a neighbouring list refusal. The sweep then reaches
+    /// offline acquisition and exits 1 instead. The three window cases similarly satisfy
+    /// every earlier rule and differ only in the requested window (#3715).</para>
+    ///
+    /// <para>The committed pin accompanies every case so pin presence cannot become a
+    /// common exit-1 false positive. Acquisition is forced offline and isolated; a
+    /// missing rule therefore fails quickly rather than reaching the network.</para>
+    /// </summary>
+    [Fact]
+    public void TheSweepRefusesEveryRankedListRuleItDeclares()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string committedList = Path.Combine(root, ListRelativePath);
+        string committedPin = Path.Combine(root, PinRelativePath);
+        var original = JsonNode.Parse(File.ReadAllText(committedList))!.AsArray();
+
+        (string Case, string Rule, int StartRank, int Count, Action<JsonArray> Tamper)[] cases =
+        [
+            ("a null entry", "null-entry", 1, 2,
+                list => list[list.Count - 1] = null),
+            ("a non-positive rank", "invalid-entry", 1, 2,
+                list => list[list.Count - 1]!["rank"] = 0),
+            ("a package reference instead of a bare id", "bare-id", 1, 2,
+                list => list[list.Count - 1]!["package"] =
+                    list[list.Count - 1]!["package"]!.GetValue<string>() + "@1.0.0"),
+            ("the same rank twice", "duplicate-rank", 1, 2,
+                list => list[list.Count - 1]!["rank"] =
+                    list[list.Count - 2]!["rank"]!.GetValue<int>()),
+            ("the same package twice with different casing", "duplicate-package", 1, 2,
+                list => list[list.Count - 1]!["package"] =
+                    list[list.Count - 2]!["package"]!.GetValue<string>().ToUpperInvariant()),
+            ("a window starting after the final rank", "nonempty-window", 101, 1,
+                _ => { }),
+            ("a window shorter than requested", "window-count", 99, 3,
+                _ => { }),
+            ("a window whose second rank is missing", "contiguous-window", 1, 2,
+                list =>
+                {
+                    for (int index = 1; index < list.Count; index++)
+                    {
+                        list[index]!["rank"] =
+                            list[index]!["rank"]!.GetValue<int>() + 1;
+                    }
+                }),
+        ];
+
+        var declared = RankedListRuleNamesFromSweep(root);
+        var covered = cases.Select(entry => entry.Rule).ToHashSet(StringComparer.Ordinal);
+        Assert.True(
+            declared.SetEquals(covered),
+            "the ranked-list cases and the sweep's enforcing tables do not cover each "
+            + "other. Rules with no case: "
+            + $"{string.Join(", ", declared.Except(covered).DefaultIfEmpty("none"))}. "
+            + "Cases naming no rule: "
+            + $"{string.Join(", ", covered.Except(declared).DefaultIfEmpty("none"))}");
+
+        string scratch = Directory.CreateTempSubdirectory("evil-ranked-list-rules").FullName;
+        try
+        {
+            foreach (var (name, rule, startRank, count, tamper) in cases)
+            {
+                string fakeRoot = Path.Combine(scratch, rule);
+                string data = Path.Combine(fakeRoot, "docs", "data");
+                Directory.CreateDirectory(data);
+                File.WriteAllText(Path.Combine(fakeRoot, "dotnet-inspect.slnx"), "");
+                File.Copy(
+                    committedPin,
+                    Path.Combine(data, Path.GetFileName(PinRelativePath)));
+
+                var list = JsonNode.Parse(original.ToJsonString())!.AsArray();
+                tamper(list);
+                File.WriteAllText(
+                    Path.Combine(data, Path.GetFileName(ListRelativePath)),
+                    list.ToJsonString());
+
+                var sweep = RunSweep(
+                    root,
+                    fakeRoot,
+                    Path.Combine(scratch, "pools", rule),
+                    startRank,
+                    count,
+                    isolatedName: $"evil-ranked-list-{rule}");
+
+                Assert.True(
+                    sweep.ExitCode == 2,
+                    $"the sweep exited {sweep.ExitCode} instead of refusing {name} under "
+                    + $"ranked-list rule '{rule}'.\nstdout:\n{sweep.Output}"
+                    + $"\nstderr:\n{sweep.Errors}");
+            }
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The sweep reads a pin file exactly one way, whichever mode asked.
     ///
     /// <para>This is the gate for that property, and like its neighbour above it exists
@@ -322,15 +427,22 @@ public class EvilPoolPinTests
     /// only way to hold a read open indefinitely without a second process, and the BCL
     /// has no way to make one.
     /// </summary>
+    static HashSet<string> PinRuleNamesFromSweep(string root) =>
+        RuleNamesFromSweep(root, "--list-pin-rules", "Pin");
+
+    static HashSet<string> RankedListRuleNamesFromSweep(string root) =>
+        RuleNamesFromSweep(root, "--list-ranked-list-rules", "Ranked-list");
+
     /// <summary>
-    /// The names of the shape rules the sweep applies to a pin file, as the sweep reports
-    /// them.
+    /// The names of one family of rules, as the sweep reports them.
     ///
-    /// <para>Asking is the point. A copy of the names here would be a second list of
-    /// rules, which is the thing three rounds of review found drifting; a list derived
-    /// from the sweep can only be wrong by the sweep being wrong.</para>
+    /// <para>Asking is the point. A copy of the names here would be a second declaration
+    /// that can drift from enforcement; these names come from the tables that run.</para>
     /// </summary>
-    static HashSet<string> PinRuleNamesFromSweep(string root)
+    static HashSet<string> RuleNamesFromSweep(
+        string root,
+        string option,
+        string outputKind)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -344,7 +456,7 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add("run");
         startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
         startInfo.ArgumentList.Add("--");
-        startInfo.ArgumentList.Add("--list-pin-rules");
+        startInfo.ArgumentList.Add(option);
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("could not start the sweep");
@@ -352,14 +464,17 @@ public class EvilPoolPinTests
 
         Assert.True(
             process.ExitCode == 0,
-            $"the sweep could not list its pin rules (exit {process.ExitCode}); stdout was:"
+            $"the sweep could not list its {outputKind} rules (exit {process.ExitCode}); stdout was:"
             + $"\n{output}\nstderr was:\n{errors}");
 
+        string prefix = $"{outputKind} rule '";
         var listed = output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.TrimEnd('\r'))
-            .Where(line => line.StartsWith("Pin rule '", StringComparison.Ordinal) && line.EndsWith("'.", StringComparison.Ordinal))
-            .Select(line => line["Pin rule '".Length..^2])
+            .Where(line =>
+                line.StartsWith(prefix, StringComparison.Ordinal)
+                && line.EndsWith("'.", StringComparison.Ordinal))
+            .Select(line => line[prefix.Length..^2])
             .ToArray();
 
         // Checked before the set below collapses them. Two rules sharing a name are one
@@ -373,7 +488,7 @@ public class EvilPoolPinTests
             .ToArray();
         Assert.True(
             repeated.Length == 0,
-            "the sweep lists more than one pin rule under the same name "
+            $"the sweep lists more than one {outputKind} rule under the same name "
             + $"({string.Join(", ", repeated)}), so one of them is held by another rule's "
             + $"case rather than by one of its own; stdout was:\n{output}");
 
@@ -383,7 +498,8 @@ public class EvilPoolPinTests
         // empty set, which is the vacuous green this whole test exists to refuse.
         Assert.True(
             names.Count > 0,
-            $"the sweep listed no pin rules at all; stdout was:\n{output}\nstderr was:\n{errors}");
+            $"the sweep listed no {outputKind} rules at all; stdout was:"
+            + $"\n{output}\nstderr was:\n{errors}");
 
         return names;
     }
@@ -441,7 +557,12 @@ public class EvilPoolPinTests
     /// the repository root it reads its inputs from.
     /// </summary>
     static (int ExitCode, string Output, string Errors) RunSweep(
-        string root, string workingDirectory, string outputDirectory)
+        string root,
+        string workingDirectory,
+        string outputDirectory,
+        int startRank = 1,
+        int packageCount = 1,
+        string isolatedName = "evil-pin-read")
     {
         var startInfo = new ProcessStartInfo
         {
@@ -456,8 +577,12 @@ public class EvilPoolPinTests
         startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add(outputDirectory);
-        startInfo.ArgumentList.Add("1");
-        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add(startRank.ToString());
+        startInfo.ArgumentList.Add(packageCount.ToString());
+        startInfo.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
+        startInfo.Environment["DOTNET_INSPECT_ISOLATED"] = isolatedName;
+        startInfo.Environment["DOTNET_INSPECT_CACHE_DIR"] =
+            Path.Combine(workingDirectory, ".cache");
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("could not start the sweep");

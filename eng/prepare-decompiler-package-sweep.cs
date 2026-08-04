@@ -27,7 +27,8 @@ const string UsageText =
     "Usage: dotnet run eng/prepare-decompiler-package-sweep.cs -- "
     + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]"
     + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>..."
-    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules";
+    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-pin-rules"
+    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --list-ranked-list-rules";
 
 // The names of the shape rules above, one per line, so that the suite holding them can
 // ask which rules exist instead of keeping its own list of them. Round fourteen added a
@@ -41,6 +42,18 @@ if (args is ["--list-pin-rules"])
     // stdout: a bare word per line would let a new compiler warning read as a rule.
     foreach (var (name, _) in PinRules())
         Console.Out.WriteLine($"Pin rule '{name}'.");
+
+    Environment.ExitCode = 0;
+    return;
+}
+
+// The ranked-list counterpart to --list-pin-rules. Both phases are reported from the
+// tables that enforce them, so adding a rule without a fixture cannot leave the suite
+// green over a check no input reaches.
+if (args is ["--list-ranked-list-rules"])
+{
+    foreach (var (name, _) in RankedListRules())
+        Console.Out.WriteLine($"Ranked-list rule '{name}'.");
 
     Environment.ExitCode = 0;
     return;
@@ -211,62 +224,13 @@ if (unreadable is not null)
 }
 
 List<PackageListEntry> packageList = parsedList!;
-
-// Checked before anything dereferences an entry. The deserializer will happily put a
-// null in the list, and the pin file has guarded this since round two while its sibling
-// did not -- so the very first validation dereferenced it and exited 134, in the one
-// file whose stated purpose is that no input reaches 134.
-if (packageList.Any(entry => entry is null))
+var rankedList = new RankedListInput(sourcePath, packageList, startRank, packageCount);
+string? malformedList = RankedListShapeRules()
+    .Select(rule => rule.Refuse(rankedList))
+    .FirstOrDefault(problem => problem is not null);
+if (malformedList is not null)
 {
-    Console.Error.WriteLine($"Package list '{sourcePath}' contains a null entry.");
-    Environment.ExitCode = 2;
-    return;
-}
-
-if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package)))
-{
-    Console.Error.WriteLine($"Package list '{sourcePath}' contains an invalid entry.");
-    Environment.ExitCode = 2;
-    return;
-}
-
-// A package id is an id, not a package reference. The extractor accepts "id@version",
-// so a list entry spelled that way acquired the embedded version while --resolve-latest
-// claimed to be sampling what ships today -- and, because the two spellings are
-// different strings, the same package could be ranked twice and pad the pool straight
-// past the duplicate check. Refusing the spelling is narrower than teaching every
-// downstream check to parse it.
-var unbare = packageList.Where(entry => !IsBarePackageId(entry.Package)).ToArray();
-if (unbare.Length > 0)
-{
-    Console.Error.WriteLine(
-        $"Package list '{sourcePath}' names packages that are not bare NuGet ids: "
-        + $"{string.Join(", ", unbare.Select(entry => $"'{entry.Package}' (rank {entry.Rank})"))}.");
-    Environment.ExitCode = 2;
-    return;
-}
-
-if (packageList.Select(entry => entry.Rank).Distinct().Count() != packageList.Count)
-{
-    Console.Error.WriteLine($"Package list '{sourcePath}' contains duplicate ranks.");
-    Environment.ExitCode = 2;
-    return;
-}
-// Distinct ranks are not distinct packages. One package listed at two ranks acquires
-// the same assembly twice, so the pool is a hundred slots holding ninety-nine
-// packages -- and every count in sight still says a hundred. A padded pool measures
-// one package's methods twice, which skews the ratchet exactly like a shortened one.
-if (packageList
-        .Select(entry => entry.Package)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Count() != packageList.Count)
-{
-    string duplicates = string.Join(", ", packageList
-        .GroupBy(entry => entry.Package, StringComparer.OrdinalIgnoreCase)
-        .Where(group => group.Count() > 1)
-        .Select(group => $"{group.Key} (ranks {string.Join("/", group.Select(entry => entry.Rank))})"));
-    Console.Error.WriteLine(
-        $"Package list '{sourcePath}' ranks the same package more than once: {duplicates}.");
+    Console.Error.WriteLine(malformedList);
     Environment.ExitCode = 2;
     return;
 }
@@ -291,52 +255,13 @@ if (pinFile is null && !resolveLatest)
 var pins = (pinFile?.Packages ?? [])
     .ToDictionary(pin => pin.Package, StringComparer.OrdinalIgnoreCase);
 
-var selected = packageList
-    .Where(entry => entry.Rank >= startRank)
-    .OrderBy(entry => entry.Rank)
-    .Take(packageCount)
-    .ToArray();
-if (selected.Length == 0)
+var selected = rankedList.Selected;
+string? invalidWindow = RankedListWindowRules()
+    .Select(rule => rule.Refuse(rankedList))
+    .FirstOrDefault(problem => problem is not null);
+if (invalidWindow is not null)
 {
-    Console.Error.WriteLine(
-        $"No packages were selected at or after rank {startRank}; "
-        + $"the list ranks {packageList.Count}.");
-    Environment.ExitCode = 2;
-    return;
-}
-
-// Take() shortens silently, and every completeness check downstream is stated against
-// the window that was actually selected -- so a list one entry shorter than the
-// request produced a pool one assembly shorter and called it complete. The caller
-// asked for a number of packages; supplying fewer is a refusal, not a smaller pool.
-if (selected.Length != packageCount)
-{
-    Console.Error.WriteLine(
-        $"Ranks {startRank}-{selected[^1].Rank} supply {selected.Length} of the "
-        + $"{packageCount} packages requested; the list ranks {packageList.Count}.");
-    Environment.ExitCode = 2;
-    return;
-}
-
-// A count is not a window. Ranks are required to be positive and distinct, not
-// contiguous, so a list missing rank 2 answered a request for ranks 1-2 with ranks 1
-// and 3 -- the right number of packages, every one of them pinned, and a pool that is
-// not the one the caller named. The caller asks for a rank range; the range is what
-// must arrive.
-// Nullable rather than a default sentinel. (0, 0) cannot name a real gap today --
-// startRank is refused at or below zero and every rank must be positive -- but that
-// makes "no gap" depend on two validations several hundred lines apart, and this
-// change has already been bitten twice by a quantity that could stand for two things.
-var gap = Enumerable.Range(0, selected.Length)
-    .Where(index => selected[index].Rank != startRank + index)
-    .Select(index => ((int Expected, int Got)?)(startRank + index, selected[index].Rank))
-    .FirstOrDefault();
-if (gap is { } missing)
-{
-    Console.Error.WriteLine(
-        $"The list does not rank {missing.Expected}; ranks {startRank}-"
-        + $"{startRank + packageCount - 1} were requested and rank {missing.Got} arrived "
-        + "in its place.");
+    Console.Error.WriteLine(invalidWindow);
     Environment.ExitCode = 2;
     return;
 }
@@ -1281,6 +1206,109 @@ static byte[]? ReadAtMost(string path, int maxBytes, CancellationToken cancellat
 }
 
 /// <summary>
+/// Every ranked-list refusal, split at the pin-presence check that already separates
+/// whole-list shape from the requested window.
+///
+/// <para>The tables are both the enforcement and the declaration. EvilPoolPinTests asks
+/// for their names through <c>--list-ranked-list-rules</c> and requires an isolating
+/// malformed list per name, so a newly added rule with no input behind it fails the
+/// coverage set instead of shipping as an unverified check (#3715).</para>
+/// </summary>
+static RankedListRule[] RankedListRules() =>
+[
+    .. RankedListShapeRules(),
+    .. RankedListWindowRules(),
+];
+
+static RankedListRule[] RankedListShapeRules() =>
+[
+    // Checked before anything dereferences an entry. The deserializer will happily put
+    // a null in the list, and the pin file guarded this while its sibling did not -- so
+    // the first validation dereferenced it and exited 134.
+    new("null-entry", input => input.Packages.Any(entry => entry is null)
+        ? $"Package list '{input.SourcePath}' contains a null entry."
+        : null),
+    new("invalid-entry", input => input.Packages.Any(
+            entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package))
+        ? $"Package list '{input.SourcePath}' contains an invalid entry."
+        : null),
+    // A package id is an id, not a package reference. The extractor accepts
+    // "id@version", so the same package could be ranked twice under different strings
+    // and pad the pool straight past the duplicate check.
+    new("bare-id", input =>
+    {
+        var unbare = input.Packages
+            .Where(entry => !IsBarePackageId(entry.Package))
+            .ToArray();
+        return unbare.Length > 0
+            ? $"Package list '{input.SourcePath}' names packages that are not bare NuGet ids: "
+                + $"{string.Join(", ", unbare.Select(entry => $"'{entry.Package}' (rank {entry.Rank})"))}."
+            : null;
+    }),
+    new("duplicate-rank", input =>
+        input.Packages.Select(entry => entry.Rank).Distinct().Count() != input.Packages.Count
+            ? $"Package list '{input.SourcePath}' contains duplicate ranks."
+            : null),
+    // Distinct ranks are not distinct packages. One package listed at two ranks makes
+    // a hundred-slot pool hold ninety-nine packages while every count still says one
+    // hundred, skewing the ratchet exactly like a shortened pool.
+    new("duplicate-package", input =>
+    {
+        if (input.Packages
+                .Select(entry => entry.Package)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == input.Packages.Count)
+        {
+            return null;
+        }
+
+        string duplicates = string.Join(", ", input.Packages
+            .GroupBy(entry => entry.Package, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group =>
+                $"{group.Key} (ranks {string.Join("/", group.Select(entry => entry.Rank))})"));
+        return $"Package list '{input.SourcePath}' ranks the same package more than once: "
+            + $"{duplicates}.";
+    }),
+];
+
+static RankedListRule[] RankedListWindowRules() =>
+[
+    new("nonempty-window", input => input.Selected.Length == 0
+        ? $"No packages were selected at or after rank {input.StartRank}; "
+            + $"the list ranks {input.Packages.Count}."
+        : null),
+    // Take() shortens silently. Every completeness check downstream is stated against
+    // the selected window, so a short list used to produce a short pool and call it
+    // complete. Supplying fewer packages is a refusal, not a smaller pool.
+    new("window-count", input =>
+    {
+        var selected = input.Selected;
+        return selected.Length > 0 && selected.Length != input.PackageCount
+            ? $"Ranks {input.StartRank}-{selected[^1].Rank} supply {selected.Length} of the "
+                + $"{input.PackageCount} packages requested; the list ranks {input.Packages.Count}."
+            : null;
+    }),
+    // A count is not a window. Positive, distinct ranks can still omit rank 2 and answer
+    // a request for ranks 1-2 with ranks 1 and 3. Nullable rather than a sentinel: a
+    // sentinel would make "no gap" depend on validations elsewhere.
+    new("contiguous-window", input =>
+    {
+        var selected = input.Selected;
+        var gap = Enumerable.Range(0, selected.Length)
+            .Where(index => selected[index].Rank != input.StartRank + index)
+            .Select(index => ((int Expected, int Got)?)(
+                input.StartRank + index, selected[index].Rank))
+            .FirstOrDefault();
+        return gap is { } missing
+            ? $"The list does not rank {missing.Expected}; ranks {input.StartRank}-"
+                + $"{input.StartRank + input.PackageCount - 1} were requested and rank "
+                + $"{missing.Got} arrived in its place."
+            : null;
+    }),
+];
+
+/// <summary>
 /// Every way this sweep refuses a pin file's shape, in the order it applies them, each
 /// under the name it is known by.
 ///
@@ -1495,6 +1523,23 @@ sealed record PackageListEntry(
     [property: JsonPropertyName("rank")] int Rank,
     [property: JsonPropertyName("package")] string Package,
     [property: JsonPropertyName("downloads")] long Downloads);
+
+sealed record RankedListRule(string Name, Func<RankedListInput, string?> Refuse);
+
+sealed record RankedListInput(
+    string SourcePath,
+    IReadOnlyList<PackageListEntry> Packages,
+    int StartRank,
+    int PackageCount)
+{
+    public PackageListEntry[] Selected =>
+    [
+        .. Packages
+            .Where(entry => entry.Rank >= StartRank)
+            .OrderBy(entry => entry.Rank)
+            .Take(PackageCount),
+    ];
+}
 
 /// <summary>
 /// A committed pin of the exact package versions the sweep acquires, so that two runs
