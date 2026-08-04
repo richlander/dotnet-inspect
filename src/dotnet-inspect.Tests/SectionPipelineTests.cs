@@ -2510,7 +2510,7 @@ public class SectionPipelineTests
             [
                 "DotnetInspector.Commands.DiffCommand::AcquireAuthoredSourceInspectionsAsync(IReadOnlyList<string>,IReadOnlyDictionary<string, ResearchSubjectKey>,DiffOptions,bool,HttpClient,VerboseLogger)",
                 "DotnetInspector.Commands.TimelineCommand::InspectAnalysisAssemblies`1(IReadOnlyList<string>,string,string,bool,FindingDescriptor,FindingSubject,Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>>)",
-                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures(string,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver,IReadOnlySet<int>,Func<TypeRef, bool>)",
+                "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithFeatures(ResolvedAssemblyReference,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver,IReadOnlySet<int>,Func<TypeRef, bool>)",
                 "DotnetInspector.Inspectors.MethodBodyInspectionSession::OpenWithPrefetchedImage(string,PdbContext,LibraryBodyAnalysisFeatures,IAssemblyReferenceResolver)",
                 "ILInspector.Analysis.LeakTriageAnalyzer::AnalyzeAssemblyDetailed(string)",
                 "ILInspector.Analysis.LibraryBodyIndex::Open(string)",
@@ -2808,7 +2808,9 @@ public class SectionPipelineTests
         // -- primitives, exceptions, collections, and helpers -- where a genuinely new BCL type is
         // worth the one line of review it costs. Product namespaces are excluded for the same
         // churn reason, at no cost in coverage: a product helper's own BCL calls are already inside
-        // this same closure, which is what the previous route proved.
+        // this same closure, which is what the previous route proved. InertText and NuGet are
+        // referenced leaves outside the product closure; pinning their public types as though they
+        // were BCL primitives would misstate the boundary this list enforces.
         //
         // This literal grew from 65 to 99 entries across three fixes in this PR, and every addition
         // is a generic collection, delegate type, or value type -- List, Dictionary, Span, Func,
@@ -2821,6 +2823,12 @@ public class SectionPipelineTests
         // gate's own evidence was resting on the defects it exists to catch. A dangerous primitive
         // reached through a constructed generic (say a Lazy<LibraryBodyIndex>) or through a BCL
         // callback would have been invisible to all three claims at once.
+        //
+        // Integrating main at 57056f6d raises this pin from 99 to 131 entries. Main moved assembly
+        // sessions to content-shaped references and split SourceLink into its own product layer,
+        // which makes more of the existing section-reachable BCL closure visible to this walk.
+        // Keeping those entries literal subjects the newly visible path to the same fail-closed
+        // review as the scanner path.
         // The projection is to the *open definition*, so Dictionary<int, Foo> and
         // Dictionary<string, Bar> are one entry. That is the granularity the claim is about -- an
         // allowed type surface, not an instantiation surface -- and without it this list is 571
@@ -2831,7 +2839,9 @@ public class SectionPipelineTests
             .Where(type => type.Namespace.Length > 0
                 && !type.Namespace.StartsWith("DotnetInspector.", StringComparison.Ordinal)
                 && !type.Namespace.StartsWith("ILInspector.", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("InertText", StringComparison.Ordinal)
                 && !type.Namespace.StartsWith("Markout", StringComparison.Ordinal)
+                && !type.Namespace.StartsWith("NuGet.", StringComparison.Ordinal)
                 && !type.Namespace.StartsWith("System.Reflection.Metadata", StringComparison.Ordinal)
                 && !type.Namespace.StartsWith("System.Reflection.PortableExecutable", StringComparison.Ordinal))
             .Select(type => $"{type.Namespace}.{type.ToDisplayString()}")
@@ -2841,12 +2851,14 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 "System.Action",
+                "System.AppContext",
                 "System.ArgumentException",
                 "System.ArgumentNullException",
                 "System.ArgumentOutOfRangeException",
                 "System.Array",
                 "System.BadImageFormatException",
                 "System.Buffers.Binary.BinaryPrimitives",
+                "System.Collections.Concurrent.ConcurrentDictionary",
                 "System.Collections.Generic.CollectionExtensions",
                 "System.Collections.Generic.Comparer",
                 "System.Collections.Generic.Dictionary",
@@ -2868,6 +2880,7 @@ public class SectionPipelineTests
                 "System.Collections.Generic.List",
                 "System.Collections.Generic.List.Enumerator",
                 "System.Collections.Generic.Queue",
+                "System.Collections.Generic.ReferenceEqualityComparer",
                 "System.Collections.Generic.SortedSet",
                 "System.Collections.Generic.Stack",
                 "System.Collections.IEnumerator",
@@ -2878,6 +2891,9 @@ public class SectionPipelineTests
                 "System.Comparison",
                 "System.Console",
                 "System.Convert",
+                "System.Diagnostics.Activity",
+                "System.Diagnostics.ActivityEvent",
+                "System.Diagnostics.ActivityTagsCollection",
                 "System.Diagnostics.Stopwatch",
                 "System.Enum",
                 "System.Environment",
@@ -2887,13 +2903,16 @@ public class SectionPipelineTests
                 "System.Guid",
                 "System.HashCode",
                 "System.IDisposable",
+                "System.IO.Directory",
                 "System.IO.File",
                 "System.IO.Path",
                 "System.IO.Stream",
                 "System.IO.TextWriter",
+                "System.IObserver",
                 "System.Index",
                 "System.InvalidOperationException",
                 "System.InvalidProgramException",
+                "System.Lazy",
                 "System.Linq.Enumerable",
                 "System.Linq.IGrouping",
                 "System.Linq.ImmutableArrayExtensions",
@@ -2902,28 +2921,51 @@ public class SectionPipelineTests
                 "System.NotSupportedException",
                 "System.Nullable",
                 "System.ObjectDisposedException",
+                "System.OperatingSystem",
                 "System.Predicate",
                 "System.Range",
                 "System.ReadOnlySpan",
                 "System.Reflection.MemberInfo",
+                "System.Runtime.CompilerServices.ConditionalWeakTable",
+                "System.Runtime.CompilerServices.ConditionalWeakTable.CreateValueCallback",
                 "System.Runtime.CompilerServices.DefaultInterpolatedStringHandler",
                 "System.Runtime.CompilerServices.RuntimeHelpers",
                 "System.Runtime.CompilerServices.Unsafe",
                 "System.Runtime.InteropServices.CollectionsMarshal",
                 "System.Runtime.InteropServices.ImmutableCollectionsMarshal",
                 "System.Runtime.InteropServices.MemoryMarshal",
+                "System.Runtime.InteropServices.OSPlatform",
+                "System.Runtime.InteropServices.RuntimeEnvironment",
+                "System.Runtime.InteropServices.RuntimeInformation",
                 "System.Security.Cryptography.SHA1",
                 "System.Security.Cryptography.SHA256",
                 "System.Span",
                 "System.StringComparer",
                 "System.Text.Encoding",
+                "System.Text.Json.JsonDocument",
+                "System.Text.Json.JsonDocumentOptions",
+                "System.Text.Json.JsonElement",
+                "System.Text.Json.JsonElement.ObjectEnumerator",
+                "System.Text.Json.JsonProperty",
                 "System.Text.StringBuilder",
                 "System.Text.StringBuilder.AppendInterpolatedStringHandler",
+                "System.Threading.AsyncLocal",
                 "System.Threading.Interlocked",
+                "System.Threading.Monitor",
+                "System.Threading.SemaphoreSlim",
                 "System.Threading.Tasks.Parallel",
+                "System.Threading.Volatile",
                 "System.TimeSpan",
                 "System.Type",
+                "System.Uri",
+                "System.UriBuilder",
                 "System.ValueTuple",
+                "System.Version",
+                "System.Xml.Linq.XAttribute",
+                "System.Xml.Linq.XContainer",
+                "System.Xml.Linq.XDocument",
+                "System.Xml.Linq.XElement",
+                "System.Xml.Linq.XName",
                 "System.bool",
                 "System.byte",
                 "System.char",
