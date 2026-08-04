@@ -65,7 +65,7 @@ public sealed record TypeResolutionContextOptions
 public sealed class TypeResolutionCatalog : IDisposable
 {
     readonly object _gate = new();
-    readonly SemaphoreSlim _generationGate = new(1, 1);
+    readonly SynchronousConcurrencyGate _generationGate = new(1);
     readonly InspectionAcquisitionPlan _acquisition;
     readonly Dictionary<DeclarationCacheKey, TypeDeclarationResult>
         _declarations = [];
@@ -280,7 +280,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(bindingRequests);
         ArgumentNullException.ThrowIfNull(requests);
 
-        _generationGate.Wait(cancellationToken);
+        _generationGate.Enter(cancellationToken);
         try
         {
             lock (_gate)
@@ -298,7 +298,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
@@ -392,7 +392,7 @@ public sealed class TypeResolutionCatalog : IDisposable
     /// <summary>Releases every retained candidate session owned by the catalog.</summary>
     public void Dispose()
     {
-        _generationGate.Wait();
+        _generationGate.Enter();
         try
         {
             lock (_gate)
@@ -406,7 +406,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
