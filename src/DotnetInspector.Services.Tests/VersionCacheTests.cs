@@ -92,6 +92,39 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
+    public void PrereleaseInclusiveCandidateLookupUsesStableLatestEntry()
+    {
+        SetLatest("StableOnly", CustomSource, "1.2.3");
+
+        string? result =
+            PackageExtractor.TryGetLatestCachedCandidateVersion(
+                "StableOnly",
+                [NuGetCache.GetSourceKey(CustomSource.Url)],
+                includePrerelease: true);
+
+        Assert.Equal("1.2.3", result);
+    }
+
+    [Fact]
+    public void PrereleaseInclusiveCandidateLookupChoosesNewestFlavor()
+    {
+        SetLatest("BothFlavors", CustomSource, "2.0.0");
+        SetLatest(
+            "BothFlavors",
+            CustomSource,
+            "3.0.0-preview.1",
+            includePrerelease: true);
+
+        string? result =
+            PackageExtractor.TryGetLatestCachedCandidateVersion(
+                "BothFlavors",
+                [NuGetCache.GetSourceKey(CustomSource.Url)],
+                includePrerelease: true);
+
+        Assert.Equal("3.0.0-preview.1", result);
+    }
+
+    [Fact]
     public async Task GetLatestVersion_CustomSourceDoesNotUseAnotherSourcesCache()
     {
         // Pre-seed cache — should be ignored when nuget.org is not in sources
@@ -470,10 +503,14 @@ public class VersionCacheTests : IDisposable
     private static void SetLatest(
         string packageName,
         NuGetSource source,
-        string version)
+        string version,
+        bool includePrerelease = false)
         => CoreCache.Set(
             VersionCacheCategory,
-            PackageExtractor.GetLatestVersionCacheKey(packageName, source),
+            PackageExtractor.GetLatestVersionCacheKey(
+                packageName,
+                source,
+                includePrerelease),
             version,
             extension: "txt");
 

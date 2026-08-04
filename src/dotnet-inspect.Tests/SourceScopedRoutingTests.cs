@@ -175,16 +175,22 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void QualifiedName_SplitsFromSourceScopedCandidateMetadata()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void QualifiedName_SplitsFromSourceScopedCandidateMetadata(
+        bool includePrerelease)
     {
         string packageName = $"RouteCandidate{Guid.NewGuid():N}.Package";
         string qualifiedName = $"{packageName}.Widget";
         var nugetOrg = NuGetFetch.PackageSource.NuGetOrg;
         CoreCache.Set(
             "versions-v5",
-            PackageExtractor.GetLatestVersionCacheKey(packageName, nugetOrg),
-            "1.0.0",
+            PackageExtractor.GetLatestVersionCacheKey(
+                packageName,
+                nugetOrg,
+                includePrerelease),
+            includePrerelease ? "2.0.0-preview.1" : "1.0.0",
             extension: "txt");
 
         Assert.NotNull(SourceResolver.TryResolveQualifiedTypeName(
@@ -197,14 +203,24 @@ public sealed class SourceScopedRoutingTests : IDisposable
             allowPlatformPrefixFallback: false));
     }
 
-    [Fact]
-    public async Task BareVersion_UsesSourceScopedCandidateMetadataOffline()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BareVersion_UsesStableCandidateMetadataOffline(
+        bool includePrerelease)
     {
         string packageName = $"OfflineVersion{Guid.NewGuid():N}";
         SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
 
         var (exit, output, error) = await RunCommandAsync(
-            ["package", packageName, "--version", "--source", ExcludedSource]);
+            [
+                "package",
+                packageName,
+                "--version",
+                .. includePrerelease ? new[] { "--prerelease" } : [],
+                "--source",
+                ExcludedSource,
+            ]);
 
         Assert.True(
             exit == 0,
@@ -220,8 +236,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         SeedLatestCandidate(
             PackageName,
             ExcludedSource,
-            "4.5.6-preview.1",
-            includePrerelease: true);
+            "4.5.6");
 
         var observations = await RunAppAsync(
             [PackageName, "--source", ExcludedSource]);
@@ -242,8 +257,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         SeedLatestCandidate(
             PackageName,
             ExcludedSource,
-            "4.5.6-preview.1",
-            includePrerelease: true);
+            "4.5.6");
         bool exists = await TypeCommand.PackageExistsAsync(
             PackageName,
             new TypeOptions

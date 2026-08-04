@@ -101,7 +101,8 @@ public static class SourceResolver
             // name without letting package-content directories invent versions.
             if (PackageExtractor.TryGetLatestCachedCandidateVersion(
                     candidate,
-                    sourceKeys) != null)
+                    sourceKeys,
+                    includePrerelease: true) != null)
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",

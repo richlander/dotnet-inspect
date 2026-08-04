@@ -860,6 +860,20 @@ public static class PackageExtractor
                     includePrerelease),
                 VersionCacheTtl,
                 extension: "txt"));
+        if (includePrerelease)
+        {
+            string? stable = NormalizeCandidateVersion(
+                CoreCache.TryGet(
+                    VersionCacheCategory,
+                    LatestVersionCacheKey(
+                        sourceKey,
+                        normalizedName,
+                        includePrerelease: false),
+                    VersionCacheTtl,
+                    extension: "txt"));
+            latest = PickLatest([latest, stable], includePrerelease: true);
+        }
+
         if (latest is not null)
             return latest;
 
