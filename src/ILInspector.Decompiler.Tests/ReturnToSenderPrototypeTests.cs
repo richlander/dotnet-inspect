@@ -5648,6 +5648,14 @@ public class ReturnToSenderPrototypeTests
     /// source index is substituted so the lookup succeeds with a null body. Without
     /// the substitution a miss would return null for the wrong reason and prove nothing.
     /// </para>
+    /// <para>
+    /// This gates the common path only. Isolation resolves its source member with
+    /// <c>CorpusMethodIdentity.SignatureText</c> while the index is keyed by
+    /// <c>SignatureIdentity</c>, so its signature lookup always misses and falls
+    /// back to the ordinal (#3804). Where those disagree the two sides can select
+    /// different overloads, and this invariant does not cover that case. The floor
+    /// clearing does not depend on it either way.
+    /// </para>
     /// </remarks>
     [Fact]
     public void TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody()

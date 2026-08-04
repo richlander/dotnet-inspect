@@ -920,10 +920,19 @@ static class ReturnToSender
     /// </para>
     /// <para>
     /// The gate for both behaviors is <c>CompileBackFloorFaultIsolationTests</c>.
-    /// Clearing here cannot change the invalid breakdown, because a row carrying
-    /// isolation necessarily had an authored body and so cannot reach the bodyless
-    /// invalid path; that invariant's gate is
+    /// Clearing is correct regardless of which source member the isolation was
+    /// measured against: if it described this row's member, it described the
+    /// discarded compile rather than the floor's verdict, and if lookup divergence
+    /// made it describe a different member, it never applied to this row at all.
+    /// </para>
+    /// <para>
+    /// On the common path a row carrying isolation had an authored body and so
+    /// cannot reach the bodyless invalid path, which keeps the invalid breakdown
+    /// stable; that invariant's gate is
     /// <c>ReturnToSenderPrototypeTests.TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody</c>.
+    /// It is an invariant of the common path only, not of every input: isolation
+    /// resolves its source member by a different signature format than the probe
+    /// (see #3804), so the two can select different overloads.
     /// </para>
     /// </remarks>
     internal static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)
