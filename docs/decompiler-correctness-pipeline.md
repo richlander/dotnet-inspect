@@ -451,28 +451,55 @@ one of them is cost.
 **Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
 suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
 Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
-simply adopt a narrower build. It also carries theories, so it is blocked on the
-second reason below as well; making it cheap is necessary but not sufficient.
+simply adopt a narrower build. It also carries theories, so the second reason
+below applies to it too; making it cheap is necessary but not sufficient.
 
-**Excluded on principle.** `DiffFixtureFidelityTests`,
+**Excluded on a checker limitation.** `DiffFixtureFidelityTests`,
 `NestedTargetLookupTests`, `AuthoredRebuildFidelityTests` and
 `AnnotatedCompileBackFailureTests` are nearly free — run together they are
-2.9 seconds — and still cannot be gated today, because every one of them
-carries a `[Theory]`.
+42 cases in 2.4 seconds — and still cannot be gated today, because every one of
+them carries a `[Theory]`.
 
-The problem is not the runtime, it is what the CI completeness check can see.
-Run those four classes and xUnit reports `Discovered: 11 test cases` and then
-`Total: 20`. No `-list` mode expands a theory into its cases, so the check the
-`decompiler-gates` job runs is method-granular: it would confirm all 11 methods
-executed while nine cases silently vanished. That is the same shape of
-undetected loss the gate exists to prevent, so
+The problem is not the runtime, it is what the completeness check compares
+against. Run those four classes and the runner reports:
+
+```text
+Discovered:  ILInspector.Decompiler.Tests (28 test cases to be run)
+...
+Total: 42, Errors: 0, Failed: 0, Skipped: 0, Time: 2.373s
+```
+
+Discovery is method-granular (28) while execution is case-granular (42). A
+checker built on that discovery would confirm all 28 methods executed while 14
+cases silently vanished — the same undetected-loss shape the gate exists to
+prevent.
+
+That is a limitation of *this checker*, not of xUnit. Passing
+`-preEnumerateTheories -list full/json` emits one entry per case, each with a
+stable unique `ID`:
+
+```text
+...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v1")
+...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v2")
+```
+
+So gating these is a tractable prerequisite, not a standing principle: switch
+the discovery step to pre-enumerated full JSON and compare case IDs rather than
+method names. Until that lands,
 `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
-closed on any non-`FactAttribute` test attribute. Gating these requires making
-the completeness check case-granular first; it is a prerequisite change, not an
-oversight.
+closed on any non-`FactAttribute` test attribute, which is what makes method
+granularity sound here rather than merely assumed.
 
-Widen the preset as classes get cheap enough, and as the completeness check
-grows the granularity a theory would need.
+Widen the preset as classes get cheap enough, and once the completeness check
+carries the case granularity a theory needs.
+
+> [!TIP]
+> When measuring a class by name, check the namespace. Several classes in this
+> assembly live in `ILInspector.DecompilerHarness`, not
+> `ILInspector.Decompiler.Tests`, and a `-class` filter that matches nothing is
+> silently dropped rather than reported as an error — an ad-hoc measurement can
+> quietly omit a class. `eng/decompiler-gate-expected-classes.txt` and the CI
+> checker exist to stop exactly that from happening to the gate itself.
 
 ## Vocabulary
 

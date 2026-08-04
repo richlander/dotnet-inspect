@@ -567,17 +567,24 @@ jobs:
   # Excluded on cost: SkeletonEmitTests, the single most expensive class in the
   # suite (~630s on CI, #3495). It wants the emit-bound residual addressed
   # before it can be gated -- and note it deliberately asserts the *whole-module*
-  # skeleton compiles, so it cannot simply adopt a narrower build.
+  # skeleton compiles, so it cannot simply adopt a narrower build. It also
+  # carries theories, so the second reason below applies to it as well.
   #
-  # Excluded on principle: DiffFixtureFidelityTests, NestedTargetLookupTests,
-  # AuthoredRebuildFidelityTests and AnnotatedCompileBackFailureTests are nearly
-  # free -- 20 tests in ~2s combined -- but every one of them carries a
-  # [Theory]. The completeness check is method-granular because no xUnit -list
-  # mode enumerates individual cases, so a theory that silently lost cases would
-  # still satisfy it. GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts
-  # enforces that, and it is what makes method granularity sound rather than
-  # assumed. Gating these classes requires making the completeness check
-  # case-granular first; it is not a matter of adding them here.
+  # Excluded on a checker limitation, not cost: DiffFixtureFidelityTests,
+  # NestedTargetLookupTests, AuthoredRebuildFidelityTests and
+  # AnnotatedCompileBackFailureTests are nearly free -- 42 cases in 2.4s
+  # combined -- but every one of them carries a [Theory], and the completeness
+  # check compares against method-granular discovery. Run those four and the
+  # runner reports "Discovered: 28" then "Total: 42": the check would confirm
+  # all 28 methods executed while 14 cases silently vanished.
+  #
+  # That is a limitation of this checker, not of xUnit --
+  # `-preEnumerateTheories -list full/json` emits one entry per case with a
+  # stable unique ID -- so it is tractable: switch the discovery step to
+  # pre-enumerated full JSON and compare case IDs instead of method names. Until
+  # then GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts
+  # fails closed on any non-Fact attribute, which is what makes method
+  # granularity sound here rather than merely assumed.
   decompiler-gates:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
