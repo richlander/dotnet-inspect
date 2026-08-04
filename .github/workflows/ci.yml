@@ -545,7 +545,7 @@ jobs:
   # Inspect's `if: ... && failure()` notifier. Detection latency was unbounded,
   # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
   #
-  # This job runs the three gates whose failures are attributable to a specific
+  # This job runs the gates whose failures are attributable to a specific
   # fixture and docket entry, as its own job so it never serializes with the
   # hot `test` lane. Currently-open failures are pinned in
   # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
@@ -561,14 +561,35 @@ jobs:
   # intended to serve as the merge gate and be the one context the ruleset
   # requires.
   #
-  # The remaining Fidelity-area classes are excluded on cost, not principle:
-  # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
-  # tests and want the #3495 type-filter treatment before they can be gated.
+  # The Fidelity-area classes that remain ungated are excluded for two distinct
+  # reasons, and only one of them is cost.
+  #
+  # Excluded on cost: SkeletonEmitTests, the single most expensive class in the
+  # suite (~630s on CI, #3495). It wants the emit-bound residual addressed
+  # before it can be gated -- and note it deliberately asserts the *whole-module*
+  # skeleton compiles, so it cannot simply adopt a narrower build.
+  #
+  # Excluded on principle: DiffFixtureFidelityTests, NestedTargetLookupTests,
+  # AuthoredRebuildFidelityTests and AnnotatedCompileBackFailureTests are nearly
+  # free -- 20 tests in ~2s combined -- but every one of them carries a
+  # [Theory]. The completeness check is method-granular because no xUnit -list
+  # mode enumerates individual cases, so a theory that silently lost cases would
+  # still satisfy it. GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts
+  # enforces that, and it is what makes method granularity sound rather than
+  # assumed. Gating these classes requires making the completeness check
+  # case-granular first; it is not a matter of adding them here.
   decompiler-gates:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    # Job timeout raised 45 -> 55 with the step timeout below (#3495 follow-up).
+    # The two must move together: the design depends on the *step* timeout
+    # firing first, with enough of the job budget left for the checker and the
+    # artifact upload to still run and fail loudly. At step 35 and ~5 minutes of
+    # preceding setup and build, the step gives up around minute 40, which needs
+    # more than the old 45-minute job budget to stay a loud failure, not a
+    # cancel.
+    timeout-minutes: 55
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -632,6 +653,12 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
+      # 35 is sized to a measurement, not a guess. The preset runs 44 tests in
+      # 11m42s locally; the CI runner is roughly 1.6x slower on these classes
+      # (#3495's per-class table against the same machine), so expect ~20
+      # minutes. 35 leaves ~75% headroom over that while staying 20 minutes
+      # under the job timeout, which is what keeps a hang loud.
+      #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
       # the discovery listing above describe the same binary, and (b) hide a
@@ -640,7 +667,7 @@ jobs:
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: |
           dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
             --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
