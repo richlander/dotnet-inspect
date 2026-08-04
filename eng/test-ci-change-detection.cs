@@ -1,10 +1,23 @@
+#:property ManagePackageVersionsCentrally=false
+#:package YamlDotNet@18.1.0
+
 using System.Diagnostics;
+using YamlDotNet.RepresentationModel;
 
 string repository = Environment.CurrentDirectory;
 (string body, string[] outputs) = LoadDetectionBody(repository);
 
 AssertAll(RunDetection(repository, body, "pull_request", "", outputs), "true");
 AssertAll(RunDetection(repository, body, "push", "", outputs), "false");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "push",
+        "README.md",
+        outputs,
+        resolutionSucceeds: false),
+    "true");
 AssertAll(
     RunDetection(
         repository,
@@ -33,6 +46,18 @@ if (source["code"] != "true")
 {
     throw new InvalidOperationException(
         $"Source canary did not select code: {FormatValues(source)}");
+}
+
+Dictionary<string, string> pushedSource = RunDetection(
+    repository,
+    body,
+    "push",
+    "src/dotnet-inspect/Program.cs",
+    outputs);
+if (pushedSource["code"] != "true")
+{
+    throw new InvalidOperationException(
+        $"Pushed source canary did not select code: {FormatValues(pushedSource)}");
 }
 
 string brokenGhInvocation = body.Replace(
@@ -65,65 +90,38 @@ Console.WriteLine("CI change detection fail-safe and path canaries passed.");
 static (string Body, string[] Outputs) LoadDetectionBody(string repository)
 {
     string workflow = Path.Combine(repository, ".github", "workflows", "ci.yml");
-    string[] lines = File.ReadAllLines(workflow);
-
-    int jobsLine = FindUniqueDirectLine(
-        lines,
-        0,
-        lines.Length,
-        0,
-        "jobs:",
-        "top-level jobs mapping");
-    int jobsEnd = FindBlockEnd(lines, jobsLine, 0);
-    int changesLine = FindUniqueDirectLine(
-        lines,
-        jobsLine + 1,
-        jobsEnd,
-        2,
-        "changes:",
-        "jobs.changes");
-    int changesEnd = FindBlockEnd(lines, changesLine, 2);
-
-    int outputsLine = FindUniqueDirectLine(
-        lines,
-        changesLine + 1,
-        changesEnd,
-        4,
-        "outputs:",
-        "jobs.changes.outputs");
-    int outputsEnd = FindBlockEnd(lines, outputsLine, 4);
-    List<string> declaredOutputs = [];
-    for (int index = outputsLine + 1; index < outputsEnd; index++)
+    using TextReader reader = File.OpenText(workflow);
+    YamlStream yaml = [];
+    yaml.Load(reader);
+    if (yaml.Documents.Count != 1)
     {
-        string line = lines[index];
-        string trimmed = line.Trim();
-        if (trimmed.Length == 0 ||
-            trimmed.StartsWith('#') ||
-            CountIndent(line) != 6)
-        {
-            continue;
-        }
+        throw new InvalidOperationException(
+            $"Expected one workflow document, found {yaml.Documents.Count}.");
+    }
 
-        int separator = trimmed.IndexOf(':');
-        if (separator <= 0)
-        {
-            throw new InvalidOperationException(
-                $"Invalid jobs.changes output on workflow line {index + 1}.");
-        }
+    YamlMappingNode root = RequireMapping(
+        yaml.Documents[0].RootNode,
+        "workflow root");
+    YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
+    YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
+    RequireAbsent(changes, "if", "jobs.changes");
+    RequireAbsent(changes, "continue-on-error", "jobs.changes");
 
-        string name = trimmed[..separator];
+    YamlMappingNode outputMappings =
+        GetRequiredMapping(changes, "outputs", "jobs.changes");
+    List<string> declaredOutputs = [];
+    foreach ((YamlNode keyNode, YamlNode valueNode) in outputMappings.Children)
+    {
+        string name = RequireScalar(keyNode, "jobs.changes output name");
+        string binding = RequireScalar(
+            valueNode,
+            $"jobs.changes.outputs.{name} binding");
         string expectedBinding =
-            name + ": ${{ steps.filter.outputs." + name + " }}";
-        if (trimmed != expectedBinding)
+            "${{ steps.filter.outputs." + name + " }}";
+        if (binding != expectedBinding)
         {
             throw new InvalidOperationException(
                 $"Invalid jobs.changes.outputs.{name} binding.");
-        }
-
-        if (declaredOutputs.Contains(name, StringComparer.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Duplicate jobs.changes output: {name}.");
         }
 
         declaredOutputs.Add(name);
@@ -135,84 +133,126 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             "jobs.changes must declare at least one output.");
     }
 
-    int stepsLine = FindUniqueDirectLine(
-        lines,
-        changesLine + 1,
-        changesEnd,
-        4,
-        "steps:",
-        "jobs.changes.steps");
-    int stepsEnd = FindBlockEnd(lines, stepsLine, 4);
-    int stepLine = FindUniqueDirectLine(
-        lines,
-        stepsLine + 1,
-        stepsEnd,
-        6,
-        "- name: Detect changes",
-        "jobs.changes Detect changes step");
-    int stepEnd = FindBlockEnd(lines, stepLine, 6);
-    FindUniqueDirectLine(
-        lines,
-        stepLine + 1,
-        stepEnd,
-        8,
-        "id: filter",
-        "Detect changes id");
-    FindUniqueDirectLine(
-        lines,
-        stepLine + 1,
-        stepEnd,
-        8,
-        "shell: bash",
-        "Detect changes shell");
-    RequireNoDirectKey(lines, stepLine + 1, stepEnd, 8, "if");
-    RequireNoDirectKey(
-        lines,
-        stepLine + 1,
-        stepEnd,
-        8,
-        "continue-on-error");
-    int runLine = FindUniqueDirectLine(
-        lines,
-        stepLine + 1,
-        stepEnd,
-        8,
-        "run: |",
-        "Detect changes literal run block");
-
-    int runIndent = CountIndent(lines[runLine]);
-    int bodyIndent = runIndent + 2;
-    List<string> body = [];
-    for (int index = runLine + 1; index < lines.Length; index++)
+    YamlSequenceNode steps = GetRequiredSequence(
+        changes,
+        "steps",
+        "jobs.changes");
+    List<YamlMappingNode> detectionSteps = [];
+    foreach (YamlNode stepNode in steps.Children)
     {
-        string line = lines[index];
-        if (string.IsNullOrWhiteSpace(line))
+        YamlMappingNode step = RequireMapping(
+            stepNode,
+            "jobs.changes step");
+        if (GetOptionalScalar(step, "name") == "Detect changes")
         {
-            body.Add("");
-            continue;
+            detectionSteps.Add(step);
         }
-
-        int indent = CountIndent(line);
-        if (indent <= runIndent)
-        {
-            break;
-        }
-
-        if (indent < bodyIndent)
-        {
-            throw new InvalidOperationException(
-                $"Invalid Detect changes indentation on workflow line {index + 1}.");
-        }
-
-        body.Add(line[bodyIndent..]);
     }
 
-    if (body.Count == 0)
+    if (detectionSteps.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Expected one jobs.changes Detect changes step, " +
+            $"found {detectionSteps.Count}.");
+    }
+
+    YamlMappingNode detectionStep = detectionSteps[0];
+    RequireScalarValue(detectionStep, "id", "filter", "Detect changes");
+    RequireScalarValue(detectionStep, "shell", "bash", "Detect changes");
+    RequireAbsent(detectionStep, "if", "Detect changes");
+    RequireAbsent(detectionStep, "continue-on-error", "Detect changes");
+    string body = GetRequiredScalar(detectionStep, "run", "Detect changes");
+    if (body.Length == 0)
     {
         throw new InvalidOperationException("Detect changes has an empty run block.");
     }
 
-    return (string.Join('\n', body), declaredOutputs.ToArray());
+    return (body, declaredOutputs.ToArray());
+}
+
+static YamlMappingNode GetRequiredMapping(
+    YamlMappingNode mapping,
+    string key,
+    string context) =>
+    RequireMapping(GetRequiredNode(mapping, key, context), $"{context}.{key}");
+
+static YamlSequenceNode GetRequiredSequence(
+    YamlMappingNode mapping,
+    string key,
+    string context) =>
+    GetRequiredNode(mapping, key, context) is YamlSequenceNode sequence
+        ? sequence
+        : throw new InvalidOperationException($"{context}.{key} must be a sequence.");
+
+static string GetRequiredScalar(
+    YamlMappingNode mapping,
+    string key,
+    string context) =>
+    RequireScalar(GetRequiredNode(mapping, key, context), $"{context}.{key}");
+
+static string? GetOptionalScalar(YamlMappingNode mapping, string key) =>
+    TryGetNode(mapping, key, out YamlNode node)
+        ? RequireScalar(node, key)
+        : null;
+
+static YamlNode GetRequiredNode(
+    YamlMappingNode mapping,
+    string key,
+    string context) =>
+    TryGetNode(mapping, key, out YamlNode node)
+        ? node
+        : throw new InvalidOperationException($"Could not find {context}.{key}.");
+
+static bool TryGetNode(
+    YamlMappingNode mapping,
+    string key,
+    out YamlNode value)
+{
+    foreach ((YamlNode keyNode, YamlNode valueNode) in mapping.Children)
+    {
+        if (keyNode is YamlScalarNode scalar && scalar.Value == key)
+        {
+            value = valueNode;
+            return true;
+        }
+    }
+
+    value = null!;
+    return false;
+}
+
+static YamlMappingNode RequireMapping(YamlNode node, string context) =>
+    node as YamlMappingNode
+    ?? throw new InvalidOperationException($"{context} must be a mapping.");
+
+static string RequireScalar(YamlNode node, string context) =>
+    node is YamlScalarNode { Value: string value }
+        ? value
+        : throw new InvalidOperationException($"{context} must be a scalar.");
+
+static void RequireScalarValue(
+    YamlMappingNode mapping,
+    string key,
+    string expected,
+    string context)
+{
+    string actual = GetRequiredScalar(mapping, key, context);
+    if (actual != expected)
+    {
+        throw new InvalidOperationException(
+            $"{context}.{key} must be {expected}, got {actual}.");
+    }
+}
+
+static void RequireAbsent(
+    YamlMappingNode mapping,
+    string key,
+    string context)
+{
+    if (TryGetNode(mapping, key, out _))
+    {
+        throw new InvalidOperationException($"{context} must not declare {key}.");
+    }
 }
 
 static Dictionary<string, string> RunDetection(
@@ -241,6 +281,8 @@ static Dictionary<string, string> RunDetection(
     try
     {
         string output = Path.Combine(temporary, "github-output");
+        string standardOutputPath = Path.Combine(temporary, "stdout");
+        string standardErrorPath = Path.Combine(temporary, "stderr");
         string binaries = Path.Combine(temporary, "bin");
         Directory.CreateDirectory(binaries);
 
@@ -278,18 +320,19 @@ static Dictionary<string, string> RunDetection(
 
         ProcessStartInfo startInfo = new("bash")
         {
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
             UseShellExecute = false,
             WorkingDirectory = repository,
         };
         startInfo.ArgumentList.Add("--noprofile");
         startInfo.ArgumentList.Add("--norc");
-        startInfo.ArgumentList.Add("-e");
-        startInfo.ArgumentList.Add("-o");
-        startInfo.ArgumentList.Add("pipefail");
         startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(
+            "exec bash --noprofile --norc -e -o pipefail -c " +
+            "\"$1\" >\"$2\" 2>\"$3\"");
+        startInfo.ArgumentList.Add("change-detection-wrapper");
         startInfo.ArgumentList.Add(rendered);
+        startInfo.ArgumentList.Add(standardOutputPath);
+        startInfo.ArgumentList.Add(standardErrorPath);
         startInfo.Environment["CHANGED_FILES"] = files;
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
         startInfo.Environment["EXPECTED_SHA"] = Sha;
@@ -301,8 +344,6 @@ static Dictionary<string, string> RunDetection(
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start Bash.");
-        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
-        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
         bool timedOut = !process.WaitForExit(milliseconds: 30_000);
         if (timedOut)
         {
@@ -310,8 +351,8 @@ static Dictionary<string, string> RunDetection(
             process.WaitForExit();
         }
 
-        string standardOutput = standardOutputTask.GetAwaiter().GetResult();
-        string standardError = standardErrorTask.GetAwaiter().GetResult();
+        string standardOutput = ReadIfExists(standardOutputPath);
+        string standardError = ReadIfExists(standardErrorPath);
         if (timedOut)
         {
             throw new InvalidOperationException(
@@ -353,78 +394,8 @@ static Dictionary<string, string> RunDetection(
     }
 }
 
-static int FindUniqueDirectLine(
-    string[] lines,
-    int start,
-    int end,
-    int indent,
-    string content,
-    string description)
-{
-    int match = -1;
-    for (int index = start; index < end; index++)
-    {
-        if (CountIndent(lines[index]) != indent ||
-            lines[index].Trim() != content)
-        {
-            continue;
-        }
-
-        if (match >= 0)
-        {
-            throw new InvalidOperationException(
-                $"Expected one {description}, found more than one.");
-        }
-
-        match = index;
-    }
-
-    if (match < 0)
-    {
-        throw new InvalidOperationException($"Could not find {description}.");
-    }
-
-    return match;
-}
-
-static int FindBlockEnd(string[] lines, int start, int indent)
-{
-    for (int index = start + 1; index < lines.Length; index++)
-    {
-        string trimmed = lines[index].TrimStart();
-        if (trimmed.Length == 0 || trimmed.StartsWith('#'))
-        {
-            continue;
-        }
-
-        if (CountIndent(lines[index]) <= indent)
-        {
-            return index;
-        }
-    }
-
-    return lines.Length;
-}
-
-static void RequireNoDirectKey(
-    string[] lines,
-    int start,
-    int end,
-    int indent,
-    string key)
-{
-    for (int index = start; index < end; index++)
-    {
-        if (CountIndent(lines[index]) == indent &&
-            lines[index].TrimStart().StartsWith(
-                key + ":",
-                StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Detect changes must not declare {key}.");
-        }
-    }
-}
+static string ReadIfExists(string path) =>
+    File.Exists(path) ? File.ReadAllText(path) : "";
 
 static void WriteExecutable(string path, string content)
 {
@@ -434,22 +405,6 @@ static void WriteExecutable(string path, string content)
         UnixFileMode.UserRead |
         UnixFileMode.UserWrite |
         UnixFileMode.UserExecute);
-}
-
-static int CountIndent(string line)
-{
-    int indent = 0;
-    while (indent < line.Length && line[indent] == ' ')
-    {
-        indent++;
-    }
-
-    if (indent < line.Length && line[indent] == '\t')
-    {
-        throw new InvalidOperationException("Workflow indentation must use spaces.");
-    }
-
-    return indent;
 }
 
 static void AssertAll(Dictionary<string, string> values, string expected)
