@@ -1,0 +1,386 @@
+using ILInspector.Metadata;
+
+namespace ILInspector.CSharp;
+
+public enum CSharpShellMemberKind
+{
+    PropertyGet,
+    PropertySet,
+    EventAdd,
+    EventRemove,
+    Constructor,
+    Method,
+    Field,
+}
+
+public enum CSharpShellBodyKind
+{
+    None,
+    Throw,
+    ThrowGetSet,
+    ThrowGetInit,
+    TargetBody,
+    TargetGetterWithSetter,
+    TargetGetterWithInitSetter,
+    TargetSetterWithGetter,
+    TargetInitSetterWithGetter,
+    TargetInitBody,
+    TargetEventAccessorWithSibling,
+    AutoProperty,
+    AutoPropertyGetSet,
+    AutoPropertyGetInit,
+    FieldInitializer,
+}
+
+public enum CSharpShellAccessibility
+{
+    Public,
+    Protected,
+}
+
+public sealed record CSharpShellParameter(
+    string Name,
+    string Type,
+    string? Modifier = null,
+    IReadOnlyList<string>? Attributes = null,
+    bool HasDefault = false,
+    string? DefaultValueText = null);
+
+public sealed record CSharpShellTypeParameter(
+    string Name,
+    IReadOnlyList<string> Constraints,
+    IReadOnlyList<TypeParameterConstraint>? StructuredConstraints = null);
+
+public sealed record CSharpMemberShellSpec(
+    string Name,
+    CSharpShellMemberKind Kind,
+    bool IsStatic,
+    IReadOnlyList<CSharpShellParameter> Parameters,
+    string? ReturnType,
+    IReadOnlyList<CSharpShellTypeParameter> TypeParameters,
+    CSharpShellBodyKind BodyKind,
+    string? Body,
+    IReadOnlyList<string>? Attributes = null,
+    IReadOnlyList<string>? ReturnAttributes = null,
+    bool IsAbstract = false,
+    bool IsVirtual = false,
+    bool IsOverride = false,
+    bool IsSealed = false,
+    bool IsAsync = false,
+    bool IsExtension = false,
+    CSharpShellAccessibility Accessibility = CSharpShellAccessibility.Public,
+    string? ConstructorInitializer = null,
+    string? ExplicitInterfaceMemberName = null,
+    string? DeclarationSignature = null,
+    bool RequiresUnsafeModifier = false,
+    string? SiblingBody = null,
+    int? MetadataToken = null,
+    int? GetterToken = null,
+    int? SetterToken = null,
+    int? AdderToken = null,
+    int? RemoverToken = null);
+
+/// <summary>
+/// Composes product-owned C# member models and body policies from a neutral shell
+/// specification. Consumers select members and bodies; this seam owns their C#
+/// declaration and accessor shape.
+/// </summary>
+public static class CSharpMemberShellProducer
+{
+    public static CSharpMemberPolicy BuildPolicy(
+        CSharpMemberShellSpec spec,
+        int primaryConstructorParameterCount = 0)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        if (primaryConstructorParameterCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(primaryConstructorParameterCount));
+
+        var member = BuildMember(spec);
+        return spec.BodyKind switch
+        {
+            CSharpShellBodyKind.None
+                or CSharpShellBodyKind.AutoProperty
+                or CSharpShellBodyKind.AutoPropertyGetSet
+                or CSharpShellBodyKind.AutoPropertyGetInit
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CSharpShellBodyKind.Throw
+                when spec.Kind is CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet
+                => new(member, CSharpBodyPolicy.Stub, PropertyBody(spec, CSharpAccessorBody.Throw)),
+            CSharpShellBodyKind.Throw
+                when spec.Kind is CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
+            CSharpShellBodyKind.Throw
+                when spec.Kind == CSharpShellMemberKind.Constructor
+                    && primaryConstructorParameterCount > 0
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpBlockBody(
+                        "throw null;",
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.This,
+                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
+            CSharpShellBodyKind.Throw
+                => new(member, CSharpBodyPolicy.Stub),
+            CSharpShellBodyKind.ThrowGetSet
+                or CSharpShellBodyKind.ThrowGetInit
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
+            CSharpShellBodyKind.TargetBody
+                when spec.Kind == CSharpShellMemberKind.Field
+                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(RequiredBody(spec))),
+            CSharpShellBodyKind.TargetBody
+                when spec.Kind is CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    PropertyBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+            CSharpShellBodyKind.TargetInitBody
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    PropertyBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+            CSharpShellBodyKind.TargetBody
+                when spec.Kind is CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    EventBody(spec, CSharpAccessorBody.Block(RequiredBody(spec)))),
+            CSharpShellBodyKind.TargetEventAccessorWithSibling
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    EventBody(
+                        spec,
+                        CSharpAccessorBody.Block(RequiredBody(spec)),
+                        CSharpAccessorBody.Block(RequiredSiblingBody(spec)))),
+            CSharpShellBodyKind.TargetBody
+                when spec.Kind == CSharpShellMemberKind.Constructor
+                    && primaryConstructorParameterCount > 0
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        RequiredBody(spec),
+                        new CSharpConstructorInitializer(
+                            CSharpConstructorInitializerKind.This,
+                            Enumerable.Repeat("default", primaryConstructorParameterCount).ToArray()))),
+            CSharpShellBodyKind.TargetBody
+                when spec.Kind == CSharpShellMemberKind.Constructor
+                    && CSharpFormatter.ParseConstructorInitializer(spec.ConstructorInitializer) is { } initializer
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(RequiredBody(spec), initializer)),
+            CSharpShellBodyKind.TargetBody
+                => new(member, CSharpBodyPolicy.Full, new CSharpBlockBody(RequiredBody(spec))),
+            CSharpShellBodyKind.TargetGetterWithSetter
+                or CSharpShellBodyKind.TargetGetterWithInitSetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block(RequiredBody(spec)),
+                        CSharpAccessorBody.Throw)),
+            CSharpShellBodyKind.TargetSetterWithGetter
+                or CSharpShellBodyKind.TargetInitSetterWithGetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Throw,
+                        CSharpAccessorBody.Block(RequiredBody(spec)))),
+            CSharpShellBodyKind.FieldInitializer
+                => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(RequiredBody(spec))),
+            _ => throw new NotSupportedException(
+                $"Unsupported C# shell member body shape '{spec.BodyKind}'."),
+        };
+    }
+
+    public static ApiParameter BuildParameter(CSharpShellParameter parameter)
+    {
+        ArgumentNullException.ThrowIfNull(parameter);
+
+        string type = parameter.Type;
+        string? modifier = parameter.Modifier;
+        if (type.StartsWith("ref ", StringComparison.Ordinal))
+        {
+            type = type["ref ".Length..];
+            modifier ??= "ref";
+        }
+
+        return new ApiParameter
+        {
+            Attributes = parameter.Attributes?.ToList() ?? [],
+            Name = parameter.Name,
+            Type = type,
+            Modifier = modifier,
+            HasDefault = parameter.HasDefault,
+            DefaultValueText = parameter.DefaultValueText,
+        };
+    }
+
+    static ApiMember BuildMember(CSharpMemberShellSpec spec)
+    {
+        bool isProperty = spec.Kind is CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet;
+        bool isEvent = spec.Kind is CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove;
+        bool isExplicitInterface = spec.ExplicitInterfaceMemberName is not null;
+        var member = new ApiMember
+        {
+            Name = spec.ExplicitInterfaceMemberName ?? spec.Name,
+            Kind = isExplicitInterface && (isProperty || isEvent || spec.Kind == CSharpShellMemberKind.Method)
+                ? "explicit-interface-implementation"
+                : spec.Kind switch
+                {
+                    CSharpShellMemberKind.PropertyGet or CSharpShellMemberKind.PropertySet => "property",
+                    CSharpShellMemberKind.EventAdd or CSharpShellMemberKind.EventRemove => "event",
+                    CSharpShellMemberKind.Constructor => "constructor",
+                    CSharpShellMemberKind.Method => "method",
+                    CSharpShellMemberKind.Field => "field",
+                    _ => throw new NotSupportedException(
+                        $"Unsupported C# shell member kind '{spec.Kind}'."),
+                },
+            ReturnType = spec.ReturnType,
+            Signature = spec.DeclarationSignature,
+            IsStatic = spec.IsStatic,
+            IsAbstract = spec.IsAbstract,
+            IsVirtual = spec.IsVirtual,
+            IsOverride = spec.IsOverride,
+            IsSealed = spec.IsSealed,
+            Accessibility = spec.Accessibility switch
+            {
+                CSharpShellAccessibility.Public => "public",
+                CSharpShellAccessibility.Protected => "protected",
+                _ => throw new NotSupportedException(
+                    $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
+            },
+            Attributes = spec.Attributes?.ToList() ?? [],
+            IsUnsafe = spec.RequiresUnsafeModifier || RequiresUnsafe(spec),
+            IsAsync = spec.IsAsync,
+            IsExtension = spec.IsExtension,
+            IsConst = spec.Kind == CSharpShellMemberKind.Field
+                && spec.BodyKind == CSharpShellBodyKind.TargetBody,
+            MetadataToken = spec.MetadataToken,
+            GetterToken = spec.GetterToken,
+            SetterToken = spec.SetterToken,
+            AdderToken = spec.AdderToken,
+            RemoverToken = spec.RemoverToken,
+        };
+
+        if (spec.Kind != CSharpShellMemberKind.Field)
+        {
+            member.SignatureModel = new ApiSignature
+            {
+                ReturnType = spec.ReturnType,
+                ReturnAttributes = spec.Kind == CSharpShellMemberKind.Method
+                    ? spec.ReturnAttributes?.ToList() ?? []
+                    : [],
+                MemberName = spec.TypeParameters.Count == 0
+                    ? spec.Name
+                    : $"{spec.Name}<{string.Join(", ", spec.TypeParameters.Select(parameter => parameter.Name))}>",
+                TypeParameters = spec.TypeParameters
+                    .Select(parameter => new TypeParameter
+                    {
+                        Name = parameter.Name,
+                        Constraints = parameter.Constraints.ToList(),
+                        StructuredConstraints = parameter.StructuredConstraints,
+                    })
+                    .ToList(),
+                Parameters = spec.Parameters.Select(BuildParameter).ToList(),
+            };
+            if (isProperty)
+            {
+                member.SignatureModel.MemberName = spec.Parameters.Count > 0
+                    ? "this[]"
+                    : member.Name;
+                member.SignatureModel.Accessors = PropertyAccessors(spec);
+            }
+            else if (isEvent)
+            {
+                member.SignatureModel.MemberName = member.Name;
+                member.SignatureModel.Accessors =
+                [
+                    new ApiAccessor { Kind = "add" },
+                    new ApiAccessor { Kind = "remove" },
+                ];
+            }
+        }
+
+        return member;
+    }
+
+    static List<ApiAccessor> PropertyAccessors(CSharpMemberShellSpec spec)
+    {
+        bool isAutoGetInit = spec.BodyKind == CSharpShellBodyKind.AutoPropertyGetInit;
+        bool setterIsInit = spec.BodyKind is CSharpShellBodyKind.TargetGetterWithInitSetter
+            or CSharpShellBodyKind.TargetInitSetterWithGetter
+            or CSharpShellBodyKind.TargetInitBody
+            or CSharpShellBodyKind.ThrowGetInit;
+        bool hasGetter = isAutoGetInit
+            || spec.Kind == CSharpShellMemberKind.PropertyGet
+            || spec.BodyKind is CSharpShellBodyKind.AutoPropertyGetSet
+                or CSharpShellBodyKind.ThrowGetSet
+                or CSharpShellBodyKind.ThrowGetInit
+                or CSharpShellBodyKind.TargetSetterWithGetter
+                or CSharpShellBodyKind.TargetInitSetterWithGetter;
+        bool hasSetter = !isAutoGetInit
+            && (spec.Kind == CSharpShellMemberKind.PropertySet
+                || spec.BodyKind is CSharpShellBodyKind.AutoPropertyGetSet
+                    or CSharpShellBodyKind.ThrowGetSet
+                    or CSharpShellBodyKind.ThrowGetInit
+                    or CSharpShellBodyKind.TargetGetterWithSetter
+                    or CSharpShellBodyKind.TargetGetterWithInitSetter);
+        var accessors = new List<ApiAccessor>();
+        if (hasGetter)
+        {
+            accessors.Add(new ApiAccessor
+            {
+                Kind = "get",
+                ReturnAttributes = spec.ReturnAttributes?.ToList() ?? [],
+            });
+        }
+        if (hasSetter)
+            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
+        if (isAutoGetInit)
+            accessors.Add(new ApiAccessor { Kind = "init" });
+        return accessors;
+    }
+
+    static CSharpPropertyBody PropertyBody(
+        CSharpMemberShellSpec spec,
+        CSharpAccessorBody body)
+        => spec.Kind == CSharpShellMemberKind.PropertyGet
+            ? new CSharpPropertyBody(body, null)
+            : new CSharpPropertyBody(null, body);
+
+    static CSharpEventBody EventBody(
+        CSharpMemberShellSpec spec,
+        CSharpAccessorBody body,
+        CSharpAccessorBody? siblingBody = null)
+        => spec.Kind == CSharpShellMemberKind.EventAdd
+            ? new CSharpEventBody(body, siblingBody ?? CSharpAccessorBody.Throw)
+            : new CSharpEventBody(siblingBody ?? CSharpAccessorBody.Throw, body);
+
+    static bool RequiresUnsafe(CSharpMemberShellSpec spec)
+        => (spec.ReturnType is { } returnType
+                && CSharpFormatter.TypeRequiresUnsafeModifier(returnType))
+            || spec.Parameters.Any(parameter =>
+                CSharpFormatter.TypeRequiresUnsafeModifier(parameter.Type))
+            || (spec.Body is { } body && CSharpFormatter.RequiresUnsafeModifier(body))
+            || spec.DeclarationSignature?.StartsWith("fixed ", StringComparison.Ordinal) == true;
+
+    static string RequiredBody(CSharpMemberShellSpec spec)
+        => spec.Body ?? throw new ArgumentException(
+            $"C# shell body shape '{spec.BodyKind}' requires a body.",
+            nameof(spec));
+
+    static string RequiredSiblingBody(CSharpMemberShellSpec spec)
+        => spec.SiblingBody ?? throw new ArgumentException(
+            $"C# shell body shape '{spec.BodyKind}' requires a sibling body.",
+            nameof(spec));
+}
