@@ -346,6 +346,15 @@ public static class RouterCommandDefinition
             NuGetSourceOptions sourceOptions,
             CommandContext context)
         {
+            if (PackageExtractor.TryGetLatestCachedCandidateVersion(
+                    packageName,
+                    NuGetSourceResolver.ResolveSourceKeys(
+                        sourceOptions),
+                    includePrerelease: true) is not null)
+            {
+                return true;
+            }
+
             try
             {
                 var versions = await PackageExtractor.GetVersionsAsync(

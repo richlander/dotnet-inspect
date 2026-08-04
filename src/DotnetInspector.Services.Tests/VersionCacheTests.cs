@@ -13,7 +13,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v4";
+    private const string VersionCacheCategory = "versions-v5";
 
     /// <summary>
     /// An HttpClient that throws on any request — proves cache prevented network access.
@@ -61,6 +61,7 @@ public class VersionCacheTests : IDisposable
     [Theory]
     [InlineData("")]
     [InlineData("garbage")]
+    [InlineData(" 1.2.3 ")]
     public async Task GetLatestVersion_WithMalformedLatestEntry_FallsBackToListings(
         string malformed)
     {
@@ -74,6 +75,20 @@ public class VersionCacheTests : IDisposable
             log: null);
 
         Assert.Equal("1.2.3", result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_NormalizesCachedCandidate()
+    {
+        SetLatest("ShorthandCached", CustomSource, "1.2");
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            FailingClient,
+            "ShorthandCached",
+            [CustomSource],
+            log: null);
+
+        Assert.Equal("1.2.0", result);
     }
 
     [Fact]
@@ -133,6 +148,62 @@ public class VersionCacheTests : IDisposable
                 "CustomCached",
                 [CustomSource],
                 log: null));
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_CustomSourceNormalizesFetchedCandidate()
+    {
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: CustomSource.Url,
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: "customshorthand",
+            versions: ["1.2"]));
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            client,
+            "CustomShorthand",
+            [CustomSource],
+            log: null);
+
+        Assert.Equal("1.2.0", result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_NoncanonicalNuGetOrgPathUsesServiceIndex()
+    {
+        var source = new NuGetSource(
+            "custom",
+            "https://api.nuget.org/private/v3/index.json");
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: source.Url,
+            flatContainerBase: "https://private.invalid/flat/",
+            packageId: "custompath",
+            versions: ["7.8.9"]));
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            client,
+            "CustomPath",
+            [source],
+            log: null);
+
+        Assert.Equal("7.8.9", result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_NonStringVersionIndexEntryIsAMiss()
+    {
+        using var client = new HttpClient(new RawCustomFeedHandler(
+            CustomSource,
+            "nonstrlatest",
+            """{"versions":["1.2.3",4]}"""));
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            client,
+            "NonstrLatest",
+            [CustomSource],
+            log: null);
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -329,6 +400,51 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task GetVersions_NormalizesFetchedCandidates()
+    {
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: CustomSource.Url,
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: "listshorthand",
+            versions: ["1.2", "2.0.0"]));
+
+        List<string>? result = await PackageExtractor.GetVersionsAsync(
+            client,
+            "ListShorthand",
+            includePrerelease: false,
+            limit: null,
+            log: null,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [CustomSource.Url],
+            });
+
+        Assert.Equal(["2.0.0", "1.2.0"], result);
+    }
+
+    [Fact]
+    public async Task GetVersions_NonStringVersionIndexEntryIsAMiss()
+    {
+        using var client = new HttpClient(new RawCustomFeedHandler(
+            CustomSource,
+            "nonstrlist",
+            """{"versions":["1.2.3",4]}"""));
+
+        List<string>? result = await PackageExtractor.GetVersionsAsync(
+            client,
+            "NonstrList",
+            includePrerelease: false,
+            limit: null,
+            log: null,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [CustomSource.Url],
+            });
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task ResolveVersionPattern_WithNuGetOrgCached_AlsoQueriesCustomSource()
     {
         // nuget.org's list is cached and contains no match for the pattern; the only matching
@@ -416,6 +532,43 @@ public class VersionCacheTests : IDisposable
                 ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) }
                 : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class RawCustomFeedHandler(
+        NuGetSource source,
+        string packageId,
+        string versionIndex)
+        : HttpMessageHandler
+    {
+        private const string FlatContainerBase =
+            "https://custom.feed/raw-flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                _ when url.Equals(
+                    source.Url,
+                    StringComparison.OrdinalIgnoreCase) => $$"""
+                    {"resources":[{"@id":"{{FlatContainerBase}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """,
+                _ when url.Equals(
+                    $"{FlatContainerBase}{packageId}/index.json",
+                    StringComparison.OrdinalIgnoreCase) => versionIndex,
+                _ => null,
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? System.Net.HttpStatusCode.NotFound
+                    : System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? ""),
+            });
         }
     }
 }

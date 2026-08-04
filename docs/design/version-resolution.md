@@ -53,10 +53,14 @@ Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
 Those aggregate metadata services are NuGet.org-specific. They are queried only
-when `api.nuget.org` is present in the resolved source list; a custom-only feed
-does not leak its package identity to NuGet.org or reuse a NuGet.org metadata
-cache entry for a same-named private package. Package acquisition and RID
-companion-package verification continue to follow the configured sources.
+when the resolved source list contains the canonical
+`https://api.nuget.org/v3/index.json` service index (an optional trailing slash
+is equivalent). Another path on that host, a subdomain, or an endpoint with a
+query or fragment is a custom source and goes through service-index discovery.
+A custom-only feed therefore does not leak its package identity to NuGet.org or
+reuse a NuGet.org metadata cache entry for a same-named private package. Package
+acquisition and RID companion-package verification continue to follow the
+configured sources.
 
 This describes the current gate. The target
 [package source model](package-source-model.md#enrichment-is-a-separate-capability)
@@ -207,11 +211,14 @@ the nuget.org gallery:
   unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
   cache TTL; only an authoritatively filtered list is persisted. The version
-  cache category is versioned (`versions-v4`). Every key has unambiguous
+  cache category is versioned (`versions-v5`). Every key has unambiguous
   producer, cache-kind, and package-id fields; latest entries additionally
   identify stable or prerelease selection. Neither another feed nor a
-  suffix-bearing package id can alias it. The category bump also fences older
-  source-blind, pre-filter, and ambiguous-key entries.
+  suffix-bearing package id can alias it. Candidate versions are accepted only
+  as unpadded strings that parse as NuGet versions, and selected values are
+  normalized before they are cached or used as coordinates. The category bump
+  also fences older source-blind, pre-filter, ambiguous-key, and
+  noncanonical-NuGet.org-attribution entries.
 
 ### Revealing unlisted versions
 
@@ -255,9 +262,9 @@ empty snapshot is a cache miss rather than authoritative candidate metadata.
 | Cache | Location | TTL | Written by |
 | --- | --- | --- | --- |
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client; payload-only, with producer in `.nupkg.metadata` |
-| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v4/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
+| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v5/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v4/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v5/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |

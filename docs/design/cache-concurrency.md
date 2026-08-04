@@ -160,7 +160,7 @@ Package content publication follows this sequence:
 4. Write `.dotnet-inspect.complete` inside the staging directory.
 5. Close all files opened by dotnet-inspect.
 6. Move the staging directory atomically to its final
-   `package-content-v4/{id}/{version}/{source}` path.
+   `package-content-v5/{id}/{version}/{source}` path.
 7. If another publisher won, validate and use its committed directory.
 
 Readers accept only final directories with the expected structure and marker;
@@ -168,9 +168,10 @@ they never inspect staging paths. Platform-pack projection applies the same
 transaction separately under `packs-v2` with its own completion marker. It
 copies from committed package content and never mutates that package directory.
 
-The versioned `package-content-v4` and `packs-v2` namespaces fence these
-transactions from older direct-copy writers, and from earlier layouts that did
-not scope entries by source.
+The versioned `package-content-v5` and `packs-v2` namespaces fence these
+transactions from older direct-copy writers, earlier layouts that did not
+scope entries by source, and payloads previously misattributed by a
+noncanonical NuGet.org URL shortcut.
 
 ## Filesystem coordination
 

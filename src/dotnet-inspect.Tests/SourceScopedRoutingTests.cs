@@ -180,7 +180,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string qualifiedName = $"{packageName}.Widget";
         var nugetOrg = NuGetFetch.PackageSource.NuGetOrg;
         CoreCache.Set(
-            "versions-v4",
+            "versions-v5",
             PackageExtractor.GetLatestVersionCacheKey(packageName, nugetOrg),
             "1.0.0",
             extension: "txt");
@@ -193,6 +193,80 @@ public sealed class SourceScopedRoutingTests : IDisposable
             qualifiedName,
             [NuGetCache.GetSourceKey(ExcludedSource)],
             allowPlatformPrefixFallback: false));
+    }
+
+    [Fact]
+    public async Task BareVersion_UsesSourceScopedCandidateMetadataOffline()
+    {
+        string packageName = $"OfflineVersion{Guid.NewGuid():N}";
+        SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", packageName, "--version", "--source", ExcludedSource]);
+
+        Assert.True(
+            exit == 0,
+            $"Expected success. Output: {output}{Environment.NewLine}Error: {error}");
+        Assert.Equal("4.5.6", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_UsesSourceScopedCandidateMetadataOffline()
+    {
+        string packageName = $"OfflineRoute{Guid.NewGuid():N}";
+        SeedLatestCandidate(
+            packageName,
+            ExcludedSource,
+            "4.5.6-preview.1",
+            includePrerelease: true);
+
+        var observations = await RunAppAsync(
+            [packageName, "--source", ExcludedSource]);
+
+        var rewrite = Assert.Single(
+            observations,
+            observation => observation.Stage == "router-rewrite");
+        Assert.Contains(
+            $" -> package {packageName}",
+            rewrite.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypePrefixProbe_UsesSourceScopedCandidateMetadataOffline()
+    {
+        const string PackageName = "System.Text";
+        SeedLatestCandidate(
+            PackageName,
+            ExcludedSource,
+            "4.5.6-preview.1",
+            includePrerelease: true);
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["type", PackageName, "--source", ExcludedSource]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("no cached package", error);
+        Assert.DoesNotContain("Platform namespace prefix", error);
+    }
+
+    private static void SeedLatestCandidate(
+        string packageName,
+        string sourceUrl,
+        string version,
+        bool includePrerelease = false)
+    {
+        var source = new NuGetFetch.PackageSource("test", sourceUrl);
+        CoreCache.Set(
+            "versions-v5",
+            PackageExtractor.GetLatestVersionCacheKey(
+                packageName,
+                source,
+                includePrerelease),
+            version,
+            extension: "txt");
     }
 
     private void SeedPackage(string packageName)

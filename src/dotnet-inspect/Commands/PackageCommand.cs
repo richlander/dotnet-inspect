@@ -372,6 +372,29 @@ public class PackageCommand
                 return 0;
             }
 
+            if (versionQueryPinned is null
+                && options.Limit == 1
+                && !options.IncludeUnlisted
+                && !options.ListVersionsWithFeed
+                && PackageExtractor.TryGetLatestCachedCandidateVersion(
+                    normalizedName,
+                    NuGetSourceResolver.ResolveSourceKeys(
+                        options.SourceOptions),
+                    options.IncludePrerelease) is string cachedLatest)
+            {
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        1,
+                        out var cachedLatestExit))
+                {
+                    return cachedLatestExit;
+                }
+
+                Console.WriteLine(cachedLatest);
+                return 0;
+            }
+
             if (options.ListVersionsWithFeed)
             {
                 var versionFeeds = await PackageExtractor.GetVersionListingsWithSourceAsync(

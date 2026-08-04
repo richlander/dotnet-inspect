@@ -58,7 +58,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         CommitPackage(packageName, Version, sourceKey);
         var source = new NuGetFetch.PackageSource("private", SourceUrl);
         Core.CoreCache.Set(
-            "versions-v4",
+            "versions-v5",
             PackageExtractor.GetLatestVersionCacheKey(packageName, source),
             Version,
             extension: "txt");
@@ -121,6 +121,38 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
         Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
         Assert.Equal(sourceKey, outcome.Result!.ProducerKey);
+    }
+
+    [Fact]
+    public void AppCache_DoesNotReadPayloadsFromPreEndpointFenceNamespace()
+    {
+        string packageName = $"Offline.OldFence.{Guid.NewGuid():N}";
+        const string Version = "1.2.3";
+        string sourceKey = NuGetCache.GetSourceKey(
+            "https://private.invalid/v3/index.json");
+        string oldEntry = Path.Combine(
+            Core.CoreCache.GetCategoryPath("package-content-v4"),
+            packageName.ToLowerInvariant(),
+            Version,
+            sourceKey);
+        Directory.CreateDirectory(oldEntry);
+        File.WriteAllText(
+            Path.Combine(
+                oldEntry,
+                $"{packageName.ToLowerInvariant()}.nuspec"),
+            "<package />");
+        File.WriteAllText(
+            Path.Combine(
+                oldEntry,
+                NuGetCache.CommitMarkerFileName),
+            $"package-content-v4:{packageName.ToLowerInvariant()}@{Version}:{sourceKey}");
+
+        string? cached = NuGetCache.TryGetCachedPackage(
+            packageName,
+            Version,
+            [sourceKey]);
+
+        Assert.Null(cached);
     }
 
     private void CommitPackage(

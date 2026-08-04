@@ -28,7 +28,7 @@ internal sealed record CachedPackage(string ExtractPath, string ProducerKey);
 /// </summary>
 public static class NuGetCache
 {
-    private const string PackageContentCategory = "package-content-v4";
+    private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;

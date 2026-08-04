@@ -559,6 +559,15 @@ public static class TypeCommand
 
     private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
     {
+        if (PackageExtractor.TryGetLatestCachedCandidateVersion(
+                packageName,
+                NuGetSourceResolver.ResolveSourceKeys(
+                    options.SourceOptions),
+                includePrerelease: true) is not null)
+        {
+            return true;
+        }
+
         try
         {
             var versions = await PackageExtractor.GetVersionsAsync(

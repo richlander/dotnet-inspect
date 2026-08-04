@@ -49,10 +49,14 @@
   identifies an authorized producer. Discovered coordinates are restricted to
   feeds that reported the selected version; pinned coordinates may use any
   active eligible feed.
-- Uses unambiguous, atomically published `versions-v4` candidate entries and
+- Uses unambiguous, atomically published `versions-v5` candidate entries and
   rejects malformed latest entries and incomplete listing snapshots. Reporter
   restrictions apply to the selected coordinate only; pinned tool-wrapper
   redirects recalculate authorization from the ambient active sources.
+- Canonicalizes selected package versions and treats malformed version-index
+  elements as a source miss rather than a coordinate or parser failure.
+- Recognizes the NuGet.org shortcut only for its canonical service index;
+  other `nuget.org` hosts and paths remain ordinary configured sources.
 
 ### Metadata text containment
 

@@ -17,7 +17,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class LocalFolderSourceTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v4";
+    private const string VersionCacheCategory = "versions-v5";
 
     public LocalFolderSourceTests()
     {

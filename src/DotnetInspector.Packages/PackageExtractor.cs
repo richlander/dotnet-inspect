@@ -776,10 +776,9 @@ public static class PackageExtractor
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
 
-    // Bumped to -v4 after #3752: v3's suffix-based key kinds could collide
-    // with valid package ids. Every v4 key has explicit producer, kind, and
-    // package-id fields; latest entries also identify stable or prerelease.
-    private const string VersionCacheCategory = "versions-v4";
+    // v5 fences candidate metadata that could have been attributed to a
+    // noncanonical api.nuget.org URL by the former host-only shortcut.
+    private const string VersionCacheCategory = "versions-v5";
     private const string VersionCacheCategoryPrefix = "versions-v";
 
     private sealed record SourceVersionListings(
@@ -852,19 +851,17 @@ public static class PackageExtractor
         string sourceKey,
         bool includePrerelease)
     {
-        string? latest = CoreCache.TryGet(
-            VersionCacheCategory,
-            LatestVersionCacheKey(
-                sourceKey,
-                normalizedName,
-                includePrerelease),
-            VersionCacheTtl,
-            extension: "txt");
-        if (latest is not null
-            && NuGet.Versioning.NuGetVersion.TryParse(latest, out _))
-        {
+        string? latest = NormalizeCandidateVersion(
+            CoreCache.TryGet(
+                VersionCacheCategory,
+                LatestVersionCacheKey(
+                    sourceKey,
+                    normalizedName,
+                    includePrerelease),
+                VersionCacheTtl,
+                extension: "txt"));
+        if (latest is not null)
             return latest;
-        }
 
         string? serializedListings = CoreCache.TryGet(
             VersionCacheCategory,
@@ -949,17 +946,14 @@ public static class PackageExtractor
 
             if (version is null)
             {
-                string? fetchedVersion =
+                string? fetchedVersion = NormalizeCandidateVersion(
                     await GetLatestVersionFromSourceAsync(
                         client,
                         normalizedName,
                         source,
                         log,
-                        includePrerelease).ConfigureAwait(false);
-                if (fetchedVersion is not null
-                    && NuGet.Versioning.NuGetVersion.TryParse(
-                        fetchedVersion,
-                        out _))
+                        includePrerelease).ConfigureAwait(false));
+                if (fetchedVersion is not null)
                 {
                     version = fetchedVersion;
                     if (!skipCache)
@@ -1045,13 +1039,19 @@ public static class PackageExtractor
             foreach (var listing in candidate.Listings)
             {
                 string ver = listing.Version;
+                string? normalizedVersion = NormalizeCandidateVersion(ver);
                 if (listing.Listed
-                    && ver.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                    && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed)
+                    && normalizedVersion is not null
+                    && normalizedVersion.StartsWith(
+                        prefix,
+                        StringComparison.OrdinalIgnoreCase)
+                    && NuGet.Versioning.NuGetVersion.TryParse(
+                        normalizedVersion,
+                        out var parsed)
                     && (best == null || parsed > best))
                 {
                     best = parsed;
-                    bestOriginal = ver;
+                    bestOriginal = normalizedVersion;
                 }
             }
         }
@@ -1064,11 +1064,13 @@ public static class PackageExtractor
         {
             if (candidate.Listings.Any(listing =>
                     listing.Listed
-                    && listing.Version.StartsWith(
+                    && NormalizeCandidateVersion(
+                        listing.Version) is string normalizedVersion
+                    && normalizedVersion.StartsWith(
                         prefix,
                         StringComparison.OrdinalIgnoreCase)
                     && NuGet.Versioning.NuGetVersion.TryParse(
-                        listing.Version,
+                        normalizedVersion,
                         out var parsed)
                     && parsed == best))
             {
@@ -1128,16 +1130,34 @@ public static class PackageExtractor
         try
         {
             using var doc = HardenedJson.Parse(json);
-            if (doc.RootElement.TryGetProperty("versions", out var versions))
+            if (!doc.RootElement.TryGetProperty(
+                    "versions",
+                    out var versions)
+                || versions.ValueKind
+                    != System.Text.Json.JsonValueKind.Array)
             {
-                return versions.EnumerateArray()
-                    .Select(v => v.GetString())
-                    .Where(v => v != null)
-                    .Cast<string>()
-                    .ToList();
+                return null;
             }
+
+            List<string> result = [];
+            foreach (var element in versions.EnumerateArray())
+            {
+                if (element.ValueKind
+                        != System.Text.Json.JsonValueKind.String
+                    || NormalizeCandidateVersion(
+                        element.GetString()) is not string candidate)
+                {
+                    return null;
+                }
+
+                result.Add(candidate);
+            }
+
+            return result.Count == 0 ? null : result;
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is
+            System.Text.Json.JsonException
+            or InvalidOperationException)
         {
             // Ignore parse errors
         }
@@ -1291,7 +1311,9 @@ public static class PackageExtractor
     /// <summary>
     /// Selects the newest version from a set of version strings. When
     /// <paramref name="includePrerelease"/> is false, prefers the newest stable version and only
-    /// falls back to a prerelease when no stable version exists. Unparseable entries are ignored.
+    /// falls back to a prerelease when no stable version exists. Malformed
+    /// entries are ignored and the selected value is returned in canonical
+    /// normalized form.
     /// </summary>
     private static string? PickLatest(IEnumerable<string?> versions, bool includePrerelease)
     {
@@ -1299,7 +1321,11 @@ public static class PackageExtractor
         NuGet.Versioning.NuGetVersion? latestAny = null;
         foreach (var ver in versions)
         {
-            if (ver != null && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed))
+            string? normalizedVersion = NormalizeCandidateVersion(ver);
+            if (normalizedVersion is not null
+                && NuGet.Versioning.NuGetVersion.TryParse(
+                    normalizedVersion,
+                    out var parsed))
             {
                 if (latestAny == null || parsed > latestAny)
                     latestAny = parsed;
@@ -1307,7 +1333,26 @@ public static class PackageExtractor
                     latestStable = parsed;
             }
         }
-        return (includePrerelease ? latestAny : latestStable ?? latestAny)?.OriginalVersion;
+        return (includePrerelease
+            ? latestAny
+            : latestStable ?? latestAny)?.ToNormalizedString();
+    }
+
+    private static string? NormalizeCandidateVersion(string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)
+            || !string.Equals(
+                candidate,
+                candidate.Trim(),
+                StringComparison.Ordinal)
+            || !NuGet.Versioning.NuGetVersion.TryParse(
+                candidate,
+                out var parsed))
+        {
+            return null;
+        }
+
+        return parsed.ToNormalizedString();
     }
 
     private static async Task<string?> GetLatestVersionFromSourceAsync(
@@ -1393,12 +1438,8 @@ public static class PackageExtractor
                 var package = data[0];
                 if (package.TryGetProperty("version", out var version))
                 {
-                    string? candidate = version.GetString();
-                    return NuGet.Versioning.NuGetVersion.TryParse(
-                        candidate,
-                        out _)
-                        ? candidate
-                        : null;
+                    return NormalizeCandidateVersion(
+                        version.GetString());
                 }
             }
         }
@@ -1424,22 +1465,40 @@ public static class PackageExtractor
         try
         {
             using var doc = HardenedJson.Parse(json);
-            var versions = doc.RootElement.GetProperty("versions");
-            if (versions.GetArrayLength() > 0)
+            if (!doc.RootElement.TryGetProperty(
+                    "versions",
+                    out var versions)
+                || versions.ValueKind
+                    != System.Text.Json.JsonValueKind.Array
+                || versions.GetArrayLength() == 0)
             {
-                // Use NuGetVersion for proper comparison — feeds may return
-                // versions in any order (nuget.org ascending, Azure DevOps descending).
-                return PickLatest(
-                    versions.EnumerateArray().Select(v => v.GetString()),
-                    includePrerelease);
+                return null;
             }
+
+            var candidates = new List<string>();
+            foreach (var element in versions.EnumerateArray())
+            {
+                if (element.ValueKind
+                        != System.Text.Json.JsonValueKind.String
+                    || NormalizeCandidateVersion(
+                        element.GetString()) is not string candidate)
+                {
+                    return null;
+                }
+
+                candidates.Add(candidate);
+            }
+
+            // Use NuGetVersion for proper comparison — feeds may return
+            // versions in any order (nuget.org ascending, Azure DevOps descending).
+            return PickLatest(candidates, includePrerelease);
         }
-        catch (System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is
+            System.Text.Json.JsonException
+            or InvalidOperationException)
         {
             return null;
         }
-
-        return null;
     }
 
     /// <summary>
@@ -1507,17 +1566,18 @@ public static class PackageExtractor
                         && listing.Version.Contains(
                             '-',
                             StringComparison.Ordinal))
+                    || NormalizeCandidateVersion(
+                        listing.Version) is not string identity
                     || !NuGet.Versioning.NuGetVersion.TryParse(
-                        listing.Version,
+                        identity,
                         out var parsed))
                 {
                     continue;
                 }
 
-                string identity = parsed.ToNormalizedString();
                 if (!candidates.TryGetValue(identity, out var existing))
                 {
-                    existing = (parsed, listing.Version, []);
+                    existing = (parsed, identity, []);
                 }
 
                 AddReporter(existing.Reporters, candidate.Source);
@@ -1912,8 +1972,8 @@ public static class PackageExtractor
             else
                 return null;
 
-            string version = line[..^2];
-            if (!NuGet.Versioning.NuGetVersion.TryParse(version, out _))
+            string? version = NormalizeCandidateVersion(line[..^2]);
+            if (version is null)
                 return null;
 
             result.Add(new PackageVersionInfo(version, listed));
