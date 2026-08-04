@@ -1,6 +1,6 @@
 using SLF = SourceLinkFetch;
 
-namespace ILInspector.Metadata;
+namespace ILInspector.SourceLink;
 
 /// <summary>
 /// Canonicalizes portable-PDB document paths and resolves them to source URLs.
@@ -44,6 +44,9 @@ internal sealed class SourceDocumentPathResolver
 
     public static SourceDocumentPathResolver Create(string? sourceLinkJson)
         => new(SLF.SourceLinkResolver.Parse(sourceLinkJson));
+
+    internal static SourceDocumentPathResolver Create(SLF.SourceLinkResolver map)
+        => new(map);
 
     public SourceDocumentPathResolution Resolve(string filePath)
     {

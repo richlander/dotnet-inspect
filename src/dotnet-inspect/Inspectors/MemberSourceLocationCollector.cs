@@ -52,7 +52,7 @@ internal static class MemberSourceLocationCollector
             // no sequence points. Shared across both paths below so ordering cannot regress it.
             var appliedRank = new Dictionary<ApiMember, int>(ReferenceEqualityComparer.Instance);
 
-            var sourceInspection = MetadataFindings.InspectMemberSources(
+            var sourceInspection = SourceLinkFindings.InspectMemberSources(
                 service,
                 subject,
                 new MemberSourceQuery(membersByToken.Keys.ToHashSet()));
@@ -69,7 +69,7 @@ internal static class MemberSourceLocationCollector
             // members. Token queries are direct lookups, so this fallback remains O(selected).
             foreach (var (token, members) in membersByToken)
             {
-                var tokenInspection = MetadataFindings.InspectMemberSources(
+                var tokenInspection = SourceLinkFindings.InspectMemberSources(
                     service,
                     subject,
                     new MemberSourceQuery(new HashSet<int> { token }));
