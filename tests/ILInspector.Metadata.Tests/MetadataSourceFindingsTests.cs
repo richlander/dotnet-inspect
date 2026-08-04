@@ -10,6 +10,9 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MetadataSourceFindingsTests
 {
+    const int LargeBlobLength = 4 * 1024 * 1024;
+    static readonly Guid SourceLinkKind =
+        new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     static readonly FindingSubject Subject = new("assembly", "Test assembly");
 
     static int SourceMappedMethod(int value)
@@ -18,12 +21,26 @@ public sealed class MetadataSourceFindingsTests
         return adjusted * 2;
     }
 
+    sealed class NestedTypeSourceProbe
+    {
+        public static int SourceMappedMethod() => 42;
+    }
+
 #line 100 "Generated/MetadataSourceFindings.g.cs"
     static int MultiDocumentMappedMethod(int value)
     {
         int adjusted = value + 1;
 #line default
         return adjusted * 2;
+    }
+
+    sealed class OrderedTypeSourceProbe
+    {
+#line 100 "Generated/OrderedType.Z.cs"
+        public static int First() => 1;
+#line 100 "Generated/OrderedType.A.cs"
+        public static int Second() => 2;
+#line default
     }
 
     [Fact]
@@ -53,12 +70,12 @@ public sealed class MetadataSourceFindingsTests
                 CanonicalPath: "src/Components/App.razor"),
         ];
 
-        var all = Findings(MetadataFindings.InspectSourceDocuments(documents, Subject));
-        var filtered = Findings(MetadataFindings.InspectSourceDocuments(
+        var all = Findings(SourceLinkFindings.InspectSourceDocuments(documents, Subject));
+        var filtered = Findings(SourceLinkFindings.InspectSourceDocuments(
             documents,
             Subject,
             new SourceDocumentQuery("text.json")));
-        var missing = Findings(MetadataFindings.InspectSourceDocuments(
+        var missing = Findings(SourceLinkFindings.InspectSourceDocuments(
             documents,
             Subject,
             new SourceDocumentQuery("does-not-exist")));
@@ -94,11 +111,11 @@ public sealed class MetadataSourceFindingsTests
             Checksum = [0x02],
         };
 
-        var exact = Assert.Single(Pairs(MetadataFindings.CompareSourceDocuments(
+        var exact = Assert.Single(Pairs(SourceLinkFindings.CompareSourceDocuments(
             [oldDocument],
             [movedRow],
             Subject)));
-        var changed = Assert.Single(Pairs(MetadataFindings.CompareSourceDocuments(
+        var changed = Assert.Single(Pairs(SourceLinkFindings.CompareSourceDocuments(
             [oldDocument],
             [changedContent],
             Subject)));
@@ -227,6 +244,45 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void TypeSourceResolution_RequiresATypeDefinedByTheAssembly()
+    {
+        using var context = PdbContext.Open(
+            typeof(MetadataSourceFindingsTests).Assembly.Location);
+        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+
+        Assert.NotNull(resolver.ResolveTypeSource(
+            typeof(MetadataSourceFindingsTests).FullName!));
+        Assert.NotNull(resolver.ResolveTypeSource(nameof(NestedTypeSourceProbe)));
+        Assert.Null(resolver.ResolveTypeSource(
+            $"Not.This.Assembly.{nameof(MetadataSourceFindingsTests)}"));
+    }
+
+    [Fact]
+    public void TypeSourceResolution_PreservesPdbDiscoveryOrder()
+    {
+        using var context = PdbContext.Open(
+            typeof(MetadataSourceFindingsTests).Assembly.Location);
+        var map = SourceLinkFetch.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://example.test/*"}}""");
+        var resolver = new SourceLinkResolver(context, map);
+
+        var source = Assert.IsType<SourceLinkResolver.TypeSourceInfo>(
+            resolver.ResolveTypeSource(nameof(OrderedTypeSourceProbe)));
+
+        Assert.EndsWith(
+            "Generated/OrderedType.Z.cs",
+            source.SourceFilePath,
+            StringComparison.Ordinal);
+        var additional = Assert.Single(source.AdditionalSourceFiles);
+        Assert.EndsWith(
+            "Generated/OrderedType.A.cs",
+            additional.FilePath,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void EmptyPortablePdbDocumentPath_IsMalformedMetadata()
     {
         var exception = Assert.Throws<BadImageFormatException>(
@@ -260,11 +316,11 @@ public sealed class MetadataSourceFindingsTests
         };
         var movedLine = renumbered with { StartLine = 20, EndLine = 22 };
 
-        var exact = Assert.Single(Pairs(MetadataFindings.CompareMemberSources(
+        var exact = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
             [renumbered],
             Subject)));
-        var changed = Assert.Single(Pairs(MetadataFindings.CompareMemberSources(
+        var changed = Assert.Single(Pairs(SourceLinkFindings.CompareMemberSources(
             [oldMapping],
             [movedLine],
             Subject)));
@@ -295,7 +351,7 @@ public sealed class MetadataSourceFindingsTests
             StartLine: 10,
             EndLine: 12);
 
-        var findings = Findings(MetadataFindings.InspectMemberSources(
+        var findings = Findings(SourceLinkFindings.InspectMemberSources(
             [Mapping(1), Mapping(2)],
             Subject,
             new MemberSourceQuery(new HashSet<int> { 2 })));
@@ -313,7 +369,7 @@ public sealed class MetadataSourceFindingsTests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .MetadataToken;
 
-        var mappings = Findings(MetadataFindings.InspectMemberSources(
+        var mappings = Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(new HashSet<int> { token })))
@@ -352,7 +408,7 @@ public sealed class MetadataSourceFindingsTests
                 .MetadataToken,
         ];
 
-        var actualTokens = Findings(MetadataFindings.InspectMemberSources(
+        var actualTokens = Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(tokens.ToHashSet())))
@@ -374,7 +430,7 @@ public sealed class MetadataSourceFindingsTests
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!
             .MetadataToken;
 
-        var mapping = Assert.Single(Findings(MetadataFindings.InspectMemberSources(
+        var mapping = Assert.Single(Findings(SourceLinkFindings.InspectMemberSources(
                 source,
                 Subject,
                 new MemberSourceQuery(new HashSet<int> { token })))
@@ -417,13 +473,13 @@ public sealed class MetadataSourceFindingsTests
     {
         using var source = SourceLinkService.Open(typeof(MetadataSourceFindingsTests).Assembly.Location);
 
-        var documents = Findings(MetadataFindings.InspectSourceDocuments(
+        var documents = Findings(SourceLinkFindings.InspectSourceDocuments(
             source,
             Subject,
             new SourceDocumentQuery(nameof(MetadataSourceFindingsTests))));
-        var members = Findings(MetadataFindings.InspectMemberSources(source, Subject));
-        var options = Findings(MetadataFindings.InspectCompilationOptions(source, Subject));
-        var references = Findings(MetadataFindings.InspectCompilationReferences(source, Subject));
+        var members = Findings(SourceLinkFindings.InspectMemberSources(source, Subject));
+        var options = Findings(MetadataFindings.InspectCompilationOptions(source.Context, Subject));
+        var references = Findings(MetadataFindings.InspectCompilationReferences(source.Context, Subject));
 
         Assert.Contains(documents, finding =>
             finding.Payload.CanonicalPath.EndsWith(
@@ -451,13 +507,13 @@ public sealed class MetadataSourceFindingsTests
             using var source = SourceLinkService.Open(assemblyPath);
 
             Assert.IsType<FindingInspection<SourceDocumentObservation>.Absent>(
-                MetadataFindings.InspectSourceDocuments(source, Subject).Value);
+                SourceLinkFindings.InspectSourceDocuments(source, Subject).Value);
             Assert.IsType<FindingInspection<MemberSourceObservation>.Absent>(
-                MetadataFindings.InspectMemberSources(source, Subject).Value);
+                SourceLinkFindings.InspectMemberSources(source, Subject).Value);
             Assert.IsType<FindingInspection<CompilationOptionInfo>.Absent>(
-                MetadataFindings.InspectCompilationOptions(source, Subject).Value);
+                MetadataFindings.InspectCompilationOptions(source.Context, Subject).Value);
             Assert.IsType<FindingInspection<CompilationReferenceInfo>.Absent>(
-                MetadataFindings.InspectCompilationReferences(source, Subject).Value);
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject).Value);
         }
         finally
         {
@@ -481,7 +537,7 @@ public sealed class MetadataSourceFindingsTests
 
             Assert.True(source.HasPdb);
             var failed = Assert.IsType<FindingInspection<CompilationReferenceInfo>.Failed>(
-                MetadataFindings.InspectCompilationReferences(source, Subject).Value);
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject).Value);
             Assert.Contains("truncated", failed.Error.Reason, StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -490,7 +546,208 @@ public sealed class MetadataSourceFindingsTests
         }
     }
 
+    [Fact]
+    public void MalformedSourceLinkKind_DoesNotEscapeTheSourceLinkBoundary()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteMalformedSourceLinkKindPdb(assemblyPath, pdbPath);
+
+        try
+        {
+            List<string> log = [];
+            using (var source = SourceLinkService.Open(assemblyPath, log.Add))
+            {
+                Assert.True(source.HasPdb);
+                Assert.False(source.HasSourceLink);
+                Assert.Contains(
+                    "could not be read",
+                    source.Provenance().Reason,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    log,
+                    message => message.Contains(
+                        "SourceLink unavailable",
+                        StringComparison.Ordinal));
+            }
+
+            string lateAssemblyPath = Path.Combine(directory, "Late.dll");
+            File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, lateAssemblyPath);
+            using (var source = SourceLinkService.Open(lateAssemblyPath))
+            {
+                Assert.False(source.HasPdb);
+                source.LoadPdb(pdbPath);
+                Assert.True(source.HasPdb);
+                Assert.False(source.HasSourceLink);
+            }
+
+            string contextAssemblyPath = Path.Combine(directory, "Context.dll");
+            File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, contextAssemblyPath);
+            using var contextSource = SourceLinkService.Open(contextAssemblyPath);
+            contextSource.Context.LoadPdbFromFile(pdbPath);
+            Assert.False(contextSource.HasSourceLink);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DuplicateCustomDebugInformation_IsRejectedWithoutCopyingItsBlobs()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteDuplicateSourceLinkPdb(assemblyPath, pdbPath);
+
+        try
+        {
+            using (var context = PdbContext.Open(assemblyPath))
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                var result = context.ReadModuleCustomDebugInformation(SourceLinkKind);
+                long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+                Assert.Equal(PdbCustomDebugInformationStatus.Duplicate, result.Status);
+                Assert.Null(result.Value);
+                Assert.True(
+                    allocated < LargeBlobLength / 4,
+                    $"Duplicate scan allocated {allocated:N0} bytes.");
+            }
+
+            using var source = SourceLinkService.Open(assemblyPath);
+            Assert.True(source.HasSourceLink);
+            Assert.Null(source.SourceLinkJson);
+            Assert.Contains(
+                "multiple SourceLink",
+                source.Provenance().Reason,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DocumentPathEnumeration_DoesNotCopyChecksums()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteLargeChecksumPdb(assemblyPath, pdbPath);
+
+        try
+        {
+            using var context = PdbContext.Open(assemblyPath);
+
+            long beforePaths = GC.GetAllocatedBytesForCurrentThread();
+            string path = Assert.Single(context.EnumeratePdbDocumentPaths());
+            long pathBytes = GC.GetAllocatedBytesForCurrentThread() - beforePaths;
+
+            long beforeDocuments = GC.GetAllocatedBytesForCurrentThread();
+            var document = Assert.Single(context.EnumeratePdbDocuments());
+            long documentBytes =
+                GC.GetAllocatedBytesForCurrentThread() - beforeDocuments;
+
+            Assert.Equal("/_/src/Widget.cs", path);
+            Assert.Equal(LargeBlobLength, document.Checksum?.Length);
+            Assert.True(
+                pathBytes < LargeBlobLength / 4,
+                $"Path-only enumeration allocated {pathBytes:N0} bytes.");
+            Assert.True(
+                documentBytes >= LargeBlobLength,
+                $"Full document enumeration allocated only {documentBytes:N0} bytes.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static void WriteMalformedCompilationReferencesPdb(string assemblyPath, string pdbPath)
+    {
+        WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var malformedReference = new BlobBuilder();
+            malformedReference.WriteUTF8("Broken.dll");
+            malformedReference.WriteByte(0);
+            malformedReference.WriteByte(0);
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                pdbMetadata.GetOrAddGuid(
+                    new Guid("7E4D4708-096E-4C5C-AEDA-CB10BA6A740D")),
+                pdbMetadata.GetOrAddBlob(malformedReference));
+        });
+    }
+
+    static void WriteMalformedSourceLinkKindPdb(string assemblyPath, string pdbPath)
+    {
+        byte[] image = WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var blob = new BlobBuilder();
+            blob.WriteUTF8("""{"documents":{"/_/*":"https://example.test/*"}}""");
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                pdbMetadata.GetOrAddGuid(SourceLinkKind),
+                pdbMetadata.GetOrAddBlob(blob));
+        });
+        PatchStreamSize(image, "#GUID", 0);
+        File.WriteAllBytes(pdbPath, image);
+    }
+
+    static void WriteDuplicateSourceLinkPdb(string assemblyPath, string pdbPath)
+    {
+        WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var blob = new BlobBuilder();
+            blob.WriteBytes(new byte[LargeBlobLength]);
+            var value = pdbMetadata.GetOrAddBlob(blob);
+            var kind = pdbMetadata.GetOrAddGuid(SourceLinkKind);
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                kind,
+                value);
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                kind,
+                value);
+        });
+    }
+
+    static void WriteLargeChecksumPdb(string assemblyPath, string pdbPath)
+    {
+        WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var checksum = new BlobBuilder();
+            checksum.WriteBytes(new byte[LargeBlobLength]);
+            pdbMetadata.AddDocument(
+                pdbMetadata.GetOrAddDocumentName("/_/src/Widget.cs"),
+                pdbMetadata.GetOrAddGuid(
+                    new Guid("8829D00F-11B8-4213-878B-770E8597AC16")),
+                pdbMetadata.GetOrAddBlob(checksum),
+                default);
+        });
+    }
+
+    static byte[] WritePortablePdb(
+        string assemblyPath,
+        string pdbPath,
+        Action<MetadataBuilder> addRows)
     {
         using var stream = File.OpenRead(assemblyPath);
         using var pe = new PEReader(stream);
@@ -509,15 +766,7 @@ public sealed class MetadataSourceFindingsTests
         }
 
         var pdbMetadata = new MetadataBuilder();
-        var malformedReference = new BlobBuilder();
-        malformedReference.WriteUTF8("Broken.dll");
-        malformedReference.WriteByte(0);
-        malformedReference.WriteByte(0);
-        pdbMetadata.AddCustomDebugInformation(
-            EntityHandle.ModuleDefinition,
-            pdbMetadata.GetOrAddGuid(new Guid("7E4D4708-096E-4C5C-AEDA-CB10BA6A740D")),
-            pdbMetadata.GetOrAddBlob(malformedReference));
-
+        addRows(pdbMetadata);
         var builder = new PortablePdbBuilder(
             pdbMetadata,
             ImmutableArray.Create(rowCounts),
@@ -525,7 +774,41 @@ public sealed class MetadataSourceFindingsTests
             _ => new BlobContentId(codeView.Guid, stamp: 0));
         var image = new BlobBuilder();
         builder.Serialize(image);
-        File.WriteAllBytes(pdbPath, image.ToArray());
+        byte[] bytes = image.ToArray();
+        File.WriteAllBytes(pdbPath, bytes);
+        return bytes;
+    }
+
+    static void PatchStreamSize(byte[] image, string streamName, uint newSize)
+    {
+        int position = 0;
+        int versionLength = BitConverter.ToInt32(image, position + 12);
+        position += 16 + versionLength;
+        position += 2;
+        ushort streams = BitConverter.ToUInt16(image, position);
+        position += 2;
+        for (int i = 0; i < streams; i++)
+        {
+            int sizeOffset = position + 4;
+            int nameStart = position + 8;
+            int nameEnd = nameStart;
+            while (image[nameEnd] != 0)
+                nameEnd++;
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                nameEnd - nameStart);
+            int nameLength = ((nameEnd - nameStart) + 4) & ~3;
+            if (name == streamName)
+            {
+                BitConverter.GetBytes(newSize).CopyTo(image, sizeOffset);
+                return;
+            }
+
+            position = nameStart + nameLength;
+        }
+
+        throw new InvalidOperationException($"Metadata stream '{streamName}' was not found.");
     }
 
     static ImmutableArray<Finding<T>> Findings<T>(FindingInspection<T> inspection)

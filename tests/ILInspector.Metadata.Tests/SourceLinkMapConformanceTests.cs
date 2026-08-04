@@ -571,11 +571,10 @@ public class SourceLinkMapConformanceTests
     /// watches.
     /// </para>
     /// <para>
-    /// <c>SourceLinkResolver</c> is the owner, and now the only reader. <c>AssemblyInspector</c>
-    /// used to walk the same map to report provenance and to audit path normalization, and it
-    /// disagreed with the owner about which entry speaks for the assembly; it now asks the owner
-    /// for both. The assertion is set equality rather than containment precisely so that this
-    /// shrinking had to be made here as well as in the product.
+    /// <c>SourceLinkFetch.SourceLinkResolver</c> is the owner and only reader.
+    /// ILInspector.SourceLink asks it for matching, provenance, and path-audit facts.
+    /// The assertion is set equality rather than containment so another reader cannot
+    /// reappear unnoticed.
     /// </para>
     /// </remarks>
     [Fact]

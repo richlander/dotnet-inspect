@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Sections;
@@ -274,6 +278,25 @@ public class ApiMemberAnalysisInspectionTests
             .First(m => m.DeclaringType.Name == declaringTypeName && m.Name == methodName)
             .MetadataToken;
 
+    static int MetadataTokenOf(
+        string assemblyPath,
+        string declaringTypeName,
+        string methodName)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var type = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == declaringTypeName);
+        var method = reader.GetTypeDefinition(type).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == methodName);
+        return System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            method);
+    }
+
     static string[] FullScope =>
     [
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
@@ -281,6 +304,99 @@ public class ApiMemberAnalysisInspectionTests
         FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath(),
         FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath(),
     ];
+
+    [Fact]
+    public void CallerEdges_BodilessTargetRetainsSameAssemblyCallers()
+    {
+        int target = MetadataTokenOf(
+            SelfPath,
+            nameof(SamplePInvokeClass),
+            nameof(SamplePInvokeClass.GetCurrentProcessId));
+
+        var edges = CreateForCallers(SelfPath, scope: null)
+            .CallerEdges(target);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name
+                == nameof(SamplePInvokeClass.CallGetCurrentProcessId));
+    }
+
+    [Fact]
+    public void CallerEdges_BodilessTargetRetainsCrossAssemblyCallers()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        int invoke = ILInspector.Analysis.LibraryBodyIndex.Open(target)
+            .DeclaredMethods
+            .Single(method =>
+                method.DeclaringType.Name == "IBodilessApi"
+                && method.Name == "Invoke")
+            .MetadataToken;
+
+        var inspection = CreateForCallers(target, [caller]);
+        var edges = inspection.CallerEdges(invoke);
+        var tree = inspection.BuildCallerTree(invoke);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == "CallBodiless");
+        Assert.Contains(
+            tree.Children,
+            child => child.Member.Name == "CallBodiless");
+    }
+
+    [Fact]
+    public void CallerQueries_InvalidTargetTypeProvenanceDegradeWithoutThrowing()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-invalid-target-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string target = Path.Combine(directory, "Malformed.dll");
+            File.WriteAllBytes(target, BuildMalformedTarget());
+            int methodToken = ILInspector.Analysis.LibraryBodyIndex.Open(target)
+                .DeclaredMethods
+                .Single(method => method.Name == "Work")
+                .MetadataToken;
+
+            var callers = CreateForCallers(target, [SelfPath]);
+            var graph = Create(target, [SelfPath]);
+
+            Assert.Empty(callers.CallerEdges(methodToken));
+            Assert.Empty(graph.BuildCallerTree(methodToken).Children);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CallerEdges_ScopeTargetCopyDoesNotSuppressCaller()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string copiedTarget = Path.Combine(
+            Path.GetDirectoryName(caller)!,
+            Path.GetFileName(target));
+        int ping = TokenOf(target, "Api", "Ping");
+
+        var edges = CreateForCallers(
+                target,
+                [caller, copiedTarget])
+            .CallerEdges(ping);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == "Run");
+    }
 
     // The Callers table is built from strictly single-hop edges, so it needs the assemblies that
     // name the declaring type, not the transitive closure the Call Graph needs. Box`1 is declared
@@ -430,5 +546,64 @@ public class ApiMemberAnalysisInspectionTests
         }
 
         return null;
+    }
+
+    static byte[] BuildMalformedTarget()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Malformed.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Malformed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            AssemblyHashAlgorithm.None);
+
+        var methodBodies = new BlobBuilder();
+        var body = new InstructionEncoder(new BlobBuilder());
+        body.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(body);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature()
+            .Parameters(0, returns => returns.Void(), parameters => { });
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Work"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(""),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
     }
 }
