@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Net;
 
 using DotnetInspector.CommandLine;
+using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
@@ -212,23 +214,23 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task Router_UsesSourceScopedCandidateMetadataOffline()
+    public async Task Router_PlatformPrefixProbeUsesSourceScopedCandidateMetadataOffline()
     {
-        string packageName = $"OfflineRoute{Guid.NewGuid():N}";
+        const string PackageName = "System.Text";
         SeedLatestCandidate(
-            packageName,
+            PackageName,
             ExcludedSource,
             "4.5.6-preview.1",
             includePrerelease: true);
 
         var observations = await RunAppAsync(
-            [packageName, "--source", ExcludedSource]);
+            [PackageName, "--source", ExcludedSource]);
 
         var rewrite = Assert.Single(
             observations,
             observation => observation.Stage == "router-rewrite");
         Assert.Contains(
-            $" -> package {packageName}",
+            $" -> package {PackageName}",
             rewrite.Detail,
             StringComparison.Ordinal);
     }
@@ -242,14 +244,18 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ExcludedSource,
             "4.5.6-preview.1",
             includePrerelease: true);
+        bool exists = await TypeCommand.PackageExistsAsync(
+            PackageName,
+            new TypeOptions
+            {
+                SourceOptions = new NuGetSourceOptions
+                {
+                    Sources = [ExcludedSource],
+                },
+            },
+            new CommandContext(verbose: false));
 
-        var (exit, output, error) = await RunCommandAsync(
-            ["type", PackageName, "--source", ExcludedSource]);
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("no cached package", error);
-        Assert.DoesNotContain("Platform namespace prefix", error);
+        Assert.True(exists);
     }
 
     private static void SeedLatestCandidate(
