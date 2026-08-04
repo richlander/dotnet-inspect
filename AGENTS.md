@@ -60,6 +60,7 @@ those documents exist.
 | Area | Read first |
 | --- | --- |
 | User-visible capabilities, commands, or examples | `README.md` |
+| Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |

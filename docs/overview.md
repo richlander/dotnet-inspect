@@ -6,6 +6,13 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The target [inspection space architecture](inspection-space.md) defines the
+core: workspace contexts, typed query planning, acquisition and caching, shared
+identity and provenance, owner-issued correspondence, and safe presentation
+boundaries. Workspace contexts and typed query planning are not implemented
+yet. The components below are the current hosts, shared substrates, and
+inspection producers that will extend that space.
+
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
@@ -32,6 +39,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 ## Important systems
 
+- [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
