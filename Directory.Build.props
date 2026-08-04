@@ -20,8 +20,8 @@
       commitment, and no intent to be consumed externally; if one of them
       reached a feed at 1.0.0, the layering rules in AGENTS.md would become an
       external compatibility surface instead of an internal design constraint.
-      Off by default so a new library cannot be packed. Tool projects declare
-      IsTool, and Directory.Build.targets opts them back in.
+      Off by default so a new library cannot be packed. Tool projects explicitly
+      opt back in with IsPackable=true.
     -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>

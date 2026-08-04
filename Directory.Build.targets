@@ -1,16 +1,13 @@
 <Project>
 
-  <!-- IsTool is declared in project files, after Directory.Build.props has
-       already been evaluated, so tool defaults belong here. IsPackable enables
-       `dotnet pack`; it does not add a tool to any publishing workflow.
-
-       The SDK derives the two specific documentation properties before this
-       file is imported. Set all three so a tool never publishes either its own
-       API documentation or documentation from a referenced library, while the
-       libraries continue generating XML documentation in their own outputs. -->
+  <!-- IsTool controls only published XML documentation. The SDK derives the
+       two specific documentation properties before this file is imported, so
+       set all three here. A tool then publishes neither its own API
+       documentation nor documentation from a referenced library, while the
+       libraries continue generating XML documentation in their own outputs.
+       Packaging properties stay explicit in each tool project because the SDK
+       consumes PackAsTool before this file is imported. -->
   <PropertyGroup Condition="'$(IsTool)' == 'true'">
-    <IsPackable>true</IsPackable>
-    <PackAsTool>true</PackAsTool>
     <PublishDocumentationFiles>false</PublishDocumentationFiles>
     <PublishDocumentationFile>false</PublishDocumentationFile>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
