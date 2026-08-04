@@ -3541,10 +3541,10 @@ public class DeclarationIndexTests
 
             using (context)
             {
-                List<MemberSourceInfo> members;
+                List<PdbMemberDocumentInfo> members;
                 try
                 {
-                    members = context.EnumerateMemberSources().ToList();
+                    members = context.EnumerateMemberDocuments().ToList();
                 }
                 catch (BadImageFormatException)
                 {

@@ -88,7 +88,7 @@ public class SampleReference
     public string? Region { get; set; }
 
     /// <summary>
-    /// Resolved URL to the sample file (computed from SourceLink).
+    /// Resolved URL to the sample file (populated by a higher inspection layer).
     /// </summary>
     public string? ResolvedUrl { get; set; }
 
@@ -153,7 +153,7 @@ public class ApiSurface
     public string? Tfm { get; set; }
 
     /// <summary>
-    /// Repository URL extracted from SourceLink (if available).
+    /// Repository URL populated by a higher inspection layer, if available.
     /// </summary>
     public string? RepositoryUrl { get; set; }
 
@@ -482,7 +482,7 @@ public class ApiType
     public int? SourceLineNumber { get; set; }
 
     /// <summary>
-    /// How the source URL was resolved: "SourceLink" (from method debug info) or "Inferred" (from document name).
+    /// How the source URL was resolved by the higher inspection layer.
     /// </summary>
     public string? SourceResolution { get; set; }
 

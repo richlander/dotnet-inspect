@@ -1,4 +1,4 @@
-namespace ILInspector.Metadata;
+namespace ILInspector.SourceLink;
 
 /// <summary>
 /// Persistent-cache seam for the SourceLink type→file index, keyed by an assembly's

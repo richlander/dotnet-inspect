@@ -56,4 +56,9 @@ namespace Target
     {
         public static T Echo<T>(T value) => value;
     }
+
+    public interface IBodilessApi
+    {
+        void Invoke();
+    }
 }
