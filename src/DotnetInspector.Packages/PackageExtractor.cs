@@ -846,6 +846,22 @@ public static class PackageExtractor
         return bestOriginal;
     }
 
+    /// <summary>
+    /// Returns whether any fresh source-scoped candidate metadata exists for a
+    /// package, regardless of stable or prerelease selection flavor.
+    /// </summary>
+    public static bool HasCachedCandidateVersion(
+        string packageName,
+        IReadOnlyList<string> sourceKeys)
+        => TryGetLatestCachedCandidateVersion(
+                packageName,
+                sourceKeys,
+                includePrerelease: false) is not null
+            || TryGetLatestCachedCandidateVersion(
+                packageName,
+                sourceKeys,
+                includePrerelease: true) is not null;
+
     private static string? TryGetCachedLatestForSource(
         string normalizedName,
         string sourceKey,
@@ -860,7 +876,7 @@ public static class PackageExtractor
                     includePrerelease),
                 VersionCacheTtl,
                 extension: "txt"));
-        if (includePrerelease)
+        if (includePrerelease && latest is not null)
         {
             string? stable = NormalizeCandidateVersion(
                 CoreCache.TryGet(

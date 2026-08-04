@@ -562,11 +562,10 @@ public static class TypeCommand
         TypeOptions options,
         CommandContext context)
     {
-        if (PackageExtractor.TryGetLatestCachedCandidateVersion(
+        if (PackageExtractor.HasCachedCandidateVersion(
                 packageName,
                 NuGetSourceResolver.ResolveSourceKeys(
-                    options.SourceOptions),
-                includePrerelease: true) is not null)
+                    options.SourceOptions)))
         {
             return true;
         }

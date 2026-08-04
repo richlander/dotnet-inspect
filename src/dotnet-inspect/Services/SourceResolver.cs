@@ -99,10 +99,9 @@ public static class SourceResolver
 
             // Source-scoped candidate metadata may split a package-qualified
             // name without letting package-content directories invent versions.
-            if (PackageExtractor.TryGetLatestCachedCandidateVersion(
+            if (PackageExtractor.HasCachedCandidateVersion(
                     candidate,
-                    sourceKeys,
-                    includePrerelease: true) != null)
+                    sourceKeys))
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",

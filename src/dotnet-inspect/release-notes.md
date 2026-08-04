@@ -57,6 +57,10 @@
   elements as a source miss rather than a coordinate or parser failure.
 - Recognizes the NuGet.org shortcut only for its canonical service index;
   other `nuget.org` hosts and paths remain ordinary configured sources.
+- Keeps stable and prerelease latest-selection evidence separate while allowing
+  package-existence probes to use either flavor.
+- Resolves single-version queries across every active source and preserves
+  structured output formatting on candidate-cache hits.
 
 ### Metadata text containment
 

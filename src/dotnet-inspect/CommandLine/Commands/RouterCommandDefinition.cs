@@ -346,11 +346,10 @@ public static class RouterCommandDefinition
             NuGetSourceOptions sourceOptions,
             CommandContext context)
         {
-            if (PackageExtractor.TryGetLatestCachedCandidateVersion(
+            if (PackageExtractor.HasCachedCandidateVersion(
                     packageName,
                     NuGetSourceResolver.ResolveSourceKeys(
-                        sourceOptions),
-                    includePrerelease: true) is not null)
+                        sourceOptions)))
             {
                 return true;
             }

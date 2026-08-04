@@ -204,13 +204,18 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task BareVersion_UsesStableCandidateMetadataOffline(
-        bool includePrerelease)
+    [InlineData(false, "4.5.6")]
+    [InlineData(true, "4.5.6-preview.1")]
+    public async Task BareVersion_UsesMatchingCandidateMetadataOffline(
+        bool includePrerelease,
+        string version)
     {
         string packageName = $"OfflineVersion{Guid.NewGuid():N}";
-        SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
+        SeedLatestCandidate(
+            packageName,
+            ExcludedSource,
+            version,
+            includePrerelease);
 
         var (exit, output, error) = await RunCommandAsync(
             [
@@ -225,7 +230,99 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.True(
             exit == 0,
             $"Expected success. Output: {output}{Environment.NewLine}Error: {error}");
-        Assert.Equal("4.5.6", output.Trim());
+        Assert.Equal(version, output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task BareVersion_PreviewDoesNotUseStableOnlyCandidateOffline()
+    {
+        string packageName = $"OfflineStableOnly{Guid.NewGuid():N}";
+        SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "package",
+                packageName,
+                "--version",
+                "--prerelease",
+                "--source",
+                ExcludedSource,
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task BareVersion_QueriesMissingSourceAndPreservesJsonl()
+    {
+        string packageName = $"PartialCache{Guid.NewGuid():N}";
+        const string SecondSource =
+            "https://second.invalid/v3/index.json";
+        SeedLatestCandidate(packageName, ExcludedSource, "1.0.0");
+        var requests = new ConcurrentQueue<string>();
+
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+            innerHandler => new VersionFeedHandler(
+                SecondSource,
+                packageName,
+                "2.0.0",
+                requests,
+                innerHandler));
+        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        try
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                [
+                    "package",
+                    packageName,
+                    "--version",
+                    "--jsonl",
+                    "--source",
+                    ExcludedSource,
+                    "--source",
+                    SecondSource,
+                ]);
+
+            Assert.Equal(0, exit);
+            Assert.Equal("""{"version":"2.0.0"}""", output.Trim());
+            Assert.Empty(error);
+            Assert.Contains(
+                requests,
+                request => request.EndsWith(
+                    $"/{packageName.ToLowerInvariant()}/index.json",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
+                null);
+            DotnetInspector.Core.HttpClientFactory.Initialize(offline: true);
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task CachedBareVersion_PreservesJsonlOffline()
+    {
+        string packageName = $"CachedJsonl{Guid.NewGuid():N}";
+        SeedLatestCandidate(packageName, ExcludedSource, "4.5.6");
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "package",
+                packageName,
+                "--version",
+                "--jsonl",
+                "--source",
+                ExcludedSource,
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"4.5.6"}""", output.Trim());
         Assert.Empty(error);
     }
 
@@ -346,6 +443,54 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         public void OnNext(BreadcrumbObservation value)
             => observations.Enqueue(value);
+    }
+
+    private sealed class VersionFeedHandler(
+        string sourceUrl,
+        string packageName,
+        string version,
+        ConcurrentQueue<string> requests,
+        HttpMessageHandler innerHandler)
+        : DelegatingHandler(innerHandler)
+    {
+        private const string FlatContainer =
+            "https://second.invalid/v3/flat2/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.GetLeftPart(UriPartial.Path);
+            requests.Enqueue(url);
+            string? body = url switch
+            {
+                _ when url.Equals(
+                    sourceUrl,
+                    StringComparison.OrdinalIgnoreCase) => $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "{{FlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """,
+                _ when url.Equals(
+                    $"{FlatContainer}{packageName.ToLowerInvariant()}/index.json",
+                    StringComparison.OrdinalIgnoreCase) => $$"""
+                    {"versions":["{{version}}"]}
+                    """,
+                _ => null,
+            };
+
+            return Task.FromResult(new HttpResponseMessage(
+                body is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(body ?? ""),
+                RequestMessage = request,
+            });
+        }
     }
 
     private sealed class RouterFeedHandler(

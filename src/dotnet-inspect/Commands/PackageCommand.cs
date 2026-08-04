@@ -375,13 +375,21 @@ public class PackageCommand
             if (versionQueryPinned is null
                 && options.Limit == 1
                 && !options.IncludeUnlisted
-                && !options.ListVersionsWithFeed
-                && PackageExtractor.TryGetLatestCachedCandidateVersion(
-                    normalizedName,
-                    NuGetSourceResolver.ResolveSourceKeys(
-                        options.SourceOptions),
-                    options.IncludePrerelease) is string cachedLatest)
+                && !options.ListVersionsWithFeed)
             {
+                string? latest = await PackageExtractor.GetLatestVersionAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    NuGetSourceResolver.ResolveSources(options.SourceOptions),
+                    logger.Log,
+                    includePrerelease: options.IncludePrerelease);
+                if (latest is null)
+                {
+                    CommandError.Write(
+                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
@@ -391,7 +399,13 @@ public class PackageCommand
                     return cachedLatestExit;
                 }
 
-                Console.WriteLine(cachedLatest);
+                OutputFormatter.WriteStringList(
+                    [latest],
+                    "Version",
+                    "Version",
+                    options.Tsv,
+                    options.Jsonl,
+                    Console.Out);
                 return 0;
             }
 

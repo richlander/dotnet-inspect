@@ -213,13 +213,14 @@ the nuget.org gallery:
   cache TTL; only an authoritatively filtered list is persisted. The version
   cache category is versioned (`versions-v5`). Every key has unambiguous
   producer, cache-kind, and package-id fields; latest entries additionally
-  identify stable or prerelease selection. A prerelease-inclusive cache read
-  also considers the stable entry, because stable candidates remain valid in
-  that wider result set; package-existence probes likewise accept either
-  flavor. Neither another feed nor a suffix-bearing package id can alias it.
-  Candidate versions are accepted only as unpadded strings that parse as NuGet
-  versions, and selected values are normalized before they are cached or used
-  as coordinates. The category bump also fences older source-blind,
+  identify stable or prerelease selection. Latest selection uses only the
+  matching flavor unless an authoritative listing snapshot is available; a
+  stable-only latest entry cannot prove that no newer preview exists.
+  Package-existence probes accept either flavor because they do not select a
+  coordinate. Neither another feed nor a suffix-bearing package id can alias
+  it. Candidate versions are accepted only as unpadded strings that parse as
+  NuGet versions, and selected values are normalized before they are cached or
+  used as coordinates. The category bump also fences older source-blind,
   pre-filter, ambiguous-key, and noncanonical-NuGet.org-attribution entries.
 
 ### Revealing unlisted versions

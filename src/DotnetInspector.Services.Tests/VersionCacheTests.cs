@@ -92,7 +92,7 @@ public class VersionCacheTests : IDisposable
     }
 
     [Fact]
-    public void PrereleaseInclusiveCandidateLookupUsesStableLatestEntry()
+    public void PrereleaseInclusiveSelectionDoesNotUseStableLatestEntry()
     {
         SetLatest("StableOnly", CustomSource, "1.2.3");
 
@@ -102,17 +102,41 @@ public class VersionCacheTests : IDisposable
                 [NuGetCache.GetSourceKey(CustomSource.Url)],
                 includePrerelease: true);
 
-        Assert.Equal("1.2.3", result);
+        Assert.Null(result);
     }
 
-    [Fact]
-    public void PrereleaseInclusiveCandidateLookupChoosesNewestFlavor()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CandidateExistenceUsesEitherLatestFlavor(
+        bool includePrerelease)
     {
-        SetLatest("BothFlavors", CustomSource, "2.0.0");
+        SetLatest(
+            "EitherFlavor",
+            CustomSource,
+            includePrerelease ? "2.0.0-preview.1" : "1.2.3",
+            includePrerelease);
+
+        bool result = PackageExtractor.HasCachedCandidateVersion(
+            "EitherFlavor",
+            [NuGetCache.GetSourceKey(CustomSource.Url)]);
+
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("2.0.0", "3.0.0-preview.1", "3.0.0-preview.1")]
+    [InlineData("4.0.0", "3.0.0-preview.1", "4.0.0")]
+    public void PrereleaseInclusiveCandidateLookupChoosesNewestCachedFlavor(
+        string stable,
+        string prereleaseInclusive,
+        string expected)
+    {
+        SetLatest("BothFlavors", CustomSource, stable);
         SetLatest(
             "BothFlavors",
             CustomSource,
-            "3.0.0-preview.1",
+            prereleaseInclusive,
             includePrerelease: true);
 
         string? result =
@@ -121,7 +145,27 @@ public class VersionCacheTests : IDisposable
                 [NuGetCache.GetSourceKey(CustomSource.Url)],
                 includePrerelease: true);
 
-        Assert.Equal("3.0.0-preview.1", result);
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_PrereleaseDoesNotUseStableOnlyCache()
+    {
+        SetLatest("PreviewAfterStable", CustomSource, "1.2.3");
+        using var client = new HttpClient(new CustomFeedHandler(
+            serviceIndexUrl: CustomSource.Url,
+            flatContainerBase: "https://custom.feed/flat/",
+            packageId: "previewafterstable",
+            versions: ["1.2.3", "2.0.0-preview.1"]));
+
+        string? result = await PackageExtractor.GetLatestVersionAsync(
+            client,
+            "PreviewAfterStable",
+            [CustomSource],
+            log: null,
+            includePrerelease: true);
+
+        Assert.Equal("2.0.0-preview.1", result);
     }
 
     [Fact]
