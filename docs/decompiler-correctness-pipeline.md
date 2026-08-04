@@ -206,7 +206,7 @@ Areas and their member classes:
 | Area | Member test classes |
 | --- | --- |
 | `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
-| `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
+| `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `ByteNeutralityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `AnnotatedCompileBackFailureTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
 | `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests` |
 | `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
 | `Pass` | the per-pass unit tests (`*PassTests`) |
@@ -451,17 +451,25 @@ one of them is cost.
 **Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
 suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
 Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
-simply adopt a narrower build.
+simply adopt a narrower build. It also carries theories, so it is blocked on the
+second reason below as well; making it cheap is necessary but not sufficient.
 
 **Excluded on principle.** `DiffFixtureFidelityTests`,
 `NestedTargetLookupTests`, `AuthoredRebuildFidelityTests` and
-`AnnotatedCompileBackFailureTests` are nearly free — 20 tests in ~2s combined —
-and still cannot be gated today, because every one of them carries a `[Theory]`.
-No xUnit `-list` mode enumerates individual cases, so the completeness check is
-method-granular and a theory that silently lost cases would still satisfy it.
+`AnnotatedCompileBackFailureTests` are nearly free — run together they are
+2.9 seconds — and still cannot be gated today, because every one of them
+carries a `[Theory]`.
+
+The problem is not the runtime, it is what the CI completeness check can see.
+Run those four classes and xUnit reports `Discovered: 11 test cases` and then
+`Total: 20`. No `-list` mode expands a theory into its cases, so the check the
+`decompiler-gates` job runs is method-granular: it would confirm all 11 methods
+executed while nine cases silently vanished. That is the same shape of
+undetected loss the gate exists to prevent, so
 `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
-closed on exactly that. Gating them requires making the completeness check
-case-granular first; it is a prerequisite change, not an oversight.
+closed on any non-`FactAttribute` test attribute. Gating these requires making
+the completeness check case-granular first; it is a prerequisite change, not an
+oversight.
 
 Widen the preset as classes get cheap enough, and as the completeness check
 grows the granularity a theory would need.
