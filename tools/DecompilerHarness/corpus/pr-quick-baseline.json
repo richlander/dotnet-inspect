@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-08-03T22:25:04.0662534+00:00",
+  "generatedUtc": "2026-08-03T23:14:52.1438736+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -12605,21 +12605,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.StackAllocSpanPass.\u003C\u003Ec",
-      "method": "\u003CRun\u003Eb__2_1",
-      "overload": 0,
-      "signature": "(System.Linq:System.Linq.IGrouping\u00602\u003Ccorelib:System.Int32, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.StoreStackSlot\u003E) -\u003E corelib:System.Int32",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StackAllocSpanPass.\u003C\u003Ec::\u003CRun\u003Eb__2_1#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.StackSlotCopyPropagationPass.\u003C\u003Ec",
       "method": ".cctor",
       "overload": 0,
@@ -12705,6 +12690,21 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StructReceiverInliningPass::IsMemberReceiver#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.StyleOptionCatalog.\u003C\u003Ec",
+      "method": "\u003C.cctor\u003Eb__24_5",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.PrinterOptions, corelib:System.Boolean) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.PrinterOptions",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.StyleOptionCatalog.\u003C\u003Ec::\u003C.cctor\u003Eb__24_5#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
