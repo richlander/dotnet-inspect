@@ -617,6 +617,24 @@ public class ApiSurfaceExtractorTests
     {
         using var stream = File.OpenRead(typeof(ValueTypeNullabilityFixture).Assembly.Location);
         using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var fixtureType = reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(candidate =>
+                reader.GetString(candidate.Name) == nameof(ValueTypeNullabilityFixture));
+        var inheritedNullableMethod = fixtureType.GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Single(candidate =>
+                reader.GetString(candidate.Name)
+                    == nameof(ValueTypeNullabilityFixture.InheritedNullableValue));
+
+        Assert.Equal(
+            (byte)2,
+            NullabilityReader.GetNullableContext(reader, fixtureType.GetCustomAttributes()));
+        Assert.Null(
+            NullabilityReader.GetNullableContext(
+                reader,
+                inheritedNullableMethod.GetCustomAttributes()));
 
         var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
         var type = Assert.Single(
@@ -625,6 +643,9 @@ public class ApiSurfaceExtractorTests
         var nullable = Assert.Single(
             type.Members,
             candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.NullableValue));
+        var inheritedNullable = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.InheritedNullableValue));
         var plain = Assert.Single(
             type.Members,
             candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.PlainValue));
@@ -635,6 +656,9 @@ public class ApiSurfaceExtractorTests
         Assert.Contains("System.Nullable<T> value", nullable.Signature, StringComparison.Ordinal);
         Assert.Contains("Handler<T> message", nullable.Signature, StringComparison.Ordinal);
         Assert.DoesNotContain("T?>", nullable.Signature, StringComparison.Ordinal);
+
+        Assert.Contains("System.Nullable<T> value", inheritedNullable.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("T?>", inheritedNullable.Signature, StringComparison.Ordinal);
 
         Assert.Contains("(T value,", plain.Signature, StringComparison.Ordinal);
         Assert.Contains("Handler<T> message", plain.Signature, StringComparison.Ordinal);

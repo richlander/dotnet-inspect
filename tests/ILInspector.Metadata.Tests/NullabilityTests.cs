@@ -25,6 +25,12 @@ public sealed class NullabilityTests
     private static ApiType GetType(string name) =>
         Surface.Types.First(t => t.Name == name);
 
+    private static ApiType GetType(Type type)
+    {
+        string fullName = type.FullName!.Replace('+', '.');
+        return Surface.Types.Single(candidate => candidate.FullName == fullName);
+    }
+
     private static ApiMember GetMethod(string typeName, string methodName) =>
         GetType(typeName).Members.First(m => m.Name == methodName);
 
@@ -37,7 +43,7 @@ public sealed class NullabilityTests
     // --- NullabilityReader unit tests ---
 
     [Fact]
-    public void GetNullableContext_ReturnsDefault_WhenNotPresent()
+    public void GetNullableContext_ReturnsNull_WhenNotPresent()
     {
         // NullableObliviousClass is defined below in a #nullable disable region,
         // so it has no NullableContextAttribute in this assembly.
@@ -54,7 +60,7 @@ public sealed class NullabilityTests
             if (reader.GetString(typeDef.Name) == nameof(NullableObliviousClass))
             {
                 var context = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
-                Assert.Equal(0, context);
+                Assert.Null(context);
                 return;
             }
         }
@@ -64,7 +70,7 @@ public sealed class NullabilityTests
     [Fact]
     public void GetNullableContext_ReadsValue_WhenPresent()
     {
-        // See comment in GetNullableContext_ReturnsDefault_WhenNotPresent for why PEReader is inlined.
+        // See comment in GetNullableContext_ReturnsNull_WhenNotPresent for why PEReader is inlined.
         var assemblyPath = typeof(NullabilityTests).Assembly.Location;
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
@@ -76,11 +82,64 @@ public sealed class NullabilityTests
             if (reader.GetString(typeDef.Name) == nameof(NullableSampleClass))
             {
                 var context = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
-                Assert.NotEqual(0, context);
+                Assert.True(context is 1 or 2);
                 return;
             }
         }
         Assert.Fail($"{nameof(NullableSampleClass)} type definition not found in test assembly");
+    }
+
+    [Fact]
+    public void NullableContextScopeFixture_HasExpectedCompilerMetadata()
+    {
+        var assemblyPath = typeof(NullabilityTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+
+        var outer = FindType(reader, nameof(NullableContextScopeFixture));
+        var inherited = FindType(
+            reader,
+            nameof(NullableContextScopeFixture.InheritedNullableContext));
+        var obliviousNested = FindType(
+            reader,
+            nameof(NullableContextScopeFixture.ObliviousNullableContext));
+        var enabled = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Enabled));
+        var oblivious = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Oblivious));
+
+        Assert.Equal((byte)2, NullabilityReader.GetNullableContext(reader, outer.GetCustomAttributes()));
+        Assert.Null(NullabilityReader.GetNullableContext(reader, inherited.GetCustomAttributes()));
+        Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, obliviousNested.GetCustomAttributes()));
+        Assert.Null(NullabilityReader.GetNullableContext(reader, enabled.GetCustomAttributes()));
+        Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, oblivious.GetCustomAttributes()));
+    }
+
+    [Fact]
+    public void Extract_UsesNearestNullableContextIncludingExplicitZero()
+    {
+        var outer = GetType(nameof(NullableContextScopeFixture));
+        var enabled = Assert.Single(
+            outer.Members,
+            member => member.Name == nameof(NullableContextScopeFixture.Enabled));
+        var oblivious = Assert.Single(
+            outer.Members,
+            member => member.Name == nameof(NullableContextScopeFixture.Oblivious));
+        var inherited = GetType(
+            typeof(NullableContextScopeFixture.InheritedNullableContext));
+        var maybe = Assert.Single(
+            inherited.Members,
+            member => member.Name == nameof(NullableContextScopeFixture.InheritedNullableContext.Maybe));
+        var obliviousNested = GetType(
+            typeof(NullableContextScopeFixture.ObliviousNullableContext));
+        var value = Assert.Single(
+            obliviousNested.Members,
+            member => member.Name == nameof(NullableContextScopeFixture.ObliviousNullableContext.Value));
+
+        Assert.Contains("string? value", enabled.Signature, StringComparison.Ordinal);
+        Assert.Contains("string value", oblivious.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("string? value", oblivious.Signature, StringComparison.Ordinal);
+        Assert.Equal("string?", maybe.ReturnType);
+        Assert.Equal("string", value.ReturnType);
     }
 
     // --- TypeNode tree + rendering tests ---
@@ -260,6 +319,19 @@ public sealed class NullabilityTests
         // Should show List<string?> or similar nullable inner arg
         Assert.Contains("string?", member.Signature);
     }
+
+    static TypeDefinition FindType(MetadataReader reader, string name)
+        => reader.TypeDefinitions
+            .Select(reader.GetTypeDefinition)
+            .Single(type => reader.GetString(type.Name) == name);
+
+    static MethodDefinition FindMethod(
+        MetadataReader reader,
+        TypeDefinition type,
+        string name)
+        => type.GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Single(method => reader.GetString(method.Name) == name);
 
 }
 

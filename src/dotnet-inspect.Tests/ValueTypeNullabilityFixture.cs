@@ -25,6 +25,21 @@ public static class ValueTypeNullabilityFixture
     {
     }
 
+    public static void InheritedNullableValue<T>(
+        T? value,
+        string? a,
+        string? b,
+        string? c,
+        string? d,
+        string? e,
+        string? f,
+        string? g,
+        string? h,
+        string? i,
+        string? j) where T : struct
+    {
+    }
+
     public static void PlainValue<T>(
         T value,
         Handler<T> message,

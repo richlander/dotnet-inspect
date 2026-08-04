@@ -118,7 +118,7 @@ public static class ApiSurfaceExtractor
             bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
             // Nullability context for annotated signatures
-            byte typeNullableContext = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
+            byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
 
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
@@ -1568,8 +1568,9 @@ public static class ApiSurfaceExtractor
             (TypeNode)new DegradedTypeNode());
 
         // Determine the effective nullable default: method overrides type
-        byte methodContext = NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes());
-        byte nullableDefault = methodContext != 0 ? methodContext : typeNullableContext;
+        byte nullableDefault =
+            NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes())
+            ?? typeNullableContext;
 
         // Apply nullability to return type
         var paramHandles = method.GetParameters();
