@@ -2173,6 +2173,12 @@ permissiveness rule to keep synchronized with the matcher.
 as `DefinitionJoinToken`; it cannot survive or compare across a generation
 advance.
 
+`TypeResolutionCatalog.ProjectDefinitionJoinToken` returns a closed
+`DefinitionJoinTokenProjection` result. `Issued` carries the token;
+`IncomparableCatalogs` and `StaleGeneration` preserve why no token can be
+issued. Projection is neither nullable nor exception-shaped for those expected
+catalog-lifetime states.
+
 ```csharp
 public enum DefinitionJoinKind
 {
@@ -2569,6 +2575,13 @@ definition keys, with no spelling alias model.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
 
+Slice 6 is in progress under
+[#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
+currently issues generation-scoped `DefinitionJoinToken` values for exact and
+duplicate-indeterminate TypeDef correspondence classes. Unavailable binding
+keys, member-level correspondence, graph migration, and cache-lifetime binding
+remain to be delivered.
+
 Claim: direct callers and transitive call graphs share one definition identity.
 
 ## Gates
@@ -2590,6 +2603,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   declaration/resolution cache entry; `!=` returns false.
 - Independently minted equal `DefinitionJoinToken` and
   `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
+- Every `DefinitionJoinTokenProjection` arm is produced by a focused gate;
+  cross-catalog and stale keys never receive an `Issued` result.
 - Independently constructed equal reference and intrinsic-core-library
   `AssemblyBindingTarget` values compare and hash equally and hit one binding
   cache entry per source domain.

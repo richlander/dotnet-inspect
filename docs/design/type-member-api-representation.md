@@ -71,6 +71,8 @@ of repeated in every row.
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `TypeRef` | Analysis evidence and caches | Structural IL/signature shape, call matching, and Analysis trust evidence | Exact forwarded-definition correspondence or compile-back fidelity |
+| `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
+| `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
 
 #### `ILInspector.Decompiler`
@@ -93,15 +95,18 @@ identity is required. The round-trip design calls that pairing
 ### Structured forwarding currencies
 
 The Metadata delivery slices implement the single-image declaration,
-acquisition, binding, and cross-assembly resolution currencies. Analysis
-provenance and definition-correspondence currencies remain proposed until later
-delivery slices implement them.
+acquisition, binding, cross-assembly resolution, definition-correspondence, and
+definition-join currencies. Analysis retains decoder provenance and consumes
+Metadata-owned correspondence for direct callers. Member-level graph
+correspondence remains the unfinished Slice 6 boundary.
 
-#### Proposed `ILInspector.Analysis` forwarding provenance
+#### Current `ILInspector.Analysis` forwarding provenance
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
+| `CallerScopeReachabilityPlan` | One direct-caller scope | Which candidates may reach the target definition through frozen structured bindings | Final call-site correspondence or transitive graph traversal |
+| `CallerResolutionPlan` | One direct-caller projection | Whether a decoded call-site type is the same definition, different, unavailable, ambiguous, rejected, stale, or duplicate-indeterminate | Hashable member correspondence or graph storage identity |
 
 #### Current `ILInspector.Metadata` single-image declaration
 
@@ -137,11 +142,12 @@ delivery slices implement them.
 | `ResolvedTypeDefinitionKey` | One frozen catalog generation | What the catalog may compare for exact definition correspondence | Hashing, sorting, cross-catalog comparison, or durable storage |
 | `MetadataTypeDefinitionAddress` | MVID plus validated TypeDef token | Where to re-locate a definition after reopening the module | Proof that two artifacts correspond |
 
-#### Proposed `ILInspector.Metadata` correspondence
+#### Current `ILInspector.Metadata` correspondence
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
+| `DefinitionJoinTokenProjection` | One catalog projection operation | Whether a current definition key received join currency or was rejected as cross-catalog/stale | Definition comparison, persistence, or fallback joining |
 | `DefinitionJoinToken` | One frozen catalog generation | Hashable exact-or-indeterminate definition class for graph joins | Display, persistence, or reconstruction from addresses |
 
 The table separates four axes that are often collapsed:
@@ -172,7 +178,7 @@ Conversions are operations with an owner, not implicit casts:
 | Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
 | `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
 | `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
-| `ResolvedTypeDefinitionKey` | `DefinitionJoinToken` | Only the issuing catalog projects a hashable graph currency |
+| `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
@@ -533,7 +539,7 @@ This document is the map. Each document below keeps its own mechanics.
 | --- | --- |
 | `type-spelling-identity-display.md` | Identity-vs-display conflation; `RenderCanonical()`; the multi-projection model and its two review rounds |
 | `metadata-primitives.md` | The three signature-decoding models; the 2026-06 decision not to unify `TypeRef`, and its trip-wire |
-| `architecture.md` (principle 9) | `ILInspector.Analysis` as a zero-project-reference standalone product |
+| `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
 | `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |
 | `member-body-substrate.md` | `filter → render` producer contract; scope-per-type |
