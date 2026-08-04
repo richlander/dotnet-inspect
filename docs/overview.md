@@ -6,10 +6,18 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The target [inspection space architecture](inspection-space.md) defines the
+core: workspace contexts, typed query planning, acquisition and caching, shared
+identity and provenance, owner-issued correspondence, and safe presentation
+boundaries. Workspace contexts and typed query planning are not implemented
+yet. The components below are the current hosts, shared substrates, and
+inspection producers that will extend that space.
+
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
+- `src/CSharpText/` is a dependency-free leaf for C# text lexing and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
@@ -31,6 +39,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 ## Important systems
 
+- [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
