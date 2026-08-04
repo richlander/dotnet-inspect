@@ -24,8 +24,10 @@
     <!-- Preserve the pre-move real-source corpus assembled beside the test host. -->
     <ProjectReference Include="../../src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <ProjectReference Include="../DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
   </ItemGroup>
 
 </Project>
