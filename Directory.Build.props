@@ -14,15 +14,17 @@
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
     <!--
-      Only tools are packable, and that is a property of the projects rather
-      than of the argument each pack invocation happens to pass (issue #3330).
-      The internal libraries have no versioning story, no API stability
-      commitment, and no intent to be consumed externally; if one of them
-      reached a feed at 1.0.0, the layering rules in AGENTS.md would become an
-      external compatibility surface instead of an internal design constraint.
-      Off by default so a new library cannot be packed. Tool projects explicitly
-      opt back in with IsPackable=true.
+      Only tools are packable or publishable, and those are project properties
+      rather than consequences of whichever SDK command was run (issue #3330).
+      Internal libraries have no versioning story, no API stability commitment,
+      and no intent to be consumed externally; if one reached a feed at 1.0.0,
+      the layering rules in AGENTS.md would become an external compatibility
+      surface instead of an internal design constraint. Both surfaces are off
+      by default. Tool projects explicitly opt into packing and use IsTool for
+      their shared publish behavior.
     -->
     <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <IsPublishable>false</IsPublishable>
   </PropertyGroup>
 </Project>

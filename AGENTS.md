@@ -248,11 +248,12 @@ commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `--gate <preset>` flag (`--gate list` prints the table); the taxonomy and the
 per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
 
-Only tool projects explicitly set `IsPackable=true`, and internal libraries
+Only tool projects explicitly set `IsPackable=true`, and `IsTool` makes those
+same projects available to solution-level `dotnet publish`. Internal libraries
 carry no versioning story or API-stability commitment: treat their public
 surface as an internal design constraint, not an external compatibility
-surface. Packability only enables `dotnet pack`; publishing remains owned by
-the workflows described in `docs/release-workflow.md`.
+surface. Packability and publishability control SDK commands; release workflow
+membership remains owned by `docs/release-workflow.md`.
 
 Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
 release, and `README.md` (packed as the package readme) and the shipped

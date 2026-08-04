@@ -301,7 +301,7 @@ public class AuthoredSourceValidityTests
             leaked.Count == 0,
             $"{leaked.Count} slice(s) rendered a type header as member source:\n\n{Report(leaked)}");
 
-        Assert.NotEmpty(slices.Where(s => s.Outcome == SliceOutcome.NotSliceable));
+        Assert.Contains(slices, static s => s.Outcome == SliceOutcome.NotSliceable);
     }
 
     /// <summary>
