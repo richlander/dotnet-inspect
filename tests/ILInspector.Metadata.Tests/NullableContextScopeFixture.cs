@@ -27,6 +27,18 @@ public static class NullableContextScopeFixture
     {
         public string? Maybe;
         public string? Also;
+        public string? Another;
+        public string? Fourth;
+        public string? Fifth;
+        public string? Sixth;
+        public string? Seventh;
+        public string? Eighth;
+        public string? Ninth;
+        public string? Tenth;
+
+#nullable disable
+        public string this[string key] => key;
+#nullable restore
     }
 
 #nullable disable

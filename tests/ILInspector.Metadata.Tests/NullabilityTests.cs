@@ -106,12 +106,14 @@ public sealed class NullabilityTests
             nameof(NullableContextScopeFixture.ObliviousNullableContext));
         var enabled = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Enabled));
         var oblivious = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Oblivious));
+        var inheritedIndexer = FindMethod(reader, inherited, "get_Item");
 
         Assert.Equal((byte)2, NullabilityReader.GetNullableContext(reader, outer.GetCustomAttributes()));
         Assert.Null(NullabilityReader.GetNullableContext(reader, inherited.GetCustomAttributes()));
         Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, obliviousNested.GetCustomAttributes()));
         Assert.Null(NullabilityReader.GetNullableContext(reader, enabled.GetCustomAttributes()));
         Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, oblivious.GetCustomAttributes()));
+        Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, inheritedIndexer.GetCustomAttributes()));
     }
 
     [Fact]
@@ -129,6 +131,9 @@ public sealed class NullabilityTests
         var maybe = Assert.Single(
             inherited.Members,
             member => member.Name == nameof(NullableContextScopeFixture.InheritedNullableContext.Maybe));
+        var indexer = Assert.Single(
+            inherited.Members,
+            member => member.Name == "Item");
         var obliviousNested = GetType(
             typeof(NullableContextScopeFixture.ObliviousNullableContext));
         var value = Assert.Single(
@@ -139,6 +144,8 @@ public sealed class NullabilityTests
         Assert.Contains("string value", oblivious.Signature, StringComparison.Ordinal);
         Assert.DoesNotContain("string? value", oblivious.Signature, StringComparison.Ordinal);
         Assert.Equal("string?", maybe.ReturnType);
+        Assert.Contains("string key", indexer.Signature, StringComparison.Ordinal);
+        Assert.DoesNotContain("string? key", indexer.Signature, StringComparison.Ordinal);
         Assert.Equal("string", value.ReturnType);
     }
 

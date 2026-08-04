@@ -2362,11 +2362,21 @@ public static class ApiSurfaceExtractor
             : "";
         var isRequired = requiredPrefix.Length > 0;
 
-        var paramHandles = hasGetter
-            ? reader.GetMethodDefinition(accessors.Getter).GetParameters()
-            : hasSetter
-                ? reader.GetMethodDefinition(accessors.Setter).GetParameters()
-                : default;
+        MethodDefinitionHandle parameterAccessor = hasGetter
+            ? accessors.Getter
+            : accessors.Setter;
+        var parameterAccessorMethod = parameterAccessor.IsNil
+            ? default
+            : reader.GetMethodDefinition(parameterAccessor);
+        var paramHandles = parameterAccessor.IsNil
+            ? default
+            : parameterAccessorMethod.GetParameters();
+        byte parameterNullableContext = parameterAccessor.IsNil
+            ? typeNullableContext
+            : NullabilityReader.GetNullableContext(
+                    reader,
+                    parameterAccessorMethod.GetCustomAttributes())
+                ?? typeNullableContext;
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
         List<ApiParameter> parameterModels = [];
@@ -2374,7 +2384,7 @@ public static class ApiSurfaceExtractor
         {
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
-            paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
+            paramTypes[i].ApplyNullability(paramBytes, ref pos, parameterNullableContext);
             var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
