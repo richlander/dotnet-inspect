@@ -25,6 +25,15 @@ AssertAll(
         "pull_request",
         "README.md",
         outputs,
+        reportedChangedFileCount: 2),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
         resolutionSucceeds: false),
     "true");
 
@@ -87,8 +96,8 @@ if (renamedBuildInput["code"] != "true")
 }
 
 string brokenGhInvocation = body.Replace(
-    "| @base64'",
-    "'",
+    "| @base64)'",
+    ")'",
     StringComparison.Ordinal);
 if (brokenGhInvocation == body)
 {
@@ -288,6 +297,7 @@ static Dictionary<string, string> RunDetection(
     string files,
     IReadOnlyCollection<string> expectedOutputs,
     string previousFiles = "",
+    int? reportedChangedFileCount = null,
     bool resolutionSucceeds = true)
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -319,28 +329,52 @@ static Dictionary<string, string> RunDetection(
 
         const string FakeGh = """
             #!/bin/sh
-            if [ "$#" -ne 5 ] || [ "$1" != "api" ] || [ "$2" != "--paginate" ] \
-               || [ "$3" != "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
-               || [ "$4" != "--jq" ] \
-               || [ "$5" != '.[] | [.previous_filename?, .filename][] | select(. != null) | @base64' ]; then
-              echo "unexpected gh invocation: $*" >&2
-              exit 64
-            fi
             if [ "$RESOLUTION_SUCCEEDS" != "true" ]; then
               exit 1
             fi
-            if [ -n "$PREVIOUS_FILES" ]; then
+            if [ "$#" -eq 4 ] && [ "$1" = "api" ] \
+               && [ "$2" = "repos/richlander/dotnet-inspect/pulls/3704" ] \
+               && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
+              if [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
+              printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
+              elif [ -n "$PREVIOUS_FILES" ]; then
+              printf '1\n'
+              elif [ -z "$CHANGED_FILES" ]; then
+              printf '0\n'
+              else
+              count=0
+              while IFS= read -r file; do
+                count=$((count + 1))
+              done <<EOF
+            $CHANGED_FILES
+            EOF
+              printf '%s\n' "$count"
+              fi
+              exit 0
+            fi
+            if [ "$#" -eq 5 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] \
+               && [ "$3" = "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
+               && [ "$4" = "--jq" ] \
+               && [ "$5" = '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)' ]; then
+              if [ -n "$PREVIOUS_FILES" ]; then
+              printf ':file\n'
               printf '%s' "$PREVIOUS_FILES" | base64 -w0
               printf '\n'
-            fi
-            if [ -n "$CHANGED_FILES" ]; then
+              printf '%s' "$CHANGED_FILES" | base64 -w0
+              printf '\n'
+              elif [ -n "$CHANGED_FILES" ]; then
               while IFS= read -r file; do
+                printf ':file\n'
                 printf '%s' "$file" | base64 -w0
                 printf '\n'
               done <<EOF
             $CHANGED_FILES
             EOF
+              fi
+              exit 0
             fi
+            echo "unexpected gh invocation: $*" >&2
+            exit 64
             """;
         const string FakeGit = """
             #!/bin/sh
@@ -391,6 +425,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
+        startInfo.Environment["REPORTED_CHANGED_FILE_COUNT"] =
+            reportedChangedFileCount?.ToString() ?? "";
         startInfo.Environment["RESOLUTION_SUCCEEDS"] =
             resolutionSucceeds.ToString().ToLowerInvariant();
 

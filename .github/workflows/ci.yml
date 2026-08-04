@@ -74,6 +74,7 @@ jobs:
           dotnet-version: '11.0.x'
 
       - name: Self-test change detection
+        shell: bash
         run: dotnet run eng/test-ci-change-detection.cs
 
       - name: Detect changes
@@ -99,15 +100,39 @@ jobs:
             # NUL-delimited path stream because shell variables cannot contain
             # NULs and newline-delimited names cannot represent every Git path.
             if FILES=$(
-              gh api --paginate \
-                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-                --jq '.[] | [.previous_filename?, .filename][] | select(. != null) | @base64' |
+              {
+                EXPECTED_FILES=$(
+                  gh api \
+                    "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+                    --jq '.changed_files'
+                ) || exit 1
+                case "$EXPECTED_FILES" in
+                  ''|*[!0-9]*) exit 1 ;;
+                esac
+                RECORDS=$(
+                  gh api --paginate \
+                    "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                    --jq '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
+                ) || exit 1
+                ACTUAL_FILES=0
                 while IFS= read -r encoded; do
+                  if [ "$encoded" = ":file" ]; then
+                    ACTUAL_FILES=$((ACTUAL_FILES + 1))
+                  fi
+                done <<< "$RECORDS"
+                if [ "$ACTUAL_FILES" -ne "$EXPECTED_FILES" ]; then
+                  exit 1
+                fi
+                while IFS= read -r encoded; do
+                  if [ -z "$encoded" ] || [ "$encoded" = ":file" ]; then
+                    continue
+                  fi
                   if ! printf '%s' "$encoded" | base64 --decode; then
                     exit 1
                   fi
                   printf '\0'
-                done |
+                done <<< "$RECORDS"
+              } |
                 base64 -w0
             ) && [ -n "$FILES" ]; then
               RESOLVED=true
@@ -1111,7 +1136,13 @@ jobs:
           missing = sorted(jobs - needs)
           extra = sorted(needs - jobs)
           forbidden = sorted(
-              key for key in ("if", "continue-on-error")
+              key for key in (
+                  "if",
+                  "continue-on-error",
+                  "defaults",
+                  "env",
+                  "container",
+                  "strategy")
               if key in workflow["jobs"]["changes"])
           self_tests = [
               step for step in workflow["jobs"]["changes"].get("steps", [])
@@ -1128,8 +1159,15 @@ jobs:
               if self_test.get("run") != "dotnet run eng/test-ci-change-detection.cs":
                   self_test_errors.append(
                       "Self-test change detection must run the C# gate")
+              if self_test.get("shell") != "bash":
+                  self_test_errors.append(
+                      "Self-test change detection must use shell: bash")
               forbidden_step = sorted(
-                  key for key in ("if", "continue-on-error")
+                  key for key in (
+                      "if",
+                      "continue-on-error",
+                      "env",
+                      "working-directory")
                   if key in self_test)
               if forbidden_step:
                   self_test_errors.append(
