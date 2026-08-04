@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace DotnetInspector.CSharpBodySlicer;
+namespace CSharpText;
 
 /// <summary>
 /// The kind of declaration a <see cref="DeclarationSpan"/> describes.
@@ -254,7 +254,7 @@ public sealed record DeclarationSpan(
 
 /// <summary>
 /// The declarations of one C# source file, recovered in a single forward pass over
-/// <see cref="BodySlicer"/>'s token stream.
+/// <see cref="CSharpLexer"/>'s token stream.
 /// <para>
 /// This exists because locating a member's authored text is two questions, and only one of them
 /// has an exact answer. A portable PDB says exactly which lines a member's <i>body</i> occupies,
