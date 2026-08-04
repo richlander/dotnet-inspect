@@ -698,7 +698,7 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
-    /// A sweep invalidates the previous manifest before this run can change the pool.
+    /// A sweep whose pool changed but whose record failed leaves no previous manifest.
     ///
     /// <para>The first run publishes a manifest naming both assemblies. The second copies
     /// bytes the pin refuses and removes that subject from the pool, then is prevented
@@ -712,7 +712,7 @@ public class EvilPoolSweepGateTests
     /// absence after the failed run is the behavior under test.</para>
     /// </summary>
     [Fact]
-    public void ASweepInvalidatesThePreviousManifestBeforeThePoolCanChange()
+    public void ASweepWhosePoolChangedButRecordFailedLeavesNoPreviousManifest()
     {
         using var world = SweepWorld.Create();
 
@@ -750,7 +750,7 @@ public class EvilPoolSweepGateTests
     /// <para>An invalid pin never reaches acquisition or pool writes, so removing the
     /// prior result would discard valid evidence without protecting against stale state.
     /// This is the other side of
-    /// <see cref="ASweepInvalidatesThePreviousManifestBeforeThePoolCanChange"/>: the
+    /// <see cref="ASweepWhosePoolChangedButRecordFailedLeavesNoPreviousManifest"/>: the
     /// manifest becomes non-authoritative when mutation begins, not merely when another
     /// process invocation starts.</para>
     /// </summary>

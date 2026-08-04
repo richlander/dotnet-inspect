@@ -444,6 +444,12 @@ try
     //
     // A directory at this path is not an earlier manifest. Leave it for the final
     // atomic write to refuse, which keeps that metadata-write failure observable.
+    //
+    // The failed-run outcome is gated by
+    // EvilPoolSweepGateTests.ASweepWhosePoolChangedButRecordFailedLeavesNoPreviousManifest.
+    // The exact placement before the first copy is unverified: a branch-local deletion
+    // after that case's record failure produces the same final disk state. Keep it here
+    // so an unexpected failure after any pool mutation gets the same fail-closed result.
     if (!Directory.Exists(manifestPath))
         File.Delete(manifestPath);
 }
