@@ -302,8 +302,9 @@ public static partial class ResearchViews
     // and the offset -> line bucketing live here, in the producer, so the printer
     // stays dumb. C# lines carry their resolved annotations as structure (the
     // printer bakes the trailing "// ..." comment); IL lines carry their offset and
-    // already fact-annotated text.
-    static IReadOnlyList<BoundSourceLine> CorrelateMixedSource(
+    // resolved annotations as structure too. Medium-owned IL commentary (locals,
+    // stack state) remains part of the IL producer's text.
+    internal static IReadOnlyList<BoundSourceLine> CorrelateMixedSource(
         IrFunction imported,
         string csText,
         PrintedRangeMap printedRanges,
@@ -325,8 +326,8 @@ public static partial class ResearchViews
         }
 
         var factsByOffset = FactsByOffset(annotations);
-        var ilByLine = new Dictionary<int, List<(int Offset, string Text)>>();
-        var ilBeforeLine = new Dictionary<int, List<(int Offset, string Text)>>();
+        var ilByLine = new Dictionary<int, List<(int Offset, string Text, IReadOnlyList<IAnnotation> Annotations)>>();
+        var ilBeforeLine = new Dictionary<int, List<(int Offset, string Text, IReadOnlyList<IAnnotation> Annotations)>>();
         foreach (var instr in annotatedInstrLines)
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
@@ -336,7 +337,7 @@ public static partial class ResearchViews
             // here and not in TryGetPrintedLine is the point: an annotation whose
             // owner is silent must stay unplaced rather than claim a line it did
             // not print, but IL only has to be rendered in the right order.
-            Dictionary<int, List<(int Offset, string Text)>> bucket;
+            Dictionary<int, List<(int Offset, string Text, IReadOnlyList<IAnnotation> Annotations)>> bucket;
             int line;
             if (AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out line))
                 bucket = ilByLine;
@@ -346,7 +347,10 @@ public static partial class ResearchViews
                 continue;
             if (!bucket.TryGetValue(line, out var list))
                 bucket[line] = list = [];
-            list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
+            list.Add((
+                instr.Offset,
+                instr.Text,
+                factsByOffset.GetValueOrDefault(instr.Offset) ?? []));
         }
 
         var csLines = RenderCSharpBodyLines(csText, printedRanges);
@@ -354,8 +358,8 @@ public static partial class ResearchViews
         for (int i = 0; i < csLines.Count; i++)
         {
             if (ilBeforeLine.TryGetValue(i, out var preamble))
-                foreach (var (offset, text) in preamble)
-                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il));
+                foreach (var (offset, text, ilAnnotations) in preamble)
+                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il, ilAnnotations));
 
             var csLine = csLines[i];
             var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
@@ -368,8 +372,8 @@ public static partial class ResearchViews
                 lineAnnotations));
 
             if (ilByLine.TryGetValue(i, out var ils))
-                foreach (var (offset, text) in ils)
-                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il));
+                foreach (var (offset, text, ilAnnotations) in ils)
+                    stream.Add(new BoundSourceLine(text, offset, SourceLineKind.Il, ilAnnotations));
         }
         return stream;
     }
@@ -411,7 +415,7 @@ public static partial class ResearchViews
     // structured annotations into a trailing "// ..." comment; IL lines are framed
     // as "// ..." comments indented under the preceding C# line, reading the indent
     // straight from that line's leading whitespace.
-    static string RenderMixedStream(
+    internal static string RenderMixedStream(
         IReadOnlyList<BoundSourceLine> stream,
         AnnotationGestureSelector gestures,
         IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
@@ -424,7 +428,11 @@ public static partial class ResearchViews
         {
             if (line.Kind == SourceLineKind.Il)
             {
-                sb.AppendLf($"{csIndent}    // {line.Text}");
+                // This renderer's established IL gesture is a side comment.
+                // Keeping the facts structured until here lets a portable
+                // consumer choose differently without making this slice invent
+                // caret geometry for already-comment-framed IL.
+                sb.AppendLf($"{csIndent}    // {RenderSideAnnotations(line.Text, line.Annotations)}");
                 continue;
             }
 
@@ -627,9 +635,9 @@ public static partial class ResearchViews
                 group => group.Key,
                 group => (IReadOnlyList<IAnnotation>)[.. group.OrderBy(annotation => annotation.Descriptor.Id, StringComparer.Ordinal)]);
 
-    static string AddFactsToAnnotatedLine(string line, IReadOnlyList<IAnnotation>? facts)
+    static string RenderSideAnnotations(string line, IReadOnlyList<IAnnotation> facts)
     {
-        if (facts is not { Count: > 0 })
+        if (facts.Count == 0)
             return line;
         string factText = AnnotationText.Format(facts);
         int comment = line.IndexOf("//", StringComparison.Ordinal);
