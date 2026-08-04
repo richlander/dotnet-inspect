@@ -147,6 +147,18 @@ jobs:
               eng/prepare-decompiler-opt-in-corpus.sh) CODE=true ;;
               eng/prepare-decompiler-pr-corpus.sh) CODE=true ;;
               eng/report-decompiler-opt-in-corpus-drift.sh) CODE=true ;;
+              # The package sweep builds the EVIL pool the decompiler corpus is
+              # run over, and EvilPoolSweepGateTests runs it as a subprocess.
+              # Left out of this list, a change to it ran neither this lane nor
+              # the gates, and reported green over jobs that had skipped.
+              eng/prepare-decompiler-package-sweep.cs) CODE=true ;;
+              # The script that runs the sweep to build the EVIL corpus. Missing from
+              # every arm here, so editing it ran no lane at all.
+              eng/prepare-evil-corpus.sh) CODE=true ;;
+              # The pin the sweep reads, and what EvilPoolPinTests holds to the
+              # sweep's own rules. Under docs/, which no arm here would catch.
+              docs/data/nuget-top-packages.lock.json) CODE=true ;;
+              docs/data/nuget-top-packages.json) CODE=true ;;
               # The test lane is what actually runs these scripts (the
               # `Install ilasm/ildasm/mdv` step and IlToolsActivationTests), so
               # it is the only thing that can catch a break in them. Without
@@ -234,6 +246,23 @@ jobs:
               eng/check-decompiler-gate.cs) DECOMPILER=true ;;
               eng/decompiler-gate-known-red.txt) DECOMPILER=true ;;
               eng/decompiler-gate-expected-classes.txt) DECOMPILER=true ;;
+              # Deliberately NOT mapped to this lane, though an earlier revision of this
+              # PR mapped all four here on the premise that "the sweep builds the EVIL
+              # pool this gate is run over". Measured, and false: `--gate pre-merge`
+              # selects ByteNeutralityGateTests, FidelityGateTests, GateExpectedClassesTests
+              # and LoweredFidelityGateTests, none of which read the EVIL pool, and this
+              # job never runs eng/prepare-evil-corpus.sh. The mapping scheduled a
+              # fifteen-minute job that validated nothing about the file that triggered it.
+              # EvilPoolSweepGateTests and EvilPoolPinTests carry no Speed=Slow trait, so
+              # the `test` job's `-trait- "Speed=Slow"` runs all of them; CODE=true above
+              # is the whole coverage these paths have, and is enough.
+              #
+              #   eng/prepare-decompiler-package-sweep.cs
+              #   eng/prepare-evil-corpus.sh
+              #   docs/data/nuget-top-packages.json
+              #   docs/data/nuget-top-packages.lock.json
+              #
+              # Map them here if this lane ever consumes the pool.
               *.md) ;;
               src/*) DECOMPILER=true ;;
               tests/*) DECOMPILER=true ;;
