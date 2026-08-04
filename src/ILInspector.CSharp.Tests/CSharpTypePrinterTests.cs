@@ -974,7 +974,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("public Panel GetPanel();", result.Source, StringComparison.Ordinal);
         Assert.Contains(
-            "public Alpha.Button Pair(Beta.Button other, Panel panel);",
+            "public Button Pair(Beta.Button other, Panel panel);",
             result.Source,
             StringComparison.Ordinal);
     }
@@ -1215,6 +1215,82 @@ public sealed class CSharpTypePrinterTests
         Assert.Equal(["Alpha.Beta"], result.Usings);
         Assert.DoesNotContain("using Zeta;", result.Source, StringComparison.Ordinal);
         Assert.Contains("public Zeta.Alpha GetAlpha();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReferenceCollidingWithEnclosingNamespaceChildStaysQualified()
+    {
+        var type = CreateEmptyType("Alpha.Beta", "Worker");
+        var thing = CreateMethod("GetThing");
+        thing.SignatureModel!.ReturnType = "Alpha.Gamma.Thing";
+        var gamma = CreateMethod("GetGamma");
+        gamma.SignatureModel!.ReturnType = "Other.Gamma";
+        type.Members.Add(thing);
+        type.Members.Add(gamma);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Equal(["Alpha.Gamma"], result.Usings);
+        Assert.Contains("public Thing GetThing();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Other.Gamma GetGamma();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CallerNamespaceChildShadowsSameNamedReference()
+    {
+        var type = CreateEmptyType("Alpha.Beta", "Worker");
+        var gamma = CreateMethod("GetGamma");
+        gamma.SignatureModel!.ReturnType = "Other.Gamma";
+        type.Members.Add(gamma);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+                Usings = ["Alpha.Gamma", "Other"]
+            });
+
+        Assert.Equal(
+            ["Alpha.Gamma", "Other"],
+            result.Usings.Order(StringComparer.Ordinal));
+        Assert.Contains("public Other.Gamma GetGamma();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SameNamespaceTypeMatchingRootUsesShortName()
+    {
+        var type = CreateEmptyType("Alpha.Beta", "Worker");
+        var alpha = CreateMethod("GetAlpha");
+        alpha.SignatureModel!.ReturnType = "Alpha.Beta.Alpha";
+        type.Members.Add(alpha);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("public Alpha GetAlpha();", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Alpha.Beta.Alpha", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LexicallyShadowedQualifiedRootUsesGlobalAlias()
+    {
+        var type = CreateEmptyType("Samples", "Worker`2");
+        type.TypeParameters =
+        [
+            new TypeParameter { Name = "Alpha" },
+            new TypeParameter { Name = "Thing" }
+        ];
+        var thing = CreateMethod("GetThing");
+        thing.SignatureModel!.ReturnType = "Alpha.Beta.Thing";
+        type.Members.Add(thing);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using Alpha.Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public global::Alpha.Beta.Thing GetThing();",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -250,6 +250,84 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void EnclosingNamespaceChildKeepsSameNamedReferenceQualified()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Alpha.Beta",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetThing",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Alpha.Gamma.Thing",
+                        MemberName = "GetThing"
+                    }
+                },
+                new ApiMember
+                {
+                    Name = "GetGamma",
+                    Kind = "method",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "Other.Gamma",
+                        MemberName = "GetGamma"
+                    }
+                }
+            ]
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            ContainingNamespace = type.Namespace
+        });
+
+        var declaration = formatter.FormatTypeUnit(type, type.Members);
+
+        Assert.Contains("public Thing GetThing();", declaration.Text, StringComparison.Ordinal);
+        Assert.Contains("public Other.Gamma GetGamma();", declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(["Alpha.Gamma"], declaration.Usings);
+    }
+
+    [Fact]
+    public void QualifiedPolicyUsesGlobalAliasWhenNamespaceRootIsShadowed()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "System" }]
+        };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::System.Threading.Tasks.Task Run()",
+            declaration.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {
         var parameters = new ApiParameter[]

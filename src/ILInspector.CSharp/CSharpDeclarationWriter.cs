@@ -212,16 +212,23 @@ internal static class CSharpDeclarationWriter
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
 
+        var knownNamespaces = typeRefs
+            .Select(typeRef => typeRef.Namespace)
+            .Concat(contextualNamespaces ?? [])
+            .Concat(scopeList.Select(scope => scope.Type.Namespace))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         var declaredSimpleNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var typeRef in typeRefs)
-            AddNamespaceRoot(declaredSimpleNames, typeRef.Namespace);
-        if (contextualNamespaces is not null)
-            foreach (var ns in contextualNamespaces)
-                AddNamespaceRoot(declaredSimpleNames, ns);
         foreach (var scope in scopeList)
         {
             declaredSimpleNames.Add(CSharpFormatter.StripArity(scope.Type.Name));
-            AddNamespaceShadowingNames(declaredSimpleNames, scope.Type.Namespace);
+            foreach (var knownNamespace in knownNamespaces)
+            {
+                AddVisibleNamespaceNames(
+                    declaredSimpleNames,
+                    scope.Type.Namespace,
+                    knownNamespace);
+            }
             declaredSimpleNames.UnionWith(CollectShadowingNames(scope.Type, scope.Members));
         }
 
@@ -293,30 +300,37 @@ internal static class CSharpDeclarationWriter
         return names;
     }
 
-    static void AddNamespaceShadowingNames(
+    static void AddVisibleNamespaceNames(
         HashSet<string> names,
-        string? containingNamespace)
+        string? containingNamespace,
+        string? knownNamespace)
     {
+        if (string.IsNullOrWhiteSpace(knownNamespace))
+            return;
+        var knownSegments = knownNamespace.Split(
+            '.',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (knownSegments.Length == 0)
+            return;
+        names.Add(knownSegments[0]);
+
         if (string.IsNullOrWhiteSpace(containingNamespace))
             return;
-        foreach (var segment in containingNamespace.Split(
+        var containingSegments = containingNamespace.Split(
             '.',
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        int sharedLength = Math.Min(containingSegments.Length, knownSegments.Length - 1);
+        for (var i = 0; i < sharedLength; i++)
         {
-            names.Add(segment);
+            if (!string.Equals(
+                containingSegments[i],
+                knownSegments[i],
+                StringComparison.Ordinal))
+            {
+                break;
+            }
+            names.Add(knownSegments[i + 1]);
         }
-    }
-
-    static void AddNamespaceRoot(
-        HashSet<string> names,
-        string? ns)
-    {
-        if (string.IsNullOrWhiteSpace(ns))
-            return;
-        int separator = ns.IndexOf('.');
-        string root = (separator < 0 ? ns : ns[..separator]).Trim();
-        if (root.Length > 0)
-            names.Add(root);
     }
 
     static HashSet<string> CollidingSimpleNames(IReadOnlyList<TypeRef> typeRefs)
@@ -2207,9 +2221,6 @@ internal static class CSharpDeclarationWriter
             IReadOnlySet<string> shadowingNames,
             string declaredTypeName)
         {
-            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
-                return new TypeNamePlan(new Dictionary<string, string>(), [], []);
-
             var typeRefs = references
                 .Select(TypeRef.TryCreate)
                 .Where(r => r is not null)
@@ -2217,55 +2228,102 @@ internal static class CSharpDeclarationWriter
                 .DistinctBy(r => r.FullName, StringComparer.Ordinal)
                 .ToList();
 
-            var effectiveShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
-            effectiveShadowingNames.UnionWith(options.AdditionalShadowingNames);
+            var lexicalShadowingNames = shadowingNames.ToHashSet(StringComparer.Ordinal);
+            lexicalShadowingNames.UnionWith(options.AdditionalShadowingNames);
+            var namespaceShadowingNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var typeRef in typeRefs)
-                AddNamespaceRoot(effectiveShadowingNames, typeRef.Namespace);
+            {
+                AddVisibleNamespaceNames(
+                    namespaceShadowingNames,
+                    options.ContainingNamespace,
+                    typeRef.Namespace);
+            }
             foreach (var ns in options.Usings)
-                AddNamespaceRoot(effectiveShadowingNames, ns);
-            AddNamespaceShadowingNames(
-                effectiveShadowingNames,
+            {
+                AddVisibleNamespaceNames(
+                    namespaceShadowingNames,
+                    options.ContainingNamespace,
+                    ns);
+            }
+            AddVisibleNamespaceNames(
+                namespaceShadowingNames,
+                options.ContainingNamespace,
                 options.ContainingNamespace);
             if (typeRefs.Any(r => string.Equals(r.SimpleName, declaredTypeName, StringComparison.Ordinal)
                 && !string.Equals(r.Namespace, options.ContainingNamespace, StringComparison.Ordinal)))
             {
-                effectiveShadowingNames.Add(declaredTypeName);
+                lexicalShadowingNames.Add(declaredTypeName);
             }
+            var rootShadowingNames = lexicalShadowingNames.ToHashSet(StringComparer.Ordinal);
+            rootShadowingNames.Add(declaredTypeName);
+            rootShadowingNames.UnionWith(typeRefs
+                .Where(typeRef => string.Equals(
+                    typeRef.Namespace,
+                    options.ContainingNamespace,
+                    StringComparison.Ordinal))
+                .Select(typeRef => typeRef.SimpleName));
 
             var collisions = CollidingSimpleNames(typeRefs);
+            var allShadowingNames = lexicalShadowingNames
+                .Concat(namespaceShadowingNames)
+                .ToHashSet(StringComparer.Ordinal);
             var unsafeNamespaces = UnsafeNamespaces(
                 typeRefs,
-                effectiveShadowingNames,
+                allShadowingNames,
                 collisions);
 
             var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
             var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
             var diagnostics = new List<string>();
             var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+            void KeepResolvableQualified(TypeRef typeRef)
+            {
+                if (rootShadowingNames.Contains(NamespaceRoot(typeRef.Namespace)))
+                    replacements[typeRef.FullName] = $"global::{typeRef.FullName}";
+            }
+
+            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
+            {
+                foreach (var typeRef in typeRefs)
+                    KeepResolvableQualified(typeRef);
+                return new TypeNamePlan(replacements, [], diagnostics);
+            }
 
             foreach (var typeRef in typeRefs)
             {
-                if (collisions.Contains(typeRef.SimpleName))
-                {
-                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is ambiguous; kept '{typeRef.FullName}' qualified.");
-                    continue;
-                }
-                if (effectiveShadowingNames.Contains(typeRef.SimpleName))
-                {
-                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed in this declaration; kept '{typeRef.FullName}' qualified.");
-                    continue;
-                }
                 var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
                     && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
+                if (!isSameNamespace && collisions.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is ambiguous; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (lexicalShadowingNames.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed in this declaration; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (!isSameNamespace && namespaceShadowingNames.Contains(typeRef.SimpleName))
+                {
+                    diagnostics.Add($"Type name '{typeRef.SimpleName}' is shadowed by a namespace in this declaration; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
                 if (!isSameNamespace && unsafeNamespaces.Contains(typeRef.Namespace))
                 {
                     diagnostics.Add($"Namespace '{typeRef.Namespace}' contains an ambiguous or shadowed type name; kept '{typeRef.FullName}' qualified.");
+                    KeepResolvableQualified(typeRef);
                     continue;
                 }
                 var isInContext = isSameNamespace || contextualUsings.Contains(typeRef.Namespace);
 
                 if (options.TypeNameMode == CSharpTypeNameMode.ContextualShort && !isInContext)
+                {
+                    KeepResolvableQualified(typeRef);
                     continue;
+                }
 
                 replacements[typeRef.FullName] = typeRef.SimpleName;
                 if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
@@ -2273,6 +2331,12 @@ internal static class CSharpDeclarationWriter
             }
 
             return new TypeNamePlan(replacements, generatedUsings.ToList(), diagnostics);
+        }
+
+        static string NamespaceRoot(string ns)
+        {
+            int separator = ns.IndexOf('.');
+            return separator < 0 ? ns : ns[..separator];
         }
 
         static string ReplaceIdentifierToken(string text, string token, string replacement)
@@ -2299,6 +2363,11 @@ internal static class CSharpDeclarationWriter
                     && IsStartBoundary(text, i - 1)
                     && IsEndBoundary(text, i + token.Length))
                 {
+                    if (IsWithinGlobalAlias(text, i))
+                    {
+                        sb.Append(text[i++]);
+                        continue;
+                    }
                     sb.Append(replacement);
                     i += token.Length;
                     continue;
@@ -2308,6 +2377,19 @@ internal static class CSharpDeclarationWriter
             }
 
             return sb.ToString();
+        }
+
+        static bool IsWithinGlobalAlias(string text, int index)
+        {
+            var start = index;
+            while (start > 0
+                && (IsIdentifierPart(text[start - 1]) || text[start - 1] is '.' or '+'))
+            {
+                start--;
+            }
+            return start >= "global::".Length
+                && text.AsSpan(start - "global::".Length, "global::".Length)
+                    .SequenceEqual("global::");
         }
 
         static bool IsStartBoundary(string text, int index)
