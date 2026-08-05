@@ -1535,6 +1535,36 @@ public class SectionPipelineTests
         }
     }
 
+    [Fact]
+    public async Task ScannerPrerequisites_DriveTheSharedReferenceRead()
+    {
+        const string Bundle = "DependencyBundle";
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var httpClient = new HttpClient();
+        var logger = new DotnetInspector.Output.VerboseLogger(false);
+        var registry = new ScannerRegistry()
+            .Add(
+                LibrarySections.ScannerTransitiveRefs,
+                context => LibraryMetadataService.ScanTransitiveReferences(
+                    context.AssemblyPath,
+                    context.Model,
+                    context.Logger))
+            .AddBundle(Bundle, LibrarySections.ScannerTransitiveRefs);
+
+        var inspection = await LibraryMetadataService.InspectAsync(
+            path,
+            new LibraryOptions { Verbosity = Verbosity.Quiet },
+            logger,
+            null,
+            null,
+            httpClient,
+            scanners: new HashSet<string>(StringComparer.Ordinal) { Bundle },
+            scannerRegistry: registry);
+
+        Assert.NotNull(inspection);
+        Assert.NotEmpty(inspection!.AssemblyInfo!.TransitiveReferences!);
+    }
+
     /// <summary>
     /// The converse of <see cref="SharedReadScannerKeys_EachKeyActuallyDrivesTheRead"/>: a key the
     /// declaration does NOT name must not drive the read either.
@@ -4670,6 +4700,28 @@ public class SectionPipelineTests
                 Root,
                 _ => true,
                 _ => ["shared", "SHARED"]));
+    }
+
+    [Fact]
+    public void CaseSensitivityProbe_FallsBackWhenParentEnumerationThrowsDuringIteration()
+    {
+        const string Root = "/volumes/unreadable/dotnet/shared/";
+        var expected = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        Assert.Equal(
+            expected,
+            LibraryMetadataService.ComparisonForVolumeHolding(
+                Root,
+                _ => true,
+                _ => ThrowWhenEnumerated()));
+
+        static IEnumerable<string> ThrowWhenEnumerated()
+        {
+            yield return "shared";
+            throw new UnauthorizedAccessException("The parent directory became unreadable.");
+        }
     }
 
     /// <summary>

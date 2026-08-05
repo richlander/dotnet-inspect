@@ -168,7 +168,7 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
-            var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+            var needsAuditSignals = requiredScanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
 
             AssemblySurfaceClassificationOutcome? surfaceClassification =
                 isPlatformAssembly
@@ -194,7 +194,7 @@ internal static class LibraryMetadataService
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(
-                ReadsAssemblyReferences(scanners, options.IncludeReferences, options.IncludeDependencies));
+                ReadsAssemblyReferences(requiredScanners, options.IncludeReferences, options.IncludeDependencies));
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -831,10 +831,17 @@ internal static class LibraryMetadataService
 
         // A real sibling under the flipped spelling means the volume is holding both, so it
         // distinguishes case whatever the flipped path resolves to.
-        foreach (var entry in enumerateDirectoryNames(parent))
+        try
         {
-            if (string.Equals(entry, flippedName, StringComparison.Ordinal))
-                return StringComparison.Ordinal;
+            foreach (var entry in enumerateDirectoryNames(parent))
+            {
+                if (string.Equals(entry, flippedName, StringComparison.Ordinal))
+                    return StringComparison.Ordinal;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return hostDefault;
         }
 
         return directoryExists(Path.Combine(parent, flippedName))
@@ -844,14 +851,7 @@ internal static class LibraryMetadataService
 
     private static IEnumerable<string> EnumerateDirectoryNames(string parent)
     {
-        try
-        {
-            return Directory.EnumerateDirectories(parent).Select(Path.GetFileName).OfType<string>();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return [];
-        }
+        return Directory.EnumerateDirectories(parent).Select(Path.GetFileName).OfType<string>();
     }
 
     private static string? FlipLetterCase(string value)

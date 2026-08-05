@@ -352,9 +352,7 @@ public static class OutputFormatter
 
         if (inspection.UseDependenciesView)
         {
-            CommandError.WriteLine("Tip: use 'depends --library' for dependency trees.");
-            var view = AssemblyDependenciesView.FromInspection(inspection);
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            WriteDependencyViews([inspection]);
             return;
         }
 
@@ -518,6 +516,12 @@ public static class OutputFormatter
             return;
         }
 
+        if (options.IncludeDependencies)
+        {
+            WriteDependencyViews(inspections);
+            return;
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
@@ -545,6 +549,16 @@ public static class OutputFormatter
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
+        }
+    }
+
+    private static void WriteDependencyViews(IEnumerable<LibraryInspection> inspections)
+    {
+        CommandError.WriteLine("Tip: use 'depends --library' for dependency trees.");
+        foreach (var inspection in inspections)
+        {
+            var view = AssemblyDependenciesView.FromInspection(inspection);
+            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
         }
     }
 

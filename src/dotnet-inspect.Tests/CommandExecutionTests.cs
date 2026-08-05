@@ -9082,6 +9082,41 @@ public partial class CommandExecutionTests
                 || line.StartsWith("└─ ", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task LibraryCommand_LegacyDependenciesFlag_RendersEveryTfmTree()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"dependencies-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            {
+                var directory = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(directory);
+                File.Copy(TestAssemblyPath, Path.Combine(directory, "Lib.dll"));
+            }
+            var packagePath = Path.Combine(tempDir, "Dependencies.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "--dependencies", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(2, SplitOutputLines(output).Count(line => line == "# Lib.dll"));
+            Assert.Contains("TFM: net8.0", output);
+            Assert.Contains("TFM: net10.0", output);
+            Assert.True(SplitOutputLines(output).Count(
+                line => line.StartsWith("├─ ", StringComparison.Ordinal)
+                    || line.StartsWith("└─ ", StringComparison.Ordinal)) >= 2);
+            Assert.Contains("Tip: use 'depends --library' for dependency trees.", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -11881,6 +11916,17 @@ public partial class CommandExecutionTests
 
         Assert.Contains("cannot be projected to rows", error);
         Assert.DoesNotContain("cannot be projected to rows", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_RenderedDependencyTree_WithInertSchemaFlag_DoesNotClaimMissingRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Dependencies", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependencies", output);
+        Assert.DoesNotContain("cannot be projected to rows", error);
     }
 
     [Fact]
