@@ -124,14 +124,15 @@ The speller's obligations:
 - **Total.** Defined on every Unicode scalar, including the 127 encoded scalars
   above the BMP. A `\uXXXX`-only speller is neither total nor invertible on
   exactly the inputs an attacker reaches for.
-- **Injective, in both directions.** One scalar has one *emitted* spelling, so
-  the decoder refuses spellings the encoder never produces: `\U` for a BMP
-  scalar, `\uXXXX` for a scalar with a canonical short form such as `\\`, `\^X`
-  or `\^?`, lowercase hex in either width, and a raw unpaired surrogate in the
-  decoder's input. The one spelling accepted but never emitted is a surrogate
-  *pair* written as two `\uXXXX` escapes, because composition produces it: a
-  .NET string is UTF-16, so `"\uD83D" + "\uDE00"` *is* `"\U0001F600"`, and
-  `Join` encodes its fragments separately.
+- **Injective, in both directions.** One scalar has one *emitted* spelling. The
+  decoder recognizes only canonical tokens: `\U` cannot name a BMP scalar,
+  `\uXXXX` cannot replace a canonical short form such as `\\`, `\^X` or `\^?`,
+  and hex digits are uppercase. Escape-like text that is not a complete
+  canonical token remains literal rather than making the whole string invalid.
+  A surrogate *pair* written as two `\uXXXX` escapes is also accepted because
+  composition produces it: a .NET string is UTF-16, so
+  `"\uD83D" + "\uDE00"` *is* `"\U0001F600"`, and `Join` encodes its fragments
+  separately.
 - **Scalar-based, not code-unit-based.** An unpaired surrogate is not a scalar.
   `Rune` cannot hold one and `EnumerateRunes` substitutes `U+FFFD`, so a speller
   built on either is lossy on the one input that cannot be written any other way.
