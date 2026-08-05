@@ -21,6 +21,40 @@ namespace ILInspector.Decompiler.Pipeline;
 static class SpilledReceiverFold
 {
     /// <summary>
+    /// Argument slots whose value may change while an effectful spill is moved:
+    /// direct stores, raised increments/decrements, address escapes, and
+    /// deconstruction targets. Keep this inventory aligned with
+    /// <c>ExpressionInliningPass.WritesNode</c>'s argument cases.
+    /// </summary>
+    public static HashSet<int> OrderSensitiveArguments(IrFunction function)
+    {
+        var arguments = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreArgument store:
+                    arguments.Add(store.Index);
+                    break;
+                case IncrementDecrement { Target: LoadArgument argument }:
+                    arguments.Add(argument.Index);
+                    break;
+                case LoadArgumentAddress address:
+                    arguments.Add(address.Index);
+                    break;
+                case DeconstructionAssignment deconstruction:
+                    foreach (var target in deconstruction.Targets)
+                    {
+                        if (target.Kind == DeconstructionTargetKind.Argument)
+                            arguments.Add(target.ArgumentIndex);
+                    }
+                    break;
+            }
+        }
+        return arguments;
+    }
+
+    /// <summary>
     /// Folds the maximal contiguous run of single-use spill stores immediately
     /// preceding <paramref name="statement"/> whose one load sits inside
     /// <paramref name="sink"/>, when doing so preserves effect order. Returns true

@@ -5272,6 +5272,28 @@ public sealed class CtorChainSamples : CtorChainBase
     public CtorChainSamples(long value) : this(value.ToString()) { }
 }
 
+public class NamedCtorArgumentOrderBase
+{
+    protected NamedCtorArgumentOrderBase(int before, int after)
+    {
+        Before = before;
+        After = after;
+    }
+
+    public int Before { get; }
+    public int After { get; }
+}
+
+public sealed class NamedCtorArgumentOrder : NamedCtorArgumentOrderBase
+{
+    public NamedCtorArgumentOrder(int value)
+        : base(after: Mutate(ref value), before: value)
+    {
+    }
+
+    static int Mutate(ref int value) => value++;
+}
+
 /// <summary>Lock shapes the lock-sugar pass must raise, including static-field, instance-field, and parameter receivers.</summary>
 public sealed class LockFixtureSamples
 {

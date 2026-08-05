@@ -837,6 +837,39 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // raised-mutation sibling: IncrementDecrementPass can consume a
+    // StoreArgument and leave x++ as the only writer witness. The shared
+    // inventory must still keep the earlier inline x read as a barrier.
+    [Fact]
+    public void ReturnedCall_RunIncrementingEarlierArgument_StaysSpilled()
+    {
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var body = new BlockContainer();
+        var block = new Block(0);
+        body.Add(block);
+        block.Add(new StoreStackSlot(0, new IncrementDecrement(
+            new LoadArgument(0, "x", Int32),
+            isIncrement: true,
+            isPrefix: false)));
+        block.Add(new StoreStackSlot(1, new Call(second, isVirtual: false, [])));
+        block.Add(new Return(new Call(combine, isVirtual: false,
+            [new LoadArgument(0, "x", Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
     // type-witness near miss: the slot load's object type carries a required
     // reconciliation for the int-producing store. Folding would erase it.
     [Fact]

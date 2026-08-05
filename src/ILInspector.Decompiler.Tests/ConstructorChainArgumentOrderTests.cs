@@ -112,6 +112,57 @@ public class ConstructorChainArgumentOrderTests
         function.CheckInvariant();
     }
 
+    // Named constructor arguments can force source-order evaluation into a
+    // positional base call: Mutate(ref x) runs before the later read of x even
+    // though x is positional argument 1. Folding the spill after that read would
+    // reverse the observable order.
+    [Fact]
+    public void MutatedInlineArgumentLeftOfSpill_DoesNotInline()
+    {
+        var mutate = new MethodRef(Derived, "Mutate", Int32, [TypeRef.ByRef(Int32)], HasThis: false);
+        var call = ChainCall(2, new LoadArgument(1, "x", Int32), new LoadStackSlot(0, Int32));
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Call(mutate, isVirtual: false,
+            [new LoadArgumentAddress(1, "x", Int32)])));
+        block.Add(new ExpressionStatement(call));
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            ".ctor",
+            Derived,
+            new MethodSignature(
+                Void,
+                [new Parameter("x", Int32)],
+                HasThis: true,
+                GenericParameterCount: 0),
+            [],
+            container)
+        {
+            BaseType = Base,
+        };
+
+        RunPass(function);
+
+        Assert.Equal(1, StackStores(function));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CompilerNamedArguments_MutationBeforeRead_DeclinesUnsafeFold()
+    {
+        using var source = MetadataSource.Open(typeof(NamedCtorArgumentOrder).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(NamedCtorArgumentOrder).FullName!, ".ctor");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Null(result.ConstructorChain);
+        Assert.Contains("direct constructor call", result.Output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+    }
+
     // Reorder-trivial spills (constants) read nothing and have no effect, so a
     // reversed pure shape still inlines — only order-sensitive values are gated.
     [Fact]
