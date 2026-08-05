@@ -615,6 +615,7 @@ public static class VisualEncoder
     {
         ScalarPolicy permits = ScalarPolicies.For(policy);
         VisualForm forms = VisualForm.None;
+        int rawBackslashIndex = -1;
 
         for (int index = 0; index < encoded.Length;)
         {
@@ -635,11 +636,21 @@ public static class VisualEncoder
 
                 if (isUnpairedSurrogate || !permits(scalar))
                     throw InvalidEncodedText(index);
+
+                if (encoded[index] == '\\')
+                    rawBackslashIndex = index;
             }
 
             forms |= form;
             index += width;
         }
+
+        // Encode produces either a retained value with raw, unambiguous backslashes and no
+        // forms, or a canonical encoded value in which every backslash begins a token.
+        // Composition relies on that whole-value distinction when it protects fragment
+        // boundaries, so FromEncoded must not admit a third, mixed representation.
+        if (forms != VisualForm.None && rawBackslashIndex >= 0)
+            throw InvalidEncodedText(rawBackslashIndex);
 
         return forms;
     }

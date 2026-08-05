@@ -544,6 +544,17 @@ public class InertStringTests
             () => InertString.FromEncoded(policy, encoded));
     }
 
+    [Theory]
+    [InlineData(@"a\\b\")]
+    [InlineData(@"\q\u202E")]
+    [InlineData(@"\u202E\")]
+    [InlineData(@"\^[\q")]
+    public void FromEncoded_RejectsMixedRawAndEncodedBackslashes(string encoded)
+    {
+        Assert.Throws<FormatException>(
+            () => InertString.FromEncoded(TextPolicy.Field, encoded));
+    }
+
     [Fact]
     public void CompositionProtectsBackslashesThatBecomeSpellingPrefixes()
     {

@@ -560,6 +560,12 @@ boundaries and returns them to raw form only when the combined text remains
 unambiguous; otherwise two harmless fragments could join into an apparent
 escape.
 
+Those are also the only two whole-value representations `FromEncoded` admits:
+either no forms and any backslashes are unambiguous literals, or at least one
+form and every backslash begins a canonical token. Mixing a raw backslash with
+encoded forms would produce a value `Encode` cannot emit and would let a later
+composition turn the raw backslash plus its neighboring fragment into a token.
+
 Storing the producing policy on the value would not help either. Knowing which
 policy produced a value says nothing about whether it is stricter than the one
 you are about to apply, short of sweeping every scalar to compare their
