@@ -334,6 +334,114 @@ public sealed class ResolvedTypeDefinitionKey
 }
 
 /// <summary>
+/// Describes how strongly a catalog-issued definition token establishes
+/// correspondence.
+/// </summary>
+public enum DefinitionJoinKind
+{
+    Exact,
+    IndeterminateDuplicateArtifact,
+}
+
+/// <summary>
+/// Hashable catalog currency for one TypeDef correspondence class in one
+/// frozen generation.
+/// </summary>
+public sealed class DefinitionJoinToken : IEquatable<DefinitionJoinToken>
+{
+    readonly Guid _value;
+
+    internal DefinitionJoinToken(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        Guid value,
+        DefinitionJoinKind kind,
+        DuplicateArtifactEvidence? evidence)
+    {
+        Catalog = catalog;
+        Generation = generation;
+        _value = value;
+        Kind = kind;
+        Evidence = evidence;
+    }
+
+    internal AssemblyCatalogId Catalog { get; }
+    internal AssemblyCatalogGenerationId Generation { get; }
+    public DefinitionJoinKind Kind { get; }
+    public DuplicateArtifactEvidence? Evidence { get; }
+    internal Guid Value => _value;
+
+    public bool Equals(DefinitionJoinToken? other) =>
+        other is not null
+        && Catalog == other.Catalog
+        && ReferenceEquals(Generation, other.Generation)
+        && _value == other._value
+        && Kind == other.Kind;
+
+    public override bool Equals(object? obj) =>
+        obj is DefinitionJoinToken other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Catalog, Generation, _value, Kind);
+
+    public static bool operator ==(
+        DefinitionJoinToken? left,
+        DefinitionJoinToken? right) =>
+        Equals(left, right);
+
+    public static bool operator !=(
+        DefinitionJoinToken? left,
+        DefinitionJoinToken? right) =>
+        !Equals(left, right);
+}
+
+/// <summary>
+/// Catalog-owned result of projecting an opaque definition key into hashable
+/// join currency.
+/// </summary>
+public abstract class DefinitionJoinTokenProjection
+{
+    private protected DefinitionJoinTokenProjection()
+    {
+    }
+
+    public sealed class Issued : DefinitionJoinTokenProjection
+    {
+        internal Issued(DefinitionJoinToken token) => Token = token;
+
+        public DefinitionJoinToken Token { get; }
+    }
+
+    public sealed class IncomparableCatalogs : DefinitionJoinTokenProjection
+    {
+        internal IncomparableCatalogs(
+            AssemblyCatalogId catalog,
+            AssemblyCatalogId definitionCatalog)
+        {
+            Catalog = catalog;
+            DefinitionCatalog = definitionCatalog;
+        }
+
+        public AssemblyCatalogId Catalog { get; }
+        public AssemblyCatalogId DefinitionCatalog { get; }
+    }
+
+    public sealed class StaleGeneration : DefinitionJoinTokenProjection
+    {
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId definitionGeneration,
+            AssemblyCatalogGenerationId currentGeneration)
+        {
+            DefinitionGeneration = definitionGeneration;
+            CurrentGeneration = currentGeneration;
+        }
+
+        public AssemblyCatalogGenerationId DefinitionGeneration { get; }
+        public AssemblyCatalogGenerationId CurrentGeneration { get; }
+    }
+}
+
+/// <summary>
 /// Catalog-owned answer to whether two resolved TypeDefs correspond.
 /// </summary>
 public abstract class DefinitionCorrespondence
