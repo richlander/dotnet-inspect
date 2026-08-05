@@ -644,6 +644,24 @@ public class ExpressionInliningPassTests
             body);
     }
 
+    static IrFunction ReturningInt32(params IrNode[] statements)
+        => ReturningInt32([], statements);
+
+    static IrFunction ReturningInt32(ImmutableArray<TypeRef> locals, params IrNode[] statements)
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            locals,
+            body);
+    }
+
     static bool HasStoreLocal(IrFunction function, int index)
         => function.Descendants.OfType<StoreLocal>().Any(store => store.Index == index);
 
@@ -707,6 +725,111 @@ public class ExpressionInliningPassTests
         new ExpressionInliningPass().Run(function, PassContext.None);
 
         Assert.False(HasStoreLocal(function, 0));
+        function.CheckInvariant();
+    }
+
+    // ordered argument run: csc can evaluate multiple effectful call arguments
+    // onto the stack, then spill each into a synthetic slot while a later
+    // argument is reconstructed. Folding the whole run into the returned call in
+    // store order restores the original left-to-right evaluation.
+    [Fact]
+    public void ReturnedCall_OrderedEffectfulStackSlotRun_InlinesAsUnit()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+        var call = Assert.IsType<Call>(Assert.Single(function.Descendants.OfType<Return>()).Value);
+        Assert.Equal(["First", "Second"], call.Arguments.Cast<Call>().Select(argument => argument.Callee.Name));
+        function.CheckInvariant();
+    }
+
+    // evaluation-order near miss: the same stores cannot fold when an effectful
+    // inline argument runs before their loads. Moving First()/Second() after
+    // Prefix() would change call and exception order.
+    [Fact]
+    public void ReturnedCall_EffectfulPrefixBeforeStackSlotRun_StaysSpilled()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var prefix = new MethodRef(Holder, "Prefix", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new Call(prefix, isVirtual: false, []), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // hidden-operation near miss: the second load is nested under an array
+    // literal, whose allocation runs before its elements. It is not a direct call
+    // argument, so folding Second() into that element would move it after the
+    // allocation and change exception/allocation order.
+    [Fact]
+    public void ReturnedCall_StackSlotRunNestedUnderArrayLiteral_StaysSpilled()
+    {
+        var intArray = TypeRef.SzArray(Int32);
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, intArray], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [
+                    new LoadStackSlot(0, Int32),
+                    new ArrayLiteral(Int32, intArray, [new LoadStackSlot(1, Int32)]),
+                ])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // slots-only boundary: an adjacent user local may feed the same returned
+    // call, but the ordered-run mode owns only compiler spill slots. The local
+    // load is an order barrier, so the all-or-nothing fold must preserve both the
+    // source-carrying local and the slot run after it.
+    [Fact]
+    public void ReturnedCall_OrderedStackSlotRun_DoesNotConsumePrecedingUserLocal()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var third = new MethodRef(Holder, "Third", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var function = ReturningInt32(
+            [Int32],
+            new StoreLocal(0, Int32, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(0, new Call(second, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(third, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadLocal(0, Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreLocal(function, 0));
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
         function.CheckInvariant();
     }
 

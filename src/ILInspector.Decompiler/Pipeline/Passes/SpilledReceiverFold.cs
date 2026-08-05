@@ -2,19 +2,21 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Shared effect-order-preserving argument-run fold, extracted verbatim from
-/// <see cref="ConstructorChainArgumentPass"/> so its two consumers — the
-/// constructor-chain lift and <see cref="FluentChainRecompositionPass"/> — reason
+/// <see cref="ConstructorChainArgumentPass"/> so the constructor-chain lift and
+/// <see cref="FluentChainRecompositionPass"/> reason
 /// about the same soundness condition rather than maintaining parallel copies.
 ///
 /// The shape both passes fold is identical: a sink <see cref="Call"/> preceded in
 /// its block by a contiguous run of single-use spill stores whose one load each
-/// sits inside the call. Folding collapses each spill back into the call. The
+/// sits inside the call. <see cref="ExpressionInliningPass"/> additionally uses
+/// the fold for a stack-slot-only run of direct returned-call arguments. Folding
+/// collapses each spill back into the call. The
 /// move is only performed when it provably reorders no effect —
 /// <see cref="RunPreservesEffectOrder"/> is the gate, all-or-nothing per run.
 ///
-/// What differs between the two consumers is only which call is the sink and how
-/// it is found; the fold arithmetic and its safety proof are the same, and live
-/// here.
+/// Callers differ only in which call is the sink, how it is found, and whether
+/// user locals are eligible; the fold arithmetic and its safety proof are the
+/// same, and live here.
 /// </summary>
 static class SpilledReceiverFold
 {
@@ -25,13 +27,16 @@ static class SpilledReceiverFold
     /// when a non-empty run was folded. <paramref name="usage"/> is the caller's
     /// current <see cref="CountPlaces"/> snapshot — a consumer that folds to a
     /// fixpoint must recompute it between folds because a fold moves loads.
+    /// <paramref name="stackSlotsOnly"/> prevents the run from consuming an
+    /// adjacent user local.
     /// </summary>
     public static bool TryFold(
         IrNode statement,
         Call sink,
         IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage,
         PassContext context,
-        string stepLabel)
+        string stepLabel,
+        bool stackSlotsOnly = false)
     {
         if (statement.Parent is not Block block)
             return false;
@@ -41,6 +46,8 @@ static class SpilledReceiverFold
         var run = new List<(IrNode Store, IrNode Load, IrExpression Value)>();
         for (int i = statement.ChildIndex - 1; i >= 0; i--)
         {
+            if (stackSlotsOnly && block.Children[i] is not StoreStackSlot)
+                break;
             if (SpillLoadInside(block.Children[i], sink, usage) is not { } load)
                 break;
             run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
