@@ -41,6 +41,14 @@ namespace ILInspector.DecompilerHarness;
 static class FidelityCheck
 {
     /// <summary>
+    /// Maximum top-level source types one structured <see cref="Evaluate(string, Func{string, bool}?)"/>
+    /// call may send through compile-back. <c>FidelityCheckSelectionGuardTests</c>
+    /// gates both sides: the large test assembly is rejected even through an
+    /// all-matching predicate, while a focused predicate over that assembly runs.
+    /// </summary>
+    internal const int MaxEvaluationTypeCount = 256;
+
+    /// <summary>
     /// The compile-back fidelity contract: which differences the comparison treats as
     /// noise rather than defect. Persisted alongside corpus metrics, so a change to
     /// <see cref="ContractBodyDiffNormalization"/> must bump this — otherwise a baseline
@@ -383,6 +391,11 @@ static class FidelityCheck
     /// the same rows. Filtering does not change how any individual result is computed,
     /// because the reconstruction skeleton is rebuilt from whole-module metadata inside
     /// the compile step.
+    ///
+    /// A supplied predicate that leaves no processable top-level class or struct
+    /// throws instead of returning a vacuous green result. Selection is also
+    /// limited to <see cref="MaxEvaluationTypeCount"/> processable types after
+    /// filtering, so an all-matching predicate cannot disguise an unbounded sweep.
     /// </param>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<string, bool>? typeFilter = null)
         => Evaluate(assemblyPath, lowered: false, typeFilter);
@@ -421,19 +434,79 @@ static class FidelityCheck
         var results = new List<CompileBackResult>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)
+        {
+            if (typeFilter is not null)
+            {
+                throw new ArgumentException(
+                    $"The type filter selected no processable top-level class or struct because "
+                    + $"'{assemblyPath}' does not contain managed metadata.",
+                    nameof(typeFilter));
+            }
+
             return results;
+        }
         var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
         var reader = pe.GetMetadataReader();
+        var selectedTypes = SelectEvaluationTypes(reader, assemblyPath, typeFilter);
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered);
         var references = RuntimeReferences(assemblyPath);
 
-        foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode, typeFilter: typeFilter);
+        foreach (var typeHandle in selectedTypes)
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode);
 
         return results;
+    }
+
+    static IReadOnlyList<TypeDefinitionHandle> SelectEvaluationTypes(
+        MetadataReader reader,
+        string assemblyPath,
+        Func<string, bool>? typeFilter)
+    {
+        var selected = new List<TypeDefinitionHandle>();
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!typeDef.GetDeclaringType().IsNil
+                || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
+            {
+                continue;
+            }
+
+            string fullType = reader.GetFullTypeName(typeDef);
+            if (typeFilter is not null)
+            {
+                if (!typeFilter(fullType))
+                    continue;
+            }
+
+            if (!IsGeneratedType(reader, typeDef, fullType))
+                selected.Add(typeHandle);
+        }
+
+        if (typeFilter is not null && selected.Count == 0)
+        {
+            throw new ArgumentException(
+                $"The type filter selected no processable top-level class or struct in '{assemblyPath}'. "
+                + "Nested types are not independent broad-sweep roots; select their containing top-level type. "
+                + "Metadata paths elsewhere use 'Outer.Inner', not reflection's nested-type '+' spelling.",
+                nameof(typeFilter));
+        }
+
+        if (selected.Count > MaxEvaluationTypeCount)
+        {
+            throw new InvalidOperationException(
+                $"FidelityCheck.Evaluate selected {selected.Count} processable top-level types from "
+                + $"'{assemblyPath}', exceeding its budget of {MaxEvaluationTypeCount}. "
+                + $"Pass a type filter that admits at most {MaxEvaluationTypeCount} types, or use the "
+                + "bounded multi-assembly Evaluate overload for corpus sampling. "
+                + "The budget applies after filtering, so an all-matching predicate does not bypass it.");
+        }
+
+        return selected;
     }
 
     public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, int? workers = null, bool sequential = false)

@@ -9,16 +9,13 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Isolates a single member's text from a C# source file, given the line range a portable PDB reports for it. Not a C# parser: it has no syntax tree and is heuristic at the edges.</Description>
+    <Description>Dependency-free C# text lexing and conservative source-structure recognition.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="DotnetInspector.CSharpBodySlicer.Tests" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="../CSharpText/CSharpText.csproj" />
+    <InternalsVisibleTo Include="CSharpText.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.CSharpBodySlicer" />
   </ItemGroup>
 
 </Project>

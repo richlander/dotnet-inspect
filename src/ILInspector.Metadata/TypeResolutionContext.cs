@@ -65,7 +65,7 @@ public sealed record TypeResolutionContextOptions
 public sealed class TypeResolutionCatalog : IDisposable
 {
     readonly object _gate = new();
-    readonly SemaphoreSlim _generationGate = new(1, 1);
+    readonly SynchronousConcurrencyGate _generationGate = new(1);
     readonly InspectionAcquisitionPlan _acquisition;
     readonly Dictionary<DeclarationCacheKey, TypeDeclarationResult>
         _declarations = [];
@@ -73,6 +73,8 @@ public sealed class TypeResolutionCatalog : IDisposable
         _bindings = [];
     readonly Dictionary<PolicyCacheKey, TypeResolutionOutcome>
         _resolutions = [];
+    readonly Dictionary<DefinitionClassKey, DefinitionJoinToken>
+        _definitionJoinTokens = [];
     readonly TypeResolutionContextOptions _options;
     AssemblyCatalogGenerationId? _latestGeneration;
     ImmutableDictionary<AssemblyCandidateId, FrozenCandidate>
@@ -130,46 +132,76 @@ public sealed class TypeResolutionCatalog : IDisposable
                     : new DefinitionCorrespondence.Different();
             }
 
-            if (!_latestCandidates.TryGetValue(
-                    left.Assembly,
-                    out FrozenCandidate? leftCandidate)
-                || !_latestCandidates.TryGetValue(
-                    right.Assembly,
-                    out FrozenCandidate? rightCandidate))
+            if (!TryGetDefinitionClass(left, out DefinitionClassKey leftClass)
+                || !TryGetDefinitionClass(
+                    right,
+                    out DefinitionClassKey rightClass))
             {
                 return new DefinitionCorrespondence.StaleGeneration(
                     left.Generation,
                     right.Generation);
             }
 
-            if (left.Definition != right.Definition
-                || leftCandidate.Inventory.Identity
-                    != rightCandidate.Inventory.Identity
-                || leftCandidate.Inventory.ModuleVersionId
-                    != rightCandidate.Inventory.ModuleVersionId)
-            {
+            if (leftClass != rightClass)
                 return new DefinitionCorrespondence.Different();
+
+            return new DefinitionCorrespondence.IndeterminateDuplicateArtifact(
+                DuplicateEvidence(leftClass));
+        }
+    }
+
+    /// <summary>
+    /// Issues the hashable correspondence token for a definition in the
+    /// latest frozen generation.
+    /// </summary>
+    public DefinitionJoinTokenProjection ProjectDefinitionJoinToken(
+        ResolvedTypeDefinitionKey definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (definition.Catalog != Id)
+            {
+                return new DefinitionJoinTokenProjection.IncomparableCatalogs(
+                    Id,
+                    definition.Catalog);
             }
 
-            ImmutableArray<DuplicateArtifactCandidateEvidence> candidates =
-                _latestCandidates.Values
-                    .Where(candidate =>
-                        candidate.Inventory.Identity
-                            == leftCandidate.Inventory.Identity
-                        && candidate.Inventory.ModuleVersionId
-                            == leftCandidate.Inventory.ModuleVersionId)
-                    .OrderBy(
-                        candidate => candidate.Assembly.Path,
-                        StringComparer.Ordinal)
-                    .Select(candidate =>
-                        new DuplicateArtifactCandidateEvidence(
-                            candidate.Assembly,
-                            new MetadataTypeDefinitionAddress(
-                                candidate.Inventory.ModuleVersionId,
-                                left.Definition)))
-                    .ToImmutableArray();
-            return new DefinitionCorrespondence.IndeterminateDuplicateArtifact(
-                new DuplicateArtifactEvidence(candidates));
+            if (!ReferenceEquals(definition.Generation, _latestGeneration)
+                || !TryGetDefinitionClass(
+                    definition,
+                    out DefinitionClassKey definitionClass))
+            {
+                return new DefinitionJoinTokenProjection.StaleGeneration(
+                    definition.Generation,
+                    _latestGeneration!);
+            }
+
+            if (_definitionJoinTokens.TryGetValue(
+                    definitionClass,
+                    out DefinitionJoinToken? existing))
+            {
+                return new DefinitionJoinTokenProjection.Issued(existing);
+            }
+
+            DuplicateArtifactEvidence? evidence = null;
+            DefinitionJoinKind kind = DefinitionJoinKind.Exact;
+            if (DefinitionClassCandidateCount(definitionClass) > 1)
+            {
+                kind = DefinitionJoinKind.IndeterminateDuplicateArtifact;
+                evidence = DuplicateEvidence(definitionClass);
+            }
+
+            var token = new DefinitionJoinToken(
+                Id,
+                definition.Generation,
+                Guid.NewGuid(),
+                kind,
+                evidence);
+            _definitionJoinTokens.Add(definitionClass, token);
+            return new DefinitionJoinTokenProjection.Issued(token);
         }
     }
 
@@ -248,7 +280,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(bindingRequests);
         ArgumentNullException.ThrowIfNull(requests);
 
-        _generationGate.Wait(cancellationToken);
+        _generationGate.Enter(cancellationToken);
         try
         {
             lock (_gate)
@@ -266,7 +298,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
@@ -353,13 +385,14 @@ public sealed class TypeResolutionCatalog : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             _latestCandidates = frozen.ToImmutable();
             _latestGeneration = generation;
+            _definitionJoinTokens.Clear();
         }
     }
 
     /// <summary>Releases every retained candidate session owned by the catalog.</summary>
     public void Dispose()
     {
-        _generationGate.Wait();
+        _generationGate.Enter();
         try
         {
             lock (_gate)
@@ -373,13 +406,62 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
     readonly record struct DeclarationCacheKey(
         AssemblyCandidateId Candidate,
         MetadataTypeDefinitionName Type);
+
+    bool TryGetDefinitionClass(
+        ResolvedTypeDefinitionKey definition,
+        out DefinitionClassKey definitionClass)
+    {
+        if (!_latestCandidates.TryGetValue(
+                definition.Assembly,
+                out FrozenCandidate? candidate))
+        {
+            definitionClass = default;
+            return false;
+        }
+
+        definitionClass = new DefinitionClassKey(
+            candidate.Inventory.Identity,
+            candidate.Inventory.ModuleVersionId,
+            definition.Definition);
+        return true;
+    }
+
+    int DefinitionClassCandidateCount(DefinitionClassKey definitionClass) =>
+        _latestCandidates.Values.Count(candidate =>
+            candidate.Inventory.Identity == definitionClass.Identity
+            && candidate.Inventory.ModuleVersionId
+                == definitionClass.ModuleVersionId);
+
+    DuplicateArtifactEvidence DuplicateEvidence(
+        DefinitionClassKey definitionClass) =>
+        new(
+            _latestCandidates.Values
+                .Where(candidate =>
+                    candidate.Inventory.Identity == definitionClass.Identity
+                    && candidate.Inventory.ModuleVersionId
+                        == definitionClass.ModuleVersionId)
+                .OrderBy(
+                    candidate => candidate.Assembly.Path,
+                    StringComparer.Ordinal)
+                .Select(candidate =>
+                    new DuplicateArtifactCandidateEvidence(
+                        candidate.Assembly,
+                        new MetadataTypeDefinitionAddress(
+                            candidate.Inventory.ModuleVersionId,
+                            definitionClass.Definition)))
+                .ToImmutableArray());
+
+    readonly record struct DefinitionClassKey(
+        AssemblyReferenceIdentity Identity,
+        Guid ModuleVersionId,
+        TypeDefinitionToken Definition);
 
     sealed record FrozenCandidate(
         ResolvedAssemblyReference Assembly,

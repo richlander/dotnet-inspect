@@ -623,6 +623,10 @@ Research overlay bridge, and the application layer:
 │  CSharpFormatter declaration spelling                       │
 │  CSharpTypePrinter typed request and body composition        │
 ├─────────────────────────────────────────────────────────────┤
+│  CSharpText (C# textual grammar)                            │
+│                                                             │
+│  Lexer, conservative declaration index and source ranges    │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.SourceLink (source decoration)                 │
 │                                                             │
 │  SourceLinkService, SourceLinkResolver, SourceLinkFindings  │
@@ -643,6 +647,7 @@ Research overlay bridge, and the application layer:
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharpText** owns dependency-free C# lexing and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
@@ -706,7 +711,7 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 
 8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
 
-9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence lets it ship and evolve as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
+9. **Deliberate local structural identity in `ILInspector.Analysis`** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) retains its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the decompiler's `Pipeline.TypeRef` or Metadata's display/API models. This is a committed capability boundary, not dependency isolation: Analysis references `ILInspector.Metadata` for acquisition, structured binding, and definition correspondence, while its SRM-direct `TypeRef` continues to answer the distinct evidence-matching question. The type models remain separate because they carry different shapes and erasure policies, not because Analysis has zero project references. The full rationale, rejected unification path, and trip-wire are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
 
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 
