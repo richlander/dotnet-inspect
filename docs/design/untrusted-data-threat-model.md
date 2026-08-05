@@ -777,10 +777,11 @@ backwards at the moment of printing. This is the `vis`/`unvis` pairing named
 below rather than a workaround for it: the encoding is lossless and invertible
 precisely so that a decoder can exist, and having the decoder is what makes raw
 output a *rendering* choice instead of a property of the model. A literal
-backslash is always rewritten on the way in, which is what keeps the inverse
-unique. Refusal is unaffected and still happens upstream, against the raw text,
-because the question it asks — does this artifact carry something concerning —
-is about the artifact rather than about the spelling.
+backslash is rewritten when it could introduce an encoded spelling; lone and
+unrelated backslashes remain literal because the decoder can recognize that
+they introduce nothing. Refusal is unaffected and still happens upstream,
+against the raw text, because the question it asks — does this artifact carry
+something concerning — is about the artifact rather than about the spelling.
 
 Placing the decode after the character budget also buys a property the earlier
 implementation lacked: **both modes cut the same value at the same point.**

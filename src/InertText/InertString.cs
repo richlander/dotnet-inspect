@@ -220,6 +220,21 @@ public readonly struct InertString : IEquatable<InertString>
     /// </remarks>
     public VisualForm Forms { get; }
 
+    /// <summary>
+    /// Whether producing this value required containing text rather than merely disambiguating a
+    /// literal backslash.
+    /// </summary>
+    /// <remarks>
+    /// This is the signal a view may aggregate when its CLI refuses artifact text by default.
+    /// It reports what happened under the policy used to build this value; it is not a
+    /// conformance check for a different policy. Use <see cref="EnsurePermitted"/> for that.
+    /// </remarks>
+    public bool RequiredContainment =>
+        (Forms & ~VisualForm.Backslash) != VisualForm.None;
+
+    /// <summary>Whether raw rendering must run the visual encoding backwards.</summary>
+    public bool NeedsRawDecoding => Forms != VisualForm.None;
+
     /// <summary>Whether this value carries no text.</summary>
     public bool IsEmpty => Text.Length == 0;
 
@@ -259,15 +274,16 @@ public readonly struct InertString : IEquatable<InertString>
     /// <remarks>
     /// Reports where treated text begins, so a caller can show a prefix it knows to be unchanged
     /// — a survey listing where in a name the first hazard sits, for instance — without asking
-    /// what was there before. Every spelling is introduced by a backslash and a raw backslash is
-    /// always rewritten, so this is the first character of an escape and never text that merely
-    /// resembles one.
+    /// what was there before. Every spelling is introduced by a backslash. A raw backslash may
+    /// remain when it cannot introduce a spelling, so <see cref="Forms"/> distinguishes the
+    /// first spelling from unrelated literal text.
     ///
     /// Answers the same question as <see cref="WasEncoded"/> and locates it;
     /// <c>IndexOfFirstEncoded() &gt;= 0</c> and <see cref="WasEncoded"/> agree. Like that member
     /// it reports what was done to this value, never what it satisfies.
     /// </remarks>
-    public int IndexOfFirstEncoded() => Text.IndexOf('\\');
+    public int IndexOfFirstEncoded() =>
+        Forms == VisualForm.None ? -1 : Text.IndexOf('\\');
 
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     /// <remarks>
@@ -296,11 +312,10 @@ public readonly struct InertString : IEquatable<InertString>
     /// record field. The budget is on the encoded length, because that is what the sink emits.
     ///
     /// Cutting at the requested position is not an option worth offering. A spelling is several
-    /// characters wide, so an arbitrary cut can leave <c>\u2</c> behind, which is no longer
-    /// something this library can read back: <see cref="EnsurePermitted"/> treats text it cannot
-    /// decode as raw and re-encodes it, turning that into <c>\\u2</c> — the same text an entirely
-    /// different input encodes to. So the cut is moved down to the nearest position that keeps
-    /// every spelling whole, and a surrogate pair counts as one thing however it is spelled.
+    /// characters wide, so an arbitrary cut can leave <c>\u2</c> behind. That is valid literal
+    /// text in the encoding grammar and can no longer recover the scalar whose spelling was cut.
+    /// So the cut is moved down to the nearest position that keeps every spelling whole, and a
+    /// surrogate pair counts as one thing however it is spelled.
     ///
     /// A negative budget is read as zero rather than refused, and a budget at or above
     /// <see cref="Length"/> returns this value unchanged, so a caller can hand a configured
@@ -435,18 +450,16 @@ public readonly struct InertString : IEquatable<InertString>
             // single-element join cannot report a form the output does not contain.
             if (!first)
             {
-                builder.Append(encodedSeparator.ToString());
-                forms |= encodedSeparator.Forms;
+                VisualEncoder.AppendForComposition(builder, encodedSeparator, ref forms);
             }
 
             InertString conformed = value.EnsurePermitted(policy);
-            builder.Append(conformed.ToString());
-            forms |= conformed.Forms;
+            VisualEncoder.AppendForComposition(builder, conformed, ref forms);
             truncated |= conformed.IsTruncated;
             first = false;
         }
 
-        return new InertString(builder.ToString(), forms, truncated);
+        return VisualEncoder.CompleteComposition(builder.ToString(), forms, truncated);
     }
 
     /// <summary>Names the spellings this value contains, one line each.</summary>
@@ -720,8 +733,7 @@ public ref struct InertStringHandler
     public void AppendFormatted(InertString value)
     {
         InertString conformed = value.EnsurePermitted(_policy);
-        _builder.Append(conformed.ToString());
-        _forms |= conformed.Forms;
+        VisualEncoder.AppendForComposition(_builder, conformed, ref _forms);
 
         // Splicing a clipped value into a message leaves the message missing that text, so the
         // result carries the fact for the same reason Join does.
@@ -743,7 +755,8 @@ public ref struct InertStringHandler
             AppendFormatted(inert);
     }
 
-    internal InertString ToInertString() => new(_builder.ToString(), _forms, _truncated);
+    internal InertString ToInertString() =>
+        VisualEncoder.CompleteComposition(_builder.ToString(), _forms, _truncated);
 
     private void Append(string? value)
     {
@@ -759,7 +772,6 @@ public ref struct InertStringHandler
             return;
 
         InertString encoded = VisualEncoder.Encode(_policy, value);
-        _builder.Append(encoded.ToString());
-        _forms |= encoded.Forms;
+        VisualEncoder.AppendForComposition(_builder, encoded, ref _forms);
     }
 }

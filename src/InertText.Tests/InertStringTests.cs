@@ -515,21 +515,58 @@ public class InertStringTests
     }
 
     [Theory]
+    [InlineData("\\")]
+    [InlineData("\\x")]
+    [InlineData(@"C:\tmp\package")]
+    [InlineData(@"C:\Users\rich\.nuget\packages")]
+    [InlineData("\\u001F")]
+    [InlineData("\\U0000202E")]
+    public void FromEncoded_AcceptsUnambiguousLiteralBackslashes(string encoded)
+    {
+        InertString restored = InertString.FromEncoded(TextPolicy.Field, encoded);
+
+        Assert.Same(encoded, restored.ToString());
+        Assert.Equal(VisualForm.None, restored.Forms);
+        Assert.False(restored.RequiredContainment);
+        Assert.False(restored.NeedsRawDecoding);
+    }
+
+    [Theory]
     [InlineData(TextPolicy.Field, "first\nsecond")]
     [InlineData(TextPolicy.Prose, "value\u202Etail")]
-    [InlineData(TextPolicy.Field, "\\")]
-    [InlineData(TextPolicy.Field, "\\x")]
     [InlineData(TextPolicy.Field, "\\u0041")]
-    [InlineData(TextPolicy.Field, "\\u00ad")]
-    [InlineData(TextPolicy.Field, "\\u001F")]
     [InlineData(TextPolicy.Field, "\\U0001F600")]
-    [InlineData(TextPolicy.Field, "\\U0000202E")]
     public void FromEncoded_RejectsTextTheEncoderCannotProduce(
         TextPolicy policy,
         string encoded)
     {
         Assert.Throws<FormatException>(
             () => InertString.FromEncoded(policy, encoded));
+    }
+
+    [Fact]
+    public void CompositionProtectsBackslashesThatBecomeSpellingPrefixes()
+    {
+        InertString slash = new(TextPolicy.Field, "\\");
+        InertString composed = InertString.Format(TextPolicy.Field, $"{slash}u202E");
+
+        Assert.Equal(@"\\u202E", composed.ToString());
+        Assert.Equal(VisualForm.Backslash, composed.Forms);
+        Assert.False(composed.RequiredContainment);
+        Assert.True(composed.NeedsRawDecoding);
+        Assert.True(VisualEncoder.TryDecode(composed.ToString(), out string? decoded));
+        Assert.Equal(@"\u202E", decoded);
+    }
+
+    [Fact]
+    public void CompositionReturnsToRawBackslashesWhenNoPrefixCollisionAppears()
+    {
+        InertString slash = new(TextPolicy.Field, "\\");
+        InertString composed = InertString.Format(TextPolicy.Field, $"[{slash}]");
+
+        Assert.Equal(@"[\]", composed.ToString());
+        Assert.Equal(VisualForm.None, composed.Forms);
+        Assert.False(composed.NeedsRawDecoding);
     }
 
     [Fact]

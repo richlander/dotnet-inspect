@@ -184,9 +184,10 @@ recover it, because encoding under two policies is not encoding under a union of
 them.
 
 **Encoding at acquisition corrupts identity, and does it invisibly.** A literal
-backslash is always rewritten whatever the policy says, as is any scalar the
-policy refuses. 318 sites in `ILInspector.Metadata` compare foreign names for
-control flow rather than display — `member.Name == ".ctor"`,
+backslash that could introduce an encoded spelling is rewritten whatever the
+policy says, as is any scalar the policy refuses. 318 sites in
+`ILInspector.Metadata` compare foreign names for control flow rather than
+display — `member.Name == ".ctor"`,
 `prop.Name.StartsWith("/_")`, the pairing loop in the diff analyzer. Against
 encoded text those comparisons answer differently, and they do so *only for the
 inputs that needed encoding*. Benign text encodes to itself, so every test still
@@ -541,6 +542,23 @@ that conformance is a relation between a value and a policy rather than a
 property of the value, which is why it cannot be cached on one and why
 `EnsurePermitted` has to recompute it.
 
+`RequiredContainment` answers a narrower historical question for a different
+caller: whether this value had to spell text the producing policy refused.
+Backslash disambiguation does not set it. A view may OR that signal across its
+artifact-derived values so a CLI can refuse the view or require an explicit
+trust-axis opt-out. It still does not answer whether the value suits another
+policy.
+
+Unambiguous literal backslashes remain literal. A lone `\`, `\q`, and the
+incomplete `\u2` cannot be mistaken for a complete canonical spelling, so
+encoding a string containing only those forms retains the original string and
+raw rendering needs no decoder. A literal sequence the decoder would act on —
+such as `\\`, `\^[`, `\u202E`, or `\U0001F600` — still has its introducer
+escaped. Composition temporarily canonicalizes literal backslashes at fragment
+boundaries and returns them to raw form only when the combined text remains
+unambiguous; otherwise two harmless fragments could join into an apparent
+escape.
+
 Storing the producing policy on the value would not help either. Knowing which
 policy produced a value says nothing about whether it is stricter than the one
 you are about to apply, short of sweeping every scalar to compare their
@@ -554,13 +572,13 @@ and applying it to the encoded text is not a substring operation. A spelling is
 between two and ten characters wide, so an arbitrary cut can land inside one and
 leave `\u2` behind.
 
-That is not merely ugly, it is unsound. `EnsurePermitted` treats text it cannot
-decode as raw and re-encodes it, so the surviving backslash doubles and `a\u2`
-becomes `a\\u2` — which is exactly what the untreated literal `a\u2` encodes to.
-Two unrelated inputs converge on one output, and the injectivity the repair path
-rests on is gone. The budget is enforced on the *encoded* length for the same
-reason it is in the escaper this replaces: encoding expands, so bounding the
-input bounds the wrong number.
+That is not merely ugly, it is lossy. An incomplete `a\u2` is literal text in
+the encoding grammar, so a cut that produced it from the start of an actual
+`\u202E` spelling would become indistinguishable from those four artifact
+characters and could no longer decode to the evidence it represented. The
+budget is enforced on the *encoded* length for the same reason it is in the
+escaper this replaces: encoding expands, so bounding the input bounds the wrong
+number.
 
 Two members divide a value, and both are best-effort:
 

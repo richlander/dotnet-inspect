@@ -39,6 +39,18 @@ public class InspectionResultView
     /// <inheritdoc cref="PackageViewText.QuoteProse"/>
     public string? Description => PackageViewText.QuoteProse(_data.Description);
 
+    /// <summary>
+    /// Whether any typed artifact text carried by this view required visual containment.
+    /// </summary>
+    /// <remarks>
+    /// Aggregated before properties such as <see cref="Description"/> unwrap their
+    /// <see cref="InertString"/> values for a structural serializer. The CLI owns what to do
+    /// with the signal; the view only reports it.
+    /// </remarks>
+    [MarkoutIgnore]
+    public bool RequiredContainment =>
+        _data.Description?.RequiredContainment == true;
+
     // ===== Field Collections for Serializer =====
 
     [MarkoutSection(Name = PackageSections.Summary, Headless = true)]

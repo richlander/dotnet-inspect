@@ -49,6 +49,9 @@
   contained keep the same meaning but change spelling, from `\u001B` to caret
   notation `\^[`; the quote is no longer escaped, because cells are not quote
   wrapped in any rendered format.
+- Leaves literal backslashes unchanged when they cannot introduce a visual
+  spelling, while keeping complete escape-like text disambiguated and
+  invertible.
 - **Breaking:** `mdi` now refuses, rather than renders, when an assembly carries
   text that a terminal would act on — bidi overrides, separators, and other
   non-graphic scalars. It exits non-zero and reports the heap coordinate, the

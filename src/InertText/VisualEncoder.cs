@@ -40,10 +40,10 @@ public static class VisualEncoder
     /// remove. <see cref="InertString"/>'s constructor forwards here, so the two spellings cannot
     /// diverge.
     ///
-    /// A literal backslash is always rewritten, whatever <paramref name="policy"/> permits, because
-    /// it introduces every other spelling and the transform would not otherwise invert. An
-    /// unpaired surrogate is likewise always encoded: it is not a scalar at all, so no policy is
-    /// consulted for it.
+    /// A literal backslash is rewritten when it could introduce a spelling. A lone backslash or
+    /// one followed by an unrelated character remains literal, so benign text can retain its
+    /// original string without making the inverse ambiguous. An unpaired surrogate is always
+    /// encoded: it is not a scalar at all, so no policy is consulted for it.
     /// </remarks>
     /// <param name="policy">The kind of text this is, which decides what may pass through.</param>
     /// <param name="value">The text to encode.</param>
@@ -104,7 +104,71 @@ public static class VisualEncoder
             i += width;
         }
 
+        if (formsUsed == VisualForm.Backslash && CanRetainLiteralBackslashes(value))
+        {
+            return new InertString(
+                original ?? value.ToString(),
+                VisualForm.None);
+        }
+
         return new InertString(builder?.ToString() ?? original ?? value.ToString(), formsUsed);
+    }
+
+    private static bool CanRetainLiteralBackslashes(ReadOnlySpan<char> value)
+    {
+        for (int index = value.IndexOf('\\'); index >= 0;)
+        {
+            if (TryReadDecodableSpelling(value, index, out _))
+                return false;
+
+            int next = value[(index + 1)..].IndexOf('\\');
+            index = next < 0 ? -1 : index + 1 + next;
+        }
+
+        return true;
+    }
+
+    internal static void AppendForComposition(
+        StringBuilder builder,
+        InertString value,
+        ref VisualForm forms)
+    {
+        string text = value.ToString();
+
+        if (value.Forms != VisualForm.None || text.IndexOf('\\') < 0)
+        {
+            builder.Append(text);
+            forms |= value.Forms;
+            return;
+        }
+
+        foreach (char c in text)
+        {
+            if (c == '\\')
+            {
+                builder.Append(@"\\");
+                forms |= VisualForm.Backslash;
+            }
+            else
+            {
+                builder.Append(c);
+            }
+        }
+    }
+
+    internal static InertString CompleteComposition(
+        string encoded,
+        VisualForm forms,
+        bool truncated)
+    {
+        if (forms == VisualForm.Backslash
+            && TryDecode(encoded, out string? original)
+            && CanRetainLiteralBackslashes(original))
+        {
+            return new InertString(original, VisualForm.None, truncated);
+        }
+
+        return new InertString(encoded, forms, truncated);
     }
 
     /// <summary>
@@ -169,12 +233,14 @@ public static class VisualEncoder
                 continue;
             }
 
-            builder ??= new StringBuilder(encoded.Length).Append(encoded[..i]);
-
-            if (++i == encoded.Length)
+            if (!TryReadDecodableSpelling(encoded, i, out _))
             {
-                return false;
+                builder?.Append('\\');
+                continue;
             }
+
+            builder ??= new StringBuilder(encoded.Length).Append(encoded[..i]);
+            i++;
 
             switch (encoded[i])
             {
@@ -398,6 +464,55 @@ public static class VisualEncoder
         return true;
     }
 
+    private static bool TryReadDecodableSpelling(
+        ReadOnlySpan<char> encoded,
+        int index,
+        out int width)
+    {
+        width = 0;
+
+        if (encoded[index] != '\\' || index + 1 >= encoded.Length)
+            return false;
+
+        int remaining = encoded.Length - index;
+        switch (encoded[index + 1])
+        {
+            case '\\':
+                width = 2;
+                return true;
+            case '^':
+                if (remaining >= 3 && encoded[index + 2] is '?' or >= '@' and <= '_')
+                {
+                    width = 3;
+                    return true;
+                }
+
+                return false;
+            case 'u':
+                if (TryReadHex(encoded, index + 2, 4, out uint bmp)
+                    && bmp > 0x1F
+                    && bmp is not (0x7F or '\\'))
+                {
+                    width = 6;
+                    return true;
+                }
+
+                return false;
+            case 'U':
+                if (TryReadHex(encoded, index + 2, 8, out uint astral)
+                    && Rune.IsValid((int)astral)
+                    && astral > 0xFFFF)
+                {
+                    width = 10;
+                    return true;
+                }
+
+                return false;
+            default:
+                return false;
+        }
+    }
+
     // Walks encoder output one token at a time, where a token is whatever the boundary members
     // on InertString must not cut through: one escape, one raw scalar, or one raw character.
     //
@@ -425,7 +540,10 @@ public static class VisualEncoder
 
         int remaining = encoded.Length - index;
 
-        switch (remaining > 1 ? encoded[index + 1] : '\0')
+        if (remaining == 1)
+            return RawBackslash(out form);
+
+        switch (encoded[index + 1])
         {
             case '\\':
                 if (remaining < 2)
@@ -436,7 +554,7 @@ public static class VisualEncoder
                 if (remaining < 3
                     || encoded[index + 2] is not ('?' or >= '@' and <= '_'))
                 {
-                    throw InvalidEncodedText(index);
+                    return RawBackslash(out form);
                 }
 
                 form = encoded[index + 2] == '?'
@@ -450,7 +568,7 @@ public static class VisualEncoder
                     || (!char.IsSurrogate((char)bmp)
                         && !ScalarPolicies.IsNonGraphic(new Rune((int)bmp))))
                 {
-                    throw InvalidEncodedText(index);
+                    return RawBackslash(out form);
                 }
 
                 form = VisualForm.BmpHex;
@@ -466,14 +584,20 @@ public static class VisualEncoder
                     || astral <= 0xFFFF
                     || !ScalarPolicies.IsNonGraphic(new Rune((int)astral)))
                 {
-                    throw InvalidEncodedText(index);
+                    return RawBackslash(out form);
                 }
 
                 form = VisualForm.AstralHex;
                 return 10;
             default:
-                throw InvalidEncodedText(index);
+                return RawBackslash(out form);
         }
+    }
+
+    private static int RawBackslash(out VisualForm form)
+    {
+        form = VisualForm.None;
+        return 1;
     }
 
     private static bool IsEscapedSurrogatePair(ReadOnlySpan<char> encoded, int index)
@@ -497,6 +621,12 @@ public static class VisualEncoder
             int width = ReadToken(encoded, index, out VisualForm form);
             if (form == VisualForm.None)
             {
+                if (encoded[index] == '\\'
+                    && TryReadDecodableSpelling(encoded, index, out _))
+                {
+                    throw InvalidEncodedText(index);
+                }
+
                 Rune scalar = DecodeAt(
                     encoded,
                     index,
