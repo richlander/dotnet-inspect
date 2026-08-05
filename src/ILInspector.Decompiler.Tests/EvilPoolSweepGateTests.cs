@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using DotnetInspector.Packages;
 using Xunit;
 
@@ -36,12 +37,12 @@ namespace ILInspector.Decompiler.Tests;
 /// It resolves its inputs from the repository root above its working directory, so a
 /// directory holding a <c>dotnet-inspect.slnx</c> and a <c>docs/data</c> feeds a real run
 /// a package list and pin of this suite's choosing -- no product path override is
-/// involved. It is pointed at a scratch cache holding two synthetic packages and told to
-/// stay offline, so <em>it</em> acquires over no network and reads no shared cache, and
-/// nothing it pools or acquires comes from outside the scratch directory. Offline is what
-/// keeps that honest: a case that stopped being served from the seeded cache would reach
-/// for the network and fail here rather than quietly passing on whatever the machine
-/// happened to have.</para>
+/// involved. It is pointed at a scratch cache holding two synthetic packages, given an
+/// explicit source config owned by that world, and told to stay offline, so <em>it</em>
+/// acquires over no network and reads no shared cache, and nothing it pools or acquires
+/// comes from outside the scratch directory. Offline is what keeps that honest: a case
+/// that stopped being served from the seeded cache would reach for the network and fail
+/// here rather than quietly passing on whatever the machine happened to have.</para>
 ///
 /// <para>The claim stops there, deliberately. Each case launches the sweep with
 /// <c>dotnet run</c>, and a file-based app is restored and built before it runs, which
@@ -56,19 +57,11 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class EvilPoolSweepGateTests
 {
-    /// <summary>
-    /// Identity of the source these fixtures speak for. Cached content is scoped
-    /// to the source that committed it, so a test that seeds the cache by hand
-    /// must use the same source the code under test resolves — otherwise the
-    /// seeded entry is correctly invisible.
-    /// </summary>
-    private static readonly string TestSourceKey =
-        NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
-
     const string FixturePackage = "sweep.fixture";
     const string FixtureVersion = "1.0.0";
     const string FixtureTfm = "net8.0";
     const string FixtureAssembly = "Sweep.Fixture.dll";
+    const string NuGetOrgSource = "https://api.nuget.org/v3/index.json";
 
     // A second package, ranked ahead of the one each case is about, which every sweep here
     // pools successfully before reaching the subject. See SweepWorld for why the subject is
@@ -135,6 +128,23 @@ public class EvilPoolSweepGateTests
             entry["AssemblyPath"]!.GetValue<string>());
 
         world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// The explicit source boundary is required and its loss is a stated refusal, not a
+    /// fallback to ambient sources or a raw process failure.
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesWhenItsExplicitSourceConfigDisappears()
+    {
+        using var world = SweepWorld.Create();
+        File.Delete(world.NuGetConfigPath);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 2, world.Explain(sweep, "a missing explicit source config"));
+        Assert.Contains($"NuGet config file not found: '{world.NuGetConfigPath}'.", sweep.Errors);
+        Assert.False(File.Exists(world.ManifestPath));
     }
 
     /// <summary>
@@ -1394,6 +1404,15 @@ public class EvilPoolSweepGateTests
 
         public string CacheDirectory { get; }
 
+        /// <summary>
+        /// The fixture-owned source whose identity scopes the synthetic cache entries.
+        /// It is intentionally not nuget.org, so ambient configuration cannot make a
+        /// missing explicit-config boundary pass by coincidence.
+        /// </summary>
+        public string FixtureSource => Path.Combine(Scratch, "source");
+
+        public string NuGetConfigPath => Path.Combine(Scratch, "config", "sweep.config");
+
         public byte[] FixtureBytes { get; }
 
         /// <summary>The lead package's assembly, pooled ahead of the subject in every case.</summary>
@@ -1454,6 +1473,7 @@ public class EvilPoolSweepGateTests
                 string cacheDirectory = Path.Combine(scratch, "cache");
                 var world = new SweepWorld(scratch, cacheDirectory, bytes);
 
+                world.WriteSourceConfig();
                 world.SeedCache();
                 world.WriteInputs(version ?? FixtureVersion, tfm ?? FixtureTfm, status ?? "pinned");
                 return world;
@@ -1463,6 +1483,28 @@ public class EvilPoolSweepGateTests
                 Directory.Delete(scratch, recursive: true);
                 throw;
             }
+        }
+
+        void WriteSourceConfig()
+        {
+            Directory.CreateDirectory(FixtureSource);
+            Directory.CreateDirectory(Path.GetDirectoryName(NuGetConfigPath)!);
+
+            new XDocument(
+                new XElement(
+                    "configuration",
+                    new XElement(
+                        "packageSources",
+                        new XElement("clear"),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "evil-sweep-fixture"),
+                            new XAttribute("value", FixtureSource)),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "nuget.org"),
+                            new XAttribute("value", NuGetOrgSource)))))
+                .Save(NuGetConfigPath);
         }
 
         void SeedCache()
@@ -1510,7 +1552,12 @@ public class EvilPoolSweepGateTests
         /// <c>!IsSelected</c> arm has something to be about.
         /// </summary>
         void CommitWithoutLibrary(string package) =>
-            NuGetCache.CommitPackage(Stage(package), null, package, FixtureVersion, TestSourceKey);
+            NuGetCache.CommitPackage(
+                Stage(package),
+                null,
+                package,
+                FixtureVersion,
+                NuGetCache.GetSourceKey(FixtureSource));
 
         /// <summary>
         /// Stages one synthetic package and commits it, answering with the path the product
@@ -1528,10 +1575,11 @@ public class EvilPoolSweepGateTests
             Directory.CreateDirectory(Path.Combine(staged, "lib", FixtureTfm));
             File.WriteAllBytes(Path.Combine(staged, "lib", FixtureTfm, assembly), bytes);
 
-            NuGetCache.CommitPackage(staged, null, package, FixtureVersion, TestSourceKey);
+            string sourceKey = NuGetCache.GetSourceKey(FixtureSource);
+            NuGetCache.CommitPackage(staged, null, package, FixtureVersion, sourceKey);
 
             string committed = Path.Combine(
-                NuGetCache.GetPackageCachePath(package, FixtureVersion, TestSourceKey),
+                NuGetCache.GetPackageCachePath(package, FixtureVersion, sourceKey),
                 "lib",
                 FixtureTfm,
                 assembly);
@@ -1798,6 +1846,7 @@ public class EvilPoolSweepGateTests
             startInfo.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
             startInfo.Environment["DOTNET_INSPECT_ISOLATED"] = "evil-sweep-gate";
             startInfo.Environment["DOTNET_INSPECT_CACHE_DIR"] = CacheDirectory;
+            startInfo.Environment["DOTNET_INSPECT_SWEEP_NUGET_CONFIG"] = NuGetConfigPath;
 
             // NUGET_PACKAGES is deliberately left alone, and cannot be used for isolation.
             // The sweep is a file-based app, so this subprocess restores itself before it
