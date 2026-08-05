@@ -601,7 +601,7 @@ static partial class ReturnToSenderSourceProbe
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    static void AddBodylessSourceResult(
+    internal static void AddBodylessSourceResult(
         List<ReturnToSenderSourceProbeResult> results,
         ReturnToSender.RequestedTarget target,
         ReturnToSender.Result result,
@@ -634,12 +634,15 @@ static partial class ReturnToSenderSourceProbe
     /// is exactly the inventory of where RTS cannot yet stand alone.
     /// <paramref name="result"/> is null only for an unsupported target, where RTS
     /// produced no compile at all and every field below is correctly absent.
-    /// </remarks>
-    /// <remarks>
-    /// The projection itself is gated by
-    /// <c>CorpusFloorProvenanceTests.TheProbeProjectsFloorProvenanceOntoTheRow</c>;
-    /// that every emission path routes through here is a structural property of
-    /// this file, not a tested one.
+    /// <para>
+    /// The projection is gated by
+    /// <c>CorpusFloorProvenanceTests.TheProbeProjectsFloorProvenanceOntoTheRow</c>,
+    /// and the separate bodyless producer by
+    /// <c>TheBodylessProducerAlsoCarriesFloorProvenance</c>. That every emission
+    /// path routes through here remains a structural property of this file rather
+    /// than a tested one: removing a call reverts to a plain <c>results.Add</c>,
+    /// which still compiles.
+    /// </para>
     /// </remarks>
     internal static void AddProbeResult(
         List<ReturnToSenderSourceProbeResult> results,

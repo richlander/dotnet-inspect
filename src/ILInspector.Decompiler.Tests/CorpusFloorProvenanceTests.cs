@@ -157,6 +157,48 @@ public class CorpusFloorProvenanceTests
         Assert.Null(row.SupersededFaultIsolationMethod);
     }
 
+    /// <summary>
+    /// The bodyless producer is a second, independent emission path (it does not
+    /// share the classifier flow the other sites use), so it gets its own gate:
+    /// removing its funnel call compiles and leaves every other test green.
+    /// </summary>
+    /// <remarks>
+    /// No corpus row reaches this state today — EVIL rows all have authored bodies —
+    /// but it is control-flow reachable: the floor is applied in
+    /// <c>CompileBackTargets</c> before <c>EvaluateTargets</c> tests for a bodyless
+    /// source member, so a bodyless target whose RTS compile fails and whose floor
+    /// succeeds would land here.
+    /// </remarks>
+    [Fact]
+    public void TheBodylessProducerAlsoCarriesFloorProvenance()
+    {
+        var rescued = ReturnToSender.WithCompileBackFloor(
+            FailedResult(new ReturnToSender.FaultIsolationResult(
+                ReturnToSender.FaultIsolationKind.ShellOrClosureDefect,
+                "/src/Widget.cs",
+                null)
+            {
+                Method = ReturnToSender.FaultIsolationMethod.SubstitutionControl,
+            }),
+            Floor(FidelityCheck.CompileBackStatus.Exact));
+        var rows = new List<ReturnToSenderSourceProbeResult>();
+
+        ReturnToSenderSourceProbe.AddBodylessSourceResult(
+            rows,
+            new ReturnToSender.RequestedTarget("Widgets.Widget", "Spin", 0),
+            rescued,
+            "/src/Widget.cs");
+
+        var row = Assert.Single(rows);
+        Assert.True(row.UsedCompileBackFloor);
+        Assert.Equal(
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect,
+            row.SupersededFaultIsolationKind);
+        Assert.Equal(
+            ReturnToSender.FaultIsolationMethod.SubstitutionControl,
+            row.SupersededFaultIsolationMethod);
+    }
+
     static ReturnToSenderSourceProbeResult BareRow()
         => new(
             new ReturnToSender.RequestedTarget("Widgets.Widget", "Spin", 0),
