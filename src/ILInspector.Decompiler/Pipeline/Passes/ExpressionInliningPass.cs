@@ -68,6 +68,16 @@ public sealed class ExpressionInliningPass : IIrPass
     static bool InlineReturnedCallArgumentRunOnce(IrFunction function, PassContext context)
     {
         var usage = SpilledReceiverFold.CountPlaces(function);
+        var unstableArguments = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case LoadArgumentAddress address: unstableArguments.Add(address.Index); break;
+                case StoreArgument store: unstableArguments.Add(store.Index); break;
+            }
+        }
+
         foreach (var @return in function.Descendants.OfType<Return>())
         {
             if (@return is not { Parent: Block block, Value: Call call })
@@ -107,7 +117,8 @@ public sealed class ExpressionInliningPass : IIrPass
                 usage,
                 context,
                 "inline ordered stack-slot run into returned call arguments",
-                stackSlotsOnly: true))
+                stackSlotsOnly: true,
+                orderSensitiveArguments: unstableArguments))
             {
                 return true;
             }

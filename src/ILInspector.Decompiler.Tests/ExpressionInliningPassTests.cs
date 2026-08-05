@@ -805,6 +805,60 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // argument-stability near miss: Mutate(ref x) runs before the returned call
+    // loads x. Folding it into a later argument would load x first and pass the
+    // pre-mutation value. An addressed parameter is therefore an order barrier.
+    [Fact]
+    public void ReturnedCall_RunMutatingEarlierArgument_StaysSpilled()
+    {
+        var mutate = new MethodRef(Holder, "Mutate", Int32, [TypeRef.ByRef(Int32)], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Int32, Int32, Int32], HasThis: false);
+        var body = new BlockContainer();
+        var block = new Block(0);
+        body.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(mutate, isVirtual: false,
+            [new LoadArgumentAddress(0, "x", Int32)])));
+        block.Add(new StoreStackSlot(1, new Call(second, isVirtual: false, [])));
+        block.Add(new Return(new Call(combine, isVirtual: false,
+            [new LoadArgument(0, "x", Int32), new LoadStackSlot(0, Int32), new LoadStackSlot(1, Int32)])));
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
+    // type-witness near miss: the slot load's object type carries a required
+    // reconciliation for the int-producing store. Folding would erase it.
+    [Fact]
+    public void ReturnedCall_StackSlotTypeMismatch_StaysSpilled()
+    {
+        var first = new MethodRef(Holder, "First", Int32, [], HasThis: false);
+        var second = new MethodRef(Holder, "Second", Int32, [], HasThis: false);
+        var combine = new MethodRef(Holder, "Combine", Int32, [Object, Int32], HasThis: false);
+        var function = ReturningInt32(
+            new StoreStackSlot(0, new Call(first, isVirtual: false, [])),
+            new StoreStackSlot(1, new Call(second, isVirtual: false, [])),
+            new Return(new Call(combine, isVirtual: false,
+                [new LoadStackSlot(0, Object), new LoadStackSlot(1, Int32)])));
+
+        new ExpressionInliningPass(slotsOnly: true).Run(function, PassContext.None);
+
+        Assert.True(HasStoreStackSlot(function, 0));
+        Assert.True(HasStoreStackSlot(function, 1));
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        function.CheckInvariant();
+    }
+
     // slots-only boundary: an adjacent user local may feed the same returned
     // call, but the ordered-run mode owns only compiler spill slots. The local
     // load is an order barrier, so the all-or-nothing fold must preserve both the
