@@ -334,6 +334,28 @@ public sealed class ResolvedTypeDefinitionKey
 }
 
 /// <summary>
+/// Opaque reference to one unresolved assembly binding in one frozen catalog
+/// generation. Only the issuing catalog may project it into hashable join
+/// currency.
+/// </summary>
+public sealed class UnresolvedBindingReference
+{
+    internal UnresolvedBindingReference(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        BindingKey binding)
+    {
+        Catalog = catalog;
+        Generation = generation;
+        Binding = binding;
+    }
+
+    internal AssemblyCatalogId Catalog { get; }
+    internal AssemblyCatalogGenerationId Generation { get; }
+    internal BindingKey Binding { get; }
+}
+
+/// <summary>
 /// Describes how strongly a catalog-issued definition token establishes
 /// correspondence.
 /// </summary>
@@ -437,6 +459,97 @@ public abstract class DefinitionJoinTokenProjection
         }
 
         public AssemblyCatalogGenerationId DefinitionGeneration { get; }
+        public AssemblyCatalogGenerationId CurrentGeneration { get; }
+    }
+}
+
+/// <summary>
+/// Hashable catalog currency for one unresolved assembly-binding request in
+/// one frozen generation.
+/// </summary>
+public sealed class UnresolvedBindingKey : IEquatable<UnresolvedBindingKey>
+{
+    readonly Guid _value;
+
+    internal UnresolvedBindingKey(
+        AssemblyCatalogId catalog,
+        AssemblyCatalogGenerationId generation,
+        Guid value)
+    {
+        Catalog = catalog;
+        Generation = generation;
+        _value = value;
+    }
+
+    internal AssemblyCatalogId Catalog { get; }
+    internal AssemblyCatalogGenerationId Generation { get; }
+    internal Guid Value => _value;
+
+    public bool Equals(UnresolvedBindingKey? other) =>
+        other is not null
+        && Catalog == other.Catalog
+        && ReferenceEquals(Generation, other.Generation)
+        && _value == other._value;
+
+    public override bool Equals(object? obj) =>
+        obj is UnresolvedBindingKey other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Catalog, Generation, _value);
+
+    public static bool operator ==(
+        UnresolvedBindingKey? left,
+        UnresolvedBindingKey? right) =>
+        Equals(left, right);
+
+    public static bool operator !=(
+        UnresolvedBindingKey? left,
+        UnresolvedBindingKey? right) =>
+        !Equals(left, right);
+}
+
+/// <summary>
+/// Catalog-owned result of projecting an opaque unresolved binding reference
+/// into hashable join currency.
+/// </summary>
+public abstract class UnresolvedBindingKeyProjection
+{
+    private protected UnresolvedBindingKeyProjection()
+    {
+    }
+
+    public sealed class Issued : UnresolvedBindingKeyProjection
+    {
+        internal Issued(UnresolvedBindingKey key) => Key = key;
+
+        public UnresolvedBindingKey Key { get; }
+    }
+
+    public sealed class IncomparableCatalogs : UnresolvedBindingKeyProjection
+    {
+        internal IncomparableCatalogs(
+            AssemblyCatalogId catalog,
+            AssemblyCatalogId bindingCatalog)
+        {
+            Catalog = catalog;
+            BindingCatalog = bindingCatalog;
+        }
+
+        public AssemblyCatalogId Catalog { get; }
+        public AssemblyCatalogId BindingCatalog { get; }
+    }
+
+    public sealed class StaleGeneration : UnresolvedBindingKeyProjection
+    {
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId bindingGeneration,
+            AssemblyCatalogGenerationId currentGeneration)
+        {
+            BindingGeneration = bindingGeneration;
+            CurrentGeneration = currentGeneration;
+        }
+
+        public AssemblyCatalogGenerationId BindingGeneration { get; }
         public AssemblyCatalogGenerationId CurrentGeneration { get; }
     }
 }
@@ -709,16 +822,23 @@ public abstract class TypeResolutionOutcome
     public sealed class UnboundBinding : TypeResolutionOutcome
     {
         internal UnboundBinding(
+            UnresolvedBindingReference binding,
             AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             ImmutableArray<TypeForwardingHop> hops) : base(hops)
         {
+            Binding = binding;
             Target = target;
             Origin = origin;
             Scope = scope;
         }
 
+        /// <summary>
+        /// Opaque catalog input for projecting this unresolved binding into
+        /// hashable join currency.
+        /// </summary>
+        public UnresolvedBindingReference Binding { get; }
         public AssemblyBindingTarget Target { get; }
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
@@ -730,18 +850,25 @@ public abstract class TypeResolutionOutcome
     public sealed class Unavailable : TypeResolutionOutcome
     {
         internal Unavailable(
+            UnresolvedBindingReference binding,
             AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             AssemblyBindingFailure failure,
             ImmutableArray<TypeForwardingHop> hops) : base(hops)
         {
+            Binding = binding;
             Target = target;
             Origin = origin;
             Scope = scope;
             Failure = failure;
         }
 
+        /// <summary>
+        /// Opaque catalog input for projecting this unresolved binding into
+        /// hashable join currency.
+        /// </summary>
+        public UnresolvedBindingReference Binding { get; }
         public AssemblyBindingTarget Target { get; }
         public AssemblyBindingOrigin Origin { get; }
         public AssemblyResolutionScope Scope { get; }
