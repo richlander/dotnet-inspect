@@ -84,7 +84,8 @@ static class ReturnToSender
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
         FaultIsolationResult? FaultIsolation = null,
         SiblingAccessorEvidence? SiblingAccessor = null,
-        IlBodyDiffResult? FidelityDiff = null)
+        IlBodyDiffResult? FidelityDiff = null,
+        FaultIsolationResult? SupersededFaultIsolation = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
         public RoundTripScope Scope { get; init; } = RoundTripScope.Cluster;
@@ -911,11 +912,14 @@ static class ReturnToSender
     /// it would attribute a fault to a row whose compile-back succeeded.
     /// </para>
     /// <para>
-    /// The superseded verdict is preserved in <see cref="Result.Detail"/> as
-    /// provenance of the discarded attempt, which the standalone RTS report
-    /// surfaces through <c>ExampleLayerAndDetail</c>'s
-    /// <see cref="Result.UsedCompileBackFloor"/> branch. It is not visible in
-    /// authored-corpus rows: <c>ReturnToSenderSourceProbe</c> overwrites
+    /// The superseded verdict is preserved on the typed
+    /// <see cref="Result.SupersededFaultIsolation"/> field, which
+    /// <c>ReturnToSenderSourceProbe</c> projects onto every corpus row alongside
+    /// <see cref="Result.UsedCompileBackFloor"/> (#3814). It is additionally
+    /// recorded in <see cref="Result.Detail"/> for the standalone RTS report,
+    /// which surfaces it through <c>ExampleLayerAndDetail</c>'s
+    /// <see cref="Result.UsedCompileBackFloor"/> branch; the <c>Detail</c> copy
+    /// alone is not sufficient for corpus rows, because the probe overwrites
     /// <see cref="Result.Detail"/> before emitting them.
     /// </para>
     /// <para>
@@ -954,6 +958,7 @@ static class ReturnToSender
             CompileBackFloor = floor,
             FidelityDiff = floor.FidelityDiff,
             FaultIsolation = null,
+            SupersededFaultIsolation = result.FaultIsolation,
         };
     }
 

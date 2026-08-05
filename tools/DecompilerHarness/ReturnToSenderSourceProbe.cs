@@ -40,7 +40,10 @@ sealed record ReturnToSenderSourceProbeResult(
     IReadOnlyList<string>? IlDiffLines = null,
     MemberAnchor? MemberAnchor = null,
     ReturnToSender.FaultIsolationKind? FaultIsolationKind = null,
-    ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null)
+    ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null,
+    bool UsedCompileBackFloor = false,
+    ReturnToSender.FaultIsolationKind? SupersededFaultIsolationKind = null,
+    ReturnToSender.FaultIsolationMethod? SupersededFaultIsolationMethod = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
@@ -288,7 +291,7 @@ static partial class ReturnToSenderSourceProbe
         {
             if (!rtsResults.TryGetValue(Key(target.Type, target.Method, target.Overload), out var result))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.UnsupportedTarget,
                     CompileBackStatus: null,
@@ -305,7 +308,7 @@ static partial class ReturnToSenderSourceProbe
             if (result.Status is FidelityCheck.CompileBackStatus.RecompileFail
                 or FidelityCheck.CompileBackStatus.ContextFail)
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.Invalid,
                     result.Status,
@@ -314,9 +317,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: sourceMember?.SourcePath,
                     ExpectedBody: sourceMember?.Body,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -325,7 +326,7 @@ static partial class ReturnToSenderSourceProbe
                 or FidelityCheck.CompileBackStatus.OpcodeDiff
                 or FidelityCheck.CompileBackStatus.OperandDiff))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -334,15 +335,13 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
             if (sourceIndex is null)
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -351,9 +350,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -366,7 +363,7 @@ static partial class ReturnToSenderSourceProbe
                     continue;
                 }
 
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -375,9 +372,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -390,7 +385,7 @@ static partial class ReturnToSenderSourceProbe
             string actual = result.TargetBody;
             if (NormalizeBody(expected) == NormalizeBody(actual))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.ValidMatch,
                     result.Status,
@@ -399,9 +394,7 @@ static partial class ReturnToSenderSourceProbe
                     sourceMember.SourcePath,
                     expected,
                     actual,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -412,7 +405,7 @@ static partial class ReturnToSenderSourceProbe
                 result.Decisions ?? [],
                 out var classificationDetail);
             var fidelityEvidence = FidelityEvidence(result);
-            results.Add(new ReturnToSenderSourceProbeResult(
+            AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
                 result.Status,
@@ -424,9 +417,7 @@ static partial class ReturnToSenderSourceProbe
                 OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
                 RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
                 IlDiffLines: fidelityEvidence?.IlDiffLines,
-                MemberAnchor: result.MemberAnchor,
-                FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                MemberAnchor: result.MemberAnchor));
         }
 
         return results;
@@ -599,6 +590,9 @@ static partial class ReturnToSenderSourceProbe
                 actual_body = result.ActualBody,
                 fault_isolation = result.FaultIsolationKind?.ToString(),
                 fault_isolation_method = result.FaultIsolationMethod?.ToString(),
+                used_compile_back_floor = result.UsedCompileBackFloor,
+                superseded_fault_isolation = result.SupersededFaultIsolationKind?.ToString(),
+                superseded_fault_isolation_method = result.SupersededFaultIsolationMethod?.ToString(),
                 original_opcodes = result.OriginalOpcodes,
                 recompiled_opcodes = result.RecompiledOpcodes,
                 il_diff = result.IlDiffLines,
@@ -614,7 +608,7 @@ static partial class ReturnToSenderSourceProbe
         string sourcePath)
     {
         var exact = result.Status == FidelityCheck.CompileBackStatus.Exact;
-        results.Add(new ReturnToSenderSourceProbeResult(
+        AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
             target,
             exact ? ReturnToSenderSourceOutcome.ValidMatch : ReturnToSenderSourceOutcome.Invalid,
             result.Status,
@@ -623,10 +617,42 @@ static partial class ReturnToSenderSourceProbe
             sourcePath,
             ExpectedBody: null,
             ActualBody: result.TargetBody,
-            MemberAnchor: result.MemberAnchor,
-            FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+            MemberAnchor: result.MemberAnchor));
     }
+
+    /// <summary>
+    /// Adds a probe result, stamping every fact derived from the RTS
+    /// <see cref="ReturnToSender.Result"/>'s fault-isolation state.
+    /// </summary>
+    /// <remarks>
+    /// This is the single projection point for those fields: no call site supplies
+    /// them, so they cannot diverge per path (#3814). A compile-back floor
+    /// supersedes the RTS compile and clears
+    /// <see cref="ReturnToSender.Result.FaultIsolation"/> (#3783), so without
+    /// <see cref="ReturnToSenderSourceProbeResult.UsedCompileBackFloor"/> a
+    /// floor-rescued row is indistinguishable from one RTS handled unaided — which
+    /// is exactly the inventory of where RTS cannot yet stand alone.
+    /// <paramref name="result"/> is null only for an unsupported target, where RTS
+    /// produced no compile at all and every field below is correctly absent.
+    /// </remarks>
+    /// <remarks>
+    /// The projection itself is gated by
+    /// <c>CorpusFloorProvenanceTests.TheProbeProjectsFloorProvenanceOntoTheRow</c>;
+    /// that every emission path routes through here is a structural property of
+    /// this file, not a tested one.
+    /// </remarks>
+    internal static void AddProbeResult(
+        List<ReturnToSenderSourceProbeResult> results,
+        ReturnToSender.Result? result,
+        ReturnToSenderSourceProbeResult probe)
+        => results.Add(probe with
+        {
+            FaultIsolationKind = result?.FaultIsolation?.Kind,
+            FaultIsolationMethod = result?.FaultIsolation?.Method,
+            UsedCompileBackFloor = result?.UsedCompileBackFloor ?? false,
+            SupersededFaultIsolationKind = result?.SupersededFaultIsolation?.Kind,
+            SupersededFaultIsolationMethod = result?.SupersededFaultIsolation?.Method,
+        });
 
 }
 
