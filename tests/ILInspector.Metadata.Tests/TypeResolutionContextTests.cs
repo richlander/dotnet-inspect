@@ -156,6 +156,313 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void DefinitionJoinToken_IsStableExactAndStructurallyHashable()
+    {
+        byte[] image = BuildAssembly(
+            "Definitions",
+            definesType: true,
+            definesOtherType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest type = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        TypeResolutionRequest other = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName("Other"));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [assembly],
+            [type, other]);
+        ResolvedTypeDefinitionKey typeKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(type)).Definition.Key;
+        ResolvedTypeDefinitionKey otherKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(other)).Definition.Key;
+
+        DefinitionJoinToken first =
+            IssuedToken(catalog, typeKey);
+        DefinitionJoinToken second =
+            IssuedToken(catalog, typeKey);
+        DefinitionJoinToken otherToken =
+            IssuedToken(catalog, otherKey);
+        var equivalent = new DefinitionJoinToken(
+            first.Catalog,
+            first.Generation,
+            first.Value,
+            first.Kind,
+            first.Evidence);
+
+        Assert.Same(first, second);
+        Assert.Equal(DefinitionJoinKind.Exact, first.Kind);
+        Assert.Null(first.Evidence);
+        Assert.Equal(first, equivalent);
+        Assert.True(first == equivalent);
+        Assert.False(first != equivalent);
+        Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.NotEqual(first, otherToken);
+        Assert.Contains(equivalent, new HashSet<DefinitionJoinToken> { first });
+    }
+
+    [Fact]
+    public void DefinitionJoinToken_DuplicateArtifactUsesOneEvidenceClass()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference firstAssembly = Descriptor(image);
+        ResolvedAssemblyReference secondAssembly = Descriptor(image);
+        ResolvedAssemblyReference thirdAssembly = Descriptor(image);
+        ResolvedAssemblyReference[] assemblies =
+            [firstAssembly, secondAssembly, thirdAssembly];
+        TypeResolutionRequest[] requests = assemblies
+            .Select(assembly => TypeResolutionRequest.FromAssembly(
+                assembly,
+                AssemblyResolutionScope.Any,
+                TypeName()))
+            .ToArray();
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            assemblies,
+            requests);
+        DefinitionJoinToken[] tokens = requests
+            .Select(request => IssuedToken(
+                catalog,
+                Assert.IsType<TypeResolutionOutcome.Resolved>(
+                    context.Resolve(request)).Definition.Key))
+            .ToArray();
+
+        Assert.All(tokens, token => Assert.Same(tokens[0], token));
+        Assert.Equal(
+            DefinitionJoinKind.IndeterminateDuplicateArtifact,
+            tokens[0].Kind);
+        DuplicateArtifactEvidence evidence =
+            Assert.IsType<DuplicateArtifactEvidence>(tokens[0].Evidence);
+        Assert.Equal(
+            assemblies.Select(assembly => assembly.Registration).ToHashSet(),
+            evidence.Candidates
+                .Select(candidate => candidate.Assembly.Registration)
+                .ToHashSet());
+
+        var differentEvidence = new DefinitionJoinToken(
+            tokens[0].Catalog,
+            tokens[0].Generation,
+            tokens[0].Value,
+            tokens[0].Kind,
+            new DuplicateArtifactEvidence([]));
+        var differentKind = new DefinitionJoinToken(
+            tokens[0].Catalog,
+            tokens[0].Generation,
+            tokens[0].Value,
+            DefinitionJoinKind.Exact,
+            evidence: null);
+        Assert.Equal(tokens[0], differentEvidence);
+        Assert.Equal(tokens[0].GetHashCode(), differentEvidence.GetHashCode());
+        Assert.NotEqual(tokens[0], differentKind);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DefinitionJoinToken_RequiresBothIdentityAndMvid(
+        bool sameIdentity)
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] firstImage = BuildAssembly(
+            "Definitions",
+            definesType: true,
+            moduleVersionId: mvid);
+        byte[] secondImage = BuildAssembly(
+            sameIdentity ? "Definitions" : "OtherDefinitions",
+            definesType: true,
+            moduleVersionId: sameIdentity ? Guid.NewGuid() : mvid);
+        ResolvedAssemblyReference firstAssembly = Descriptor(firstImage);
+        ResolvedAssemblyReference secondAssembly = Descriptor(secondImage);
+        TypeResolutionRequest firstRequest =
+            TypeResolutionRequest.FromAssembly(
+                firstAssembly,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest secondRequest =
+            TypeResolutionRequest.FromAssembly(
+                secondAssembly,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [firstAssembly, secondAssembly],
+            [firstRequest, secondRequest]);
+        ResolvedTypeDefinitionKey firstKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(firstRequest)).Definition.Key;
+        ResolvedTypeDefinitionKey secondKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(secondRequest)).Definition.Key;
+
+        DefinitionJoinToken first = IssuedToken(catalog, firstKey);
+        DefinitionJoinToken second = IssuedToken(catalog, secondKey);
+
+        Assert.Equal(DefinitionJoinKind.Exact, first.Kind);
+        Assert.Equal(DefinitionJoinKind.Exact, second.Kind);
+        Assert.NotEqual(first, second);
+        Assert.IsType<DefinitionCorrespondence.Different>(
+            catalog.Compare(firstKey, secondKey));
+    }
+
+    [Fact]
+    public async Task DefinitionJoinToken_ConcurrentIssuanceReturnsOneToken()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [assembly],
+            [request]);
+        ResolvedTypeDefinitionKey key =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(request)).Definition.Key;
+
+        DefinitionJoinToken[] tokens = await Task.WhenAll(
+            Enumerable.Range(0, 32)
+                .Select(_ => Task.Run(
+                    () => IssuedToken(catalog, key),
+                    TestContext.Current.CancellationToken)));
+
+        Assert.All(tokens, token => Assert.Same(tokens[0], token));
+    }
+
+    [Fact]
+    public void DefinitionJoinToken_RejectsCrossCatalogAndStaleKeys()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NotFound());
+        using var firstCatalog = new TypeResolutionCatalog();
+        using var secondCatalog = new TypeResolutionCatalog();
+        using TypeResolutionContext first =
+            firstCatalog.CreateContext(policy, [assembly], [request]);
+        ResolvedTypeDefinitionKey oldKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                first.Resolve(request)).Definition.Key;
+        DefinitionJoinToken oldToken =
+            IssuedToken(firstCatalog, oldKey);
+
+        var incomparable = Assert.IsType<
+            DefinitionJoinTokenProjection.IncomparableCatalogs>(
+                secondCatalog.ProjectDefinitionJoinToken(oldKey));
+        Assert.Equal(secondCatalog.Id, incomparable.Catalog);
+        Assert.Equal(firstCatalog.Id, incomparable.DefinitionCatalog);
+
+        using TypeResolutionContext current =
+            firstCatalog.CreateContext(policy, [assembly], [request]);
+        ResolvedTypeDefinitionKey currentKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                current.Resolve(request)).Definition.Key;
+        DefinitionJoinToken currentToken =
+            IssuedToken(firstCatalog, currentKey);
+
+        var stale = Assert.IsType<
+            DefinitionJoinTokenProjection.StaleGeneration>(
+                firstCatalog.ProjectDefinitionJoinToken(oldKey));
+        Assert.Same(oldToken.Generation, stale.DefinitionGeneration);
+        Assert.Same(currentToken.Generation, stale.CurrentGeneration);
+        Assert.NotEqual(oldToken, currentToken);
+        Assert.NotEqual(
+            oldToken,
+            new DefinitionJoinToken(
+                oldToken.Catalog,
+                new AssemblyCatalogGenerationId(),
+                oldToken.Value,
+                oldToken.Kind,
+                oldToken.Evidence));
+        Assert.NotEqual(
+            oldToken,
+            new DefinitionJoinToken(
+                new AssemblyCatalogId(Guid.NewGuid()),
+                oldToken.Generation,
+                oldToken.Value,
+                oldToken.Kind,
+                oldToken.Evidence));
+    }
+
+    [Fact]
+    public void DefinitionJoinToken_ReclassifiesCopiesInANewGeneration()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        ResolvedAssemblyReference firstAssembly = Descriptor(image);
+        ResolvedAssemblyReference copiedAssembly = Descriptor(image);
+        TypeResolutionRequest firstRequest =
+            TypeResolutionRequest.FromAssembly(
+                firstAssembly,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest copiedRequest =
+            TypeResolutionRequest.FromAssembly(
+                copiedAssembly,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NotFound());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext firstContext =
+            catalog.CreateContext(
+                policy,
+                [firstAssembly],
+                [firstRequest]);
+        ResolvedTypeDefinitionKey oldKey =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                firstContext.Resolve(firstRequest)).Definition.Key;
+        DefinitionJoinToken exact = IssuedToken(catalog, oldKey);
+        Assert.Equal(DefinitionJoinKind.Exact, exact.Kind);
+
+        using TypeResolutionContext copiedContext =
+            catalog.CreateContext(
+                policy,
+                [firstAssembly, copiedAssembly],
+                [firstRequest, copiedRequest]);
+        DefinitionJoinToken firstCopy = IssuedToken(
+            catalog,
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                copiedContext.Resolve(firstRequest)).Definition.Key);
+        DefinitionJoinToken secondCopy = IssuedToken(
+            catalog,
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                copiedContext.Resolve(copiedRequest)).Definition.Key);
+
+        Assert.IsType<DefinitionJoinTokenProjection.StaleGeneration>(
+            catalog.ProjectDefinitionJoinToken(oldKey));
+        Assert.NotEqual(exact, firstCopy);
+        Assert.Same(firstCopy, secondCopy);
+        Assert.Equal(
+            DefinitionJoinKind.IndeterminateDuplicateArtifact,
+            firstCopy.Kind);
+        DuplicateArtifactEvidence evidence =
+            Assert.IsType<DuplicateArtifactEvidence>(firstCopy.Evidence);
+        Assert.Equal(
+            new[]
+            {
+                firstAssembly.Registration,
+                copiedAssembly.Registration,
+            }.ToHashSet(),
+            evidence.Candidates
+                .Select(candidate => candidate.Assembly.Registration)
+                .ToHashSet());
+    }
+
+    [Fact]
     public void DefinitionAddress_ResolvesOnlyAgainstMatchingModuleAndRow()
     {
         byte[] image = BuildAssembly("Definitions", definesType: true);
@@ -1358,9 +1665,37 @@ public class TypeResolutionContextTests
             typeof(ResolvedTypeDefinitionKey)
                 .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
         Assert.Empty(
+            typeof(DefinitionJoinToken)
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(DefinitionJoinToken)
+                .GetFields(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Equal(
+            [nameof(DefinitionJoinToken.Evidence), nameof(DefinitionJoinToken.Kind)],
+            typeof(DefinitionJoinToken)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Select(property => property.Name)
+                .Order(StringComparer.Ordinal));
+        ConstructorInfo projectionConstructor = Assert.Single(
+            typeof(DefinitionJoinTokenProjection)
+                .GetConstructors(
+                    BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.True(projectionConstructor.IsFamilyAndAssembly);
+        Assert.All(
+            typeof(DefinitionJoinTokenProjection).GetNestedTypes(),
+            type => Assert.Empty(
+                type.GetConstructors(
+                    BindingFlags.Public | BindingFlags.Instance)));
+        Assert.Empty(
             typeof(ResolvedAssemblyCandidate)
                 .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
     }
+
+    static DefinitionJoinToken IssuedToken(
+        TypeResolutionCatalog catalog,
+        ResolvedTypeDefinitionKey definition) =>
+        Assert.IsType<DefinitionJoinTokenProjection.Issued>(
+            catalog.ProjectDefinitionJoinToken(definition)).Token;
 
     [Fact]
     public async Task FrozenContext_IsConcurrentAndDoesNotReinvokePolicy()
@@ -1551,13 +1886,14 @@ public class TypeResolutionContextTests
         bool definesType,
         AssemblyReferenceIdentity? forwardTarget = null,
         int forwarderCount = 1,
-        bool definesOtherType = false)
+        bool definesOtherType = false,
+        Guid? moduleVersionId = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
-            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            mvid: metadata.GetOrAddGuid(moduleVersionId ?? Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(
