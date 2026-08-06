@@ -206,12 +206,11 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "Metadata: ExportedType", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("## Metadata: ExportedType", output, StringComparison.Ordinal);
-        // Named explicitly, so "this table is empty" never reads the same as "the projection
-        // failed" or "the section was never requested".
-        Assert.Contains("no data", error, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Metadata: ExportedType", error, StringComparison.Ordinal);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "This section (Metadata: ExportedType) produced no output.",
+            error.Trim());
     }
 
     /// <summary>

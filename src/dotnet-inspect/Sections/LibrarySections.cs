@@ -545,12 +545,11 @@ public static class LibrarySections
         public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        // Built inline by LibraryMetadataService under options.IncludeDependencies, before the
-        // scanner phase — not by a scanner.
+        // Built inline by LibraryMetadataService when the execution plan requires this section,
+        // before the scanner phase — not by a scanner.
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.UseDependenciesView
-               && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+            => model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>

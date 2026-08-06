@@ -103,7 +103,10 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
+            var collectDependencies = options.IncludeDependencies || options.CollectDependencies;
+            var collectReferences = options.IncludeReferences || options.CollectReferences
+                || collectDependencies || needsAuditSignals;
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(collectReferences);
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -154,7 +157,7 @@ internal static class LibraryMetadataService
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if (options.IncludeDependencies && inspection.AssemblyInfo?.References != null)
+            if (collectDependencies && inspection.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +168,7 @@ internal static class LibraryMetadataService
                     sourceDir,
                     visited,
                     logger,
-                    deduplicate: options.IncludeDependencies);
+                    deduplicate: true);
             }
 
             // Run registered scanners for the requested sections

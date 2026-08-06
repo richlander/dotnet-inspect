@@ -785,13 +785,11 @@ public partial class CommandExecutionTests
             "member\tcandidate\tfinding\tprovenance\tresource\tshape\timpact\tactionability\tboundary\tacquire_il\tboundary_il",
             tsv.Output);
 
-        Assert.Equal(0, empty.Exit);
-        Assert.Contains(
-            "matched section has no data: Array Pool Escapes",
-            empty.Error);
-        // The empty section is suppressed, while the exact selection receives a visible
-        // effectiveness diagnostic rather than success-shaped silence.
-        Assert.DoesNotContain("## Array Pool Escapes", empty.Output);
+        Assert.Equal(1, empty.Exit);
+        Assert.Empty(empty.Output);
+        Assert.Equal(
+            "This section (Array Pool Escapes) produced no output.",
+            empty.Error.Trim());
         Assert.DoesNotContain(
             "No actionable resource lifecycle candidates found.",
             empty.Output);
@@ -1126,11 +1124,11 @@ public partial class CommandExecutionTests
             "library", FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
             "-S", "Performance: Async", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Contains(
-            "matched section has no data: Performance: Async",
-            error);
-        Assert.DoesNotContain("## Performance: Async", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "This section (Performance: Async) produced no output.",
+            error.Trim());
     }
 
     [Fact]
@@ -8970,6 +8968,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectedReferences_CollectsDirectReferenceMetadata()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", SectionNames.References, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## References", output);
+        Assert.Contains("System.Runtime", output);
+        Assert.DoesNotContain("Name: System.Text.Json", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedDependencies_CollectsResolvedTransitiveTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", SectionNames.Dependencies, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Dependencies", output);
+        Assert.Contains("System.Runtime", output);
+        Assert.DoesNotContain("Name: System.Text.Json", output);
+    }
+
+    [Fact]
     public async Task NoArguments_Commands_ReportMissingInputConsistently()
     {
         // Issue #1690: every command reports a missing required argument the Unix way —
@@ -10054,10 +10078,11 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath,
             "--il-offset", $"0x{token:X}+0x10", "-S", "Context: Return Address", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("# dotnet-inspect.Tests.dll", output);
-        Assert.DoesNotContain("## Context: Return Address", output);
-        Assert.Contains("matched section has no data", error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "This section (Context: Return Address) produced no output.",
+            error.Trim());
     }
 
     [Fact]
@@ -11263,11 +11288,23 @@ public partial class CommandExecutionTests
         var rendered = 0;
         foreach (var name in names)
         {
-            var (aloneExit, aloneOutput, _) = await RunAppAsync(
+            var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
                 "library", assembly, "-S", name, "--tips", "q");
-            Assert.Equal(0, aloneExit);
 
             var alone = TryExtractSectionBody(aloneOutput, name);
+            if (alone is null)
+            {
+                Assert.Equal(1, aloneExit);
+                Assert.Empty(aloneOutput);
+                Assert.Equal(
+                    $"This section ({name}) produced no output.",
+                    aloneError.Trim());
+            }
+            else
+            {
+                Assert.Equal(0, aloneExit);
+                Assert.Empty(aloneError);
+            }
             Assert.Equal(TryExtractSectionBody(togetherOutput, name), alone);
 
             if (alone != null)

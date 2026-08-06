@@ -55,8 +55,9 @@ dotnet-inspect library System.Text.Json -S @Performance
 Selection controls both rendering and data collection. Only producers needed
 by the requested sections should run.
 
-Focused output retains compact target context where needed so a section query
-does not lose identity, version, TFM, or source information.
+Focused output renders the selected section without a compact identity row.
+Compact fields belong to `-v:q`; select the command's info section when identity,
+version, TFM, or source information is part of the question.
 
 ### Bare `-S`
 

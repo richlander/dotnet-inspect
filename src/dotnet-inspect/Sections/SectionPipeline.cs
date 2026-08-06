@@ -407,6 +407,24 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Returns the structural candidate set before producer-backed effectiveness is known.
+    /// Commands use this to plan prerequisites for sections whose data is not produced by a
+    /// registered scanner.
+    /// </summary>
+    public HashSet<string> GetCandidateSections(Verbosity verbosity,
+        HashSet<string>? include = null, bool fixedOverview = false)
+    {
+        HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            var entry = _entries[i];
+            if (IsRequested(entry, i, verbosity, include, fixedOverview))
+                result.Add(entry.Name);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Returns sections that are available for this model, independent of whether
     /// verbosity would auto-render them. Explicit <paramref name="include"/> still
     /// narrows the result.
@@ -760,7 +778,7 @@ public sealed class SectionPipeline<TModel>
         => verbosity switch
         {
             Verbosity.Quiet => IsHeadlessSummary(entry),
-            Verbosity.Minimal => entry.Info || IsHeadlessSummary(entry),
+            Verbosity.Minimal => entry.Info,
             Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
                 && entry.Cost == SectionCost.NetworkFree,
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost

@@ -311,8 +311,8 @@ explicitly.
 makes category membership and applicability visible without conflating them.
 
 Ordinary rendering omits ineffective sections. When an exact section was
-selected and has no data, the command should explain that the matched section
-was ineffective rather than silently presenting success-shaped empty output.
+selected and has no data, the command exits non-zero, emits no document, and
+writes one stderr line: `This section (<name>) produced no output.`
 
 ## Output shapes
 

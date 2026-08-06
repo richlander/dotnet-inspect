@@ -137,7 +137,7 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "Dependencies")]
     public List<TreeNode>? DependenciesSection =>
-        !_data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
         BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
 
     [MarkoutIgnore]
@@ -991,6 +991,7 @@ public class LibraryInspectionView
             var label = !string.IsNullOrEmpty(node.Company)
                 ? $"{node.Name} {node.Version} [{node.Company}]"
                 : $"{node.Name} {node.Version}";
+            label = LibraryViewText.Contain(label);
             index++;
 
             List<TreeNode> children = [];

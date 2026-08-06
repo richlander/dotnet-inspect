@@ -158,7 +158,7 @@ This is the same pattern as `WarnEmptySections` but at field/column granularity:
 | Level | Existing diagnostic | SchemaQuery equivalent |
 | ----- | ------------------- | ---------------------- |
 | Section | "Select value 'Symb' not found. Did you mean: Symbols" | `schema.Select("Symb")` → miss with suggestions |
-| Section | "Note: 1 matched section has no data: Statistics." | `schema.Effective(probe)` filters to sections with data |
+| Section | "This section (Statistics) produced no output." | `schema.Effective(probe)` filters to sections with data |
 | Field | _(missing)_ | `schema.ValidateProjection(...)` → unresolved with suggestions |
 | Field | _(missing)_ | `schema.DiagnoseProjection(...)` → valid but empty |
 | Column | _(missing)_ | Same as field, different kind |

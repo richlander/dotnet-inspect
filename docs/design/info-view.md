@@ -16,7 +16,7 @@ A default preset should:
 - prefer local or bounded work;
 - prefer summary variants when they answer the question;
 - avoid exhaustive inventories unless they are the point of the question;
-- avoid compact context rows; focused `-S Section` owns that framing;
+- avoid compact context rows outside `-v:q`;
 - stay distinct from explicitly selected domain categories.
 
 Sections are stable content units. Presets decide where those sections appear.

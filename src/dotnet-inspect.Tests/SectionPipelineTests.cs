@@ -2717,6 +2717,7 @@ public class SectionPipelineTests
 
         // Package is always renderable at Minimal
         Assert.Contains("Package Info", effective);
+        Assert.DoesNotContain("Summary", effective);
         // Statistics requires TotalDownloads (Normal verbosity anyway)
         Assert.DoesNotContain("Statistics", effective);
         // Target Frameworks requires target framework data
@@ -2727,6 +2728,19 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Vulnerabilities", effective);
         // Files is Detailed
         Assert.DoesNotContain("Package files", effective);
+    }
+
+    [Fact]
+    public void PackagePipeline_CandidatesSeparateQuietSummaryFromMinimalInfo()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+
+        Assert.Equal(
+            [PackageSections.Summary],
+            pipeline.GetCandidateSections(Verbosity.Quiet));
+        Assert.Equal(
+            [PackageSections.PackageInfo],
+            pipeline.GetCandidateSections(Verbosity.Minimal));
     }
 
     [Fact]

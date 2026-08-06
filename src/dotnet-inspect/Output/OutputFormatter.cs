@@ -247,9 +247,8 @@ public static class OutputFormatter
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
-        bool includeContext = ShouldRenderPackageContext(options);
         var view = new InspectionResultView(result, includeTitleVersion: false);
-        var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
+        var writerOptions = BuildWriterOptions(result, options, pipeline);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
@@ -303,19 +302,19 @@ public static class OutputFormatter
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
+        SectionPipeline<InspectionResult> pipeline)
     {
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
-        if (includeContext && includeSections is { Count: > 0 })
-            includeSections = [PackageSections.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext && !selectInfo,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+                && options.IncludeSections is not { Count: > 0 }
+                && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -568,19 +567,5 @@ public static class OutputFormatter
     }
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
-        options.Verbosity == Verbosity.Quiet
-        || (options.IncludeSections is { Count: > 0 }
-            && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            && !options.Count
-            && !options.JsonOutput
-            && !options.Tabular);
-
-    internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
-        options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-        && !options.Count
-        && !options.JsonOutput
-        && !options.Tabular;
+        options.Verbosity == Verbosity.Quiet;
 }

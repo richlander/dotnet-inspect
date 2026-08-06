@@ -375,9 +375,20 @@ public class LibraryCommand
                 // Assembly references are a cheap metadata fact and drive both base dependency
                 // doors. Full discovery additionally builds the transitive dependency view when
                 // that section is in scope.
-                IncludeReferences = true,
-                IncludeDependencies = fullEffectiveDiscovery
+                CollectReferences = true,
+                CollectDependencies = fullEffectiveDiscovery
                     && discoveryExecutionScope?.Contains(SectionNames.Dependencies) == true,
+            };
+        }
+        else
+        {
+            var candidates = pipeline.GetCandidateSections(
+                options.Verbosity, options.IncludeSections, options.FixedOverview);
+            inspectionOptions = inspectionOptions with
+            {
+                CollectReferences = candidates.Contains(SectionNames.References)
+                    || candidates.Contains(SectionNames.Dependencies),
+                CollectDependencies = candidates.Contains(SectionNames.Dependencies),
             };
         }
 
@@ -482,6 +493,8 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
+                if (RejectEmptyExactSection(inspection, options, pipeline))
+                    return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -574,6 +587,8 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
+                if (RejectEmptyExactSection(inspections[0], options, pipeline))
+                    return 1;
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
@@ -652,6 +667,8 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
+                if (RejectEmptyExactSection(inspection, options, pipeline))
+                    return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -2015,6 +2032,21 @@ public class LibraryCommand
             CommandError.WriteNote(
                 $"{unexplained.Count} matched {label} no data: {string.Join(", ", unexplained)}.");
         }
+    }
+
+    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        if (options.IncludeSections is not { Count: 1 })
+            return false;
+
+        var (empty, requested) = pipeline.GetEmptySections(
+            inspection, options.Verbosity, options.IncludeSections);
+        if (requested != 1 || empty.Count != 1)
+            return false;
+
+        CommandError.WriteLine($"This section ({empty[0]}) produced no output.");
+        return true;
     }
 
     internal static bool FailureAffectsSection(string failureSection, string section)

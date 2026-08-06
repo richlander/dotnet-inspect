@@ -30,6 +30,18 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeDependencies { get; init; }
 
     /// <summary>
+    /// Internal execution demand for direct assembly-reference metadata. Unlike
+    /// <see cref="IncludeReferences"/>, this does not select a legacy output route.
+    /// </summary>
+    internal bool CollectReferences { get; init; }
+
+    /// <summary>
+    /// Internal execution demand for the resolved transitive dependency tree. Unlike
+    /// <see cref="IncludeDependencies"/>, this does not select the legacy dependency view.
+    /// </summary>
+    internal bool CollectDependencies { get; init; }
+
+    /// <summary>
     /// Path to a NuGet package to extract the assembly from.
     /// If null, the assembly is loaded from the local filesystem.
     /// </summary>
