@@ -2,16 +2,14 @@ using System.Reflection;
 using System.Text;
 using ILInspector.Metadata;
 
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.Tests;
 
 /// <summary>
-/// Pins the token stream the slicer's scanner produces.
+/// Pins the token stream the C# text scanner produces.
 /// <para>
-/// The scanner is not new work: the slicer has always lexed each line to place braces, and it has
-/// always thrown that away at the line break, leaving every predicate to re-derive "am I inside a
-/// comment, a literal, or an attribute list?" from a string it was handed. These tests fix the
-/// stream that scan already computes, so the predicates can be moved onto it without the move
-/// itself being the first thing that ever inspected it.
+/// The scanner predates this library: the slicer already lexed each line to place braces before
+/// the scanner and declaration index moved here. These tests pin the stream that scan computes so
+/// extracting its ownership cannot change its lexical behavior.
 /// </para>
 /// </summary>
 public class ScanTokenTests
@@ -22,7 +20,7 @@ public class ScanTokenTests
     /// </summary>
     private static string Render(params string[] lines)
     {
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
         return string.Join(' ', tokens.Select(t => $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}"));
     }
 
@@ -38,7 +36,7 @@ public class ScanTokenTests
     /// </summary>
     private static string RenderState(params string[] lines)
     {
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
         return string.Join(' ', tokens.Select(t =>
             $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}:d{t.Depth}:b{t.BracketDepth}{(t.DepthKnown ? "" : "?")}"));
     }
@@ -339,7 +337,7 @@ public class ScanTokenTests
     public void BraceDepth_PlacesEachDelimiterWithTheTextItBounds()
     {
         var lines = new[] { "class C {", "  void M() { }", "}" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         // An opener carries the depth outside it and a closer the depth inside, so both report
         // the block they delimit rather than each other.
@@ -354,7 +352,7 @@ public class ScanTokenTests
     public void AttributeList_RaisesBracketDepthForItsContents()
     {
         var lines = new[] { "[Obsolete(\"x\")]", "public void M() { }" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         Assert.Equal(0, Single(tokens, lines, "[", line: 0).BracketDepth);
         Assert.Equal(1, Single(tokens, lines, "Obsolete", line: 0).BracketDepth);
@@ -384,7 +382,7 @@ public class ScanTokenTests
     public void ConditionalDirective_MarksTheDepthUnknowableInsideTheGroupOnly()
     {
         var lines = new[] { "#if DEBUG", "int x;", "#endif", "int y;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         // The braces inside a conditional branch may belong to text the compiler discards, so the
         // depth stops meaning anything there — and the tokens say so rather than reporting a
@@ -403,7 +401,7 @@ public class ScanTokenTests
     public void AnUnbalancedConditional_LeavesTheDepthUnknowableToEndOfFile()
     {
         var lines = new[] { "#if DEBUG", "if (x) {", "#endif", "}", "int y;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         // This branch opens a brace it does not close, so the depth after the #endif really does
         // depend on whether DEBUG was defined. The loss must stand.
@@ -414,7 +412,7 @@ public class ScanTokenTests
     public void NonConditionalDirective_LeavesTheDepthKnown()
     {
         var lines = new[] { "#region Things", "int x;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         Assert.All(tokens, t => Assert.True(t.DepthKnown));
         Assert.Equal(ScanTokenKind.Directive, tokens[0].Kind);
@@ -424,7 +422,7 @@ public class ScanTokenTests
     public void UnterminatedSingleLineLiteral_MarksEveryTokenOnThatLineUnknown()
     {
         var lines = new[] { "var s = \"unterminated;", "int y;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         // The scan loses its place at the end of the line, which is after the earlier tokens on
         // it were emitted. They are corrected rather than left reporting a depth that has since
@@ -462,7 +460,7 @@ public class ScanTokenTests
     /// </para>
     /// </summary>
     private static (int Line, int Depth, int BracketDepth, string Text)[] Placed(params string[] lines) =>
-        [.. BodySlicer.ScanTokens(lines)
+        [.. CSharpLexer.ScanTokens(lines)
             .Select(t => (t.Line, t.Depth, t.BracketDepth, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}"))];
 
     private static string? FindCoverageGap(IReadOnlyList<string> lines, IReadOnlyList<ScanToken> tokens)
@@ -513,7 +511,7 @@ public class ScanTokenTests
     public void CoverageCheck_ReportsATokenThatWasRemoved()
     {
         var lines = new[] { "int x = 1;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
 
         Assert.Null(FindCoverageGap(lines, tokens));
 
@@ -528,7 +526,7 @@ public class ScanTokenTests
     public void CoverageCheck_ReportsATokenThatWasShortened()
     {
         var lines = new[] { "int identifier = 1;" };
-        var tokens = BodySlicer.ScanTokens(lines);
+        var tokens = CSharpLexer.ScanTokens(lines);
         var damaged = tokens.ToList();
 
         int word = damaged.FindIndex(t => t.Kind == ScanTokenKind.Word && t.Length > 1);
@@ -634,7 +632,7 @@ public class ScanTokenTests
                 (0, 0, 3, "W:var"), (0, 4, 1, "W:s"), (0, 6, 1, "P:="),
                 (0, 8, 3, "S:$\"{"), (0, 13, 5, "S:\"x\"}\""), (0, 18, 1, "P:;"),
             ],
-            BodySlicer.ScanTokens(lines)
+            CSharpLexer.ScanTokens(lines)
                 .Select(t => (t.Line, t.Column, t.Length, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}")));
     }
 
@@ -709,7 +707,7 @@ public class ScanTokenTests
             // and used for the coverage check. There is no second copy for a recording to be
             // pointed at while the scanner is given something else.
             var lines = new[] { input };
-            var tokens = BodySlicer.ScanTokens(lines);
+            var tokens = CSharpLexer.ScanTokens(lines);
             string? gap = FindCoverageGap(lines, tokens);
 
             if (gap is not null)
@@ -935,7 +933,7 @@ public class ScanTokenTests
             foreach (string tail in tails)
             {
                 var lines = new[] { "{", "    x = [", "        " + opener, tail };
-                var tokens = BodySlicer.ScanTokens(lines);
+                var tokens = CSharpLexer.ScanTokens(lines);
                 var opened = tokens.Single(t => t.Line == 2);
                 var first = tokens.First(t => t.Line == 3);
 
@@ -1029,7 +1027,7 @@ public class ScanTokenTests
         foreach (var input in swept)
         {
             var lines = new[] { input };
-            var tokens = BodySlicer.ScanTokens(lines);
+            var tokens = CSharpLexer.ScanTokens(lines);
             int lost = tokens.Count(t => !t.DepthKnown);
 
             unknown += lost;
@@ -1110,7 +1108,7 @@ public class ScanTokenTests
         // that the guard had gone unexercised (adversarial review, GPT).
         Assert.Equal(
             [(0, 0, 12, "S:\"xyzzyxyzzy\""), (1, 12, 4, "S:\"ab\"")],
-            BodySlicer.ScanTokens(lines)
+            CSharpLexer.ScanTokens(lines)
                 .Select(t => (t.Line, t.Column, t.Length, $"{Code(t.Kind)}:{t.TextIn(lines[t.Line])}")));
     }
 
@@ -1130,7 +1128,7 @@ public class ScanTokenTests
     public void EveryCharacterOfALine_IsAccountedFor(string line)
     {
         var lines = new[] { line };
-        Assert.Null(FindCoverageGap(lines, BodySlicer.ScanTokens(lines)));
+        Assert.Null(FindCoverageGap(lines, CSharpLexer.ScanTokens(lines)));
     }
 
     /// <summary>
@@ -1254,7 +1252,7 @@ public class ScanTokenTests
                 continue;
             }
 
-            var tokens = BodySlicer.ScanTokens(lines);
+            var tokens = CSharpLexer.ScanTokens(lines);
             lineCount += lines.Length;
             tokenCount += tokens.Count;
 
@@ -1309,7 +1307,7 @@ public class ScanTokenTests
             {
                 try
                 {
-                    foreach (var member in context.EnumerateMemberSources())
+                    foreach (var member in context.EnumerateMemberDocuments())
                     {
                         if (File.Exists(member.FilePath))
                             paths.Add(member.FilePath);
@@ -1570,8 +1568,8 @@ public class ScanTokenTests
             // `wrapped` still holds the original element references.
             string[] wrapped = ["{", "[", .. content];
 
-            var bare = BodySlicer.ScanTokens(wrapped[2..]);
-            var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
+            var bare = CSharpLexer.ScanTokens(wrapped[2..]);
+            var enclosed = CSharpLexer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
 
             Assert.Equal(wrapped[2..], content);
 
@@ -1667,7 +1665,7 @@ public class ScanTokenTests
 
         foreach (var opener in openers)
         {
-            var carried = BodySlicer.ScanTokens([opener, "a"]).Last();
+            var carried = CSharpLexer.ScanTokens([opener, "a"]).Last();
             Assert.True(
                 carried.Kind is ScanTokenKind.StringLiteral or ScanTokenKind.Comment,
                 $"opener [{opener}] no longer carries: 'a' below it scanned as {carried.Kind}");
@@ -1686,12 +1684,12 @@ public class ScanTokenTests
         // Kind and length are still not the whole of why these forms: an opener list of nine
         // distinct seeds, eight of them strings, five longer than two characters, can be spelled
         // entirely without raw literals (`$$"`, `$$$"`, `$$$$"` for `"""`, `$"""`, `$$"""`), and
-        // measured, that erases the carried raw-literal path at BodySlicer.cs:1413 while every
+        // measured, that erases the carried raw-literal path in CSharpLexer.Scan while every
         // pin above and the suite stay green (adversarial review, GPT). Pin the raw family by
         // the behaviour that makes it a separate path rather than by its spelling: a lone quote
         // on the next line closes a quoted or verbatim literal, and does not close a raw one.
         var rawSeeds = openers.Count(o =>
-            BodySlicer.ScanTokens([o, "\"a"]).Last().Kind is ScanTokenKind.StringLiteral);
+            CSharpLexer.ScanTokens([o, "\"a"]).Last().Kind is ScanTokenKind.StringLiteral);
 
         Assert.Equal(4, rawSeeds);
 
@@ -1709,13 +1707,13 @@ public class ScanTokenTests
         // eight strings, one comment, four raw, five longer than two characters, value pin
         // updated in step -- and the only seed that opens a literal which is *both* verbatim
         // and interpolated is gone. Measured, a wrong depth on that frame's fragment
-        // (BodySlicer.cs:1431, guarded on `frame.Verbatim && frame.DollarRun > 0`) then
+        // (guarded in CSharpLexer.Scan on `frame.Verbatim && frame.DollarRun > 0`) then
         // survives (adversarial review, GPT). Pin that family the same behavioural way: on the
         // next line a backslash does not escape in a verbatim literal, so the quote after it
         // closes and what follows is code; and a brace opens a hole only in an interpolated
         // one. A seed that does both is verbatim *and* interpolated, whatever it is spelled.
         bool CodeOnSecondLine(string opener, string second) =>
-            BodySlicer.ScanTokens([opener, second]).Any(t => t.Line == 1 && t.Kind is ScanTokenKind.Word);
+            CSharpLexer.ScanTokens([opener, second]).Any(t => t.Line == 1 && t.Kind is ScanTokenKind.Word);
 
         bool Verbatim(string opener) => CodeOnSecondLine(opener, "\\\"a");
 
@@ -1736,8 +1734,9 @@ public class ScanTokenTests
         // Verbatim belongs in the same tuple for the same reason. Pinning only how many seeds
         // are verbatim *and* interpolated leaves the non-interpolated verbatim frame free: `@"`
         // can be exchanged for an ordinary carrier while `$@"` keeps that count at one, and
-        // measured, a wrong depth guarded on `frame.Verbatim && frame.DollarRun == 0` at
-        // BodySlicer.cs:1431 then survives (adversarial review, GPT). Pinning the three
+        // measured, a wrong depth guarded in CSharpLexer.Scan on
+        // `frame.Verbatim && frame.DollarRun == 0` then survives (adversarial review, GPT).
+        // Pinning the three
         // together is what stops the state from being traded away one projection at a time.
         int MinBraceRun(string opener) =>
             CodeOnSecondLine(opener, "{a}") ? 1

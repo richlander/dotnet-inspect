@@ -15,6 +15,22 @@ readonly record struct PolicyCacheKey(
     AssemblyBindingPolicyVersion PolicyVersion,
     object RequestKey);
 
+readonly record struct AssemblyBindingDomainKey(
+    bool IsGlobal,
+    AssemblyCandidateId Candidate)
+{
+    internal static AssemblyBindingDomainKey Global => new(true, default);
+
+    internal static AssemblyBindingDomainKey FromCandidate(
+        AssemblyCandidateId candidate) =>
+        new(false, candidate);
+}
+
+sealed record BindingKey(
+    AssemblyBindingDomainKey Domain,
+    AssemblyBindingTarget Target,
+    AssemblyResolutionScope Scope);
+
 /// <summary>
 /// Resource and traversal limits shared by all generations in a
 /// <see cref="TypeResolutionCatalog"/>.
@@ -65,7 +81,7 @@ public sealed record TypeResolutionContextOptions
 public sealed class TypeResolutionCatalog : IDisposable
 {
     readonly object _gate = new();
-    readonly SemaphoreSlim _generationGate = new(1, 1);
+    readonly SynchronousConcurrencyGate _generationGate = new(1);
     readonly InspectionAcquisitionPlan _acquisition;
     readonly Dictionary<DeclarationCacheKey, TypeDeclarationResult>
         _declarations = [];
@@ -73,7 +89,15 @@ public sealed class TypeResolutionCatalog : IDisposable
         _bindings = [];
     readonly Dictionary<PolicyCacheKey, TypeResolutionOutcome>
         _resolutions = [];
+    readonly Dictionary<DefinitionClassKey, DefinitionJoinToken>
+        _definitionJoinTokens = [];
+    readonly Dictionary<BindingKey, UnresolvedBindingKey>
+        _unresolvedBindingKeys = [];
     readonly TypeResolutionContextOptions _options;
+    AssemblyCatalogGenerationId? _latestGeneration;
+    ImmutableDictionary<AssemblyCandidateId, FrozenCandidate>
+        _latestCandidates =
+            ImmutableDictionary<AssemblyCandidateId, FrozenCandidate>.Empty;
     bool _disposed;
 
     /// <summary>
@@ -89,6 +113,157 @@ public sealed class TypeResolutionCatalog : IDisposable
 
     /// <summary>Gets the identity shared by every generation in this catalog.</summary>
     public AssemblyCatalogId Id => _acquisition.CatalogId;
+
+    /// <summary>
+    /// Compares two opaque definition keys in the latest frozen generation.
+    /// Duplicate copies remain explicitly indeterminate.
+    /// </summary>
+    public DefinitionCorrespondence Compare(
+        ResolvedTypeDefinitionKey left,
+        ResolvedTypeDefinitionKey right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (left.Catalog != Id || right.Catalog != Id)
+            {
+                return new DefinitionCorrespondence.IncomparableCatalogs(
+                    left.Catalog,
+                    right.Catalog);
+            }
+
+            if (!ReferenceEquals(left.Generation, right.Generation)
+                || !ReferenceEquals(left.Generation, _latestGeneration))
+            {
+                return new DefinitionCorrespondence.StaleGeneration(
+                    left.Generation,
+                    right.Generation);
+            }
+
+            if (left.Assembly == right.Assembly)
+            {
+                return left.Definition == right.Definition
+                    ? new DefinitionCorrespondence.Same()
+                    : new DefinitionCorrespondence.Different();
+            }
+
+            if (!TryGetDefinitionClass(left, out DefinitionClassKey leftClass)
+                || !TryGetDefinitionClass(
+                    right,
+                    out DefinitionClassKey rightClass))
+            {
+                return new DefinitionCorrespondence.StaleGeneration(
+                    left.Generation,
+                    right.Generation);
+            }
+
+            if (leftClass != rightClass)
+                return new DefinitionCorrespondence.Different();
+
+            return new DefinitionCorrespondence.IndeterminateDuplicateArtifact(
+                DuplicateEvidence(leftClass));
+        }
+    }
+
+    /// <summary>
+    /// Issues the hashable correspondence token for a definition in the
+    /// latest frozen generation.
+    /// </summary>
+    public DefinitionJoinTokenProjection ProjectDefinitionJoinToken(
+        ResolvedTypeDefinitionKey definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (definition.Catalog != Id)
+            {
+                return new DefinitionJoinTokenProjection.IncomparableCatalogs(
+                    Id,
+                    definition.Catalog);
+            }
+
+            if (!ReferenceEquals(definition.Generation, _latestGeneration)
+                || !TryGetDefinitionClass(
+                    definition,
+                    out DefinitionClassKey definitionClass))
+            {
+                return new DefinitionJoinTokenProjection.StaleGeneration(
+                    definition.Generation,
+                    _latestGeneration!);
+            }
+
+            if (_definitionJoinTokens.TryGetValue(
+                    definitionClass,
+                    out DefinitionJoinToken? existing))
+            {
+                return new DefinitionJoinTokenProjection.Issued(existing);
+            }
+
+            DuplicateArtifactEvidence? evidence = null;
+            DefinitionJoinKind kind = DefinitionJoinKind.Exact;
+            if (DefinitionClassCandidateCount(definitionClass) > 1)
+            {
+                kind = DefinitionJoinKind.IndeterminateDuplicateArtifact;
+                evidence = DuplicateEvidence(definitionClass);
+            }
+
+            var token = new DefinitionJoinToken(
+                Id,
+                definition.Generation,
+                Guid.NewGuid(),
+                kind,
+                evidence);
+            _definitionJoinTokens.Add(definitionClass, token);
+            return new DefinitionJoinTokenProjection.Issued(token);
+        }
+    }
+
+    /// <summary>
+    /// Issues the hashable correspondence key for one unresolved binding in
+    /// the latest frozen generation.
+    /// </summary>
+    public UnresolvedBindingKeyProjection ProjectUnresolvedBindingKey(
+        UnresolvedBindingReference binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (binding.Catalog != Id)
+            {
+                return new UnresolvedBindingKeyProjection.IncomparableCatalogs(
+                    Id,
+                    binding.Catalog);
+            }
+
+            if (!ReferenceEquals(binding.Generation, _latestGeneration))
+            {
+                return new UnresolvedBindingKeyProjection.StaleGeneration(
+                    binding.Generation,
+                    _latestGeneration!);
+            }
+
+            if (_unresolvedBindingKeys.TryGetValue(
+                    binding.Binding,
+                    out UnresolvedBindingKey? existing))
+            {
+                return new UnresolvedBindingKeyProjection.Issued(existing);
+            }
+
+            var key = new UnresolvedBindingKey(
+                Id,
+                binding.Generation,
+                Guid.NewGuid());
+            _unresolvedBindingKeys.Add(binding.Binding, key);
+            return new UnresolvedBindingKeyProjection.Issued(key);
+        }
+    }
 
     /// <summary>
     /// Discovers and freezes a context for type requests over the supplied
@@ -165,7 +340,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         ArgumentNullException.ThrowIfNull(bindingRequests);
         ArgumentNullException.ThrowIfNull(requests);
 
-        _generationGate.Wait(cancellationToken);
+        _generationGate.Enter(cancellationToken);
         try
         {
             lock (_gate)
@@ -183,7 +358,7 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
@@ -245,10 +420,40 @@ public sealed class TypeResolutionCatalog : IDisposable
             new PolicyCacheKey(policyVersion, key),
             outcome);
 
+    internal void PublishGeneration(
+        AssemblyCatalogGenerationId generation,
+        IReadOnlyDictionary<
+            AssemblyAcquisitionRegistration,
+            ResolvedAssemblyCandidate> candidates,
+        IReadOnlyDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+            inventories)
+    {
+        var frozen = ImmutableDictionary.CreateBuilder<
+            AssemblyCandidateId,
+            FrozenCandidate>();
+        foreach (ResolvedAssemblyCandidate candidate in candidates.Values)
+        {
+            frozen.Add(
+                candidate.Id,
+                new FrozenCandidate(
+                    candidate.Assembly,
+                    inventories[candidate.Id]));
+        }
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _latestCandidates = frozen.ToImmutable();
+            _latestGeneration = generation;
+            _definitionJoinTokens.Clear();
+            _unresolvedBindingKeys.Clear();
+        }
+    }
+
     /// <summary>Releases every retained candidate session owned by the catalog.</summary>
     public void Dispose()
     {
-        _generationGate.Wait();
+        _generationGate.Enter();
         try
         {
             lock (_gate)
@@ -262,13 +467,66 @@ public sealed class TypeResolutionCatalog : IDisposable
         }
         finally
         {
-            _generationGate.Release();
+            _generationGate.Exit();
         }
     }
 
     readonly record struct DeclarationCacheKey(
         AssemblyCandidateId Candidate,
         MetadataTypeDefinitionName Type);
+
+    bool TryGetDefinitionClass(
+        ResolvedTypeDefinitionKey definition,
+        out DefinitionClassKey definitionClass)
+    {
+        if (!_latestCandidates.TryGetValue(
+                definition.Assembly,
+                out FrozenCandidate? candidate))
+        {
+            definitionClass = default;
+            return false;
+        }
+
+        definitionClass = new DefinitionClassKey(
+            candidate.Inventory.Identity,
+            candidate.Inventory.ModuleVersionId,
+            definition.Definition);
+        return true;
+    }
+
+    int DefinitionClassCandidateCount(DefinitionClassKey definitionClass) =>
+        _latestCandidates.Values.Count(candidate =>
+            candidate.Inventory.Identity == definitionClass.Identity
+            && candidate.Inventory.ModuleVersionId
+                == definitionClass.ModuleVersionId);
+
+    DuplicateArtifactEvidence DuplicateEvidence(
+        DefinitionClassKey definitionClass) =>
+        new(
+            _latestCandidates.Values
+                .Where(candidate =>
+                    candidate.Inventory.Identity == definitionClass.Identity
+                    && candidate.Inventory.ModuleVersionId
+                        == definitionClass.ModuleVersionId)
+                .OrderBy(
+                    candidate => candidate.Assembly.Path,
+                    StringComparer.Ordinal)
+                .Select(candidate =>
+                    new DuplicateArtifactCandidateEvidence(
+                        candidate.Assembly,
+                        new MetadataTypeDefinitionAddress(
+                            candidate.Inventory.ModuleVersionId,
+                            definitionClass.Definition)))
+                .ToImmutableArray());
+
+    readonly record struct DefinitionClassKey(
+        AssemblyReferenceIdentity Identity,
+        Guid ModuleVersionId,
+        TypeDefinitionToken Definition);
+
+    sealed record FrozenCandidate(
+        ResolvedAssemblyReference Assembly,
+        AssemblyInventorySnapshot Inventory);
 }
 
 /// <summary>
@@ -296,6 +554,8 @@ public sealed class TypeResolutionContext : IDisposable
         ManifestRequestKey,
         TypeResolutionOutcome> _projectionFailures;
     readonly ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
+    readonly ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+        _inventories;
     bool _disposed;
 
     TypeResolutionContext(
@@ -315,7 +575,9 @@ public sealed class TypeResolutionContext : IDisposable
         ImmutableDictionary<
             ManifestRequestKey,
             TypeResolutionOutcome> projectionFailures,
-        ImmutableDictionary<BindingKey, AssemblyBindingOutcome> bindings)
+        ImmutableDictionary<BindingKey, AssemblyBindingOutcome> bindings,
+        ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+            inventories)
     {
         _catalog = catalog;
         _ownsCatalog = ownsCatalog;
@@ -326,6 +588,7 @@ public sealed class TypeResolutionContext : IDisposable
         _outcomes = outcomes;
         _projectionFailures = projectionFailures;
         _bindings = bindings;
+        _inventories = inventories;
     }
 
     /// <summary>Gets the owning catalog's inspection-lifetime identity.</summary>
@@ -333,6 +596,30 @@ public sealed class TypeResolutionContext : IDisposable
 
     /// <summary>Gets this frozen manifest generation's identity.</summary>
     public AssemblyCatalogGenerationId Generation { get; }
+
+    /// <summary>
+    /// Gets the frozen adjacency inventory for a candidate selected in this
+    /// generation.
+    /// </summary>
+    public AssemblyInventorySnapshot GetInventory(
+        ResolvedAssemblyCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_inventories.TryGetValue(
+                    candidate.Id,
+                    out AssemblyInventorySnapshot? inventory))
+            {
+                throw new ArgumentException(
+                    "The candidate does not belong to this generation.",
+                    nameof(candidate));
+            }
+
+            return inventory;
+        }
+    }
 
     /// <summary>
     /// Creates a standalone context that owns its private catalog and its
@@ -658,11 +945,11 @@ public sealed class TypeResolutionContext : IDisposable
         out BindingKey key,
         out TypeResolutionFailure? failure)
     {
-        BindingDomainKey domain;
+        AssemblyBindingDomainKey domain;
         switch (origin)
         {
             case AssemblyBindingOrigin.GlobalOrigin:
-                domain = BindingDomainKey.Global;
+                domain = AssemblyBindingDomainKey.Global;
                 break;
             case AssemblyBindingOrigin.RequestingAssembly requesting:
                 if (!candidates.TryGetValue(
@@ -682,7 +969,7 @@ public sealed class TypeResolutionContext : IDisposable
                     return false;
                 }
 
-                domain = BindingDomainKey.FromCandidate(candidate!.Id);
+                domain = AssemblyBindingDomainKey.FromCandidate(candidate!.Id);
                 break;
             default:
                 throw new InvalidOperationException(
@@ -794,21 +1081,6 @@ public sealed class TypeResolutionContext : IDisposable
                     "Unknown assembly-binding origin."),
             };
     }
-
-    readonly record struct BindingDomainKey(
-        bool IsGlobal,
-        AssemblyCandidateId Candidate)
-    {
-        internal static BindingDomainKey Global => new(true, default);
-        internal static BindingDomainKey FromCandidate(
-            AssemblyCandidateId candidate) =>
-            new(false, candidate);
-    }
-
-    sealed record BindingKey(
-        BindingDomainKey Domain,
-        AssemblyBindingTarget Target,
-        AssemblyResolutionScope Scope);
 
     sealed class Builder
     {
@@ -1077,6 +1349,10 @@ public sealed class TypeResolutionContext : IDisposable
                     pair.Key,
                     pair.Value);
             }
+            _catalog.PublishGeneration(
+                _generation,
+                _candidates,
+                _inventories);
             return new TypeResolutionContext(
                 _catalog,
                 _ownsCatalog,
@@ -1088,7 +1364,8 @@ public sealed class TypeResolutionContext : IDisposable
                 _projectionFailures.ToImmutableDictionary(),
                 _bindings.ToImmutableDictionary(
                     static pair => pair.Key,
-                    static pair => pair.Value.Outcome));
+                    static pair => pair.Value.Outcome),
+                _inventories.ToImmutableDictionary());
         }
 
         bool TryProjectRequest(
@@ -1376,6 +1653,10 @@ public sealed class TypeResolutionContext : IDisposable
                     return true;
                 case AssemblyBindingOutcome.Missing:
                     outcome = new TypeResolutionOutcome.UnboundBinding(
+                        new UnresolvedBindingReference(
+                            _acquisition.CatalogId,
+                            _generation,
+                            key),
                         target,
                         origin,
                         scope,
@@ -1394,6 +1675,10 @@ public sealed class TypeResolutionContext : IDisposable
                     else
                     {
                         outcome = new TypeResolutionOutcome.Unavailable(
+                            new UnresolvedBindingReference(
+                                _acquisition.CatalogId,
+                                _generation,
+                                key),
                             target,
                             origin,
                             scope,
@@ -1633,9 +1918,32 @@ public sealed class TypeResolutionContext : IDisposable
 
         TypeResolutionOutcome Reproject(TypeResolutionOutcome outcome)
         {
-            if (outcome is not TypeResolutionOutcome.Resolved resolved)
-                return outcome;
+            return outcome switch
+            {
+                TypeResolutionOutcome.Resolved resolved =>
+                    Reproject(resolved),
+                TypeResolutionOutcome.UnboundBinding unbound =>
+                    new TypeResolutionOutcome.UnboundBinding(
+                        Reproject(unbound.Binding),
+                        unbound.Target,
+                        unbound.Origin,
+                        unbound.Scope,
+                        unbound.Hops),
+                TypeResolutionOutcome.Unavailable unavailable =>
+                    new TypeResolutionOutcome.Unavailable(
+                        Reproject(unavailable.Binding),
+                        unavailable.Target,
+                        unavailable.Origin,
+                        unavailable.Scope,
+                        unavailable.Failure,
+                        unavailable.Hops),
+                _ => outcome,
+            };
+        }
 
+        TypeResolutionOutcome.Resolved Reproject(
+            TypeResolutionOutcome.Resolved resolved)
+        {
             ResolvedTypeDefinition definition = resolved.Definition;
             var key = new ResolvedTypeDefinitionKey(
                 _acquisition.CatalogId,
@@ -1650,5 +1958,12 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Type),
                 resolved.Hops);
         }
+
+        UnresolvedBindingReference Reproject(
+            UnresolvedBindingReference binding) =>
+            new(
+                _acquisition.CatalogId,
+                _generation,
+                binding.Binding);
     }
 }

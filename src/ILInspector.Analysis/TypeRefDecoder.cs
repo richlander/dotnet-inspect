@@ -40,7 +40,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     const int MaxCumulativeSignatureBytes = 4096;
 
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
-        => TypeRef.CoreLib("System", typeCode switch
+    {
+        string name = typeCode switch
         {
             PrimitiveTypeCode.Boolean => "Boolean",
             PrimitiveTypeCode.Byte => "Byte",
@@ -61,7 +62,13 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             PrimitiveTypeCode.Void => "Void",
             PrimitiveTypeCode.TypedReference => "TypedReference",
             _ => typeCode.ToString(),
-        });
+        };
+        return Definition(
+            TypeRef.CoreLibrary,
+            "System",
+            name,
+            new TypeReferenceOrigin.IntrinsicCoreLibrary());
+    }
 
     public TypeRef GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
@@ -89,10 +96,11 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 : "";
             string ns = reader.GetString(root.Namespace);
             string name = TypeDefinitionName(reader, chain);
-            return TypeRef.Definition(
+            return Definition(
                 assembly,
                 ns,
                 name,
+                new TypeReferenceOrigin.CurrentAssembly(),
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
         }
@@ -131,20 +139,42 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             if (terminal.Kind == HandleKind.AssemblyReference)
             {
                 var assemblyHandle = (AssemblyReferenceHandle)terminal;
-                return TypeRef.Definition(
-                    reader.GetString(reader.GetAssemblyReference(assemblyHandle).Name),
+                AssemblyReferenceIdentity assembly =
+                    AssemblyReferenceIdentity.From(reader, assemblyHandle);
+                return Definition(
+                    assembly.Name,
                     ns,
                     name,
+                    new TypeReferenceOrigin.AssemblyReference(assembly),
                     FrameworkAssemblyKeys.IsFrameworkReference(reader, assemblyHandle),
                     FrameworkAssemblyKeys.IsAuthenticProtobufReference(reader, assemblyHandle));
             }
 
-            // ModuleReference / nil scope: the type is in the current assembly (another
-            // module of it, or an exported/forwarded type resolved in this manifest).
-            return TypeRef.Definition(
+            TypeReferenceOrigin origin;
+            if (terminal.IsNil || terminal.Kind == HandleKind.ModuleDefinition)
+            {
+                origin = new TypeReferenceOrigin.CurrentAssembly();
+            }
+            else if (terminal.Kind == HandleKind.ModuleReference)
+            {
+                string moduleName = reader.GetString(
+                    reader.GetModuleReference(
+                        (ModuleReferenceHandle)terminal).Name);
+                if (string.IsNullOrEmpty(moduleName))
+                    return TypeRef.Unsupported("type-reference module scope has no name");
+                origin = new TypeReferenceOrigin.ModuleReference(moduleName);
+            }
+            else
+            {
+                return TypeRef.Unsupported(
+                    $"type-reference resolution scope kind {terminal.Kind} is unsupported");
+            }
+
+            return Definition(
                 reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "",
                 ns,
                 name,
+                origin,
                 FrameworkAssemblyKeys.IsFrameworkDefinition(reader),
                 FrameworkAssemblyKeys.IsAuthenticProtobufDefinition(reader));
         }
@@ -186,6 +216,33 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 reader.GetString(reader.GetTypeReference(handles[i]).Name));
         }
         return name;
+    }
+
+    static TypeRef Definition(
+        string assembly,
+        string ns,
+        string name,
+        TypeReferenceOrigin origin,
+        bool trustedFrameworkAssembly = true,
+        bool trustedProtobufAssembly = true)
+    {
+        MetadataTypeDefinitionNameResult result =
+            MetadataTypeDefinitionName.Create(
+                ns,
+                [.. name.Split('+')]);
+        if (result is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return TypeRef.Unsupported(
+                "type-reference metadata name is invalid");
+        }
+
+        return TypeRef.Definition(
+            assembly,
+            ns,
+            name,
+            new ResolvableTypeReference(origin, valid.Name),
+            trustedFrameworkAssembly,
+            trustedProtobufAssembly);
     }
 
     public TypeRef GetTypeFromSpecification(MetadataReader reader, GenericScope genericContext, TypeSpecificationHandle handle, byte rawTypeKind)

@@ -209,6 +209,9 @@ jobs:
               # `ci-required` passes on a `skipped`.
               eng/restore-iltools.sh) CODE=true ;;
               eng/activate-iltools.sh) CODE=true ;;
+              # Controls checkout line endings on Windows, including the raw
+              # string fixtures this lane exists to validate.
+              .gitattributes) CODE=true ;;
               # GateExpectedClassesTests lives in the fast lane and is the only
               # thing keeping this file honest against the pre-merge preset, so
               # editing the file must run the lane that validates it.
@@ -292,8 +295,9 @@ jobs:
               # Deliberately NOT mapped to this lane, though an earlier revision of this
               # PR mapped all four here on the premise that "the sweep builds the EVIL
               # pool this gate is run over". Measured, and false: `--gate pre-merge`
-              # selects ByteNeutralityGateTests, FidelityGateTests, GateExpectedClassesTests
-              # and LoweredFidelityGateTests, none of which read the EVIL pool, and this
+              # selects ByteNeutralityGateTests, ClusterCaptureTests, FidelityGateTests,
+              # GateExpectedClassesTests, LoweredFidelityGateTests and
+              # PrinterPrecedenceTests, none of which read the EVIL pool, and this
               # job never runs eng/prepare-evil-corpus.sh. The mapping scheduled a
               # fifteen-minute job that validated nothing about the file that triggered it.
               # EvilPoolSweepGateTests and EvilPoolPinTests carry no Speed=Slow trait, so
@@ -400,9 +404,11 @@ jobs:
         with:
           globs: '**/*.md'
 
-  # Build and test on Ubuntu only. Windows/macOS coverage was moved to the
-  # Publish workflow to cut Actions minutes (those runners bill at higher
-  # multipliers). This trades per-PR cross-platform test coverage for cost.
+  # Build and run the full test matrix on Ubuntu. A reduced Windows leg runs as
+  # the separate `test-windows` job below; macOS is still uncovered by tests and
+  # appears only as a `release.yml` packaging target. Note that release.yml's
+  # `build-native` job does run on `windows-latest`, but it only packs and runs
+  # no tests, so it is not Windows test coverage.
   #
   # Runs on PRs only. A pull_request build validates the PR merged into the
   # current base, so re-running the full test suite on the push to main is
@@ -560,6 +566,102 @@ jobs:
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm/mdv' step." >&2
           exit 1
 
+  # Reduced Windows leg (#3542).
+  #
+  # Until now no test had ever run on Windows in any workflow, so a green PR
+  # said nothing about it. The cost was measured, not hypothetical: #3445,
+  # #3496, #3509, #3519, #3526 and six PluginDiscoveryTests cases found during
+  # #3428 review were all Windows-only failures found by hand on a tree CI
+  # called green. Almost all were fixture-level -- CRLF vs LF, path separators,
+  # executable bits -- which is the class a matrix leg catches cheaply and a
+  # human catches expensively.
+  #
+  # This is a separate job rather than another `include:` on `test` because
+  # most of that job's steps are genuinely bash-only: `mapfile`, a heredoc, a
+  # `chmod`, and `bash eng/*.sh`. Adding `windows-latest` there would need an
+  # `if:` guard on the majority of the steps and would leave the two jobs
+  # sharing a shape neither wants.
+  #
+  # Scope is deliberately reduced: the suites with an observed Windows-only
+  # failure, plus the two cheap path-sensitive ones. Excluded on cost, not
+  # principle: the slow decompiler gates and corpus sensor (the #3326 class),
+  # IL round-trip (its ilasm restore is a bash script), and packaging.
+  #
+  # Like every other job here, this one must never be named as a required
+  # status check directly: it is path-gated and PR-only, and a required check
+  # that does not run is reported as "Expected" forever, blocking the merge
+  # permanently. Its result reaches `ci-required`, the aggregate gate at the
+  # end of this file, which is where it becomes merge-blocking.
+  test-windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_INSPECT_TIPS: q
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        id: build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      # Each suite below runs even when an earlier suite failed. The default
+      # fail-fast behaviour reports the first broken suite and marks the rest
+      # `skipped`, which reads as "fine" when it actually means "unknown" --
+      # the success-shaped-empty-output failure AGENTS.md rules out. A Windows
+      # break is typically one fixture-level bug hitting several suites at
+      # once, so the first red step is the least useful place to stop. Gated on
+      # the build so a compile error still fails fast rather than producing
+      # five copies of the same error.
+
+      # Unfiltered, unlike the Ubuntu lane, and that is the point of this job.
+      # CommandExecutionTests carries a class-level [Trait("Speed", "Slow")], so
+      # `-trait- "Speed=Slow"` drops the entire class -- and both Windows-only
+      # CLI regressions (#3519, #3445) lived in exactly that class. Filtering
+      # here would faithfully reproduce the blind spot this leg exists to close.
+      # Some cases need ilasm/ildasm and skip when absent, which they are here.
+      - name: Run CLI tests (all)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
+
+      # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
+      # CorpusSensorComparisonTests) are in the fast subset, so the slow gates
+      # stay excluded without losing the regressions this leg is here for.
+      - name: Run decompiler unit tests (fast)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
+
+      # Covers the PluginDiscoveryTests failures found during #3428 review:
+      # plugin discovery is exactly the executable-bit and path-separator logic
+      # that differs by OS. Live-network tests are excluded here for the same
+      # reasons as on the Ubuntu lane.
+      - name: Run NuGetFetch tests (offline)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+
+      - name: Run metadata tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- -longRunning 60
+
+      - name: Run services tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
   # net11 only — so net11-only API usage on the fallback path is invisible until
@@ -602,7 +704,7 @@ jobs:
   # Inspect's `if: ... && failure()` notifier. Detection latency was unbounded,
   # not weekly (#3432). Five real regressions (#3489-#3493) accumulated unseen.
   #
-  # This job runs the three gates whose failures are attributable to a specific
+  # This job runs the gates whose failures are attributable to a specific
   # fixture and docket entry, as its own job so it never serializes with the
   # hot `test` lane. Currently-open failures are pinned in
   # eng/decompiler-gate-known-red.txt; the checker fails on any unpinned
@@ -618,14 +720,51 @@ jobs:
   # intended to serve as the merge gate and be the one context the ruleset
   # requires.
   #
-  # The remaining Fidelity-area classes are excluded on cost, not principle:
-  # ClusterCaptureTests and PrinterPrecedenceTests alone are ~21 minutes for two
-  # tests and want the #3495 type-filter treatment before they can be gated.
+  # The Fidelity-area classes that remain ungated are excluded for two distinct
+  # reasons, and only one of them is cost.
+  #
+  # Excluded on cost: SkeletonEmitTests, the single most expensive class in the
+  # suite (~630s on CI, #3495). It wants the emit-bound residual addressed
+  # before it can be gated -- and note it deliberately asserts the *whole-module*
+  # skeleton compiles, so it cannot simply adopt a narrower build. It also
+  # carries theories, so the second reason below applies to it as well.
+  #
+  # Excluded on a checker limitation, not cost: DiffFixtureFidelityTests,
+  # NestedTargetLookupTests, AuthoredRebuildFidelityTests and
+  # AnnotatedCompileBackFailureTests are nearly free -- 42 cases in 2.4s
+  # combined -- but every one of them carries a [Theory], and the completeness
+  # check compares against method-granular discovery. Run those four and the
+  # runner reports "Discovered: 28" then "Total: 42": the check would confirm
+  # all 28 methods executed while 14 cases silently vanished.
+  #
+  # Tractable, but not a one-flag fix. `-preEnumerateTheories -list full/json`
+  # emits one entry per case with a stable unique ID -- for these four it emits
+  # all 42 -- so a case-level expectation can be built on it. But it only
+  # expands theories whose data is *serializable*: a [MemberData] source typed
+  # TheoryData<IrExpression, Precedence> is not, and xUnit then falls back to
+  # one delayed-enumeration entry per method. CSharpPrecedenceTests in this
+  # assembly lists 2 entries under that flag and runs 19 tests. So the
+  # prerequisite is to switch discovery AND verify it emitted every case the run
+  # produced; adopting case IDs on trust would look stricter while reopening
+  # this same hole. Until then
+  # GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts fails
+  # closed on any non-Fact attribute, which is what makes method granularity
+  # sound here rather than merely assumed.
   decompiler-gates:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    # Job timeout raised 45 -> 55 with the step timeout below (#3495 follow-up).
+    # The two must move together: the design depends on the *step* timeout
+    # firing first, with enough of the job budget left for the checker and the
+    # artifact upload to still run and fail loudly. Measured on this job: setup
+    # and build are 2m54s, so a step that burns its full 35 gives up around
+    # minute 38. That would still fit a 45-minute job, but with only ~7 minutes
+    # covering the checker, the artifact upload, and any runner-side variance in
+    # setup and build -- thin enough that a slow runner could turn the loud
+    # failure this job exists to produce back into a silent cancel. 55 makes the
+    # gap unambiguous. A healthy run finishes in 24m35s.
+    timeout-minutes: 55
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -689,6 +828,17 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
+      # 35 is sized to a measurement, not a guess, and the measurement is from
+      # this job on this runner: the 6-class preset runs 44 tests in 21m30s
+      # (build 2m37s, discovery 2s, checker 4s, job total 24m35s). 35 leaves
+      # ~63% headroom over that while staying 20 minutes under the job timeout,
+      # which is what keeps a hang loud.
+      #
+      # Raising this from 25 was required, not cosmetic: at 21m30s the old
+      # budget had 3m30s of margin, so a slightly slow runner would have hit a
+      # timeout on a perfectly healthy run. Re-measure and re-tune both numbers
+      # together whenever a class is added to the preset.
+      #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
       # the discovery listing above describe the same binary, and (b) hide a
@@ -697,7 +847,7 @@ jobs:
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: |
           dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
             --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
@@ -1090,6 +1240,10 @@ jobs:
       - changes
       - markdownlint
       - test
+      # Path-gated and PR-only, so it reports `skipped` on doc-only PRs and on
+      # pushes to main. That passes the gate by design; the allow list below
+      # distinguishes "correctly not run" from "ran and failed".
+      - test-windows
       - build-net10
       - decompiler-gates
       - csharp-diff-smoke

@@ -317,10 +317,12 @@ public class InspectionAcquisitionPlanTests
 
         Task<CandidateRegistrationResult>[] tasks =
             [.. Enumerable.Range(0, 12).Select(
-                _ => Task.Run(() => plan.Register(descriptor)))];
-        Assert.True(
-            SpinWait.SpinUntil(() => Volatile.Read(ref opens) == 1, TimeSpan.FromSeconds(5)));
+                _ => StartConcurrent(() => plan.Register(descriptor)))];
+        bool entered = SpinWait.SpinUntil(
+            () => Volatile.Read(ref opens) == 1,
+            TimeSpan.FromSeconds(5));
         release.Set();
+        Assert.True(entered);
         CandidateRegistrationResult[] results = await Task.WhenAll(tasks);
 
         var first = Assert.IsType<CandidateRegistrationResult.Ready>(results[0]);
@@ -362,11 +364,14 @@ public class InspectionAcquisitionPlanTests
 
         Task<CandidateRegistrationResult>[] tasks =
             [.. descriptors.Select(
-                descriptor => Task.Run(() => plan.Register(descriptor)))];
-        Assert.True(
-            SpinWait.SpinUntil(() => Volatile.Read(ref entered) == 2, TimeSpan.FromSeconds(5)));
-        Assert.Equal(2, Volatile.Read(ref maximum));
+                descriptor => StartConcurrent(() => plan.Register(descriptor)))];
+        bool reachedLimit = SpinWait.SpinUntil(
+            () => Volatile.Read(ref entered) == 2,
+            TimeSpan.FromSeconds(5));
+        int observedMaximum = Volatile.Read(ref maximum);
         release.Set();
+        Assert.True(reachedLimit);
+        Assert.Equal(2, observedMaximum);
         CandidateRegistrationResult[] results = await Task.WhenAll(tasks);
 
         Assert.All(
@@ -531,13 +536,14 @@ public class InspectionAcquisitionPlanTests
         Task<CandidateSessionResult>[] tasks =
         [
             .. Enumerable.Range(0, 8)
-                .Select(_ => Task.Run(
+                .Select(_ => StartConcurrent(
                     () => plan.OpenSession(registration.Candidate))),
         ];
-        Assert.True(entered.Wait(
+        bool sharedOpenStarted = entered.Wait(
             TimeSpan.FromSeconds(5),
-            TestContext.Current.CancellationToken));
+            TestContext.Current.CancellationToken);
         release.Set();
+        Assert.True(sharedOpenStarted);
         CandidateSessionResult[] results = await Task.WhenAll(tasks);
 
         CandidateSessionResult.Ready first =
@@ -572,18 +578,45 @@ public class InspectionAcquisitionPlanTests
             });
         var registration = Assert.IsType<CandidateRegistrationResult.Ready>(
             plan.Register(descriptor));
-        Task<CandidateSessionResult> openTask = Task.Run(
+        Task<CandidateSessionResult> openTask = StartConcurrent(
             () => plan.OpenSession(registration.Candidate));
-        Assert.True(entered.Wait(
+        bool openStarted = entered.Wait(
             TimeSpan.FromSeconds(5),
-            TestContext.Current.CancellationToken));
-
-        Task disposeTask = Task.Run(
-            plan.Dispose,
             TestContext.Current.CancellationToken);
-        Assert.False(disposeTask.IsCompleted);
-        release.Set();
-        await Task.WhenAll(openTask, disposeTask);
+        if (!openStarted)
+        {
+            release.Set();
+            await openTask;
+            plan.Dispose();
+        }
+        Assert.True(openStarted);
+
+        Task disposeTask = StartConcurrent(plan.Dispose);
+        try
+        {
+            // Rejection is the observable that Dispose has set _disposed before waiting.
+            bool disposeStarted = SpinWait.SpinUntil(
+                () =>
+                {
+                    try
+                    {
+                        plan.Register(descriptor);
+                        return false;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return true;
+                    }
+                },
+                TimeSpan.FromSeconds(5));
+            Assert.True(disposeStarted);
+            Assert.False(disposeTask.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await Task.WhenAll(openTask, disposeTask);
+        }
 
         var ready = Assert.IsType<CandidateSessionResult.Ready>(
             await openTask);
@@ -633,6 +666,22 @@ public class InspectionAcquisitionPlanTests
             path: null,
             openRead: () => new MemoryStream(image(), writable: false),
             provenance: AssemblyResolutionProvenance.Local("test"));
+
+    // These callers intentionally block on test gates, so dedicated threads keep the
+    // test independent of ThreadPool injection timing on low-core CI runners.
+    static Task StartConcurrent(Action action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    static Task<T> StartConcurrent<T>(Func<T> action) =>
+        Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
     static byte[] SelfBytes() => File.ReadAllBytes(SelfPath);
 

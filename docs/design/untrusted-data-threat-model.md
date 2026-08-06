@@ -285,9 +285,9 @@ consumption. Resource budgets remain an open requirement below.
 ### Untrusted JSON rejects duplicate properties
 
 JSON does not define how duplicate object keys resolve, so two readers of one payload can
-disagree. `DotnetInspector.Core.HardenedJson` (and its `ILInspector.Metadata.SourceLinkJson`
-counterpart, kept separate because Metadata sits below the Core infrastructure layer) parses with
-`AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
+disagree. `DotnetInspector.Core.HardenedJson` and SourceLinkFetch's map parser reject duplicate
+properties, while `ILInspector.SourceLink.SourceLinkJsonContext` applies the same rule to its
+persistent type-index cache. Such payloads fail visibly instead of binding one of
 several possible readings.
 
 This is generic hardening, not a fix for a known divergence. The SourceLink
@@ -777,10 +777,11 @@ backwards at the moment of printing. This is the `vis`/`unvis` pairing named
 below rather than a workaround for it: the encoding is lossless and invertible
 precisely so that a decoder can exist, and having the decoder is what makes raw
 output a *rendering* choice instead of a property of the model. A literal
-backslash is always rewritten on the way in, which is what keeps the inverse
-unique. Refusal is unaffected and still happens upstream, against the raw text,
-because the question it asks — does this artifact carry something concerning —
-is about the artifact rather than about the spelling.
+backslash is rewritten when it could introduce an encoded spelling; lone and
+unrelated backslashes remain literal because the decoder can recognize that
+they introduce nothing. Refusal is unaffected and still happens upstream,
+against the raw text, because the question it asks — does this artifact carry
+something concerning — is about the artifact rather than about the spelling.
 
 Placing the decode after the character budget also buys a property the earlier
 implementation lacked: **both modes cut the same value at the same point.**
@@ -939,8 +940,11 @@ only ordinary compiler output.
    entry-count budgets.
 3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
-4. Audit Markdown, plain-text, and stderr rendering for terminal control
-   characters and structure injection.
+4. Continue auditing Markdown, plain-text, and stderr rendering for terminal
+   control characters and structure injection. Nuspec descriptions now cross
+   both object models as `InertString` and render as Markdown quotations;
+   `NuspecHardeningTests.HostileDescription_RemainsQuotedInMarkdownAndContainedInJson`
+   gates the Markdown and JSON sinks. Other prose-bearing paths remain in scope.
 5. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
    migration and expand malformed PE/PDB product-entry-point coverage around
    graph depth, row count, and allocation limits.
@@ -948,30 +952,13 @@ only ordinary compiler output.
    zero-valued results onto explicit failure-bearing outcomes.
 7. Revisit filesystem containment if .NET exposes a portable atomic
    no-follow/open-beneath primitive. **Tier 3.**
-8. Adopt the reject-over-sanitize strategy where the product currently
-   neutralizes. `MetadataTableProjector` repairs control characters in
-   artifact text and continues, which is the sanitize strategy this document
-   now argues against, and it is applied by calling a helper rather than by
-   construction — which is how the metadata version stamp reached
-   presentation uncontained. Introduce the trust axis (default abort, survey,
-   named skip), move rendering into a type a renderer cannot bypass, and
-   re-point `MdiContainmentTests` at the new property. Ship the encoder with
-   its decoder and the round-trip/injectivity gate described in
-   [metadata-table-projection.md](metadata-table-projection.md#safety); a
-   caret-introduced spelling is not invertible and must not be used. Note the
-   existing escaper has the same defect from the other direction: `EscapeCore`
-   renders controls as `\uXXXX` but only escapes `\` when `escapeStructural`
-   is set, and `NeutralizeControls` passes `false`, so a literal `\u001B` in
-   artifact text and a real `ESC` produce identical output.
-
-   Adopt the general-category rule at the same time. `IsControl` is
-   `c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f')` — `Cc` only — so
-   the metadata path does not encode bidi overrides, `U+2028`/`U+2029`, or
-   `U+FEFF`. Other paths in this repository already do: `AppliedTasteSection`
-   gates `\u202E`, `\u061C`, and `\u2066`, and the IL string-literal printer
-   gates `\u2028`/`\u2029`. One product with two containment sets is the same
-   inheritance failure as the version stamp, one layer up, and the narrower
-   set is the one a reader of this design would have copied.
+8. Complete the trust-axis adoption beyond `mdi`. The metadata projection now
+   carries `InertString`, applies the Unicode general-category rule, and exposes
+   refusal, contained rendering, and a separately named raw mode. What remains
+   is survey mode and command-line policy for `dotnet-inspect`, whose library
+   paths currently contain and continue. Keep identity allow-list rejection
+   separate: package IDs and versions are not repaired into acceptable
+   identities.
 9. Audit failure messages for artifact data. `NuGetCache.ValidatePathComponent`
    throws `Invalid {name}: '{value}'`, echoing the value it just rejected.
    Printability here is a function of **provenance, not content**: the same
@@ -993,9 +980,10 @@ only ordinary compiler output.
    rejected value; that same handler returns an empty result, which is the
    success-shaped failure this document forbids elsewhere.
    `ValidatePathComponent` does not reject control characters other than
-   `NUL`, so an `ESC` passes it outright. This is the natural first
-   application of the hardened-entrypoint pattern, alongside the nuspec input
-   contract behind #3394 and #3418.
+   `NUL`, so an `ESC` passes it outright. The nuspec boundary now rejects
+   malformed XML with a typed, content-free diagnostic and carries descriptions
+   as `InertString`; package-coordinate validation and the two graph-resolution
+   leaks remain the next application of the hardened-entrypoint pattern.
 10. Establish fuzzing over the PE, metadata, PDB, nuspec, and archive entry
     points. The domain-matched precedent is `binutils`, whose parsers are
     continuously fuzzed and have repeatedly yielded CVEs that way. Most of

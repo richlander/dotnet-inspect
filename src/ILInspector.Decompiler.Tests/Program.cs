@@ -35,10 +35,12 @@ internal static class Program
         new("no-corpus", "Everything except the multi-hour Corpus sweep.", "-trait-", "Area=Corpus"),
         new(
             "pre-merge",
-            "The docket and byte-neutrality gates only (matches the PR CI decompiler-gates job).",
+            "The docket, byte-neutrality and printer/cluster fidelity gates only (matches the PR CI decompiler-gates job).",
             "-class", "ILInspector.Decompiler.Tests.FidelityGateTests",
             "-class", "ILInspector.Decompiler.Tests.LoweredFidelityGateTests",
             "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests",
+            "-class", "ILInspector.Decompiler.Tests.ClusterCaptureTests",
+            "-class", "ILInspector.Decompiler.Tests.PrinterPrecedenceTests",
             // The gate's own plumbing guard rides along in the preset it guards.
             // Running it as a separate CI step was vacuous: a filter naming a
             // renamed or deleted class discovers nothing and exits 0. Inside the

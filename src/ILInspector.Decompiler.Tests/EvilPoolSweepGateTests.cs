@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using DotnetInspector.Packages;
 using Xunit;
 
@@ -36,12 +37,12 @@ namespace ILInspector.Decompiler.Tests;
 /// It resolves its inputs from the repository root above its working directory, so a
 /// directory holding a <c>dotnet-inspect.slnx</c> and a <c>docs/data</c> feeds a real run
 /// a package list and pin of this suite's choosing -- no product path override is
-/// involved. It is pointed at a scratch cache holding two synthetic packages and told to
-/// stay offline, so <em>it</em> acquires over no network and reads no shared cache, and
-/// nothing it pools or acquires comes from outside the scratch directory. Offline is what
-/// keeps that honest: a case that stopped being served from the seeded cache would reach
-/// for the network and fail here rather than quietly passing on whatever the machine
-/// happened to have.</para>
+/// involved. It is pointed at a scratch cache holding two synthetic packages, given an
+/// explicit source config owned by that world, and told to stay offline, so <em>it</em>
+/// acquires over no network and reads no shared cache, and nothing it pools or acquires
+/// comes from outside the scratch directory. Offline is what keeps that honest: a case
+/// that stopped being served from the seeded cache would reach for the network and fail
+/// here rather than quietly passing on whatever the machine happened to have.</para>
 ///
 /// <para>The claim stops there, deliberately. Each case launches the sweep with
 /// <c>dotnet run</c>, and a file-based app is restored and built before it runs, which
@@ -56,19 +57,11 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class EvilPoolSweepGateTests
 {
-    /// <summary>
-    /// Identity of the source these fixtures speak for. Cached content is scoped
-    /// to the source that committed it, so a test that seeds the cache by hand
-    /// must use the same source the code under test resolves — otherwise the
-    /// seeded entry is correctly invisible.
-    /// </summary>
-    private static readonly string TestSourceKey =
-        NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
-
     const string FixturePackage = "sweep.fixture";
     const string FixtureVersion = "1.0.0";
     const string FixtureTfm = "net8.0";
     const string FixtureAssembly = "Sweep.Fixture.dll";
+    const string NuGetOrgSource = "https://api.nuget.org/v3/index.json";
 
     // A second package, ranked ahead of the one each case is about, which every sweep here
     // pools successfully before reaching the subject. See SweepWorld for why the subject is
@@ -135,6 +128,89 @@ public class EvilPoolSweepGateTests
             entry["AssemblyPath"]!.GetValue<string>());
 
         world.AssertNoTemporaryLeftBehind();
+    }
+
+    /// <summary>
+    /// The explicit source boundary is required and its loss is a stated refusal, not a
+    /// fallback to ambient sources or a raw process failure.
+    /// </summary>
+    [Fact]
+    public void ASweepRefusesWhenItsExplicitSourceConfigDisappears()
+    {
+        using var world = SweepWorld.Create();
+        File.Delete(world.NuGetConfigPath);
+
+        var sweep = world.Run();
+
+        Assert.True(sweep.ExitCode == 2, world.Explain(sweep, "a missing explicit source config"));
+        Assert.Contains($"NuGet config file not found: '{world.NuGetConfigPath}'.", sweep.Errors);
+        Assert.False(File.Exists(world.ManifestPath));
+    }
+
+    /// <summary>
+    /// A sweep that cannot write its assembly record refuses the output directory.
+    ///
+    /// <para>Exit 1 means the sweep ran and the corpus is short a package. This failure
+    /// is different: both packages were pooled, but the operator-supplied output path
+    /// prevented the record that makes them consumable from being written. Exit 2 keeps
+    /// that bad-output refusal distinct from a package failure.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotWriteItsAssemblyRecordRefusesTheOutputDirectory()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the assembly record path"));
+        Assert.Contains(
+            $"Could not write '{world.PooledListPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        // The run reached the record write after pooling both packages; this is not an
+        // earlier refusal that happened to return the same exit code.
+        Assert.True(File.Exists(world.LeadDestination), "the lead was not pooled.");
+        Assert.True(File.Exists(world.SubjectDestination), "the subject was not pooled.");
+        Assert.False(File.Exists(world.ManifestPath), "the sweep wrote a manifest without its assembly record.");
+    }
+
+    /// <summary>
+    /// A sweep that cannot invalidate its manifest refuses before changing the pool.
+    ///
+    /// <para>A directory at the manifest path makes deletion fail. The planted stale
+    /// assembly must remain while new package bytes and <c>assemblies.txt</c> stay absent,
+    /// proving invalidation precedes the first mutation rather than merely producing the
+    /// expected diagnostic after changing the pool.</para>
+    /// </summary>
+    [Fact]
+    public void ASweepThatCannotInvalidateItsManifestRefusesBeforeMutation()
+    {
+        using var world = SweepWorld.Create();
+        Directory.CreateDirectory(world.ManifestPath);
+
+        string stale = Path.Combine(
+            world.OutputDirectory, "packages", "999-sweep.stale", "1.0.0", "Sweep.Stale.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(stale)!);
+        File.WriteAllBytes(stale, world.FixtureBytes);
+
+        var sweep = world.Run();
+
+        Assert.True(
+            sweep.ExitCode == 2,
+            world.Explain(sweep, "a directory standing at the manifest path"));
+        Assert.Contains(
+            $"Could not invalidate prior manifest '{world.ManifestPath}'",
+            sweep.Errors,
+            StringComparison.Ordinal);
+
+        Assert.False(File.Exists(world.LeadDestination), "the sweep pooled the lead before invalidation.");
+        Assert.False(File.Exists(world.SubjectDestination), "the sweep pooled the subject before invalidation.");
+        Assert.False(File.Exists(world.PooledListPath), "the sweep wrote its assembly record before invalidation.");
+        Assert.True(File.Exists(stale), "the sweep reconciled the pool before invalidation.");
     }
 
     /// <summary>
@@ -248,7 +324,9 @@ public class EvilPoolSweepGateTests
 
         // The run carried on to rank 2 and pooled it, and the pool is that alone.
         Assert.Equal("selected", world.ReportedStatus(sweep));
-        world.AssertOnlyTheSubjectWasPooled(sweep);
+        Assert.Equal([world.SubjectDestination], PooledAssemblies(world.OutputDirectory));
+        Assert.Equal(world.FixtureSha256, Sha256Of(world.SubjectDestination));
+        Assert.Equal(1, world.ReportedManifest(sweep)["SelectedPackageCount"]!.GetValue<int>());
 
         world.AssertNoTemporaryLeftBehind();
     }
@@ -277,28 +355,6 @@ public class EvilPoolSweepGateTests
         Assert.Equal("pin-mismatch", world.ReportedStatus(sweep));
 
         world.AssertOnlyTheLeadWasPooled(sweep);
-        world.AssertNoTemporaryLeftBehind();
-    }
-
-    /// <summary>
-    /// A TFM mismatch at rank 1 refuses that package without suppressing rank 2.
-    ///
-    /// <para>The subject-side case above cannot distinguish <c>continue</c> from
-    /// <c>break</c>, because its mismatch is the last iteration. Putting the mismatch on
-    /// the lead makes the distinction observable: the subject behind it must still be
-    /// selected and be the pool's sole content.</para>
-    /// </summary>
-    [Fact]
-    public void ASweepWhoseFirstPinMismatchesStillPoolsTheSecondPackage()
-    {
-        using var world = SweepWorld.Create(leadTfm: "net10.0");
-
-        var sweep = world.Run();
-
-        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a rank-1 pin naming the wrong TFM"));
-        Assert.Equal("pin-mismatch", world.ReportedStatus(sweep, LeadPackage));
-        Assert.Equal("selected", world.ReportedStatus(sweep));
-        world.AssertOnlyTheSubjectWasPooled(sweep);
         world.AssertNoTemporaryLeftBehind();
     }
 
@@ -469,39 +525,6 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
-    /// A copy failure at rank 1 fails that package without suppressing rank 2.
-    ///
-    /// <para>The subject-side case above gates the failure accounting, but its copy is the
-    /// last iteration and cannot distinguish <c>continue</c> from <c>break</c>. Refusing
-    /// writes to the lead's destination makes the subject behind it the witness.</para>
-    /// </summary>
-    [Fact]
-    public void ASweepWhoseFirstCopyFailsStillPoolsTheSecondPackage()
-    {
-        using var world = SweepWorld.Create();
-
-        string destinationDirectory = Path.GetDirectoryName(world.LeadDestination)!;
-        Directory.CreateDirectory(destinationDirectory);
-        MakeUnwritable(destinationDirectory);
-
-        try
-        {
-            var sweep = world.Run();
-
-            Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a rank-1 copy that cannot be written"));
-            Assert.Equal("copy-failed", world.ReportedStatus(sweep, LeadPackage));
-            Assert.Equal("selected", world.ReportedStatus(sweep));
-            world.AssertOnlyTheSubjectWasPooled(sweep);
-        }
-        finally
-        {
-            RestoreWritable(destinationDirectory);
-        }
-
-        world.AssertNoTemporaryLeftBehind();
-    }
-
-    /// <summary>
     /// A write that fails after its temporary exists leaves no temporary.
     ///
     /// <para>The other failing case here cannot prove this. An unwritable directory fails
@@ -660,16 +683,15 @@ public class EvilPoolSweepGateTests
     /// <para>The first run leaves a complete pool and the record that names it. The second
     /// run would record only the lead, but its <c>assemblies.txt</c> replacement is made to
     /// fail after the replacement temporary has been written. That failure exits 2 before
-    /// the manifest write, so the first run's record and manifest remain the durable
-    /// description of the pool. Reconciliation before the failed write would delete the
-    /// subject from under that surviving description.</para>
+    /// reconciliation, so the subject named by the first run's record must remain.
+    /// Manifest invalidation is the separate contract held by
+    /// <see cref="AFailedSweepLeavesNoManifestForThePoolItChanged"/>.</para>
     ///
     /// <para>A directory planted at the record path is the deterministic cross-platform
     /// way to make the atomic move fail. The fixture moves the first record aside and moves
     /// that same file back after the failed run; it does not reconstruct the expectation.
-    /// <see cref="SweepWorld.AssertPoolMatchesRecord"/> then derives the expected pool from
-    /// the restored durable record, so moving reconciliation ahead of the write makes this
-    /// case fail on the missing subject.</para>
+    /// Moving reconciliation ahead of the failed write makes this case fail on the missing
+    /// subject.</para>
     /// </summary>
     [Fact]
     public void ASweepDoesNotReconcileBeforeItsRecordIsDurable()
@@ -692,7 +714,49 @@ public class EvilPoolSweepGateTests
         File.Move(savedRecord, world.PooledListPath);
 
         Assert.True(second.ExitCode == 2, world.Explain(second, "an assemblies.txt that cannot be replaced"));
-        world.AssertPoolMatchesRecord(removals: []);
+        Assert.True(
+            File.Exists(world.SubjectDestination),
+            "the sweep reconciled the subject before its new record was durable.");
+        Assert.Equal(world.FixtureSha256, Sha256Of(world.SubjectDestination));
+    }
+
+    /// <summary>
+    /// A failed sweep leaves no previous manifest claiming that changed pool bytes still
+    /// hold.
+    ///
+    /// <para>The first run publishes a manifest naming the fixture hash. The second run
+    /// legitimately pools different pinned bytes, then fails while replacing
+    /// <c>assemblies.txt</c>, before it can publish its own manifest. The changed bytes
+    /// prove the run crossed the pool-mutation boundary; absence of the old manifest is
+    /// the only truthful artifact state at that point.</para>
+    /// </summary>
+    [Fact]
+    public void AFailedSweepLeavesNoManifestForThePoolItChanged()
+    {
+        using var world = SweepWorld.Create();
+
+        var first = world.Run();
+        Assert.True(first.ExitCode == 0, world.Explain(first, "a first sweep with a matching pin"));
+        Assert.Equal(world.FixtureSha256, world.ReportedEntry(first)["Sha256"]!.GetValue<string>());
+
+        byte[] replacement = [.. world.FixtureBytes, 0];
+        string replacementSha = Sha256Of(replacement);
+        world.ReplaceSubjectBytesAndPin(replacement);
+
+        string savedRecord = Path.Combine(world.Scratch, "assemblies.first.txt");
+        File.Move(world.PooledListPath, savedRecord);
+        Directory.CreateDirectory(world.PooledListPath);
+
+        var second = world.Run();
+
+        Directory.Delete(world.PooledListPath);
+        File.Move(savedRecord, world.PooledListPath);
+
+        Assert.True(second.ExitCode == 2, world.Explain(second, "a changed pool whose record cannot be replaced"));
+        Assert.Equal(replacementSha, Sha256Of(world.SubjectDestination));
+        Assert.False(
+            File.Exists(world.ManifestPath),
+            "the manifest survived after the pool bytes it described changed.");
     }
 
     /// <summary>
@@ -1123,29 +1187,6 @@ public class EvilPoolSweepGateTests
     }
 
     /// <summary>
-    /// An acquisition failure at rank 1 fails that package without suppressing rank 2.
-    ///
-    /// <para>The isolation case above asks for the missing package at rank 2, where
-    /// <c>continue</c> and <c>break</c> are indistinguishable. Removing the lead's
-    /// committed package makes the subject behind it the witness that acquisition failure
-    /// remains local to one iteration.</para>
-    /// </summary>
-    [Fact]
-    public void ASweepWhoseFirstAcquisitionFailsStillPoolsTheSecondPackage()
-    {
-        using var world = SweepWorld.Create();
-        world.RemoveLeadPackageFromCache();
-
-        var sweep = world.Run();
-
-        Assert.True(sweep.ExitCode == 1, world.Explain(sweep, "a rank-1 package the cache no longer holds"));
-        Assert.Equal("acquisition-failed", world.ReportedStatus(sweep, LeadPackage));
-        Assert.Equal("selected", world.ReportedStatus(sweep));
-        world.AssertOnlyTheSubjectWasPooled(sweep);
-        world.AssertNoTemporaryLeftBehind();
-    }
-
-    /// <summary>
     /// Present in the shared NuGet cache of any machine that has built this repository,
     /// and on nuget.org: reachable by either isolation knob's absence, and by neither's
     /// presence. Which is what makes it the probe
@@ -1363,6 +1404,15 @@ public class EvilPoolSweepGateTests
 
         public string CacheDirectory { get; }
 
+        /// <summary>
+        /// The fixture-owned source whose identity scopes the synthetic cache entries.
+        /// It is intentionally not nuget.org, so ambient configuration cannot make a
+        /// missing explicit-config boundary pass by coincidence.
+        /// </summary>
+        public string FixtureSource => Path.Combine(Scratch, "source");
+
+        public string NuGetConfigPath => Path.Combine(Scratch, "config", "sweep.config");
+
         public byte[] FixtureBytes { get; }
 
         /// <summary>The lead package's assembly, pooled ahead of the subject in every case.</summary>
@@ -1408,16 +1458,11 @@ public class EvilPoolSweepGateTests
             ?? throw new InvalidOperationException("The cache has not been seeded yet.");
 
         /// <summary>
-        /// Builds the world. <paramref name="version"/>, <paramref name="tfm"/>, and
-        /// <paramref name="leadTfm"/> are what the <em>pin</em> claims; the packages in the
-        /// cache are always the real ones, so a case that changes them is changing the pin
-        /// alone.
+        /// Builds the world. <paramref name="version"/> and <paramref name="tfm"/> are what
+        /// the <em>pin</em> claims; the package in the cache is always the real one, so a
+        /// case that changes them is changing the pin alone.
         /// </summary>
-        public static SweepWorld Create(
-            string? version = null,
-            string? tfm = null,
-            string? status = null,
-            string? leadTfm = null)
+        public static SweepWorld Create(string? version = null, string? tfm = null, string? status = null)
         {
             string scratch = Directory.CreateTempSubdirectory("evil-sweep-gate").FullName;
             try
@@ -1428,12 +1473,9 @@ public class EvilPoolSweepGateTests
                 string cacheDirectory = Path.Combine(scratch, "cache");
                 var world = new SweepWorld(scratch, cacheDirectory, bytes);
 
+                world.WriteSourceConfig();
                 world.SeedCache();
-                world.WriteInputs(
-                    version ?? FixtureVersion,
-                    tfm ?? FixtureTfm,
-                    status ?? "pinned",
-                    leadTfm ?? FixtureTfm);
+                world.WriteInputs(version ?? FixtureVersion, tfm ?? FixtureTfm, status ?? "pinned");
                 return world;
             }
             catch
@@ -1441,6 +1483,28 @@ public class EvilPoolSweepGateTests
                 Directory.Delete(scratch, recursive: true);
                 throw;
             }
+        }
+
+        void WriteSourceConfig()
+        {
+            Directory.CreateDirectory(FixtureSource);
+            Directory.CreateDirectory(Path.GetDirectoryName(NuGetConfigPath)!);
+
+            new XDocument(
+                new XElement(
+                    "configuration",
+                    new XElement(
+                        "packageSources",
+                        new XElement("clear"),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "evil-sweep-fixture"),
+                            new XAttribute("value", FixtureSource)),
+                        new XElement(
+                            "add",
+                            new XAttribute("key", "nuget.org"),
+                            new XAttribute("value", NuGetOrgSource)))))
+                .Save(NuGetConfigPath);
         }
 
         void SeedCache()
@@ -1459,19 +1523,6 @@ public class EvilPoolSweepGateTests
             _leadCachedAssemblyPath = Commit(LeadPackage, LeadAssembly, LeadBytes);
             _cachedAssemblyPath = Commit(FixturePackage, FixtureAssembly, FixtureBytes);
             CommitWithoutLibrary(EmptyPackage);
-        }
-
-        /// <summary>
-        /// Removes the lead through the cache path the product owns, so an offline sweep
-        /// reaches its ordinary acquisition-failure result rather than a harness-shaped
-        /// approximation of a missing package.
-        /// </summary>
-        public void RemoveLeadPackageFromCache()
-        {
-            string packagePath =
-                NuGetCache.GetPackageCachePath(LeadPackage, FixtureVersion, TestSourceKey);
-            Assert.True(Directory.Exists(packagePath), $"the lead package is not cached at {packagePath}.");
-            Directory.Delete(packagePath, recursive: true);
         }
 
         /// <summary>
@@ -1501,7 +1552,12 @@ public class EvilPoolSweepGateTests
         /// <c>!IsSelected</c> arm has something to be about.
         /// </summary>
         void CommitWithoutLibrary(string package) =>
-            NuGetCache.CommitPackage(Stage(package), null, package, FixtureVersion, TestSourceKey);
+            NuGetCache.CommitPackage(
+                Stage(package),
+                null,
+                package,
+                FixtureVersion,
+                NuGetCache.GetSourceKey(FixtureSource));
 
         /// <summary>
         /// Stages one synthetic package and commits it, answering with the path the product
@@ -1519,10 +1575,11 @@ public class EvilPoolSweepGateTests
             Directory.CreateDirectory(Path.Combine(staged, "lib", FixtureTfm));
             File.WriteAllBytes(Path.Combine(staged, "lib", FixtureTfm, assembly), bytes);
 
-            NuGetCache.CommitPackage(staged, null, package, FixtureVersion, TestSourceKey);
+            string sourceKey = NuGetCache.GetSourceKey(FixtureSource);
+            NuGetCache.CommitPackage(staged, null, package, FixtureVersion, sourceKey);
 
             string committed = Path.Combine(
-                NuGetCache.GetPackageCachePath(package, FixtureVersion, TestSourceKey),
+                NuGetCache.GetPackageCachePath(package, FixtureVersion, sourceKey),
                 "lib",
                 FixtureTfm,
                 assembly);
@@ -1534,11 +1591,7 @@ public class EvilPoolSweepGateTests
             return committed;
         }
 
-        void WriteInputs(
-            string pinnedVersion,
-            string pinnedTfm,
-            string pinnedStatus,
-            string leadTfm)
+        void WriteInputs(string pinnedVersion, string pinnedTfm, string pinnedStatus)
         {
             string data = Path.Combine(FakeRoot, "docs", "data");
             Directory.CreateDirectory(data);
@@ -1547,19 +1600,12 @@ public class EvilPoolSweepGateTests
             // the two files beside it instead of the committed ones.
             File.WriteAllText(Path.Combine(FakeRoot, "dotnet-inspect.slnx"), "");
 
-            WriteListAndPin(
-                data,
-                FixturePackage,
-                pinnedVersion,
-                pinnedTfm,
-                FixtureSha256,
-                pinnedStatus,
-                leadTfm: leadTfm);
+            WriteListAndPin(data, FixturePackage, pinnedVersion, pinnedTfm, FixtureSha256, pinnedStatus);
         }
 
         /// <summary>
-        /// Writes the list and the pin the sweep reads: the lead at rank 1 and the subject
-        /// at rank 2, each with whatever this case is asking for.
+        /// Writes the list and the pin the sweep reads: the lead at rank 1, always correct,
+        /// and the subject at rank 2 with whatever this case is asking for.
         ///
         /// <para>A <c>no-library</c> pin carries no hash, because there is no assembly for
         /// one to describe -- which is what <c>EvilPoolPinTests</c> holds the committed pin
@@ -1572,8 +1618,7 @@ public class EvilPoolSweepGateTests
             string? tfm,
             string sha256,
             string status = "pinned",
-            string? detail = null,
-            string leadTfm = FixtureTfm)
+            string? detail = null)
         {
             var list = new JsonArray(
                 new JsonObject
@@ -1596,7 +1641,7 @@ public class EvilPoolSweepGateTests
                     {
                         ["package"] = LeadPackage,
                         ["version"] = FixtureVersion,
-                        ["tfm"] = leadTfm,
+                        ["tfm"] = FixtureTfm,
                         ["status"] = "pinned",
                         ["detail"] = null,
                         ["sha256"] = LeadSha256,
@@ -1690,17 +1735,6 @@ public class EvilPoolSweepGateTests
         }
 
         /// <summary>
-        /// The pool holds the subject's assembly and nothing else -- what a case asserts
-        /// when rank 1 was refused and rank 2 still ran.
-        /// </summary>
-        public void AssertOnlyTheSubjectWasPooled((int ExitCode, string Output, string Errors) sweep)
-        {
-            Assert.Equal([SubjectDestination], PooledAssemblies(OutputDirectory));
-            Assert.Equal(FixtureSha256, Sha256Of(SubjectDestination));
-            Assert.Equal(1, ReportedManifest(sweep)["SelectedPackageCount"]!.GetValue<int>());
-        }
-
-        /// <summary>
         /// The manifest as a whole, for the fields that are not a package row -- the
         /// aggregates, which have no subject to ask about. Read a row through
         /// <see cref="ReportedEntry"/> instead.
@@ -1747,6 +1781,18 @@ public class EvilPoolSweepGateTests
             _requestedPackage = package;
             WriteListAndPin(
                 Path.Combine(FakeRoot, "docs", "data"), package, version, tfm, FixtureSha256);
+        }
+
+        /// <summary>
+        /// Replaces the subject's cached assembly and updates its pin to name those bytes,
+        /// so the next sweep legitimately changes an existing pool destination.
+        /// </summary>
+        public void ReplaceSubjectBytesAndPin(byte[] bytes)
+        {
+            File.WriteAllBytes(CachedAssemblyPath, bytes);
+            WriteListAndPin(
+                Path.Combine(FakeRoot, "docs", "data"), FixturePackage, FixtureVersion, FixtureTfm,
+                Sha256Of(bytes));
         }
 
         /// <summary>
@@ -1800,6 +1846,7 @@ public class EvilPoolSweepGateTests
             startInfo.Environment["DOTNET_INSPECT_OFFLINE"] = "1";
             startInfo.Environment["DOTNET_INSPECT_ISOLATED"] = "evil-sweep-gate";
             startInfo.Environment["DOTNET_INSPECT_CACHE_DIR"] = CacheDirectory;
+            startInfo.Environment["DOTNET_INSPECT_SWEEP_NUGET_CONFIG"] = NuGetConfigPath;
 
             // NUGET_PACKAGES is deliberately left alone, and cannot be used for isolation.
             // The sweep is a file-based app, so this subprocess restores itself before it

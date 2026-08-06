@@ -500,6 +500,9 @@ public class IlToolsActivationTests
     [Fact]
     public void Activate_SourcedFromAPosixShell_ExplainsItselfInsteadOfCrashing()
     {
+        Assert.SkipWhen(
+            OperatingSystem.IsWindows(),
+            "Git for Windows can provide dash, but a POSIX shell cannot source the Windows path to this script.");
         Assert.SkipUnless(HasDash, "dash is not available on this machine");
 
         using var scratch = new ScratchDirectory(TwoDirectoryProducer);

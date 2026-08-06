@@ -17,4 +17,8 @@
     <InternalsVisibleTo Include="DotnetInspector.CSharpBodySlicer.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../CSharpText/CSharpText.csproj" />
+  </ItemGroup>
+
 </Project>

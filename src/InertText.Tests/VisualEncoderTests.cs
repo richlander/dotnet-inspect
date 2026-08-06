@@ -17,6 +17,27 @@ namespace InertText.Tests;
 public class VisualEncoderTests
 {
     [Fact]
+    public void Decode_CleanStringRetainsTheInputInstance()
+    {
+        string encoded = "nothing to decode";
+
+        Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded));
+        Assert.Same(encoded, decoded);
+    }
+
+    [Fact]
+    public void SpanInputs_EncodeAndDecodeWithoutAnIntermediateString()
+    {
+        ReadOnlySpan<char> original = "a\u202Eb".AsSpan();
+
+        InertString encoded = VisualEncoder.Encode(TextPolicy.Field, original);
+
+        Assert.Equal("a\\u202Eb", encoded.ToString());
+        Assert.True(VisualEncoder.TryDecode(encoded.ToString().AsSpan(), out string? decoded));
+        Assert.Equal("a\u202Eb", decoded);
+    }
+
+    [Fact]
     public void RoundTrip_EveryScalar_RecoversTheOriginal()
     {
         // The whole plane, not just the BMP: 127 scalars in the encoded categories live above
@@ -172,7 +193,7 @@ public class VisualEncoderTests
         Assert.Equal(@"\^[", new InertString(TextPolicy.Field, "\u001B").ToString());
         Assert.Equal(@"\^@", new InertString(TextPolicy.Field, "\u0000").ToString());
         Assert.Equal(@"\^?", new InertString(TextPolicy.Field, "\u007F").ToString());
-        Assert.Equal(@"\\", new InertString(TextPolicy.Field, "\\").ToString());
+        Assert.Equal(@"\", new InertString(TextPolicy.Field, "\\").ToString());
         Assert.Equal(@"\u202E", new InertString(TextPolicy.Field, "\u202E").ToString());
 
         // The collision the backslash introducer exists to prevent: U+001E is 0x1E + 0x40 = '^',
@@ -206,7 +227,43 @@ public class VisualEncoderTests
         const string path = @"C:\Users\rich\.nuget\packages";
 
         Assert.True(InertString.IsPermitted(TextPolicy.Field, path));
-        Assert.NotEqual(path, new InertString(TextPolicy.Field, path).ToString());
+        Assert.Same(path, new InertString(TextPolicy.Field, path).ToString());
+    }
+
+    [Fact]
+    public void Encode_RetainsUnambiguousBackslashesButEscapesSpellingPrefixes()
+    {
+        string lone = "\\";
+        string unrelated = @"C:\tmp\package";
+        string ambiguous = @"literal \u202E text";
+
+        InertString loneValue = new(TextPolicy.Field, lone);
+        InertString unrelatedValue = new(TextPolicy.Field, unrelated);
+        InertString ambiguousValue = new(TextPolicy.Field, ambiguous);
+
+        Assert.Same(lone, loneValue.ToString());
+        Assert.Same(unrelated, unrelatedValue.ToString());
+        Assert.Equal(@"literal \\u202E text", ambiguousValue.ToString());
+        Assert.Equal(VisualForm.None, loneValue.Forms);
+        Assert.Equal(VisualForm.None, unrelatedValue.Forms);
+        Assert.Equal(VisualForm.Backslash, ambiguousValue.Forms);
+        Assert.False(loneValue.RequiredContainment);
+        Assert.False(unrelatedValue.RequiredContainment);
+        Assert.False(ambiguousValue.RequiredContainment);
+        Assert.False(loneValue.NeedsRawDecoding);
+        Assert.False(unrelatedValue.NeedsRawDecoding);
+        Assert.True(ambiguousValue.NeedsRawDecoding);
+    }
+
+    [Fact]
+    public void Encode_ContainmentSignalExcludesBackslashDisambiguation()
+    {
+        InertString literalSpelling = new(TextPolicy.Field, @"\u202E");
+        InertString overrideScalar = new(TextPolicy.Field, "\u202E");
+
+        Assert.False(literalSpelling.RequiredContainment);
+        Assert.True(overrideScalar.RequiredContainment);
+        Assert.NotEqual(literalSpelling.ToString(), overrideScalar.ToString());
     }
 
     [Fact]
@@ -298,19 +355,29 @@ public class VisualEncoderTests
     }
 
     [Fact]
-    public void TryDecode_MalformedInput_IsRejected()
+    public void TryDecode_NonCanonicalEscapeLikeTextRemainsLiteral()
     {
-        foreach (string malformed in new[]
+        foreach (string literal in new[]
         {
             @"\", @"\q", @"\^", @"\^!", @"\u12", @"\uZZZZ",
             @"\U0001", @"\UZZZZZZZZ",
-            @"\U0000202E",  // an astral form naming a BMP scalar would be a second spelling
-            @"\U00110000",  // past the last scalar
+            @"\U0000202E",
+            @"\U00110000",
         })
         {
-            Assert.False(VisualEncoder.TryDecode(malformed, out string? value), malformed);
-            Assert.Null(value);
+            Assert.True(VisualEncoder.TryDecode(literal, out string? value), literal);
+            Assert.Same(literal, value);
         }
+    }
+
+    [Theory]
+    [InlineData(@"\")]
+    [InlineData(@"\q")]
+    [InlineData(@"C:\tmp\package")]
+    public void TryDecode_UnambiguousLiteralBackslashesNeedNoDecoding(string text)
+    {
+        Assert.True(VisualEncoder.TryDecode(text, out string? decoded));
+        Assert.Same(text, decoded);
     }
 
     private static string Describe(string value)
@@ -370,18 +437,15 @@ public class VisualEncoderTests
     [InlineData(@"\u0000")]
     [InlineData(@"\u001B")]
     [InlineData(@"\u007F")]
-    public void Decode_RejectsBmpHexForScalarsWithACanonicalSpelling(string encoded)
+    public void Decode_TreatsNonCanonicalBmpHexAsLiteralText(string encoded)
     {
-        // Encode spells these \\, \^X and \^?, so accepting \uXXXX too would mean one scalar
-        // with two encodings.
-        Assert.False(VisualEncoder.TryDecode(encoded, out _));
+        Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded));
+        Assert.Same(encoded, decoded);
     }
 
     [Fact]
-    public void Decode_StillAcceptsBmpHexForScalarsAPolicyMayRefuse()
+    public void Decode_AcceptsGraphicBmpHexForFutureRestrictivePolicies()
     {
-        // 'A' has no canonical short spelling, and a restrictive policy is free to encode it,
-        // so the canonicality check must not reach this far.
         Assert.True(VisualEncoder.TryDecode(@"\u0041", out string? decoded));
         Assert.Equal("A", decoded);
     }
@@ -399,9 +463,10 @@ public class VisualEncoderTests
     [Theory]
     [InlineData(@"\u00ad", "lowercase BMP hex; AppendBmpHex emits X4, never x4")]
     [InlineData(@"\U0001f600", "lowercase astral hex; AppendSpelling emits X8")]
-    public void Decode_RefusesANonCanonicalSpelling(string encoded, string why)
+    public void Decode_PreservesANonCanonicalSpellingAsLiteralText(string encoded, string why)
     {
-        Assert.False(VisualEncoder.TryDecode(encoded, out _), why);
+        Assert.True(VisualEncoder.TryDecode(encoded, out string? decoded), why);
+        Assert.Equal(encoded, decoded);
     }
 
     /// <summary>

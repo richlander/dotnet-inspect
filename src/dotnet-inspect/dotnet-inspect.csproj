@@ -15,7 +15,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <!-- Opts back in to the repo-wide IsPackable=false default (#3330). -->
+    <IsTool>true</IsTool>
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
@@ -76,6 +76,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Using Include="ILInspector.SourceLink" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
@@ -84,11 +85,13 @@
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
     <ProjectReference Include="..\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 
   <ItemGroup>

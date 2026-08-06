@@ -1,4 +1,4 @@
-namespace DotnetInspector.CSharpBodySlicer;
+namespace CSharpText;
 
 /// <summary>
 /// The lexical category of a <see cref="ScanToken"/>.
@@ -43,7 +43,7 @@ internal enum ScanTokenKind
 }
 
 /// <summary>
-/// One lexical unit found by <see cref="BodySlicer"/>'s scanner, with the position and the
+/// One lexical unit found by <see cref="CSharpLexer"/>'s scanner, with the position and the
 /// structural depth in effect where it sits.
 /// <para>
 /// A token never spans a line break. A construct that does — a block comment, a verbatim or raw

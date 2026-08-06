@@ -60,6 +60,7 @@ those documents exist.
 | Area | Read first |
 | --- | --- |
 | User-visible capabilities, commands, or examples | `README.md` |
+| Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
@@ -120,6 +121,19 @@ for the generated skill listing.
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 
+### Platform compatibility
+
+- Treat cross-platform operation as the default requirement for product
+  libraries and reusable feature paths. Browser/Wasm compatibility is a design target.
+- Before introducing a dependency, API, or design that cannot run on a
+  supported platform -- especially single-threaded Browser/Wasm -- stop and
+  obtain explicit user approval for that specific exception.
+- Document every approved exception in the owning design or architecture
+  document and in the PR. Name the supported and unsupported platforms, the
+  rationale, the affected surface, the visible failure or degradation mode, and
+  the validation used for supported hosts. Do not let a broad catch, silent
+  fallback, or generic diagnostic stand in for that documentation.
+
 ### Output contract
 
 Commands that render sections follow this verbosity model:
@@ -179,8 +193,9 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | CLI and product output | `dotnet run --project src/dotnet-inspect.Tests -c Release` |
 | Analysis | `dotnet run --project src/ILInspector.Analysis.Tests -c Release` |
 | Decompiler | `dotnet run --project src/ILInspector.Decompiler.Tests -c Release` |
+| C# text | `dotnet run --project tests/CSharpText.Tests -c Release` |
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
-| Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
+| Metadata and SourceLink | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 | Metadata rendering and `mdi` | `dotnet run --project tests/DotnetInspector.MetadataRendering.Tests -c Release` |
 
 Run the suite in **Release** for input fidelity, not speed: the optimized IL a
@@ -233,10 +248,12 @@ commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `--gate <preset>` flag (`--gate list` prints the table); the taxonomy and the
 per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
 
-Only `src/dotnet-inspect` and `src/runfaster` are packable, and internal
-libraries carry no versioning story or API-stability commitment: treat their
-public surface as an internal design constraint, not an external compatibility
-surface. `docs/release-workflow.md` owns the packaging mechanics.
+Only tool projects explicitly set `IsPackable=true`, and `IsTool` makes those
+same projects available to solution-level `dotnet publish`. Internal libraries
+carry no versioning story or API-stability commitment: treat their public
+surface as an internal design constraint, not an external compatibility
+surface. Packability and publishability control SDK commands; release workflow
+membership remains owned by `docs/release-workflow.md`.
 
 Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
 release, and `README.md` (packed as the package readme) and the shipped
@@ -516,6 +533,13 @@ Review the invariant the design actually promises. Unless the threat model
 explicitly includes hostile in-process callers, require the invariant for
 well-behaved code that follows the design — not for arbitrary code that bypasses
 or misuses its abstractions.
+
+Mutation testing is evidence, not an admission rule. A mutation surviving the
+suite does not by itself justify another gate: require a plausible regression
+of promised behavior that existing contract-level coverage misses. Prefer one
+outcome-level test over tests coupled to every branch or call site, and do not
+add fixture seams solely to make each intentional-looking weakening
+independently red.
 
 Prefer simple, auditable enforcement over making every abstraction a fortress
 against rogue callers. `InertString` is the model: code that uses the type

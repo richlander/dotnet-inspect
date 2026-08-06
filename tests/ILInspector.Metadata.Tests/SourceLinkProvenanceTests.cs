@@ -927,12 +927,11 @@ public class SourceLinkProvenanceTests
     /// </para>
     /// </remarks>
     [Theory]
-    // Project supplied; the account is a path segment.
+    // Project supplied; the account is a path segment. A team is dropped and produces this
+    // same URL, so the generator's Project and Project_Team cases collapse to one reader row.
     [InlineData("https://dev.azure.com/account/project/_apis/git/repositories/repo/items", "account/project", "repo")]
     // No project in the repository URL: the generator uses the repository name as the project.
     [InlineData("https://dev.azure.com/account/repo/_apis/git/repositories/repo/items", "account/repo", "repo")]
-    // A team in the repository URL is dropped rather than emitted.
-    [InlineData("https://dev.azure.com/account/project/_apis/git/repositories/repo/items", "account/project", "repo")]
     // A '.git' suffix is part of the repository name and is preserved.
     [InlineData("https://dev.azure.com/org/project/_apis/git/repositories/repo.git/items", "org/project", "repo.git")]
     // The legacy spelling: the account is the host label, so only the project precedes '_apis'.
@@ -1507,7 +1506,7 @@ public class SourceLinkProvenanceTests
     /// <para>
     /// <c>RepositoryUrl</c> is built from segments of a URL that came out of a downloaded
     /// package's PDB, and unlike <c>Reason</c> — which every caller currently drops — it is
-    /// rendered: <c>AssemblyInspector</c> puts it in <c>audit.RepositoryUrl</c>. So it is the
+    /// rendered: <c>SourceLinkInspector</c> puts it in <c>audit.RepositoryUrl</c>. So it is the
     /// live path, and the rule from <c>docs/design/untrusted-data-threat-model.md</c> that
     /// artifact text must not reach a sink as-is applies to it today, not eventually.
     /// </para>
@@ -1640,13 +1639,13 @@ public class SourceLinkProvenanceTests
     {
         Type type = typeof(SLF.SourceLinkOrigin);
 
-        Assert.Empty(type
-            .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-            .Where(static c => c.GetParameters().Length != 0));
+        Assert.DoesNotContain(
+            type.GetConstructors(BindingFlags.Public | BindingFlags.Instance),
+            static c => c.GetParameters().Length != 0);
 
-        Assert.Empty(type
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(static p => p.SetMethod is { } setter && setter.IsPublic));
+        Assert.DoesNotContain(
+            type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
+            static p => p.SetMethod is { } setter && setter.IsPublic);
     }
 
     /// <summary>

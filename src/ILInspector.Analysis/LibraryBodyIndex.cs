@@ -1566,7 +1566,8 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public CallTreeNode BuildCallTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
     {
-        var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        var root = DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == rootMethodToken);
         var rootMember = root is { } identity
             ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
             : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
@@ -1770,7 +1771,8 @@ public sealed class LibraryBodyIndex
         if (callerScopes is null)
             return BuildCallerTree(rootMethodToken, maxDepth, maxNodes);
 
-        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        var rootIdentity = DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == rootMethodToken);
         MemberRef rootMember;
         string rootKey;
         if (rootIdentity is { } identity)
@@ -1792,7 +1794,7 @@ public sealed class LibraryBodyIndex
         }
 
         string targetAssembly = rootIdentity?.AssemblyName
-            ?? Methods.FirstOrDefault()?.AssemblyName
+            ?? DeclaredMethods.FirstOrDefault()?.AssemblyName
             ?? "";
 
         // Structural reverse map across the selected member's assembly plus the caller scopes:

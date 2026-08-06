@@ -1,12 +1,11 @@
 using System.Collections.Immutable;
 using System.Text;
-using DotnetInspector.CSharpBodySlicer;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace DotnetInspector.CSharpBodySlicer.Tests;
+namespace CSharpText.Tests;
 
 /// <summary>
 /// Gates <see cref="DeclarationIndex"/> against Roslyn over the real source of every PDB-bearing
@@ -3541,10 +3540,10 @@ public class DeclarationIndexTests
 
             using (context)
             {
-                List<MemberSourceInfo> members;
+                List<PdbMemberDocumentInfo> members;
                 try
                 {
-                    members = context.EnumerateMemberSources().ToList();
+                    members = context.EnumerateMemberDocuments().ToList();
                 }
                 catch (BadImageFormatException)
                 {

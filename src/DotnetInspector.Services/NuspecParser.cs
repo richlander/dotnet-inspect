@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using InertText;
 
 namespace DotnetInspector.Services;
 
@@ -12,7 +13,17 @@ public static class NuspecParser
     /// <summary>
     /// Parses all metadata from a nuspec file.
     /// </summary>
-    public static NuspecData Parse(string nuspecPath) => ParseDocument(HardenedXml.LoadXDocument(nuspecPath));
+    public static NuspecData Parse(string nuspecPath)
+    {
+        try
+        {
+            return ParseDocument(HardenedXml.LoadXDocument(nuspecPath));
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw NuspecParseException.From(ex);
+        }
+    }
 
     /// <summary>
     /// Finds the first nuspec file directly under a package directory.
@@ -36,7 +47,17 @@ public static class NuspecParser
     /// Parses nuspec metadata from raw XML content (e.g. a nuspec fetched directly from a feed
     /// without downloading the full package).
     /// </summary>
-    public static NuspecData ParseContent(string nuspecXml) => ParseDocument(HardenedXml.ParseXDocument(nuspecXml));
+    public static NuspecData ParseContent(string nuspecXml)
+    {
+        try
+        {
+            return ParseDocument(HardenedXml.ParseXDocument(nuspecXml));
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw NuspecParseException.From(ex);
+        }
+    }
 
     private static NuspecData ParseDocument(XDocument doc)
     {
@@ -50,7 +71,9 @@ public static class NuspecParser
 
         result.PackageName = metadata.Element(ns + "id")?.Value;
         result.Version = metadata.Element(ns + "version")?.Value;
-        result.Description = metadata.Element(ns + "description")?.Value;
+        result.Description = metadata.Element(ns + "description")?.Value is { } description
+            ? new InertString(TextPolicy.Prose, description)
+            : null;
         result.Authors = metadata.Element(ns + "authors")?.Value;
         var repositoryElement = metadata.Element(ns + "repository");
         result.Repository = repositoryElement?.Attribute("url")?.Value;

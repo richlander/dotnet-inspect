@@ -177,6 +177,77 @@ public class ResearchFactRegistryTests
     }
 
     [Fact]
+    public void MixedStreamKeepsIlFactsStructuredUntilRendering()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+        var imported = IrImporter.Import(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt))
+            ?? throw new InvalidOperationException("fixture method has no IL body");
+        var marker = new Annotation(
+            new AnnotationDescriptor("test.portable", AnnotationCategory.Cost, "portable marker"),
+            SourceOffset: 0,
+            Detail: "not-in-text");
+
+        var result = CSharpPrinter.PrintRaised(imported, out var printedRanges);
+        string output = Assert.IsType<string>(result.Output);
+        var ilLines = IlProjection.RenderIlBodyLines(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            overloadIndex: 0,
+            publicOnly: false);
+
+        var stream = ResearchViews.CorrelateMixedSource(
+            imported,
+            output,
+            printedRanges,
+            [marker],
+            ilLines);
+
+        var ilLine = Assert.Single(
+            stream,
+            line => line.Kind == SourceLineKind.Il && line.Annotations.Contains(marker));
+        Assert.DoesNotContain("test.portable", ilLine.Text);
+        Assert.DoesNotContain("not-in-text", ilLine.Text);
+
+        string rendered = ResearchViews.RenderMixedStream(
+            stream,
+            AnnotationGestureSelector.SideOnly);
+        string label = AnnotationText.Format(marker);
+        int comment = ilLine.Text.IndexOf("//", StringComparison.Ordinal);
+        Assert.True(comment >= 0, "The fixture must exercise an IL producer comment.");
+        string prefix = ilLine.Text[..comment].TrimEnd();
+        string suffix = ilLine.Text[(comment + 2)..].Trim();
+        Assert.Contains($"{prefix}  // {label}; {suffix}", rendered);
+    }
+
+    [Theory]
+    [InlineData(
+        "IL_0000: ldarg.0",
+        "return value;\n    // IL_0000: ldarg.0  // test.portable(not-in-text)")]
+    [InlineData(
+        "IL_0000: ldarg.0  // arg:value",
+        "return value;\n    // IL_0000: ldarg.0  // test.portable(not-in-text); arg:value")]
+    public void MixedRendererPreservesIlSideAnnotationBytes(string ilText, string expected)
+    {
+        var marker = new Annotation(
+            new AnnotationDescriptor("test.portable", AnnotationCategory.Cost, "portable marker"),
+            SourceOffset: 0,
+            Detail: "not-in-text");
+        BoundSourceLine[] stream =
+        [
+            new("return value;", 0, SourceLineKind.CSharp),
+            new(ilText, 0, SourceLineKind.Il, [marker]),
+        ];
+
+        Assert.Equal(
+            expected,
+            ResearchViews.RenderMixedStream(stream, AnnotationGestureSelector.SideOnly));
+    }
+
+    [Fact]
     public void MemberProjection_CollectsFactsOnceForRequestedViews()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
