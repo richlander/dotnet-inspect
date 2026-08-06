@@ -37,7 +37,14 @@ public sealed class ConstructorChainArgumentPass : IIrPass
         }
 
         var usage = SpilledReceiverFold.CountPlaces(function);
-        SpilledReceiverFold.TryFold(statement, call, usage, context, "inline spilled base/this constructor argument");
+        var orderSensitiveArguments = SpilledReceiverFold.OrderSensitiveArguments(function);
+        SpilledReceiverFold.TryFold(
+            statement,
+            call,
+            usage,
+            context,
+            "inline spilled base/this constructor argument",
+            orderSensitiveArguments: orderSensitiveArguments);
     }
 
     static Call? FindChainCall(IrFunction function)

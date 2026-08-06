@@ -4,6 +4,7 @@ using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Services;
 using SignatureVerificationResult = DotnetInspector.Services.SignatureVerificationResult;
+using InertText;
 
 namespace DotnetInspector.Models;
 
@@ -20,7 +21,11 @@ public class InspectionResult
     /// </summary>
     public string? Source { get; set; }
 
-    public string? Description { get; set; }
+    /// <summary>
+    /// The package description, already contained for a prose sink.
+    /// </summary>
+    [JsonConverter(typeof(InertStringJsonConverter))]
+    public InertString? Description { get; set; }
 
     public string? Authors { get; set; }
     public string? License { get; set; }

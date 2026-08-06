@@ -124,14 +124,15 @@ The speller's obligations:
 - **Total.** Defined on every Unicode scalar, including the 127 encoded scalars
   above the BMP. A `\uXXXX`-only speller is neither total nor invertible on
   exactly the inputs an attacker reaches for.
-- **Injective, in both directions.** One scalar has one *emitted* spelling, so
-  the decoder refuses spellings the encoder never produces: `\U` for a BMP
-  scalar, `\uXXXX` for a scalar with a canonical short form such as `\\`, `\^X`
-  or `\^?`, lowercase hex in either width, and a raw unpaired surrogate in the
-  decoder's input. The one spelling accepted but never emitted is a surrogate
-  *pair* written as two `\uXXXX` escapes, because composition produces it: a
-  .NET string is UTF-16, so `"\uD83D" + "\uDE00"` *is* `"\U0001F600"`, and
-  `Join` encodes its fragments separately.
+- **Injective, in both directions.** One scalar has one *emitted* spelling. The
+  decoder recognizes only canonical tokens: `\U` cannot name a BMP scalar,
+  `\uXXXX` cannot replace a canonical short form such as `\\`, `\^X` or `\^?`,
+  and hex digits are uppercase. Escape-like text that is not a complete
+  canonical token remains literal rather than making the whole string invalid.
+  A surrogate *pair* written as two `\uXXXX` escapes is also accepted because
+  composition produces it: a .NET string is UTF-16, so
+  `"\uD83D" + "\uDE00"` *is* `"\U0001F600"`, and `Join` encodes its fragments
+  separately.
 - **Scalar-based, not code-unit-based.** An unpaired surrogate is not a scalar.
   `Rune` cannot hold one and `EnumerateRunes` substitutes `U+FFFD`, so a speller
   built on either is lossy on the one input that cannot be written any other way.
@@ -184,9 +185,10 @@ recover it, because encoding under two policies is not encoding under a union of
 them.
 
 **Encoding at acquisition corrupts identity, and does it invisibly.** A literal
-backslash is always rewritten whatever the policy says, as is any scalar the
-policy refuses. 318 sites in `ILInspector.Metadata` compare foreign names for
-control flow rather than display — `member.Name == ".ctor"`,
+backslash that could introduce an encoded spelling is rewritten whatever the
+policy says, as is any scalar the policy refuses. 318 sites in
+`ILInspector.Metadata` compare foreign names for control flow rather than
+display — `member.Name == ".ctor"`,
 `prop.Name.StartsWith("/_")`, the pairing loop in the diff analyzer. Against
 encoded text those comparisons answer differently, and they do so *only for the
 inputs that needed encoding*. Benign text encodes to itself, so every test still
@@ -344,6 +346,31 @@ compiler: there is no conversion that would let a `string` into any of those
 fields. That is a stronger enforcement than a test, and it is the reason to
 prefer carrying the type over re-checking the text.
 
+Package descriptions are the second worked example. A nuspec description is
+presentation-bound from the moment it is parsed, so `NuspecData.Description`
+contains it under `TextPolicy.Prose`; `InspectionResult.Description` carries the
+same `InertString`; and only the two sinks take it apart. JSON writes its encoded
+text as a JSON string, leaving structural escaping to the serializer. Markdown
+prefixes every line as a quotation, so package-authored headings and tables
+remain visibly package content rather than becoming peer structures in tool
+output. The line-oriented package cache is a persistence sink: it stores the
+exact encoded value in a length-delimited UTF-8 segment, then reconstructs the
+wrapper with `InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither
+operation recovers the untreated description, and the cache consumer never
+names the decoder capability namespace. `PackageIndexCacheTests` gates that
+round-trip, malformed-entry rejection, and the distinction between null and
+empty descriptions.
+`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` gates
+the two model fields, and
+`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson` gates both sinks.
+
+The other nuspec fields remain `string` deliberately. Package IDs, versions,
+dependency coordinates, and readme paths participate in identity, parsing,
+matching, and path resolution before any of them reaches presentation. Encoding
+them at acquisition would change those answers. Their known grammars want typed
+allow-list rejection instead, which is a separate contract from
+presentation-bound prose.
+
 ## Holding a value is not the same as being able to reverse it
 
 A type answers what a *sink* accepts. It does not answer what a *file* can do,
@@ -358,8 +385,10 @@ So the decoder lives in its own namespace:
 | `InertText` | `InertString`, `TextPolicy`, `VisualForm` | build, compose, compare and print inert text |
 | `InertText.Encoding` | `VisualEncoder` | additionally recover the original text |
 
-Text enters through `InertString`'s constructor and leaves through `ToString`
-already spelled, so the currency namespace is sufficient for every ordinary use.
+Untreated text enters through `InertString`'s constructor. Persisted encoded text
+re-enters through `InertString.FromEncoded`, which validates the representation
+without recovering the original. Both leave through `ToString` already spelled,
+so the currency namespace is sufficient for every ordinary use.
 
 **The audit is one search, and the string is `InertText.Encoding`.** Reaching the
 decoder means naming its namespace, and that act *is* the opt-in. Decoding is a
@@ -422,6 +451,46 @@ namespace either way, and nothing should stop it — decoding is a legitimate
 operation with legitimate callers. What the boundary buys is that the reversing
 half cannot arrive unnoticed *by a reviewer who searches correctly*.
 
+## Persisting the currency form
+
+`FromEncoded(TextPolicy, string)` reconstructs an unbounded `InertString` from a
+value previously returned by `ToString`. It validates the encoded token grammar,
+checks every raw scalar against the named policy, and derives `VisualForm`
+without building the untreated original. Invalid state throws `FormatException`;
+there is no `Try` form that can let corrupt persistence look routine.
+
+The string overload retains the validated instance. That preserves the
+allocation model of construction: when ordinary input needs no spelling, the
+original string and the encoded string are the same object; when spelling is
+needed, the encoded string is the one additional string. The
+`ReadOnlySpan<char>` overload validates borrowed input and allocates only the
+string the returned value must retain. Constructors, policy checks, joining,
+interpolation holes, and the encoder/decoder capability expose matching span
+inputs for the same reason.
+
+The encoded text does not carry every property of the value. In particular,
+`IsTruncated` records that text was dropped, and two values with identical text
+can disagree on that fact. `FromEncoded` therefore returns an unbounded value;
+the package cache rejects a truncated description rather than fabricating or
+discarding provenance. A distinct high-provenance persistence design is tracked
+by #3787 and may deliberately spend more strings or buffers.
+
+The package index cache stores descriptions as exact encoded UTF-8 behind a
+byte-length boundary. Length framing matters: `TextPolicy.Prose` legitimately
+retains line endings, while converting it to `Field` and back would require the
+decoder. Base64 or JSON framing would avoid that capability but introduce a
+second framing string. A byte length lets the writer copy the existing encoded
+value directly and lets the reader create one encoded string, which
+`FromEncoded(string)` retains without copying.
+
+The boundary is framing, not an integrity code. It guarantees that output from
+the cache writer cannot promote description lines into fields; it does not make
+a locally modified cache file tamper-evident. A process that can change the
+declared length can already replace the following fields with another
+syntactically valid record. Reads reject malformed lengths, invalid UTF-8, and
+invalid encoded representations, but do not claim to detect every modification
+that remains a valid cache document.
+
 ## Composition
 
 Composition has to work, or callers fall back to `$"...{treated}..."` and drop
@@ -474,6 +543,29 @@ that conformance is a relation between a value and a policy rather than a
 property of the value, which is why it cannot be cached on one and why
 `EnsurePermitted` has to recompute it.
 
+`RequiredContainment` answers a narrower historical question for a different
+caller: whether this value had to spell text the producing policy refused.
+Backslash disambiguation does not set it. A view may OR that signal across its
+artifact-derived values so a CLI can refuse the view or require an explicit
+trust-axis opt-out. It still does not answer whether the value suits another
+policy.
+
+Unambiguous literal backslashes remain literal. A lone `\`, `\q`, and the
+incomplete `\u2` cannot be mistaken for a complete canonical spelling, so
+encoding a string containing only those forms retains the original string and
+raw rendering needs no decoder. A literal sequence the decoder would act on —
+such as `\\`, `\^[`, `\u202E`, or `\U0001F600` — still has its introducer
+escaped. Composition temporarily canonicalizes literal backslashes at fragment
+boundaries and returns them to raw form only when the combined text remains
+unambiguous; otherwise two harmless fragments could join into an apparent
+escape.
+
+Those are also the only two whole-value representations `FromEncoded` admits:
+either no forms and any backslashes are unambiguous literals, or at least one
+form and every backslash begins a canonical token. Mixing a raw backslash with
+encoded forms would produce a value `Encode` cannot emit and would let a later
+composition turn the raw backslash plus its neighboring fragment into a token.
+
 Storing the producing policy on the value would not help either. Knowing which
 policy produced a value says nothing about whether it is stricter than the one
 you are about to apply, short of sweeping every scalar to compare their
@@ -487,13 +579,13 @@ and applying it to the encoded text is not a substring operation. A spelling is
 between two and ten characters wide, so an arbitrary cut can land inside one and
 leave `\u2` behind.
 
-That is not merely ugly, it is unsound. `EnsurePermitted` treats text it cannot
-decode as raw and re-encodes it, so the surviving backslash doubles and `a\u2`
-becomes `a\\u2` — which is exactly what the untreated literal `a\u2` encodes to.
-Two unrelated inputs converge on one output, and the injectivity the repair path
-rests on is gone. The budget is enforced on the *encoded* length for the same
-reason it is in the escaper this replaces: encoding expands, so bounding the
-input bounds the wrong number.
+That is not merely ugly, it is lossy. An incomplete `a\u2` is literal text in
+the encoding grammar, so a cut that produced it from the start of an actual
+`\u202E` spelling would become indistinguishable from those four artifact
+characters and could no longer decode to the evidence it represented. The
+budget is enforced on the *encoded* length for the same reason it is in the
+escaper this replaces: encoding expands, so bounding the input bounds the wrong
+number.
 
 Two members divide a value, and both are best-effort:
 
