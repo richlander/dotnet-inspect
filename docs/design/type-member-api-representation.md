@@ -149,6 +149,9 @@ correspondence remains the unfinished Slice 6 boundary.
 | `DefinitionCorrespondence` | One catalog comparison operation | Same, different, indeterminate duplicate, incomparable-catalog, or stale-generation verdict | Boolean equality, persistence, or display identity |
 | `DefinitionJoinTokenProjection` | One catalog projection operation | Whether a current definition key received join currency or was rejected as cross-catalog/stale | Definition comparison, persistence, or fallback joining |
 | `DefinitionJoinToken` | One frozen catalog generation | Hashable exact-or-indeterminate definition class for graph joins | Display, persistence, or reconstruction from addresses |
+| `UnresolvedBindingReference` | One frozen catalog generation | What the catalog may project for a terminal unbound or unavailable binding | Hashing, sorting, persistence, or use by rejected/open-failure outcomes |
+| `UnresolvedBindingKeyProjection` | One catalog projection operation | Whether a current unresolved binding reference received join currency or was rejected as cross-catalog/stale | Type correspondence, persistence, or permission to exact-join |
+| `UnresolvedBindingKey` | One frozen catalog generation | Hashable complete unresolved binding request for degraded graph correspondence | Type identity without a structured name, exact correspondence, or reconstruction from target fields |
 
 The table separates four axes that are often collapsed:
 
@@ -179,6 +182,7 @@ Conversions are operations with an owner, not implicit casts:
 | `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
 | `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
+| `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |

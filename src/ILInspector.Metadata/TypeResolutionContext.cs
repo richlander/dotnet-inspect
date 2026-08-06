@@ -15,6 +15,22 @@ readonly record struct PolicyCacheKey(
     AssemblyBindingPolicyVersion PolicyVersion,
     object RequestKey);
 
+readonly record struct AssemblyBindingDomainKey(
+    bool IsGlobal,
+    AssemblyCandidateId Candidate)
+{
+    internal static AssemblyBindingDomainKey Global => new(true, default);
+
+    internal static AssemblyBindingDomainKey FromCandidate(
+        AssemblyCandidateId candidate) =>
+        new(false, candidate);
+}
+
+sealed record BindingKey(
+    AssemblyBindingDomainKey Domain,
+    AssemblyBindingTarget Target,
+    AssemblyResolutionScope Scope);
+
 /// <summary>
 /// Resource and traversal limits shared by all generations in a
 /// <see cref="TypeResolutionCatalog"/>.
@@ -75,6 +91,8 @@ public sealed class TypeResolutionCatalog : IDisposable
         _resolutions = [];
     readonly Dictionary<DefinitionClassKey, DefinitionJoinToken>
         _definitionJoinTokens = [];
+    readonly Dictionary<BindingKey, UnresolvedBindingKey>
+        _unresolvedBindingKeys = [];
     readonly TypeResolutionContextOptions _options;
     AssemblyCatalogGenerationId? _latestGeneration;
     ImmutableDictionary<AssemblyCandidateId, FrozenCandidate>
@@ -202,6 +220,48 @@ public sealed class TypeResolutionCatalog : IDisposable
                 evidence);
             _definitionJoinTokens.Add(definitionClass, token);
             return new DefinitionJoinTokenProjection.Issued(token);
+        }
+    }
+
+    /// <summary>
+    /// Issues the hashable correspondence key for one unresolved binding in
+    /// the latest frozen generation.
+    /// </summary>
+    public UnresolvedBindingKeyProjection ProjectUnresolvedBindingKey(
+        UnresolvedBindingReference binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (binding.Catalog != Id)
+            {
+                return new UnresolvedBindingKeyProjection.IncomparableCatalogs(
+                    Id,
+                    binding.Catalog);
+            }
+
+            if (!ReferenceEquals(binding.Generation, _latestGeneration))
+            {
+                return new UnresolvedBindingKeyProjection.StaleGeneration(
+                    binding.Generation,
+                    _latestGeneration!);
+            }
+
+            if (_unresolvedBindingKeys.TryGetValue(
+                    binding.Binding,
+                    out UnresolvedBindingKey? existing))
+            {
+                return new UnresolvedBindingKeyProjection.Issued(existing);
+            }
+
+            var key = new UnresolvedBindingKey(
+                Id,
+                binding.Generation,
+                Guid.NewGuid());
+            _unresolvedBindingKeys.Add(binding.Binding, key);
+            return new UnresolvedBindingKeyProjection.Issued(key);
         }
     }
 
@@ -386,6 +446,7 @@ public sealed class TypeResolutionCatalog : IDisposable
             _latestCandidates = frozen.ToImmutable();
             _latestGeneration = generation;
             _definitionJoinTokens.Clear();
+            _unresolvedBindingKeys.Clear();
         }
     }
 
@@ -884,11 +945,11 @@ public sealed class TypeResolutionContext : IDisposable
         out BindingKey key,
         out TypeResolutionFailure? failure)
     {
-        BindingDomainKey domain;
+        AssemblyBindingDomainKey domain;
         switch (origin)
         {
             case AssemblyBindingOrigin.GlobalOrigin:
-                domain = BindingDomainKey.Global;
+                domain = AssemblyBindingDomainKey.Global;
                 break;
             case AssemblyBindingOrigin.RequestingAssembly requesting:
                 if (!candidates.TryGetValue(
@@ -908,7 +969,7 @@ public sealed class TypeResolutionContext : IDisposable
                     return false;
                 }
 
-                domain = BindingDomainKey.FromCandidate(candidate!.Id);
+                domain = AssemblyBindingDomainKey.FromCandidate(candidate!.Id);
                 break;
             default:
                 throw new InvalidOperationException(
@@ -1020,21 +1081,6 @@ public sealed class TypeResolutionContext : IDisposable
                     "Unknown assembly-binding origin."),
             };
     }
-
-    readonly record struct BindingDomainKey(
-        bool IsGlobal,
-        AssemblyCandidateId Candidate)
-    {
-        internal static BindingDomainKey Global => new(true, default);
-        internal static BindingDomainKey FromCandidate(
-            AssemblyCandidateId candidate) =>
-            new(false, candidate);
-    }
-
-    sealed record BindingKey(
-        BindingDomainKey Domain,
-        AssemblyBindingTarget Target,
-        AssemblyResolutionScope Scope);
 
     sealed class Builder
     {
@@ -1607,6 +1653,10 @@ public sealed class TypeResolutionContext : IDisposable
                     return true;
                 case AssemblyBindingOutcome.Missing:
                     outcome = new TypeResolutionOutcome.UnboundBinding(
+                        new UnresolvedBindingReference(
+                            _acquisition.CatalogId,
+                            _generation,
+                            key),
                         target,
                         origin,
                         scope,
@@ -1625,6 +1675,10 @@ public sealed class TypeResolutionContext : IDisposable
                     else
                     {
                         outcome = new TypeResolutionOutcome.Unavailable(
+                            new UnresolvedBindingReference(
+                                _acquisition.CatalogId,
+                                _generation,
+                                key),
                             target,
                             origin,
                             scope,
@@ -1864,9 +1918,32 @@ public sealed class TypeResolutionContext : IDisposable
 
         TypeResolutionOutcome Reproject(TypeResolutionOutcome outcome)
         {
-            if (outcome is not TypeResolutionOutcome.Resolved resolved)
-                return outcome;
+            return outcome switch
+            {
+                TypeResolutionOutcome.Resolved resolved =>
+                    Reproject(resolved),
+                TypeResolutionOutcome.UnboundBinding unbound =>
+                    new TypeResolutionOutcome.UnboundBinding(
+                        Reproject(unbound.Binding),
+                        unbound.Target,
+                        unbound.Origin,
+                        unbound.Scope,
+                        unbound.Hops),
+                TypeResolutionOutcome.Unavailable unavailable =>
+                    new TypeResolutionOutcome.Unavailable(
+                        Reproject(unavailable.Binding),
+                        unavailable.Target,
+                        unavailable.Origin,
+                        unavailable.Scope,
+                        unavailable.Failure,
+                        unavailable.Hops),
+                _ => outcome,
+            };
+        }
 
+        TypeResolutionOutcome.Resolved Reproject(
+            TypeResolutionOutcome.Resolved resolved)
+        {
             ResolvedTypeDefinition definition = resolved.Definition;
             var key = new ResolvedTypeDefinitionKey(
                 _acquisition.CatalogId,
@@ -1881,5 +1958,12 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Type),
                 resolved.Hops);
         }
+
+        UnresolvedBindingReference Reproject(
+            UnresolvedBindingReference binding) =>
+            new(
+                _acquisition.CatalogId,
+                _generation,
+                binding.Binding);
     }
 }
