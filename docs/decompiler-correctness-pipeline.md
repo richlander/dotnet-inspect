@@ -452,6 +452,17 @@ truncated report.
 along in the preset it guards. Two different reasons keep the rest out, and only
 one of them is cost.
 
+The five workload classes share `FidelityGateCollection` and therefore run
+serially even though this test assembly allows two parallel collections. That
+boundary is intentional: run 30885078644 overlapped the newly gated Printer
+compile-back with Cluster capture for 7m01s and the lowered gate for another
+33s, then Roslyn threw from
+`CommonReferenceManager.ResolveReferencedAssembly`; the failed-job rerun
+passed. `GateExpectedClassesTests` is excluded because it is a fast reflection
+guard with no compile-back work.
+`PreMergeWorkloadClasses_ShareFidelityGateCollection` derives the workload set
+from the preset and fails if a future gate class escapes the collection.
+
 **Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
 suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
 Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot

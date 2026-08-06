@@ -697,17 +697,15 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.decompiler == 'true'
     runs-on: ubuntu-26.04
-    # Job timeout raised 45 -> 55 with the step timeout below (#3495 follow-up).
+    # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
     # firing first, with enough of the job budget left for the checker and the
     # artifact upload to still run and fail loudly. Measured on this job: setup
-    # and build are 2m54s, so a step that burns its full 35 gives up around
-    # minute 38. That would still fit a 45-minute job, but with only ~7 minutes
-    # covering the checker, the artifact upload, and any runner-side variance in
-    # setup and build -- thin enough that a slow runner could turn the loud
-    # failure this job exists to produce back into a silent cancel. 55 makes the
-    # gap unambiguous. A healthy run finishes in 24m35s.
-    timeout-minutes: 55
+    # and build are 2m54s, so a step that burns its full 45 gives up around
+    # minute 48. A 65-minute job leaves ~17 minutes for the checker, artifact
+    # upload, and runner-side setup/build variance, preserving the deliberate
+    # gap that keeps a hung gate loud instead of cancelling the job.
+    timeout-minutes: 65
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -771,16 +769,16 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
-      # 35 is sized to a measurement, not a guess, and the measurement is from
-      # this job on this runner: the 6-class preset runs 44 tests in 21m30s
-      # (build 2m37s, discovery 2s, checker 4s, job total 24m35s). 35 leaves
-      # ~63% headroom over that while staying 20 minutes under the job timeout,
-      # which is what keeps a hang loud.
+      # Serializing the five compile-back workload classes (#3827) removes the
+      # Roslyn reference-binding overlap but necessarily raises wall time. The
+      # 45-test preset is 17m14s locally, up from 11m42s in parallel. The prior
+      # same-machine local-to-CI factor was 1.84x (21m30s / 11m42s), predicting
+      # ~31m45s on this runner. 45 leaves ~42% headroom while staying 20 minutes
+      # under the job timeout, which is what keeps a hang loud.
       #
-      # Raising this from 25 was required, not cosmetic: at 21m30s the old
-      # budget had 3m30s of margin, so a slightly slow runner would have hit a
-      # timeout on a perfectly healthy run. Re-measure and re-tune both numbers
-      # together whenever a class is added to the preset.
+      # The first PR run is the check on that projection; replace it with the
+      # measured CI duration before merge. Re-measure and re-tune both numbers
+      # together whenever the preset or its collection topology changes.
       #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
@@ -790,7 +788,7 @@ jobs:
       - name: Run decompiler gates
         id: gates
         continue-on-error: true
-        timeout-minutes: 35
+        timeout-minutes: 45
         run: |
           dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
             --gate pre-merge -xml "$RUNNER_TEMP/decompiler-gates.xml"
