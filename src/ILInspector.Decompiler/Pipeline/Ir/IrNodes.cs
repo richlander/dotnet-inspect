@@ -3001,12 +3001,18 @@ public sealed class Lambda : IrExpression
     }
 
     /// <summary>
-    /// The single returned expression when the body is one block ending in a
-    /// bare <c>return expr;</c> — the expression-bodied form <c>p =&gt; expr</c>.
-    /// Null when the body needs the block form <c>p =&gt; { ... }</c>.
+    /// The single returned expression, or the single side-effect expression of
+    /// a void body after its implicit trailing return has been removed — the
+    /// expression-bodied form <c>p =&gt; expr</c>. Null when the body needs the
+    /// block form <c>p =&gt; { ... }</c>.
     /// </summary>
     public IrExpression? ExpressionBody
-        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+        => Body.Blocks switch
+        {
+            [{ Children: [Return { Value: { } value }] }] => value,
+            [{ Children: [ExpressionStatement { Expression: var expression }] }] => expression,
+            _ => null,
+        };
 
     public override string Describe()
         => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";

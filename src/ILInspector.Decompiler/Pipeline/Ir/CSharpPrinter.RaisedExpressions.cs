@@ -157,6 +157,9 @@ public sealed partial class CSharpPrinter
             _statementIndent = enclosingIndent;
         }
 
+        if (statements.Count == 0)
+            return $"{parameters} => {{ }}";
+
         return statements.Count > 1
             ? LambdaBlockText(parameters, string.Join("\n", statements))
             : $"{parameters} => {{ {string.Join(" ", statements)} }}";

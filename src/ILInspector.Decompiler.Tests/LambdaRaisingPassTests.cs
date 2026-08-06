@@ -166,6 +166,52 @@ public class LambdaRaisingPassTests
         Assert.DoesNotContain("b__", output);                // no un-raised lambda-method reference
     }
 
+    [Fact]
+    public void CapturingVoidExpressionBody_RaisesAndElidesLocalEnvironment()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CapturingVoidExpressionLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("Action<int> action = x => Console.WriteLine(x + n);", output);
+        Assert.Contains("consume.Invoke(action, n);", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("new Action", output);
+        Assert.DoesNotContain("b__", output);
+    }
+
+    [Fact]
+    public void CapturingVoidStatementBody_RaisesWithoutImplicitReturn()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CapturingVoidStatementLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("return x =>\n{", output);
+        Assert.Contains("Console.WriteLine(x);", output);
+        Assert.Contains("Console.WriteLine(n);", output);
+        Assert.DoesNotContain("return;", output);
+        Assert.DoesNotContain("new Action", output);
+    }
+
+    [Fact]
+    public void EmptyVoidBody_RaisesAsEmptyLambda()
+        => Assert.Equal(
+            "return () => { };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.EmptyVoidLambda), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void VoidBodyWithNestedControlFlow_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.VoidLambdaWithConditional),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Action", output);
+        Assert.Contains("b__", output);
+    }
+
     // Negative: the captured parameter is reassigned in the outer body, a second
     // store to the hoisted field. The single-store guard must keep the
     // environment lowered so the mutation is not lost to value substitution.
@@ -494,6 +540,37 @@ public class LambdaRaisingPassTests
             [],
             body);
     }
+}
+
+public static class VoidLambdaRaisingSamples
+{
+    // The captured parameter is also consumed by the outer body, keeping the
+    // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
+    public static void CapturingVoidExpressionLambda(
+        int n,
+        System.Action<System.Action<int>, int> consume)
+    {
+        System.Action<int> action = x => System.Console.WriteLine(x + n);
+        consume(action, n);
+    }
+
+    public static System.Action<int> CapturingVoidStatementLambda(int n)
+        => x =>
+        {
+            System.Console.WriteLine(x);
+            System.Console.WriteLine(n);
+        };
+
+    public static System.Action EmptyVoidLambda() => () => { };
+
+    // A close negative: the current lambda slice admits straight-line bodies,
+    // not nested control flow.
+    public static System.Action<int> VoidLambdaWithConditional()
+        => x =>
+        {
+            if (x > 0)
+                System.Console.WriteLine(x);
+        };
 }
 
 // Negative fixtures for LambdaRaisingPass: a captured variable mutated after the
