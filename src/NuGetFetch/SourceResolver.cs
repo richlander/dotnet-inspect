@@ -47,9 +47,6 @@ public sealed class UnsupportedSourceException(string message) : Exception(messa
 /// </summary>
 public static class SourceResolver
 {
-    private static readonly string NuGetOrgName = "nuget.org";
-    private static readonly string NuGetOrgUrl = "https://api.nuget.org/v3/index.json";
-
     /// <summary>
     /// Reports whether <paramref name="url"/> can be used as a NuGet source.
     /// </summary>
@@ -136,6 +133,11 @@ public static class SourceResolver
     /// matching the official NuGet client semantics. A &lt;clear/&gt; in a project-level
     /// config clears sources accumulated from parent directories.
     /// </summary>
+    /// <remarks>
+    /// Ambient discovery starts with <see cref="PackageSources.Default"/>. Supplying
+    /// <paramref name="configPath"/> selects only that file and starts with
+    /// <see cref="PackageSources.Empty"/>.
+    /// </remarks>
     /// <exception cref="UnsupportedSourceException">
     /// A resolved source cannot be used. Callers that would rather test than catch use
     /// <see cref="IsSupportedSource"/> on the sources they supply.
@@ -159,13 +161,11 @@ public static class SourceResolver
             return [new PackageSource("explicit", explicitSource)];
         }
 
-        List<PackageSource> sources = [.. BuildConfiguredSources(configPath, workingDirectory)];
-
-        // Default to nuget.org if no config sources found
-        if (sources.Count == 0)
-        {
-            sources.Add(new PackageSource(NuGetOrgName, NuGetOrgUrl));
-        }
+        IReadOnlyList<PackageSource> initialSources = configPath is null
+            ? PackageSources.Default
+            : PackageSources.Empty;
+        List<PackageSource> sources =
+            [.. BuildConfiguredSources(configPath, workingDirectory, initialSources)];
 
         // Append additional sources
         if (additionalSources is not null)
@@ -180,46 +180,78 @@ public static class SourceResolver
     }
 
     /// <summary>
-    /// Resolves the sources declared by configuration, without substituting nuget.org when
-    /// configuration declares none.
+    /// Resolves only the sources declared by configuration.
     /// </summary>
     /// <remarks>
-    /// The fallback in <see cref="ResolveSources"/> is right for configs discovered by walking
-    /// the directory tree — a machine with no nuget.config should still reach nuget.org. It is
-    /// wrong for a config the caller named explicitly, where an empty result means the file could
-    /// not supply what it was asked for, and silently searching nuget.org instead answers with
-    /// packages from a feed the caller did not choose. Callers that need to tell those two cases
-    /// apart use this method and decide for themselves.
+    /// Ambient discovery starts with <see cref="PackageSources.Default"/>, while an explicitly
+    /// selected config starts with <see cref="PackageSources.Empty"/>. This method exposes the
+    /// latter behavior so callers can inspect configuration without inheriting the ambient
+    /// default.
     /// </remarks>
     public static IReadOnlyList<PackageSource> ResolveConfiguredSources(
         string? configPath = null,
         string? workingDirectory = null)
-        => Validated(BuildConfiguredSources(configPath, workingDirectory));
+        => Validated(BuildConfiguredSources(
+            configPath,
+            workingDirectory,
+            PackageSources.Empty));
 
     private static IReadOnlyList<PackageSource> BuildConfiguredSources(
-        string? configPath = null,
-        string? workingDirectory = null)
+        string? configPath,
+        string? workingDirectory,
+        IReadOnlyList<PackageSource> initialSources)
     {
-        // Merge sources across all config files (most-distant first, so nearest wins)
-        Dictionary<string, string> mergedSources = [];
-        HashSet<string> disabled = [];
-        Dictionary<string, PackageSourceCredential> credentials = [];
-
         IReadOnlyList<string> configFiles = configPath is not null
             ? [configPath]
             : FindConfigFiles(workingDirectory);
+
+        return MergeConfigFiles(configFiles, initialSources);
+    }
+
+    internal static IReadOnlyList<PackageSource> MergeConfigFiles(
+        IReadOnlyList<string> configFiles,
+        IReadOnlyList<PackageSource> initialSources)
+    {
+        ArgumentNullException.ThrowIfNull(configFiles);
+        ArgumentNullException.ThrowIfNull(initialSources);
+
+        var mergedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var inheritedSourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var credentials =
+            new Dictionary<string, PackageSourceCredential>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (PackageSource source in initialSources)
+        {
+            mergedSources[source.Name] = source.Url;
+            inheritedSourceNames.Add(source.Name);
+
+            if (source.Credential is not null)
+            {
+                credentials[source.Name] = source.Credential;
+            }
+        }
 
         // FindConfigFiles returns nearest-first; reverse to process most-distant first
         // so that <clear/> in a nearer config properly resets distant sources
         for (int i = configFiles.Count - 1; i >= 0; i--)
         {
-            MergeConfigFile(configFiles[i], mergedSources, disabled, credentials);
+            MergeConfigFile(
+                configFiles[i],
+                mergedSources,
+                inheritedSourceNames,
+                disabled,
+                credentials);
         }
 
-        // Build result (skip disabled sources)
         List<PackageSource> sources = [];
+        IEnumerable<KeyValuePair<string, string>> configuredSources = mergedSources
+            .Where(source => !inheritedSourceNames.Contains(source.Key));
+        IEnumerable<KeyValuePair<string, string>> inheritedSources = mergedSources
+            .Where(source => inheritedSourceNames.Contains(source.Key));
 
-        foreach ((string name, string url) in mergedSources)
+        // Explicitly configured sources are consulted before surviving defaults.
+        foreach ((string name, string url) in configuredSources.Concat(inheritedSources))
         {
             if (disabled.Contains(name))
             {
@@ -230,7 +262,7 @@ public static class SourceResolver
             sources.Add(new PackageSource(name, url, credential));
         }
 
-        return sources;
+        return sources.Count == 0 ? PackageSources.Empty : sources;
     }
 
     /// <summary>
@@ -279,28 +311,10 @@ public static class SourceResolver
     /// Loads package sources from a nuget.config file.
     /// </summary>
     public static IReadOnlyList<PackageSource> LoadSourcesFromConfig(string configPath)
-    {
-        Dictionary<string, string> sources = [];
-        HashSet<string> disabled = [];
-        Dictionary<string, PackageSourceCredential> credentials = [];
-
-        MergeConfigFile(configPath, sources, disabled, credentials);
-
-        List<PackageSource> result = [];
-
-        foreach ((string name, string url) in sources)
-        {
-            if (disabled.Contains(name))
-            {
-                continue;
-            }
-
-            credentials.TryGetValue(name, out PackageSourceCredential? credential);
-            result.Add(new PackageSource(name, url, credential));
-        }
-
-        return Validated(result);
-    }
+        => Validated(BuildConfiguredSources(
+            configPath,
+            workingDirectory: null,
+            initialSources: PackageSources.Empty));
 
     /// <summary>
     /// Merges a single nuget.config file into the accumulated sources, disabled set, and credentials.
@@ -309,6 +323,7 @@ public static class SourceResolver
     private static void MergeConfigFile(
         string configPath,
         Dictionary<string, string> sources,
+        HashSet<string> inheritedSourceNames,
         HashSet<string> disabled,
         Dictionary<string, PackageSourceCredential> credentials)
     {
@@ -337,6 +352,7 @@ public static class SourceResolver
                     if (element.Name == "clear")
                     {
                         sources.Clear();
+                        inheritedSourceNames.Clear();
                         continue;
                     }
 
@@ -347,6 +363,11 @@ public static class SourceResolver
 
                         if (key is not null && value is not null)
                         {
+                            if (inheritedSourceNames.Remove(key))
+                            {
+                                sources.Remove(key);
+                            }
+
                             sources[key] = value;
                         }
                     }
@@ -358,14 +379,32 @@ public static class SourceResolver
 
             if (disabledSources is not null)
             {
-                foreach (XElement element in disabledSources.Elements("add"))
+                foreach (XElement element in disabledSources.Elements())
                 {
+                    if (element.Name == "clear")
+                    {
+                        disabled.Clear();
+                        continue;
+                    }
+
+                    if (element.Name != "add")
+                    {
+                        continue;
+                    }
+
                     string? key = element.Attribute("key")?.Value;
                     string? value = element.Attribute("value")?.Value;
 
-                    if (key is not null && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
+                    if (key is not null && bool.TryParse(value, out bool isDisabled))
                     {
-                        disabled.Add(key);
+                        if (isDisabled)
+                        {
+                            disabled.Add(key);
+                        }
+                        else
+                        {
+                            disabled.Remove(key);
+                        }
                     }
                 }
             }

@@ -6,6 +6,20 @@ namespace NuGetFetch.Tests;
 public class PackageSourceTests
 {
     [Fact]
+    public void PackageSources_Default_IsNuGetOrg()
+    {
+        PackageSource source = Assert.Single(PackageSources.Default);
+
+        Assert.Same(PackageSource.NuGetOrg, source);
+    }
+
+    [Fact]
+    public void PackageSources_Empty_HasNoSources()
+    {
+        Assert.Empty(PackageSources.Empty);
+    }
+
+    [Fact]
     public void NuGetOrg_IsNuGetOrg()
     {
         var source = PackageSource.NuGetOrg;

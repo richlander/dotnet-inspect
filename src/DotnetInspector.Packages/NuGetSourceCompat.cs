@@ -164,8 +164,8 @@ public static class NuGetSourceResolver
         }
 
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
-        // reaches this point — and SourceResolver then finds no packageSources and substitutes
-        // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
+        // reaches this point — and an explicitly selected config starts from an empty source
+        // layer rather than inheriting the ambient NuGet.org default.
         try
         {
             if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
@@ -189,12 +189,11 @@ public static class NuGetSourceResolver
     /// Validates a user-supplied <c>--nugetconfig</c> path before it is used.
     /// </summary>
     /// <remarks>
-    /// SourceResolver parses config files best-effort and falls back to nuget.org when it ends up
-    /// with no sources. That is right for the machine, user, and project configs it discovers on
-    /// its own — a broken machine config should not break every command. It is wrong for a config
-    /// the user named explicitly: a mistyped path or malformed file would otherwise search
-    /// unrelated feeds and exit 0, reporting someone else's packages as the answer. An explicit
-    /// config that cannot be used is a failure, not a reason to pick a default.
+    /// Ambient resolution starts with the default NuGet.org source layer before merging discovered
+    /// configuration. An explicitly selected config starts empty instead: a mistyped path or
+    /// malformed file must not search unrelated feeds and exit 0, reporting someone else's
+    /// packages as the answer. An explicit config that cannot be used is a failure, not a reason
+    /// to pick a default.
     /// </remarks>
     private static void ValidateExplicitConfig(string configFile)
     {

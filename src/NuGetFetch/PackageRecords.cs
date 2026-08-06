@@ -68,6 +68,24 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
     }
 }
 
+/// <summary>
+/// Canonical starting states for package-source resolution.
+/// </summary>
+public static class PackageSources
+{
+    /// <summary>
+    /// The lowest-precedence source layer used by ambient configuration discovery.
+    /// </summary>
+    public static IReadOnlyList<PackageSource> Default { get; } =
+        Array.AsReadOnly([PackageSource.NuGetOrg]);
+
+    /// <summary>
+    /// An empty source layer used for explicitly selected configuration.
+    /// </summary>
+    public static IReadOnlyList<PackageSource> Empty { get; } =
+        Array.Empty<PackageSource>();
+}
+
 public record PackageSourceCredential(string Username, string Password)
 {
     public override string ToString() => $"PackageSourceCredential {{ Username = {Username}, Password = *** }}";

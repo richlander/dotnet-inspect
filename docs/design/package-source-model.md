@@ -69,22 +69,23 @@ port), but never to a cross-origin resource advertised by the feed.
 ## Resolving active and eligible sources
 
 Without source options, dotnet-inspect resolves the same effective
-configuration hierarchy as NuGet restore for the working directory. That
-includes applicable defaults, computer-level, user-level, and directory-level
-configs. Ordinary collections merge in NuGet precedence order with `<clear/>`,
-disabled sources, and nearer re-enablement. Administrator sources from
-`NuGetDefaults.Config` are different: `<clear/>` cannot remove them, but a
-nearer `disabledPackageSources` entry can disable or re-enable them. NuGet.org
-is the fallback only when the complete hierarchy contains no package-source
-configuration. A configuration that deliberately resolves to an empty active
-set does not authorize NuGet.org; source resolution fails without disclosing
-the requested package id.
+configuration hierarchy as NuGet restore for the working directory.
+`PackageSources.Default` models NuGet.org as the lowest-precedence source
+layer; discovered computer-level, user-level, and directory-level configs are
+then merged over it. Ordinary collections merge in NuGet precedence order with
+`<clear/>`, disabled sources, and nearer re-enablement. Administrator sources
+from `NuGetDefaults.Config` are different: `<clear/>` cannot remove them, but
+a nearer `disabledPackageSources` entry can disable or re-enable them. With no
+configuration, the default layer remains active. `<clear/>` replaces the
+accumulated ordinary sources with `PackageSources.Empty`, so a deliberately
+empty active set does not authorize NuGet.org; source resolution fails without
+disclosing the requested package id.
 
 An explicitly named `--nugetconfig` is a source-selection act, not absence of
-configuration. Only that file supplies configuration, and the implicit
-NuGet.org fallback is suppressed. The file must exist, be valid, and declare a
-usable source; an empty selected file fails rather than searching a feed the
-caller did not name.
+configuration. Its merge starts from `PackageSources.Empty`, so only that file
+supplies configuration. The file must exist, be valid, and declare a usable
+source; an empty selected file fails rather than searching a feed the caller
+did not name.
 
 Only the final active source set matters downstream. Sources produced by
 `nuget.config` merging are semantically identical to the same endpoints named
@@ -422,9 +423,9 @@ implementation work includes:
 
 - honoring `<packageSourceMapping>` across every operation
   ([#3722](https://github.com/richlander/dotnet-inspect/issues/3722));
-- completing config and override semantics, including intentional empty source
-  sets, the complete NuGet config hierarchy, disabled-source merging, and
-  preservation of all configured-name aliases for explicit endpoints
+- completing config and override semantics, including the complete NuGet config
+  hierarchy, disabled-source merging, and preservation of all configured-name
+  aliases for explicit endpoints
   ([#3739](https://github.com/richlander/dotnet-inspect/issues/3739));
 - preserving non-root trailing slashes in producer identity and fencing cache
   entries written under the currently aliased identity

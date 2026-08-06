@@ -361,8 +361,8 @@ public class NuGetSearchSourcesTests
     public void ResolveSources_WellFormedConfigDeclaringNoSources_ThrowsRatherThanDefaultingToNuGetOrg()
     {
         // Well-formed XML is not enough: any XML file parses, including a .csproj passed by
-        // mistake, and SourceResolver would then substitute nuget.org and answer with packages
-        // from a feed the user never chose.
+        // mistake. Explicit configuration starts empty, so such a file must fail rather than
+        // answer from an unrelated feed.
         string path = Path.Combine(Path.GetTempPath(), $"notaconfig-{Guid.NewGuid():N}.config");
         File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup /></Project>");
         try
@@ -386,9 +386,7 @@ public class NuGetSearchSourcesTests
         try
         {
             Assert.Empty(NuGetFetch.SourceResolver.ResolveConfiguredSources(path));
-
-            // The fallback still belongs to ResolveSources, which discovered configs rely on.
-            Assert.Equal("nuget.org", Assert.Single(NuGetFetch.SourceResolver.ResolveSources(configPath: path)).Name);
+            Assert.Empty(NuGetFetch.SourceResolver.ResolveSources(configPath: path));
         }
         finally
         {
