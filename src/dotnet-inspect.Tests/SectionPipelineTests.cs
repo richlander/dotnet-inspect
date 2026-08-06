@@ -3075,6 +3075,7 @@ public class SectionPipelineTests
                 "System.Enum",
                 "System.Environment",
                 "System.Exception",
+                "System.FormatException",
                 "System.Func",
                 "System.Globalization.CultureInfo",
                 "System.Guid",
