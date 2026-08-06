@@ -24,10 +24,11 @@ public enum DispatchKind
 /// guard — otherwise the <c>i &lt;= 0</c> path falls off the end of a non-void
 /// method (CS0177: <c>out</c> parameter unassigned).
 ///
-/// The <see cref="PlainAnd"/> and <see cref="ThrowTernaryChain"/> canaries are the
-/// close negatives: contiguous short-circuit <c>&amp;&amp;</c> guard chains whose
-/// shared return must stay combined under one condition (the #640 fidelity
-/// canary), not unrolled into duplicated returns.
+/// The <see cref="PlainAnd"/>, <see cref="LoopBeforeAndChain"/>, and
+/// <see cref="ThrowTernaryChain"/> canaries are the close negatives: contiguous
+/// short-circuit <c>&amp;&amp;</c> guard chains whose shared return must stay
+/// combined under one condition (the #640 fidelity canary), not unrolled into
+/// duplicated returns.
 /// </summary>
 public static class ScatteredReturnDispatchSample
 {
@@ -122,6 +123,29 @@ public static class ScatteredReturnDispatchSample
     public static int PlainAnd(int a, int b)
     {
         if (a > 0 && b > 0)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    // Review canary: the loop exit falls through to a goto of the same return
+    // used by the later && chain. The loop test is not a dispatch guard and
+    // must not widen the chain's predecessor span.
+    public static int LoopBeforeAndChain(int[] items, int key, int a, int b)
+    {
+        if (key > 3)
+        {
+            for (int i = 0; i < items.Length; i++)
+            {
+                if (items[i] > 1)
+                {
+                    return items[i];
+                }
+            }
+        }
+        else if (a > 0 && b > 0)
         {
             return 1;
         }

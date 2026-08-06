@@ -16,26 +16,33 @@ namespace ILInspector.Decompiler.Tests;
 /// The discriminator that recognizes this shape (an interior block entered by a
 /// jump from before the guard span) must not fire on a contiguous short-circuit
 /// <c>&amp;&amp;</c> guard chain, which threads entirely within its own span and
-/// must stay combined under one condition — the #640 fidelity canary. The two
-/// canaries below (<see cref="ScatteredReturnDispatchSample.PlainAnd"/> and
+/// must stay combined under one condition — the #640 fidelity canary. The
+/// canaries below (<see cref="ScatteredReturnDispatchSample.PlainAnd"/>,
+/// <see cref="ScatteredReturnDispatchSample.LoopBeforeAndChain"/>, and
 /// <see cref="ScatteredReturnDispatchSample.ThrowTernaryChain"/>) pin that the
 /// shared return is not unrolled and the condition stays a single <c>&amp;&amp;</c>.
 /// </summary>
 [Trait("Area", "Pass")]
 public class ScatteredReturnDispatchStructuringTests
 {
-    static IrFunction Raised(string methodName)
+    static IrFunction Raised(Type type, string methodName)
     {
-        using var source = MetadataSource.Open(typeof(ScatteredReturnDispatchSample).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(ScatteredReturnDispatchSample).FullName!, methodName);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
         return function;
     }
 
+    static IrFunction Raised(string methodName) =>
+        Raised(typeof(ScatteredReturnDispatchSample), methodName);
+
     static string Print(string methodName) =>
         CSharpPrinter.Print(Raised(methodName)).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+    static string Print(Type type, string methodName) =>
+        CSharpPrinter.Print(Raised(type, methodName)).Output!.ReplaceLineEndings("\n").TrimEnd();
 
     // ── Compiler-backed positive ───────────────────────────────────────────
 
@@ -82,6 +89,25 @@ public class ScatteredReturnDispatchStructuringTests
         // Two contiguous guards on the shared `return 2` stay one condition.
         Assert.Contains("if (a > 0 && b > 0)", output);
         Assert.EndsWith("return 2;", output);
+    }
+
+    [Fact]
+    public void LoopExitTrampoline_DoesNotWidenLaterShortCircuitChain()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.LoopBeforeAndChain));
+
+        Assert.Contains("if (a > 0 && b > 0)", output);
+        Assert.EndsWith("return 2;", output);
+    }
+
+    [Fact]
+    public void ValidTrailingDefault_DoesNotBecomeAnEarlyReturn()
+    {
+        string output = Print(typeof(MemberIdentity), nameof(MemberIdentity.GetAppendFormattedFormat));
+
+        Assert.Contains("if (second.Equals(MemberIdentity.s_string))", output);
+        Assert.DoesNotContain("if (!second.Equals(MemberIdentity.s_string))", output);
+        Assert.EndsWith("return null;", output);
     }
 
     [Fact]

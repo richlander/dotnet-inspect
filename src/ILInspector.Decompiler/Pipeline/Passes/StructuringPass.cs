@@ -1279,9 +1279,11 @@ public sealed class StructuringPass : IIrPass
     /// Conditional guards that route to <paramref name="offset"/>, either
     /// directly or through a pure fall-through <c>goto offset</c> trampoline.
     /// The latter is how csc lowers a failed type test before a later guarded
-    /// switch arm: the conditional takes the matching arm and its fallthrough
-    /// block forwards to the shared default. Count that source conditional as a
-    /// dispatch predecessor only when no explicit jump also enters the
+    /// switch arm: the conditional jumps forward over the trampoline into its
+    /// matching arm, while fallthrough forwards to the shared default. Only add
+    /// that missing predecessor when the target has exactly one direct guard;
+    /// targets already having a complete predecessor span must not be widened by
+    /// an unrelated loop-exit trampoline. No explicit jump may enter the
     /// trampoline, so duplicating the default cannot erase another path.
     /// </summary>
     static List<int> ScatteredDispatchPredecessors(
@@ -1294,22 +1296,29 @@ public sealed class StructuringPass : IIrPass
         var predecessors = conditionalPredecessorIndices.TryGetValue(offset, out var direct)
             ? direct.ToHashSet()
             : [];
-        if (!branchPredecessorIndices.TryGetValue(offset, out var trampolines))
+        if (predecessors.Count != 1
+            || !branchPredecessorIndices.TryGetValue(offset, out var trampolines))
+        {
             return [.. predecessors];
+        }
 
         foreach (int trampolineIndex in trampolines)
         {
+            var trampoline = blocks[trampolineIndex];
             if (trampolineIndex == 0
-                || blocks[trampolineIndex].Children is not [Branch branch]
+                || trampoline.Children is not [Branch branch]
                 || branch.TargetOffset != offset
-                || jumpPredecessorIndices.ContainsKey(blocks[trampolineIndex].StartOffset))
+                || jumpPredecessorIndices.ContainsKey(trampoline.StartOffset))
             {
                 continue;
             }
 
             int guardIndex = trampolineIndex - 1;
             if (blocks[guardIndex].Children.Count > 0
-                && blocks[guardIndex].Children[^1] is ConditionalBranch)
+                && blocks[guardIndex].Children[^1] is ConditionalBranch guard
+                && blocks[guardIndex].Descendants.OfType<IsInstance>().Any()
+                && guard.TargetOffset > trampoline.StartOffset
+                && guard.TargetOffset < offset)
             {
                 predecessors.Add(guardIndex);
             }
