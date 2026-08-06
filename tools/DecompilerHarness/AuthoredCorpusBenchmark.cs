@@ -1,3 +1,5 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 
 namespace ILInspector.DecompilerHarness;
@@ -109,7 +111,24 @@ static class AuthoredCorpusBenchmark
             var group = byAssembly[pool.Identities[i]];
             matchedGroups.Add(pool.Identities[i]);
 
-            var index = ReturnToSenderSourceIndex.FromMembers(group.Select(ToSourceMember));
+            ReturnToSenderSourceIndex index;
+            try
+            {
+                using var pe = new PEReader(File.OpenRead(assemblyPath));
+                index = ReturnToSenderSourceIndex.FromCorrelatedMembers(
+                    group.Select(ToSourceMember),
+                    pe.GetMetadataReader());
+            }
+            catch (Exception ex) when (ex is IOException
+                or InvalidDataException
+                or BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+            {
+                Console.Error.WriteLine(
+                    $"Corpus correlation failed for '{assemblyPath}': {ex.Message}");
+                return 1;
+            }
             var targets = group.Select(ToTarget).ToArray();
             results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
         }
@@ -159,7 +178,9 @@ static class AuthoredCorpusBenchmark
             record.Overload,
             record.Signature ?? "",
             record.SourceUrl ?? "",
-            record.AuthoredBody);
+            record.AuthoredBody,
+            record.MetadataToken,
+            record.ModuleVersionId);
 
     static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
         => new(record.Type, record.Method, record.Overload, record.Signature);

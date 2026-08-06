@@ -107,6 +107,9 @@ correspondence remains the unfinished Slice 6 boundary.
 | `ResolvableTypeReference` | Decoder-produced provenance plus lookup name | Whether a reference came from an assembly, current assembly, intrinsic core library, or module | Resolution without the source candidate, or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan` | One direct-caller scope | Which candidates may reach the target definition through frozen structured bindings | Final call-site correspondence or transitive graph traversal |
 | `CallerResolutionPlan` | One direct-caller projection | Whether a decoded call-site type is the same definition, different, unavailable, ambiguous, rejected, stale, or duplicate-indeterminate | Hashable member correspondence or graph storage identity |
+| `CatalogMemberCorrespondencePlan` | One source member's open signature | Which distinct type-resolution requests and recursive shapes are required to project member correspondence without traversing the signature again | A frozen answer, graph storage identity, or rendering |
+| `CatalogMemberJoinKey` and `CatalogTypeShape` | One frozen catalog generation | Hashable member correspondence across the open declaring type, member kind, canonical signature header, vararg required-parameter prefix, method generic arity, instance/static shape, parameters, return, modifiers, and function pointers | Physical graph storage, persistence, display, or use after its catalog generation |
+| `CatalogMemberJoinProjection` | One plan projected through one frozen context | Exact or indeterminate join currency, duplicate/unresolved evidence, or typed incomplete reasons including expansion and stale generation | Permission to drop an incomplete graph node or edge |
 
 #### Current `ILInspector.Metadata` single-image declaration
 
@@ -136,6 +139,7 @@ correspondence remains the unfinished Slice 6 boundary.
 | `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
 | `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and whether it resolved, missed, was unavailable, ambiguous, rejected, or requires expansion | Type lookup or hidden fallback probing |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
+| `TypeResolutionRequestComparer` | One request manifest | Whether separately constructed requests occupy the same frozen manifest entry | Type correspondence, outcome equality, or cross-generation reuse |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
 | `TypeForwardingHop` | One resolution outcome | Which verified `ExportedType` declaration and exact target reference were encountered | Successful target binding, definition identity, or correspondence |
 | `ResolvedTypeDefinition` | One frozen catalog generation | The successful candidate, exact name, address, and opaque key | Forwarding hops, object equality, or persistence as a whole |
@@ -179,6 +183,8 @@ Conversions are operations with an owner, not implicit casts:
 | Metadata relationship chain | `MetadataTypeDefinitionName` | Metadata preserves namespace, nested segments, and arity; malformed names return typed failure |
 | Decoded Analysis type reference | `ResolvableTypeReference` | Analysis retains `TypeReferenceOrigin` beside the exact lookup name; origin is not inferred from `TypeRef.Assembly` |
 | Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
+| Source member plus decoded open signature | `CatalogMemberCorrespondencePlan` | Analysis traverses the signature once, retains unsupported-shape evidence, and exposes requests compared by Metadata's manifest comparer |
+| `CatalogMemberCorrespondencePlan` plus frozen context | `CatalogMemberJoinProjection` | Analysis resolves each distinct request through the context and constructs shapes only from catalog-issued definition or unresolved-binding currency |
 | `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
 | `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |

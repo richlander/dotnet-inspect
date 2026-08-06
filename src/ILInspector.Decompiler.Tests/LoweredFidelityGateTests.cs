@@ -47,6 +47,10 @@ public class LoweredFidelityGateTests
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #3514: the restored trailing default makes the reference-type switch
+        // witness valid, while the lowered nested-if form recompiles through
+        // direct returns instead of the original result-temp convergence.
+        "GuardedTypeAfterSibling",
         "ManualAwaitEnumeratorLoop",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
         // frontier from #1045: the lowered view is representable, but recompiles
