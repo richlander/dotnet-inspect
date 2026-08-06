@@ -1286,7 +1286,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
-          python3 -c '
+          python3 -I -c '
           import json, os, sys, yaml
           with open(".github/workflows/ci.yml") as f:
               workflow = yaml.safe_load(f)

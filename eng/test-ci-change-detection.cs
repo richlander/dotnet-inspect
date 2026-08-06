@@ -64,6 +64,42 @@ if (readme["code"] != "false" || readme["docs"] != "true")
         $"README.md canary did not discriminate: {FormatValues(readme)}");
 }
 
+foreach (string status in new[]
+{
+    "added",
+    "removed",
+    "modified",
+    "copied",
+    "changed",
+    "unchanged",
+})
+{
+    Dictionary<string, string> statusResult = RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        fileStatus: status);
+    if (statusResult["code"] != "false" ||
+        statusResult["docs"] != "true")
+    {
+        throw new InvalidOperationException(
+            $"{status} file-record canary did not discriminate: " +
+            FormatValues(statusResult));
+    }
+}
+
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        fileStatus: "future"),
+    "true");
+
 Dictionary<string, string> source = RunDetection(
     repository,
     body,
@@ -166,6 +202,7 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         "workflow.env");
     RequireAbsent(root, "defaults", "workflow");
     YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
+    ValidateAggregateStructuralCheck(jobs);
     YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
     RequireAbsent(changes, "if", "jobs.changes");
     RequireAbsent(changes, "continue-on-error", "jobs.changes");
@@ -317,6 +354,54 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     return (body, declaredOutputs.ToArray());
 }
 
+static void ValidateAggregateStructuralCheck(YamlMappingNode jobs)
+{
+    YamlMappingNode aggregate = GetRequiredMapping(
+        jobs,
+        "ci-required",
+        "jobs");
+    YamlSequenceNode steps = GetRequiredSequence(
+        aggregate,
+        "steps",
+        "jobs.ci-required");
+    List<YamlMappingNode> checks = [];
+    foreach (YamlNode stepNode in steps.Children)
+    {
+        YamlMappingNode step = RequireMapping(
+            stepNode,
+            "jobs.ci-required step");
+        if (GetOptionalScalar(step, "name") ==
+            "Verify this gate depends on every other job")
+        {
+            checks.Add(step);
+        }
+    }
+
+    if (checks.Count != 1)
+    {
+        throw new InvalidOperationException(
+            "Expected one ci-required structural check.");
+    }
+
+    YamlMappingNode check = checks[0];
+    RequireAbsent(check, "if", "ci-required structural check");
+    RequireAbsent(
+        check,
+        "continue-on-error",
+        "ci-required structural check");
+    string body = GetRequiredScalar(
+        check,
+        "run",
+        "ci-required structural check");
+    if (!body.Split('\n').Contains(
+            "python3 -I -c '",
+            StringComparer.Ordinal))
+    {
+        throw new InvalidOperationException(
+            "ci-required structural check must isolate Python imports.");
+    }
+}
+
 static YamlMappingNode GetRequiredMapping(
     YamlMappingNode mapping,
     string key,
@@ -428,7 +513,8 @@ static Dictionary<string, string> RunDetection(
     string previousFiles = "",
     string? reportedChangedFileCount = null,
     bool resolutionSucceeds = true,
-    bool malformedFileRecord = false)
+    bool malformedFileRecord = false,
+    string fileStatus = "modified")
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
@@ -466,7 +552,7 @@ static Dictionary<string, string> RunDetection(
                && [ "$2" = "repos/richlander/dotnet-inspect/pulls/3704" ] \
                && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
               if [ "$MALFORMED_FILE_RECORD" = "true" ]; then
-              printf '2\n'
+              printf '8\n'
               elif [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
               printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
               elif [ -n "$PREVIOUS_FILES" ]; then
@@ -486,24 +572,43 @@ static Dictionary<string, string> RunDetection(
             fi
             if [ "$#" -eq 5 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] \
                && [ "$3" = "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
-               && [ "$4" = "--jq" ] \
-               && [ "$5" = '.[] | select((.filename | type) == "string" and (.filename | length) > 0 and (.status == "added" or .status == "removed" or .status == "modified" or .status == "copied" or .status == "changed" or .status == "unchanged" or (.status == "renamed" and (.previous_filename | type) == "string" and (.previous_filename | length) > 0))) | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)' ]; then
-              if [ -n "$PREVIOUS_FILES" ]; then
-              printf ':file\n'
-              printf '%s' "$PREVIOUS_FILES" | base64 -w0
-              printf '\n'
-              printf '%s' "$CHANGED_FILES" | base64 -w0
-              printf '\n'
-              elif [ -n "$CHANGED_FILES" ]; then
-              while IFS= read -r file; do
-                printf ':file\n'
-                printf '%s' "$file" | base64 -w0
-                printf '\n'
-              done <<EOF
-            $CHANGED_FILES
-            EOF
-              fi
-              exit 0
+               && [ "$4" = "--jq" ]; then
+              records=$(
+                if [ "$MALFORMED_FILE_RECORD" = "true" ]; then
+                  printf '%s\n' '[
+                    {"status":"modified","filename":"README.md"},
+                    {"status":"modified"},
+                    {"status":"modified","filename":""},
+                    {"filename":"src/missing-status.cs"},
+                    {"status":"","filename":"src/empty-status.cs"},
+                    {"status":"future","filename":"src/future-status.cs"},
+                    {"status":"renamed","filename":"src/missing-previous.cs"},
+                    {"status":"renamed","previous_filename":"","filename":"src/empty-previous.cs"}
+                  ]'
+                elif [ -n "$PREVIOUS_FILES" ]; then
+                  jq -cn \
+                    --arg previous "$PREVIOUS_FILES" \
+                    --arg filename "$CHANGED_FILES" \
+                    '[{
+                      status: "renamed",
+                      previous_filename: $previous,
+                      filename: $filename
+                    }]'
+                elif [ -n "$CHANGED_FILES" ]; then
+                  printf '%s\n' "$CHANGED_FILES" |
+                    jq -Rsc --arg status "$FILE_STATUS" '
+                      split("\n")
+                      | map(
+                          select(length > 0)
+                          | {status: $status, filename: .}
+                        )
+                    '
+                else
+                  printf '[]\n'
+                fi
+              ) || exit 1
+              printf '%s\n' "$records" | jq -r "$5"
+              exit $?
             fi
             echo "unexpected gh invocation: $*" >&2
             exit 64
@@ -550,9 +655,11 @@ static Dictionary<string, string> RunDetection(
         startInfo.ArgumentList.Add(rendered);
         startInfo.ArgumentList.Add(standardOutputPath);
         startInfo.ArgumentList.Add(standardErrorPath);
+        startInfo.Environment["BASH_ENV"] = "";
         startInfo.Environment["CHANGED_FILES"] = files;
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
         startInfo.Environment["EXPECTED_SHA"] = Sha;
+        startInfo.Environment["FILE_STATUS"] = fileStatus;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
         startInfo.Environment["MALFORMED_FILE_RECORD"] =
             malformedFileRecord.ToString().ToLowerInvariant();
