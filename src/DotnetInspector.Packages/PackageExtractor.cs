@@ -63,6 +63,8 @@ internal sealed record PackageVersionResolution(
 public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
+    private static readonly TimeSpan CachedVersionResolutionTimeout =
+        TimeSpan.FromSeconds(1);
 
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
         s_packageRequests = new();
@@ -237,6 +239,12 @@ public static class PackageExtractor
             NuGetSourceResolver.ResolveAuthorizedSources(
                 sourceOptions,
                 sources);
+        IReadOnlyList<string> cachedVersions = version == null
+            ? NuGetCache.GetCachedVersions(
+                packageName,
+                NuGetSourceResolver.SourceKeys(authorizedSources),
+                includePrerelease)
+            : [];
 
         // Resolve wildcard version patterns (e.g., 11.0.0-preview*)
         if (version != null && version.Contains('*'))
@@ -260,18 +268,54 @@ public static class PackageExtractor
         // Get version if not specified
         if (version == null)
         {
-            PackageVersionResolution? resolution =
-                await ResolveLatestVersionAsync(
+            CancellationTokenSource? latestTimeout = null;
+            if (!forceLatest && !HttpClientFactory.IsOffline && cachedVersions.Count > 0)
+            {
+                latestTimeout = new CancellationTokenSource(
+                    CachedVersionResolutionTimeout);
+            }
+
+            PackageVersionResolution? resolution;
+            try
+            {
+                resolution = await ResolveLatestVersionAsync(
                     client,
                     packageName,
                     sources,
                     log,
                     skipCache: forceLatest,
-                    includePrerelease: includePrerelease).ConfigureAwait(false);
+                    includePrerelease: includePrerelease,
+                    cancellationToken: latestTimeout?.Token ?? default)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (latestTimeout?.IsCancellationRequested == true)
+            {
+                return PackageExtractionOutcome.Error(
+                    DescribeCachedVersionFallback(
+                        packageName,
+                        cachedVersions,
+                        offline: false));
+            }
+            finally
+            {
+                latestTimeout?.Dispose();
+            }
+
             if (resolution is null)
             {
                 if (HttpClientFactory.IsOffline)
+                {
+                    if (cachedVersions.Count > 0)
+                    {
+                        return PackageExtractionOutcome.Error(
+                            DescribeCachedVersionFallback(
+                                packageName,
+                                cachedVersions,
+                                offline: true));
+                    }
+
                     return PackageExtractionOutcome.Error($"Package '{packageName}' is not available offline; no cached version was found.");
+                }
 
                 return PackageExtractionOutcome.Error(
                     (FeedFailureTelemetry.Current?.DescribeFailure(packageName)
@@ -319,6 +363,26 @@ public static class PackageExtractor
         }
 
         return outcome;
+    }
+
+    private static string DescribeCachedVersionFallback(
+        string packageName,
+        IReadOnlyList<string> cachedVersions,
+        bool offline)
+    {
+        const int DisplayLimit = 5;
+        string displayed = string.Join(", ", cachedVersions.Take(DisplayLimit));
+        string remainder = cachedVersions.Count > DisplayLimit
+            ? $" (+{cachedVersions.Count - DisplayLimit} more)"
+            : "";
+        string reason = offline
+            ? $"Package '{packageName}' cannot resolve its latest version while offline."
+            : $"Package '{packageName}' could not resolve its latest version before the online lookup timed out.";
+
+        return $"{reason}{Environment.NewLine}" +
+            $"Locally cached versions: {displayed}{remainder}{Environment.NewLine}" +
+            $"Use an exact version to skip version discovery, for example: " +
+            $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
     }
 
     private static async Task<PackageExtractionOutcome> AcquireResolvedPackageAsync(
@@ -484,8 +548,8 @@ public static class PackageExtractor
     /// Identifies one in-flight acquisition. The source scope is part of the
     /// identity, not just the coordinate: callers configured for different
     /// sources must not share a download, or one would receive bytes the other
-    /// was entitled to. Callers with the same authorized producer set resolve
-    /// identically and can safely share regardless of source declaration order.
+    /// was entitled to. Source order is also part of the identity because cache
+    /// slots and feeds are consulted in that order.
     /// </summary>
     internal static PackageAcquisitionRequest CreatePackageAcquisitionRequest(
         string normalizedName,
@@ -496,8 +560,7 @@ public static class PackageExtractor
             string.Join(
                 '|',
                 authorizedProducerKeys
-                    .Distinct(StringComparer.Ordinal)
-                    .Order(StringComparer.Ordinal)),
+                    .Distinct(StringComparer.Ordinal)),
             Path.GetFullPath(NuGetCache.GetPackageContentCachePath()),
             NuGetCache.UsesGlobalPackages,
             HttpClientFactory.IsOffline);
@@ -635,8 +698,14 @@ public static class PackageExtractor
     private static Task<string?> GetPackageBaseAddressAsync(
         HttpClient client,
         NuGetSource source,
-        Action<string>? log)
-        => GetServiceIndexResourceAsync(client, source, "PackageBaseAddress", log);
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
+        => GetServiceIndexResourceAsync(
+            client,
+            source,
+            "PackageBaseAddress",
+            log,
+            cancellationToken);
 
     /// <summary>
     /// Discovers the SearchQueryService endpoint from a V3 service index. Returns null when the
@@ -647,7 +716,12 @@ public static class PackageExtractor
         HttpClient client,
         NuGetSource source,
         Action<string>? log = null)
-        => GetServiceIndexResourceAsync(client, source, "SearchQueryService", log);
+        => GetServiceIndexResourceAsync(
+            client,
+            source,
+            "SearchQueryService",
+            log,
+            cancellationToken: default);
 
     /// <summary>
     /// Reads a V3 service index and returns the <c>@id</c> of the first resource whose
@@ -658,7 +732,8 @@ public static class PackageExtractor
         HttpClient client,
         NuGetSource source,
         string resourceTypePrefix,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken)
     {
         // Skip non-HTTP sources (e.g. local folder feeds from NuGet.Config).
         // Passing a file: URL or raw filesystem path to HttpClient throws
@@ -691,6 +766,7 @@ public static class PackageExtractor
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
+            cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
         if (json == null)
             return null;
@@ -964,7 +1040,8 @@ public static class PackageExtractor
             sources,
             log,
             skipCache,
-            includePrerelease).ConfigureAwait(false))?.Version;
+            includePrerelease,
+            cancellationToken: default).ConfigureAwait(false))?.Version;
 
     internal static async Task<PackageVersionResolution?> ResolveLatestVersionAsync(
         HttpClient client,
@@ -972,7 +1049,8 @@ public static class PackageExtractor
         List<NuGetSource> sources,
         Action<string>? log,
         bool skipCache = false,
-        bool includePrerelease = false)
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default)
     {
         string normalizedName = packageName.ToLowerInvariant();
         NuGet.Versioning.NuGetVersion? best = null;
@@ -1000,7 +1078,8 @@ public static class PackageExtractor
                         normalizedName,
                         source,
                         log,
-                        includePrerelease).ConfigureAwait(false));
+                        includePrerelease,
+                        cancellationToken).ConfigureAwait(false));
                 if (fetchedVersion is not null)
                 {
                     version = fetchedVersion;
@@ -1137,27 +1216,42 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         NuGetSource source,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
     {
         // Try flat-container index first
         var flatContainerUrl = source.GetFlatContainerUrl();
         if (flatContainerUrl != null)
         {
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(
+                client,
+                indexUrl,
+                log,
+                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                cancellationToken).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
 
         // Fall back to V3 service index discovery
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        var baseAddress = await GetPackageBaseAddressAsync(
+            client,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (baseAddress != null)
         {
             if (!baseAddress.EndsWith('/'))
                 baseAddress += "/";
 
             string indexUrl = $"{baseAddress}{packageName}/index.json";
-            var versions = await FetchVersionListAsync(client, indexUrl, log, NuGetCredentialScope.AuthFor(source, indexUrl, log)).ConfigureAwait(false);
+            var versions = await FetchVersionListAsync(
+                client,
+                indexUrl,
+                log,
+                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                cancellationToken).ConfigureAwait(false);
             if (versions != null)
                 return versions;
         }
@@ -1167,11 +1261,13 @@ public static class PackageExtractor
 
     private static async Task<List<string>?> FetchVersionListAsync(
         HttpClient client, string indexUrl, Action<string>? log,
-        AuthenticationHeaderValue? auth = null)
+        AuthenticationHeaderValue? auth = null,
+        CancellationToken cancellationToken = default)
     {
         log?.Invoke($"Fetching versions from: {indexUrl}");
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
+            cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null) return null;
 
@@ -1241,13 +1337,23 @@ public static class PackageExtractor
         HttpClient client,
         string packageName,
         NuGetSource source,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
     {
-        var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+        var versions = await FetchAllVersionsFromSourceAsync(
+            client,
+            packageName,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (versions == null || !source.IsNuGetOrg)
             return (versions, Authoritative: true);
 
-        var unlisted = await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false);
+        var unlisted = await FetchUnlistedVersionsFromNuGetOrgAsync(
+            client,
+            packageName,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (unlisted == null)
             return (versions, Authoritative: false);
         if (unlisted.Count == 0)
@@ -1272,13 +1378,15 @@ public static class PackageExtractor
     private static async Task<HashSet<NuGet.Versioning.NuGetVersion>?> FetchUnlistedVersionsFromNuGetOrgAsync(
         HttpClient client,
         string packageName,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
     {
         string indexUrl = $"{NuGetOrgRegistrationBase}/{packageName}/index.json";
         log?.Invoke($"Fetching listing status from: {indexUrl}");
 
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl,
+            cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
         if (json == null)
             return null;
@@ -1303,6 +1411,7 @@ public static class PackageExtractor
                 {
                     string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(
                         client, pageUrl,
+                        cancellationToken: cancellationToken,
                         trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
                     if (pageJson == null)
                         return null;
@@ -1408,12 +1517,17 @@ public static class PackageExtractor
         string packageName,
         NuGetSource source,
         Action<string>? log,
-        bool includePrerelease)
+        bool includePrerelease,
+        CancellationToken cancellationToken)
     {
         // For nuget.org, use the search API — returns latest version directly without listing all versions
         if (source.IsNuGetOrg && !includePrerelease)
         {
-            var version = await GetLatestVersionFromSearchAsync(client, packageName, log).ConfigureAwait(false);
+            var version = await GetLatestVersionFromSearchAsync(
+                client,
+                packageName,
+                log,
+                cancellationToken).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -1427,7 +1541,12 @@ public static class PackageExtractor
         // index below.
         if (source.IsNuGetOrg)
         {
-            var (listed, authoritative) = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+            var (listed, authoritative) = await FetchListedVersionsFromSourceAsync(
+                client,
+                packageName,
+                source,
+                log,
+                cancellationToken).ConfigureAwait(false);
             if (listed != null && authoritative)
                 return PickLatest(listed, includePrerelease);
             return null;
@@ -1440,13 +1559,22 @@ public static class PackageExtractor
             string indexUrl = $"{flatContainerUrl}/{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(
+                client,
+                indexUrl,
+                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                includePrerelease,
+                cancellationToken).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
 
         // Fall back to V3 service index discovery
-        var baseAddress = await GetPackageBaseAddressAsync(client, source, log).ConfigureAwait(false);
+        var baseAddress = await GetPackageBaseAddressAsync(
+            client,
+            source,
+            log,
+            cancellationToken).ConfigureAwait(false);
         if (baseAddress != null)
         {
             if (!baseAddress.EndsWith('/'))
@@ -1455,7 +1583,12 @@ public static class PackageExtractor
             string indexUrl = $"{baseAddress}{packageName}/index.json";
             log?.Invoke($"Fetching versions from: {indexUrl}");
 
-            var version = await ParseVersionIndexAsync(client, indexUrl, NuGetCredentialScope.AuthFor(source, indexUrl, log), includePrerelease).ConfigureAwait(false);
+            var version = await ParseVersionIndexAsync(
+                client,
+                indexUrl,
+                NuGetCredentialScope.AuthFor(source, indexUrl, log),
+                includePrerelease,
+                cancellationToken).ConfigureAwait(false);
             if (version != null)
                 return version;
         }
@@ -1466,7 +1599,8 @@ public static class PackageExtractor
     private static async Task<string?> GetLatestVersionFromSearchAsync(
         HttpClient client,
         string packageName,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken cancellationToken)
     {
         string searchUrl = $"https://azuresearch-usnc.nuget.org/query?q=packageid:{packageName}&take=1&prerelease=false";
         log?.Invoke($"Fetching latest version from: {searchUrl}");
@@ -1475,6 +1609,7 @@ public static class PackageExtractor
         {
             string? json = await HttpRetryHelper.GetStringWithRetryAsync(
                 client, searchUrl,
+                cancellationToken: cancellationToken,
                 trafficKind: NetworkTrafficKind.PackageSearch).ConfigureAwait(false);
             if (json == null)
                 return null;
@@ -1491,6 +1626,10 @@ public static class PackageExtractor
                 }
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             log?.Invoke($"Search API failed: {ex.Message}");
@@ -1502,10 +1641,12 @@ public static class PackageExtractor
     private static async Task<string?> ParseVersionIndexAsync(
         HttpClient client, string indexUrl,
         AuthenticationHeaderValue? auth = null,
-        bool includePrerelease = false)
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default)
     {
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
+            cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
         if (json == null)
             return null;

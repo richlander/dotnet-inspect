@@ -460,6 +460,24 @@ string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE
 if (isolated && cacheBasePath == null)
     cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
 
+NuGetSourceOptions? sourceOptions = null;
+string? nugetConfig = Environment.GetEnvironmentVariable("DOTNET_INSPECT_SWEEP_NUGET_CONFIG");
+if (!string.IsNullOrWhiteSpace(nugetConfig))
+{
+    // Sweep-specific rather than a restore setting: the file-based app still restores
+    // with the caller's ordinary NuGet configuration, while package acquisition uses
+    // this explicit boundary. EvilPoolSweepGateTests deletes the named file in one case
+    // so losing either the environment forwarding or this read fails visibly.
+    if (NuGetSourceResolver.DescribeConfigProblem(nugetConfig) is string problem)
+    {
+        Console.Error.WriteLine(problem);
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    sourceOptions = new NuGetSourceOptions { ConfigFile = nugetConfig };
+}
+
 HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
 
@@ -490,6 +508,7 @@ foreach (var entry in selected)
                 HttpClientFactory.Shared,
                 entry.Package,
                 tempDirPrefix: "decompiler-package-sweep",
+                sourceOptions: sourceOptions,
                 version: honorPin ? pin!.Version : null,
                 forceLatest: !honorPin);
         }

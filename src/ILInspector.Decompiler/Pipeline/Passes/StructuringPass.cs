@@ -197,16 +197,22 @@ public sealed class StructuringPass : IIrPass
         foreach (var block in blocks)
         {
             int offset = block.StartOffset;
+            var dispatchPredecessors = ScatteredDispatchPredecessors(
+                blocks,
+                offset,
+                conditionalPredecessorIndices,
+                branchPredecessorIndices,
+                jumpPredecessorIndices);
             if ((unconditionalTargets.Contains(offset)
                     && !UnconditionalPredecessorsAreDissolvableTrampolines(blocks, offset, branchPredecessorIndices, switchTargets))
                 || fallenInto.Contains(offset)
-                || conditionalTargetCounts.GetValueOrDefault(offset) < 2
+                || dispatchPredecessors.Count < 2
                 || !IsTerminatorBlock(block)
                 || block.Children[^1] is not Return)
             {
                 continue;
             }
-            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset], branchTargets, jumpPredecessorIndices))
+            if (IsScatteredDispatch(blocks, dispatchPredecessors, branchTargets, jumpPredecessorIndices))
                 scatteredReturnDispatchTargets.Add(offset);
         }
 
@@ -1267,6 +1273,57 @@ public sealed class StructuringPass : IIrPass
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Conditional guards that route to <paramref name="offset"/>, either
+    /// directly or through a pure fall-through <c>goto offset</c> trampoline.
+    /// The latter is how csc lowers a failed type test before a later guarded
+    /// switch arm: the conditional jumps forward over the trampoline into its
+    /// matching arm, while fallthrough forwards to the shared default. Only add
+    /// that missing predecessor when the target has exactly one direct guard;
+    /// targets already having a complete predecessor span must not be widened by
+    /// an unrelated loop-exit trampoline. No explicit jump may enter the
+    /// trampoline, so duplicating the default cannot erase another path.
+    /// </summary>
+    static List<int> ScatteredDispatchPredecessors(
+        IReadOnlyList<Block> blocks,
+        int offset,
+        Dictionary<int, List<int>> conditionalPredecessorIndices,
+        Dictionary<int, List<int>> branchPredecessorIndices,
+        Dictionary<int, List<int>> jumpPredecessorIndices)
+    {
+        var predecessors = conditionalPredecessorIndices.TryGetValue(offset, out var direct)
+            ? direct.ToHashSet()
+            : [];
+        if (predecessors.Count != 1
+            || !branchPredecessorIndices.TryGetValue(offset, out var trampolines))
+        {
+            return [.. predecessors];
+        }
+
+        foreach (int trampolineIndex in trampolines)
+        {
+            var trampoline = blocks[trampolineIndex];
+            if (trampolineIndex == 0
+                || trampoline.Children is not [Branch branch]
+                || branch.TargetOffset != offset
+                || jumpPredecessorIndices.ContainsKey(trampoline.StartOffset))
+            {
+                continue;
+            }
+
+            int guardIndex = trampolineIndex - 1;
+            if (blocks[guardIndex].Children.Count > 0
+                && blocks[guardIndex].Children[^1] is ConditionalBranch guard
+                && blocks[guardIndex].Descendants.OfType<IsInstance>().Any()
+                && guard.TargetOffset > trampoline.StartOffset
+                && guard.TargetOffset < offset)
+            {
+                predecessors.Add(guardIndex);
+            }
+        }
+        return [.. predecessors];
     }
 
     /// <summary>

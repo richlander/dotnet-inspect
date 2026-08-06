@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Core;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
 
@@ -449,6 +450,113 @@ public static class NuGetCache
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the newest cached version of a package from the NuGet or app cache.
+    /// Pure disk I/O — never hits the network.
+    /// </summary>
+    public static string? TryGetLatestCachedVersion(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys)
+    {
+        return GetCachedVersions(
+            packageName,
+            allowedSourceKeys,
+            includePrerelease: false,
+            limit: 1).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Returns cached package versions, newest first, without touching the network.
+    /// Entries are included only when their recorded producer is a source the
+    /// caller is currently configured to read. These versions are diagnostic
+    /// exact-pin suggestions; package payloads do not become discovery candidates.
+    /// </summary>
+    public static IReadOnlyList<string> GetCachedVersions(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys,
+        bool includePrerelease = true,
+        int? limit = null)
+    {
+        ValidatePathComponent(packageName, "package name");
+        var normalizedName = packageName.ToLowerInvariant();
+        var versions = new Dictionary<NuGetVersion, string>();
+
+        void AddVersions(string root, Func<string, string, bool> isValid)
+        {
+            if (!Directory.Exists(root))
+                return;
+
+            try
+            {
+                foreach (var dir in Directory.GetDirectories(root))
+                {
+                    string version = Path.GetFileName(dir);
+                    if (!NuGetVersion.TryParse(version, out var parsed)
+                        || (!includePrerelease && parsed.IsPrerelease)
+                        || !isValid(dir, version))
+                    {
+                        continue;
+                    }
+
+                    versions.TryAdd(parsed, version);
+                }
+            }
+            catch (IOException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
+        }
+
+        if (!_skipNuGetCache)
+        {
+            string globalPackagesPath = GetNuGetCachePath();
+            AddVersions(
+                Path.Combine(globalPackagesPath, normalizedName),
+                (_, version) => TryGetGlobalPackageContent(
+                    globalPackagesPath,
+                    normalizedName,
+                    version,
+                    allowedSourceKeys) is not null);
+        }
+
+        try
+        {
+            AddVersions(
+                Path.Combine(GetPackageContentCachePath(), normalizedName),
+                (dir, version) =>
+                {
+                    foreach (var sourceKey in allowedSourceKeys ?? [])
+                    {
+                        if (IsCommittedPackageValid(
+                                Path.Combine(dir, sourceKey),
+                                normalizedName,
+                                version,
+                                sourceKey))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
+        }
+        catch (InvalidOperationException)
+        {
+            // App cache not initialized.
+        }
+
+        IEnumerable<string> ordered = versions
+            .OrderByDescending(pair => pair.Key)
+            .Select(pair => pair.Value);
+        if (limit is { } count)
+            ordered = ordered.Take(count);
+        return ordered.ToArray();
     }
 
     /// <summary>

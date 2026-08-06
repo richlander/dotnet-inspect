@@ -77,7 +77,7 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     }
 
     [Fact]
-    public async Task ExtractPackageAsync_OfflineBarePackage_DoesNotDiscoverFromPayload()
+    public async Task ExtractPackageAsync_OfflineBarePackage_DoesNotAutoSelectPayloadVersion()
     {
         string packageName = $"Offline.PayloadOnly.{Guid.NewGuid():N}";
         const string Version = "1.2.3";
@@ -97,7 +97,8 @@ public sealed class PackageExtractorOfflineTests : IDisposable
                 });
 
         Assert.False(outcome.IsSuccess);
-        Assert.Contains("no cached version", outcome.ErrorMessage);
+        Assert.Contains("cannot resolve its latest version while offline", outcome.ErrorMessage);
+        Assert.Contains($"dotnet-inspect package {packageName}@{Version}", outcome.ErrorMessage);
     }
 
     [Fact]
@@ -175,5 +176,37 @@ public sealed class PackageExtractorOfflineTests : IDisposable
             packageName,
             version,
             sourceKey);
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_OfflineWithCachedVersions_OffersExactPins()
+    {
+        string packageName = $"Cached.Offline.{Guid.NewGuid():N}";
+        string sourceKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+        foreach (string version in new[] { "1.0.0", "2.0.0" })
+        {
+            string staged = Path.Combine(_cacheDir, $"staged-{version}");
+            Directory.CreateDirectory(staged);
+            File.WriteAllText(
+                Path.Combine(staged, $"{packageName}.nuspec"),
+                "<package />");
+            NuGetCache.CommitPackage(
+                staged,
+                nupkgPath: null,
+                packageName,
+                version,
+                sourceKey);
+        }
+
+        var outcome = await PackageExtractor.ExtractPackageAsync(
+            Core.HttpClientFactory.Shared,
+            packageName);
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains("cannot resolve its latest version while offline", outcome.ErrorMessage);
+        Assert.Contains("Locally cached versions: 2.0.0, 1.0.0", outcome.ErrorMessage);
+        Assert.Contains(
+            $"dotnet-inspect package {packageName}@2.0.0",
+            outcome.ErrorMessage);
     }
 }

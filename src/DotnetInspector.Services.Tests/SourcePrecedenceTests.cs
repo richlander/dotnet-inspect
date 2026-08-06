@@ -71,7 +71,8 @@ public class SourcePrecedenceTests : IDisposable
                 "Markout",
                 [FeedA(), FeedB()],
                 log: null,
-                skipCache: true);
+                skipCache: true,
+                cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(resolution);
         Assert.Equal("0.32.99", resolution.Version);
@@ -94,7 +95,8 @@ public class SourcePrecedenceTests : IDisposable
                 "Markout",
                 [FeedA(), FeedB()],
                 log: null,
-                skipCache: true);
+                skipCache: true,
+                cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotNull(resolution);
         Assert.Equal(

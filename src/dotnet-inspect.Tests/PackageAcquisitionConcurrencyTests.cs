@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
 
@@ -806,6 +807,141 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             [publicFeedKey, privateFeedKey]));
     }
 
+    [Fact]
+    public void GetCachedVersions_GlobalPackageRequiresMatchingRecordedSource()
+    {
+        string packageName = $"globalhint.test.{Guid.NewGuid():N}".ToLowerInvariant();
+        const string Version = "1.0.0";
+        const string PrivateFeed = "https://private.invalid/v3/index.json";
+        string globalPackagesPath = Path.Combine(_testRoot, "global-hints");
+        string packageDirectory = Path.Combine(globalPackagesPath, packageName, Version);
+        Directory.CreateDirectory(packageDirectory);
+        File.WriteAllText(
+            Path.Combine(packageDirectory, $"{packageName}.nuspec"),
+            "<package />");
+        File.WriteAllText(
+            Path.Combine(packageDirectory, ".nupkg.metadata"),
+            $$"""{"source":"{{PrivateFeed}}"}""");
+
+        string? previousPackagesPath =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                globalPackagesPath);
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _cachePath,
+                skipNuGetCache: false);
+
+            Assert.Empty(NuGetCache.GetCachedVersions(
+                packageName,
+                [NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json")]));
+            Assert.Equal(
+                [Version],
+                NuGetCache.GetCachedVersions(
+                    packageName,
+                    [NuGetCache.GetSourceKey(PrivateFeed)]));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                previousPackagesPath);
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _cachePath,
+                skipNuGetCache: true);
+        }
+    }
+
+    [Fact]
+    public void GetCachedVersions_ReturnsNewestUsableVersionsForConfiguredSources()
+    {
+        string packageName = $"versionhints.test.{Guid.NewGuid():N}";
+        string privateFeedKey = NuGetCache.GetSourceKey("https://private.invalid/v3/index.json");
+        string publicFeedKey = NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json");
+
+        foreach (var (version, sourceKey) in
+            new[]
+            {
+                ("1.0.0", publicFeedKey),
+                ("2.0.0-preview.1", publicFeedKey),
+                ("3.0.0", privateFeedKey),
+            })
+        {
+            string staged = CreateExtractedPackage(
+                Path.Combine(_testRoot, $"hint-stage-{version}"),
+                packageName,
+                "payload",
+                payloadCount: 1);
+            NuGetCache.CommitPackage(
+                staged,
+                nupkgPath: null,
+                packageName,
+                version,
+                sourceKey);
+        }
+
+        Assert.Equal(
+            ["2.0.0-preview.1", "1.0.0"],
+            NuGetCache.GetCachedVersions(packageName, [publicFeedKey]));
+        Assert.Equal(
+            ["3.0.0", "2.0.0-preview.1", "1.0.0"],
+            NuGetCache.GetCachedVersions(packageName, [publicFeedKey, privateFeedKey]));
+        Assert.Equal(
+            ["1.0.0"],
+            NuGetCache.GetCachedVersions(
+                packageName,
+                [publicFeedKey],
+                includePrerelease: false));
+    }
+
+    [Fact]
+    public void GetCachedVersions_RejectsInvalidPackageName()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            NuGetCache.GetCachedVersions("../outside", [TestSourceKey]));
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_LatestLookupTimesOutEarlyAndOffersCachedPins()
+    {
+        string packageName = $"versiontimeout.test.{Guid.NewGuid():N}";
+        foreach (string version in new[] { "1.0.0", "2.0.0" })
+        {
+            string staged = CreateExtractedPackage(
+                Path.Combine(_testRoot, $"timeout-stage-{version}"),
+                packageName,
+                "payload",
+                payloadCount: 1);
+            NuGetCache.CommitPackage(
+                staged,
+                nupkgPath: null,
+                packageName,
+                version,
+                TestSourceKey);
+        }
+
+        using var client = new HttpClient(new NeverAnsweringHandler());
+        var stopwatch = Stopwatch.StartNew();
+
+        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+            client,
+            packageName,
+            sourceOptions: s_nugetOrgSource);
+
+        stopwatch.Stop();
+        Assert.False(outcome.IsSuccess);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), stopwatch.Elapsed.ToString());
+        Assert.Contains("online lookup timed out", outcome.ErrorMessage);
+        Assert.Contains("Locally cached versions: 2.0.0, 1.0.0", outcome.ErrorMessage);
+        Assert.Contains(
+            $"dotnet-inspect package {packageName}@2.0.0",
+            outcome.ErrorMessage);
+    }
+
     [Theory]
     [InlineData("https://pkgs.invalid/v3/index.json", "https://pkgs.invalid/v3/index.json/")]
     [InlineData("https://pkgs.invalid/v3/index.json", "HTTPS://PKGS.INVALID/v3/index.json")]
@@ -965,7 +1101,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void PackageAcquisitionIdentity_UsesAuthorizedProducerSetNotSourceOrder()
+    public void PackageAcquisitionIdentity_IncludesAuthorizedProducerOrder()
     {
         string producerA = NuGetCache.GetSourceKey(
             "https://feed-a.invalid/v3/index.json");
@@ -985,7 +1121,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             "1.0.0",
             [producerA]);
 
-        Assert.Equal(forward, reversed);
+        Assert.NotEqual(forward, reversed);
         Assert.NotEqual(forward, reporterAOnly);
     }
 
@@ -1426,6 +1562,17 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             response.RequestMessage = request;
             response.Content ??= new StringContent(string.Empty);
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class NeverAnsweringHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The request should have been canceled.");
         }
     }
 

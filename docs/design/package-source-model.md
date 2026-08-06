@@ -159,6 +159,10 @@ Content caches are not candidate lists. A version present only in
 list cache may answer for its feed because it stores that feed's discovery
 result, not because package bytes happen to exist locally.
 
+When discovery cannot complete, producer-authorized payload versions may be
+shown as diagnostic exact-pin suggestions. They are never selected
+automatically and do not become candidates for any discovery operation.
+
 After discovery selects an exact coordinate, a payload cache may answer only
 for an authorized producer:
 
