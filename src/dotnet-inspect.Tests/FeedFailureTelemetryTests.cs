@@ -124,6 +124,36 @@ public class FeedFailureTelemetryTests
         Assert.Equal(NetworkTrafficKind.PackageSearch, NetworkTelemetry.CurrentTrafficKind);
     }
 
+    [Fact]
+    public async Task BackoffRestoresTheOuterTrafficPhaseBeforeWaiting()
+    {
+        using var failureScope = FeedFailureTelemetry.Scope();
+        using var outerTrafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new ThrowingHandler(SocketError.ConnectionReset));
+        NetworkTrafficKind? phaseBeforeDelay = null;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            HttpRetryHelper.GetStringWithRetryAsync(
+                client,
+                "https://private.example/v3/index.json",
+                retryCount: 1,
+                log: message =>
+                {
+                    if (message.StartsWith("Retry #", StringComparison.Ordinal))
+                    {
+                        phaseBeforeDelay = NetworkTelemetry.CurrentTrafficKind;
+                        cancellation.Cancel();
+                    }
+                },
+                cancellationToken: cancellation.Token,
+                trafficKind: NetworkTrafficKind.PackageSourceDiscovery));
+
+        Assert.Equal(NetworkTrafficKind.PackageSearch, phaseBeforeDelay);
+        Assert.False(FeedFailureTelemetry.Current!.HasFailures);
+    }
+
     /// <summary>
     /// The HTTP helpers are called from paths that never open a scope, so recording must be a
     /// no-op there rather than throwing or leaking into a later scope.
