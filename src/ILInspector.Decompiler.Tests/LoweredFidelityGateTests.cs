@@ -57,12 +57,11 @@ public class LoweredFidelityGateTests
         "SlotDiamondDispatch",
         // Newly compile-checkable only once the harness reconstructs sibling
         // properties as property syntax (#1412): a body's `obj.X` /
-        // object-initializer / `?.X = v` cannot bind to a bare `get_X`/`set_X`
+        // `?.X = v` cannot bind to a bare `get_X`/`set_X`
         // method, so these were silently recompile-failing before. The diffs are
         // honest decompiler over-renders (flipped short-circuit branch with a temp
         // slot; reused-slot temporaries), not harness artifacts.
         "NullConditionalPropertyAssignment",
-        "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
         // SwitchStoreThenUse (#1743) is a known opcode-diff in the sibling sugared
         // FidelityGateTests docket — the ConditionalStoreChainPass ternary
@@ -93,29 +92,11 @@ public class LoweredFidelityGateTests
         // in-parameter operators rendered as illegal `ref`). Now compile-checked,
         // showing honest pre-existing over-renders. Same set as the sugared docket.
         "FloatPositionalPattern",
-        // Expression-tree factory fixtures are valid and Full, but SDK preview6
-        // compile-back reshapes the manually emitted Expression.* calls around
-        // stack-slot/local temporaries. Same preview drift as the sugared gate.
-        "ManualSimpleExpressionTreeFactory",
-        // Same expression-tree docket as the sugared gate: the manual factory
-        // fixtures below decline to honest Expression.* factory-call C# whose
-        // emitted calls recompile through the same preview compile-back temporary
-        // reshaping. Verified by running the Speed=Slow lowered fidelity gate locally.
-        "ManualCanonicalReturnedAsExpression",
-        "ManualCanonicalReturnedAsLambdaExpression",
-        "ManualCanonicalReturnedAsObject",
+        // These malformed/shared-graph near misses keep honest Expression.*
+        // factory calls, but their parameter-alias locals still recompile through
+        // a different stack shape.
         "ManualReusedParameterFactory",
         "ManualDuplicateNameFactory",
-        "ManualUnspellableNameFactory",
-        "ManualConstantOnlyAddFactory",
-        // Same group, added later (#3053) and never docketed on either rail; see the
-        // matching entry in FidelityGateTests.KnownDiffs. Tracked as #3502.
-        "ManualConstantOnlyComparisonFactory",
-        "ManualConstantOnlySubtractFactory",
-        "ManualConstantOnlyMultiplyFactory",
-        "ManualNestedConstantSubtreeFactory",
-        "ManualConstantOnlyDivideByZeroFactory",
-        "ManualConstantOnlyRemainderOverflowFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
@@ -228,6 +209,22 @@ public class LoweredFidelityGateTests
         "Issue2830_ForLoopNestedContinue",
         "Issue2861_ForLoopTryAndCatchContinues",
         "ManualParameterPlusConstantFactory",
+        // #3502: the late inliner now restores an ordered run of stack-held
+        // arguments directly into a returned call. Pin the intended comparison
+        // fix and every sibling row measured Exact on this rail.
+        "ManualCanonicalReturnedAsExpression",
+        "ManualCanonicalReturnedAsLambdaExpression",
+        "ManualCanonicalReturnedAsObject",
+        "ManualConstantOnlyAddFactory",
+        "ManualConstantOnlyComparisonFactory",
+        "ManualConstantOnlyDivideByZeroFactory",
+        "ManualConstantOnlyMultiplyFactory",
+        "ManualConstantOnlyRemainderOverflowFactory",
+        "ManualConstantOnlySubtractFactory",
+        "ManualNestedConstantSubtreeFactory",
+        "ManualSimpleExpressionTreeFactory",
+        "ManualUnspellableNameFactory",
+        "ObjectInitializerArgumentBeforeShortCircuit",
         "OrBoolIntMix",
         "OrBoolUintMix",
         "RecursiveLocalFunction",
