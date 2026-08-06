@@ -2212,11 +2212,9 @@ static class ReturnToSender
         if (sourceIndex is null)
             return null;
 
-        string? signature = string.IsNullOrWhiteSpace(request.SignatureText)
-            ? null
-            : request.SignatureText;
-        if (!sourceIndex.TryFind(
-                new RequestedTarget(request.FullType, request.MethodName, request.Overload, signature),
+        if (!sourceIndex.TryFindForAttribution(
+                new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
+                MetadataTokens.GetToken(request.TargetMethod),
                 out var sourceMember)
             || sourceMember.Body is not { } authoredBody)
         {

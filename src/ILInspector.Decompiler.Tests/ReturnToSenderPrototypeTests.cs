@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -5577,7 +5578,8 @@ public class ReturnToSenderPrototypeTests
             var result = TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return Missing.Symbol;");
+                "return Missing.Symbol;",
+                "return 42;");
 
             Assert.NotNull(result);
             Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
@@ -5615,12 +5617,320 @@ public class ReturnToSenderPrototypeTests
             var result = TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return AlsoMissing.Symbol;");
+                "return AlsoMissing.Symbol;",
+                "return Missing.Symbol;");
 
             Assert.NotNull(result);
             Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
             Assert.Equal(sourcePath, result.SourcePath);
             Assert.Contains("CS0103", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Gates the corpus path for #3804: the authored body is pre-correlated to
+    /// the exact metadata method token, so source declaration order is irrelevant.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_AttributesCorrelatedOverloadByMetadataToken()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ReversedOverloads.cs",
+            """
+            public class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+
+                public int Pick(int value) { return value + 1; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return value + 1;",
+                methodName: "Pick",
+                overload: 0);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source parsing has no exact metadata identity and therefore cannot
+    /// support fault attribution, even for a unique method.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesRawSourceIndex()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("RawSource.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source declaration order can differ from metadata order. Without an
+    /// exact token correlation, fault attribution must fail closed (#3804).
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesReorderedRawOverloads()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ReorderedRawOverloads.cs",
+            """
+            public class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+
+                public int Pick(int value) { return value + 1; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true,
+                methodName: "Pick",
+                overload: 0));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Theory]
+    [InlineData(0x06ffffff)]
+    [InlineData(0x02000001)]
+    public void TryIsolateRecompileFailure_RejectsInvalidCorrelatedToken(int metadataToken)
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("OutOfRangeToken.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                correlatedMetadataTokenOverride: metadataToken));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void AuthoredCorpusBenchmark_RejectsMismatchedModuleCorrelation()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("CorpusCorrelation.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        var corpusPath = Path.Combine(sourceDirectory, "corpus.jsonl");
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
+            var type = reader.GetTypeDefinition(typeHandle);
+            string signature = SignatureIdentity.ForMetadataMethod(reader, type, methodHandle)
+                ?? throw new InvalidOperationException("Expected a method signature.");
+            var (assemblyName, assemblyVersion) = AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath);
+            var record = new AuthoredSourceHarvest.CorpusRecord(
+                assemblyName,
+                assemblyVersion,
+                "test",
+                "Class1",
+                "M",
+                0,
+                signature,
+                MetadataTokens.GetToken(methodHandle),
+                0,
+                reader.GetMethodDefinition(methodHandle).RelativeVirtualAddress,
+                sourcePath,
+                null,
+                null,
+                "return 42;",
+                Guid.NewGuid());
+            File.WriteAllText(
+                corpusPath,
+                JsonSerializer.Serialize(record, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                }));
+
+            Assert.Equal(1, AuthoredCorpusBenchmark.Run([assemblyPath], corpusPath, json: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// Raw source is parsed without the original build's preprocessor symbols.
+    /// A unique syntax member can therefore still be the wrong compiled body.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesRawConditionalSource()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ConditionalSource.cs",
+            """
+            public class Class1
+            {
+                public int M()
+                {
+            #if FEATURE
+                    return 42;
+            #else
+                    return Missing.Symbol;
+            #endif
+                }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return AlsoMissing.Symbol;",
+                authoredBody: null,
+                useRawSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_RejectsCorrelatedMemberFromDifferentModule()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("DifferentModule.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                correlatedModuleVersionIdOverride: Guid.NewGuid()));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_RejectsDuplicateCorrelatedTokens()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("DuplicateToken.cs", assemblySource, out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                "return 42;",
+                addDuplicateCorrelatedToken: true));
         }
         finally
         {
@@ -5648,14 +5958,6 @@ public class ReturnToSenderPrototypeTests
     /// source index is substituted so the lookup succeeds with a null body. Without
     /// the substitution a miss would return null for the wrong reason and prove nothing.
     /// </para>
-    /// <para>
-    /// This gates the common path only. Isolation resolves its source member with
-    /// <c>CorpusMethodIdentity.SignatureText</c> while the index is keyed by
-    /// <c>SignatureIdentity</c>, so its signature lookup always misses and falls
-    /// back to the ordinal (#3804). Where those disagree the two sides can select
-    /// different overloads, and this invariant does not cover that case. The floor
-    /// clearing does not depend on it either way.
-    /// </para>
     /// </remarks>
     [Fact]
     public void TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody()
@@ -5670,23 +5972,19 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
         try
         {
-            var bodyless = ReturnToSenderSourceIndex.FromMembers(
-            [
-                new ReturnToSenderSourceMember("Class1", "M", 0, "", sourcePath, Body: null),
-            ]);
-
             // Same target and same rejected body that yields BodyDefect against a
-            // real index; only the authored body is absent.
+            // correlated member with a body; only the authored body is absent.
             Assert.Null(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
                 "return Missing.Symbol;",
-                sourceIndexOverride: bodyless));
+                authoredBody: null));
 
             Assert.NotNull(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
-                "return Missing.Symbol;"));
+                "return Missing.Symbol;",
+                "return 42;"));
         }
         finally
         {
@@ -5719,16 +6017,35 @@ public class ReturnToSenderPrototypeTests
         string assemblyPath,
         string sourcePath,
         string rejectedTargetBody,
-        ReturnToSenderSourceIndex? sourceIndexOverride = null)
+        string? authoredBody,
+        bool useRawSourceIndex = false,
+        string methodName = "M",
+        int overload = 0,
+        Guid? correlatedModuleVersionIdOverride = null,
+        bool addDuplicateCorrelatedToken = false,
+        int? correlatedMetadataTokenOverride = null)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
 
-        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
-        var function = IrImporter.Import(source, "Class1", "M", 0)
-            ?? throw new InvalidOperationException("Could not import Class1::M.");
+        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", methodName, overload);
+        var moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+        string? signature = SignatureIdentity.ForMetadataMethod(reader, typeDefinition, methodHandle);
+        if (signature is not null
+            && !ReturnToSender.ResolvesUniquelyBySignature(
+                reader,
+                typeDefinition,
+                methodName,
+                signature,
+                methodHandle))
+        {
+            signature = null;
+        }
+        var function = IrImporter.Import(source, "Class1", methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import Class1::{methodName}#{overload}.");
         var request = new MethodArtifactRequest(
             AssemblyPath: assemblyPath,
             Reader: reader,
@@ -5737,12 +6054,47 @@ public class ReturnToSenderPrototypeTests
             TargetMethod: methodHandle,
             TargetBody: new ProductTargetBody(rejectedTargetBody, []),
             FullType: "Class1",
-            MethodName: "M",
-            Overload: 0,
+            MethodName: methodName,
+            Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
             ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
-        var sourceIndex = sourceIndexOverride ?? ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        ReturnToSenderSourceIndex? sourceIndex;
+        if (useRawSourceIndex)
+        {
+            sourceIndex = ReturnToSenderSourceIndex.TryCreate([sourcePath]);
+        }
+        else
+        {
+            var correlatedMembers = new List<ReturnToSenderSourceMember>
+            {
+                new(
+                    "Class1",
+                    methodName,
+                    overload,
+                    signature ?? "",
+                    sourcePath,
+                    authoredBody,
+                    correlatedMetadataTokenOverride ?? MetadataTokens.GetToken(methodHandle),
+                    correlatedModuleVersionIdOverride ?? moduleVersionId),
+            };
+            if (addDuplicateCorrelatedToken)
+            {
+                correlatedMembers.Add(new(
+                    "Other",
+                    methodName,
+                    overload,
+                    signature ?? "",
+                    sourcePath,
+                    authoredBody,
+                    MetadataTokens.GetToken(methodHandle),
+                    moduleVersionId));
+            }
+
+            sourceIndex = ReturnToSenderSourceIndex.FromCorrelatedMembers(
+                correlatedMembers,
+                reader);
+        }
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
@@ -5770,7 +6122,8 @@ public class ReturnToSenderPrototypeTests
     static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
         MetadataReader reader,
         string typeName,
-        string methodName)
+        string methodName,
+        int overload = 0)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -5778,15 +6131,19 @@ public class ReturnToSenderPrototypeTests
             if (!string.Equals(reader.GetFullTypeName(type), typeName, StringComparison.Ordinal))
                 continue;
 
+            int seen = 0;
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal))
+                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
+                    && seen++ == overload)
+                {
                     return (typeHandle, methodHandle);
+                }
             }
         }
 
-        throw new InvalidOperationException($"Could not find {typeName}::{methodName}.");
+        throw new InvalidOperationException($"Could not find {typeName}::{methodName}#{overload}.");
     }
 
     [Fact]
