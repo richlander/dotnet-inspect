@@ -287,9 +287,19 @@ groups corpus rows by assembly, matches them to the supplied pinned assemblies b
 assembly name, feeds the vendored authored bodies into the same
 source-correspondence oracle the on-demand census uses (through an in-memory
 `ReturnToSenderSourceIndex`), and emits a taste card (`--json` for structured
-output). Each target is `Correct` (valid, matches authored), one of four
+output). Before fault attribution is enabled, every row must match the supplied
+assembly's module version ID, MethodDef token, type, method, overload, and
+normalized signature. A missing or inconsistent correlation fails the run
+instead of silently reducing the product-body-defect count. Each target is
+`Correct` (valid, matches authored), one of four
 valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
 diagnostic buckets below:
+
+Raw syntax indexes used by fixture and on-demand source probes do not carry that
+typed correlation, so fault attribution is not attempted for them. Their
+original compile diagnostic remains visible and an invalid result is
+`Unclassified`, not a success. #3835 tracks restoring attribution through exact
+PDB method spans.
 
 - **lowering (inherent)** — authored used sugar the compiler erases (iterator,
   async, dynamic call site); unrecoverable from IL.
