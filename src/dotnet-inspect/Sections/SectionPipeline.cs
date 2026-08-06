@@ -24,7 +24,13 @@ public sealed class SectionEntry<TModel>
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
-public sealed record SectionCategory(string Name, string[] Sections);
+public enum SectionCategoryRole
+{
+    Base,
+    Domain
+}
+
+public sealed record SectionCategory(string Name, SectionCategoryRole Role, string[] Sections);
 
 public static class SectionAnnotations
 {
@@ -66,11 +72,11 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
-    /// Drops the computed <c>@All</c> pole from this pipeline's category map, making it
-    /// unresolvable as a selector rather than merely undiscoverable. It is an artifact of the
-    /// legacy catalog: it renders a superset nobody asked for. A command whose sections are
-    /// reachable through topical doors and verbosity does not need it, and keeping it
-    /// resolvable-but-unlisted leaves a surface no discovery output describes.
+    /// Drops the computed <c>@All</c> and <c>@Hidden</c> poles from this pipeline's category map,
+    /// making them unresolvable as selectors rather than merely undiscoverable. A command whose
+    /// sections are completely owned by authored category doors and automatic presets does not
+    /// need computed complements or supersets, and keeping them resolvable-but-unlisted leaves a
+    /// surface no discovery output describes.
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
@@ -152,6 +158,20 @@ public sealed class SectionPipeline<TModel>
     /// construction instead of silently dropping the section out of its category.
     /// </summary>
     public SectionPipeline<TModel> AddCategory(string name, params string[] sections)
+        => AddCategory(name, SectionCategoryRole.Domain, sections);
+
+    /// <summary>
+    /// Declares a category whose members form part of the command's ordinary evidence scope.
+    /// Default discovery and automatic render presets derive their candidate set from the union
+    /// of base categories; separate domains remain reachable through their category doors.
+    /// </summary>
+    public SectionPipeline<TModel> AddBaseCategory(string name, params string[] sections)
+        => AddCategory(name, SectionCategoryRole.Base, sections);
+
+    private SectionPipeline<TModel> AddCategory(
+        string name,
+        SectionCategoryRole role,
+        params string[] sections)
     {
         if (!name.StartsWith("@", StringComparison.Ordinal))
             throw new ArgumentException("Section category names must start with '@'.", nameof(name));
@@ -164,7 +184,7 @@ public sealed class SectionPipeline<TModel>
                 "Category membership must name a registered section; use the SectionNames constant " +
                 "the descriptor returns so renames move both together.");
 
-        _categories.Add(new SectionCategory(name, sections));
+        _categories.Add(new SectionCategory(name, role, sections));
         return this;
     }
 
@@ -216,6 +236,33 @@ public sealed class SectionPipeline<TModel>
     public IReadOnlySet<string> GetListedCategoryDoors()
         => _categories.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The authored categories that contribute members to the command's base scope.</summary>
+    public IReadOnlySet<string> GetBaseCategoryDoors()
+        => _categories
+            .Where(category => category.Role == SectionCategoryRole.Base)
+            .Select(category => category.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Selectable sections in the union of the command's base categories, preserving section
+    /// registration order and de-duplicating sections that belong to more than one base category.
+    /// </summary>
+    public IReadOnlyList<string> BaseSectionNames
+    {
+        get
+        {
+            var baseMembers = _categories
+                .Where(category => category.Role == SectionCategoryRole.Base)
+                .SelectMany(category => category.Sections)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return _entries
+                .Where(entry => IsSelectable(entry) && baseMembers.Contains(entry.Name))
+                .Select(entry => entry.Name)
+                .ToArray();
+        }
+    }
+
     /// <summary>
     /// Section names that are independently selectable with <c>-S</c>. Headless context
     /// sections such as "Summary" are registered so renderers can include compact preambles,
@@ -244,7 +291,7 @@ public sealed class SectionPipeline<TModel>
     /// what "fixed overview" means.
     /// </remarks>
     public string[] FixedOverviewSectionNames => _entries
-        .Where(e => IsSelectable(e) && IsFixedOverviewMember(e))
+        .Where(e => IsSelectable(e) && IsInAutomaticScope(e) && IsFixedOverviewMember(e))
         .Select(e => e.Name)
         .ToArray();
 
@@ -264,7 +311,7 @@ public sealed class SectionPipeline<TModel>
         foreach (var category in _categories)
             categories[category.Name] = category.Sections;
 
-        if (_curatedCatalog)
+        if (_curatedCatalog && _computedPoles)
             categories[HiddenCategory] = GetHiddenSections().ToArray();
 
         return categories;
@@ -293,7 +340,11 @@ public sealed class SectionPipeline<TModel>
     /// under their curated <c>@category</c>; they remain selectable and drillable by exact name.
     /// </summary>
     public IReadOnlySet<string> GetCatalogHiddenSections()
-        => _curatedCatalog
+        => _curatedCatalog && HasBaseCategoryScope
+            ? _entries.Where(e => IsSelectable(e) && !IsInAutomaticScope(e))
+                .Select(e => e.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : _curatedCatalog
             ? _entries.Where(e => IsSelectable(e) && ((!IsAllMember(e) && !e.Noisy) || !e.ListedInCatalog))
                 .Select(e => e.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -303,9 +354,9 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
-    /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
-    /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
-    /// sections that render only outside the compact default preset.
+    /// <c>"verbose"</c> for explicitly applicable alternate sections that render only outside
+    /// the compact default preset. <see cref="SectionEntry{TModel}.ExplicitOnly"/> remains an
+    /// execution policy and is deliberately not exposed as section identity.
     /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
@@ -313,13 +364,7 @@ public sealed class SectionPipeline<TModel>
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var e in _entries)
         {
-            if (e.ExplicitOnly)
-            {
-                map[e.Name] = SectionAnnotations.OptIn;
-                continue;
-            }
-
-            if (e.HasExplicitApplicability && !e.Info)
+            if (!e.ExplicitOnly && e.HasExplicitApplicability && !e.Info)
                 map[e.Name] = SectionAnnotations.Verbose;
         }
         return map;
@@ -674,16 +719,16 @@ public sealed class SectionPipeline<TModel>
             return false;
 
         // Bare -S: the network-free "fixed" overview. Membership is a function of the section's
-        // declared growth class + cost only (never measured length), so the set is identical for
-        // every package: structurally Fixed sections that touch no network. This is deliberately
-        // narrower than the -v:n ladder (which also admits package-growing Terse/Informative rows).
+        // base-category scope + declared growth class + cost (never measured length). This is
+        // deliberately narrower than the -v:n ladder, which also admits package-growing
+        // Terse/Informative rows.
         if (fixedOverview && _curatedCatalog)
-            return IsFixedOverviewMember(entry);
+            return IsInAutomaticScope(entry) && IsFixedOverviewMember(entry);
 
-        // Curated catalog: the verbosity ladder is driven by declared size class + cost, not
-        // section position. Everything else (@All/@Hidden, catalog listing) is computed from these.
+        // Curated catalog: base categories define the automatic candidate scope, then the
+        // verbosity ladder filters that scope by declared size class + cost.
         if (_curatedCatalog)
-            return IsCuratedAutoRendered(entry, verbosity);
+            return IsInAutomaticScope(entry) && IsCuratedAutoRendered(entry, verbosity);
 
         // Legacy pipelines: verbosity-based selection using position and IsExpensive
         return verbosity switch
@@ -723,6 +768,19 @@ public sealed class SectionPipeline<TModel>
 
     private static bool IsHeadlessSummary(SectionEntry<TModel> entry)
         => string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);
+
+    private bool HasBaseCategoryScope
+        => _categories.Any(category => category.Role == SectionCategoryRole.Base);
+
+    private bool IsInAutomaticScope(SectionEntry<TModel> entry)
+    {
+        if (!HasBaseCategoryScope)
+            return true;
+
+        return _categories
+            .Where(category => category.Role == SectionCategoryRole.Base)
+            .Any(category => category.Sections.Contains(entry.Name, StringComparer.OrdinalIgnoreCase));
+    }
 
     private static bool IsSelectable(SectionEntry<TModel> entry)
         => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);

@@ -64,9 +64,8 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// The disclosure gate. No verbosity may surface a metadata section, because the tables are
-    /// unbounded and would swamp every default view. Covers the whole ladder plus <c>-S @All</c>,
-    /// rather than a single level, so promoting one verbosity or fanning out the all-selector
-    /// cannot slip through.
+    /// unbounded and would swamp every default view. Covers the whole ladder plus both base
+    /// category doors, so promoting one verbosity or broadening the base scope cannot slip through.
     ///
     /// Suppression is enforced twice over — <c>ExplicitOnly</c> and <c>SectionCost.Unbounded</c>
     /// were each measured to be sufficient alone — so this gate fails only when both are lost.
@@ -84,13 +83,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain(MetadataHeadingPrefix, output, StringComparison.Ordinal);
 
-        // @All is a separate door: it fans out to every section a verbosity would reach, so it is
-        // its own way for an unbounded table to arrive unasked-for.
-        var (allExit, allOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, verbosity, "-S", "@All", "--tips", "q");
+        foreach (var category in new[] { SectionCategoryNames.Library, SectionCategoryNames.Surface })
+        {
+            var (categoryExit, categoryOutput, _) = await RunAppAsync(
+                "library", TestAssemblyPath, verbosity, "-S", category, "--tips", "q");
 
-        Assert.Equal(0, allExit);
-        Assert.DoesNotContain(MetadataHeadingPrefix, allOutput, StringComparison.Ordinal);
+            Assert.Equal(0, categoryExit);
+            Assert.DoesNotContain(MetadataHeadingPrefix, categoryOutput, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
@@ -159,7 +159,8 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_DiscoveryDrillIn_ListsOnlyTablesWithRows()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         var names = DiscoveryNames(output);
@@ -554,17 +555,24 @@ public partial class CommandExecutionTests
     /// always listed satisfies the second.
     /// </summary>
     [Fact]
-    public async Task MetadataLens_HeapSection_IsDiscoverableOnlyWithItsCoordinate()
+    public async Task MetadataLens_HeapSection_StructuralAndEffectiveDiscoveryDiffer()
     {
-        var (withoutExit, withoutOutput, _) = await RunAppAsync(
+        var (structuralExit, structuralOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, structuralExit);
+        Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(structuralOutput));
+
+        var (withoutExit, withoutOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, withoutExit);
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
 
         var (withExit, withOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--heap", "#Strings:1", "--tsv", "--tips", "q");
+            "--heap", "#Strings:1", "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, withExit);
         Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(withOutput));
@@ -683,7 +691,7 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// The heap listings join the disclosure gate: they are the largest amplification surface in
-    /// the projection, so no verbosity and no <c>-S @All</c> may render one.
+    /// the projection, so no verbosity and no base-category selection may render one.
     /// </summary>
     [Theory]
     [InlineData("-v:q")]
@@ -693,7 +701,8 @@ public partial class CommandExecutionTests
         foreach (var args in new[]
                  {
                      new[] { "library", TestAssemblyPath, verbosity, "--tips", "q" },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", "@All", "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Library, "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Surface, "--tips", "q" },
                  })
         {
             var (exit, output, _) = await RunAppAsync(args);

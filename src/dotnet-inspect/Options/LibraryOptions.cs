@@ -183,6 +183,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string[]? Discover { get; init; }
 
+    /// <summary>
+    /// Run the producers needed to establish actual section effectiveness during discovery.
+    /// </summary>
+    public bool Effective { get; init; }
+
     public bool Tree { get; init; }
 
     /// <summary>

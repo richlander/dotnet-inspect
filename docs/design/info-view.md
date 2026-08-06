@@ -1,6 +1,8 @@
 # Bare `-S` default view
 
-Bare `-S` renders a curated high-density view. It is not discovery; use `-D` to discover effective sections and columns.
+Bare `-S` renders a curated high-density view. It is not discovery; use `-D`
+for fast orientation and `-D --effective` when actual producer-backed
+effectiveness is required.
 
 This view is a high-density preset for the question an agent or human is most likely asking after the default output is too thin but before exhaustive inspection is warranted. It should answer one bullseye question with a small set of stable sections.
 
@@ -15,16 +17,18 @@ A default preset should:
 - prefer summary variants when they answer the question;
 - avoid exhaustive inventories unless they are the point of the question;
 - avoid compact context rows; focused `-S Section` owns that framing;
-- stay distinct from `-S @All`, which is the exhaustive document view.
+- stay distinct from explicitly selected domain categories.
 
-Sections are stable content units. Presets decide where those sections appear. The same section can appear in the default view, focused selection, `-S @All`, and discovery output.
+Sections are stable content units. Presets decide where those sections appear.
+The same section can appear in the default view, focused selection, an authored
+category, and discovery output.
 
 ## Current presets
 
 | Command/context | Bullseye question | Sections | Why these sections |
 | --- | --- | --- | --- |
-| `package X` | What is this package, and what does it ship? | the network-free `Fixed` sections: `Manifest`, `Package Info`, `Package nuspec file`, `Package README file`, `Signature` | Every one has a row set that does not vary with the package, so the overview is the same shape for a one-assembly package and a 47-assembly one. `Package Info`'s `Content` field already summarizes the asset shape. |
-| `library X` | What is this assembly, and what dense metadata signals are present? | `Library Info` | Library Info includes identity plus counts for large metadata lists, avoiding noisy inventories while signaling what exists. |
+| `package X` | What is this package, and what does it ship? | Effective network-free `Fixed` sections | The candidate rule is stable while applicability remains honest: a package without a README omits that section. `Package Info` summarizes the asset shape without listing every file. |
+| `library X` | What is this assembly, and what dense metadata signals are present? | Effective `Base ∩ Fixed ∩ NetworkFree` sections | Identity and bounded evidence remain compact; large metadata inventories stay behind focused sections. |
 | selected `member Type.Member:N` | What is this overload, and what does it do? | `Signature`, `Decompiled Source` | Contract plus readable raised C# usually answers the first implementation question without IL or SourceLink source. |
 | single `type Type` | What is this type? | `Type Info` | The one section whose row set does not grow with the type, so the overview is the same shape for a 250-member class and an 8-member enum. `Interfaces` is the one collection that is counted rather than listed (it reports `9`). Generic identity and constraints stay width-variable: `Type`, `Base`, and `Type Parameters` all spell out every parameter, so rows widen with arity even though the row *count* does not change. Tracked as #3616. |
 | broad `member Type` list view | What API member groups are in this type space? | Member summary sections (`Constructors`, `Properties`, `Method Groups`, etc.) | Compact per-member-kind summaries show return types and overload counts without full signatures. |
@@ -47,8 +51,9 @@ Some commands or contexts should not get a default preset until there is a clear
 | default / `-v:m` | What is the quickest useful answer? |
 | bare `-S` | What is the best dense evidence bundle? |
 | `-D` | What can I select or project? |
+| `-D --effective` | Which base sections actually have data after full probing? |
 | `-S Section` | Show this specific evidence. |
-| `-S @All` | Show the exhaustive document coherently. |
+| `-S @Category` | Show one authored evidence domain. |
 
 ## Maintenance guidance
 

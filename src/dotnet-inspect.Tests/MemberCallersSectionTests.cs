@@ -75,14 +75,10 @@ public class MemberCallersSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Callers\tsection (opt-in)", result.Output);
-        Assert.Contains("Calls\tsection (opt-in)", result.Output);
-        Assert.Contains("Unsafe Operations\tsection (opt-in)", result.Output);
-        // Regular sections sort before opt-in sections.
-        Assert.True(
-            result.Output.IndexOf("Signature\tsection\n", StringComparison.Ordinal)
-                < result.Output.IndexOf("Calls\tsection (opt-in)", StringComparison.Ordinal),
-            "Regular sections should be listed before opt-in sections.");
+        Assert.Contains("Callers\tsection", result.Output);
+        Assert.Contains("Calls\tsection", result.Output);
+        Assert.Contains("Unsafe Operations\tsection", result.Output);
+        Assert.DoesNotContain("(opt-in)", result.Output);
     }
 
     [Fact]

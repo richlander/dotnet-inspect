@@ -53,8 +53,9 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
-            using var service = bodyAnalysisFeatures
-                == Analysis.LibraryBodyAnalysisFeatures.None
+            using var service = discoveryOnly
+                ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(path, logger.Log)
                     : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
@@ -225,20 +226,22 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Effective-section discovery (-D) must be network-free regardless of
-            // verbosity or -S filters. The SourceLink family is listed from the
-            // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
-            // runs no network-capable source stage: no PDB download, no source-URL
-            // HEAD audit, no integrity GET, and no source-file collection. (For an
-            // embedded/adjacent PDB the local audit stages would otherwise fire.)
-            // This keeps -D listings verbosity-independent and keeps the effective
-            // cache token (probe-driven) consistent with what the inspection records
-            // for HasSourceLink.
-            var sourcePlan = discoveryOnly
-                ? default
-                : LibrarySourcePlans.For(
-                    options.UserVerbosity,
-                    options.IncludeSections);
+            // Cheap discovery needs local applicability facts, not the source-analysis model.
+            // Preserve the PDB facts that drive section gates, then avoid source findings,
+            // compilation records, builder inference, and every network-capable stage.
+            if (discoveryOnly)
+            {
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
+                inspection.WindowsPdbDetected = pdbContext.WindowsPdbDetected;
+                return inspection;
+            }
+
+            var sourcePlan = LibrarySourcePlans.For(
+                options.UserVerbosity,
+                options.IncludeSections);
 
             await AuditAsync(
                 service,

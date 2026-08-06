@@ -1,79 +1,134 @@
 # Progressive disclosure model
 
-dotnet-inspect uses progressive disclosure to reduce noise, token cost, and network latency. The core rule is: start with cheap, high-signal output; opt into broader or more expensive work only when needed.
+dotnet-inspect uses progressive disclosure to control noise, latency, and
+network use. The core rule is: start with cheap evidence in the command's base
+scope, then require an explicit gesture for broader domains or larger probe
+budgets.
 
-This model combines four mechanisms:
+The model combines four mechanisms:
 
-1. **Verbosity levels** for curated default detail.
-2. **Section selection** with `-S` for explicit scope and backpressure.
-3. **Discovery** with `-D` so agents can inspect available sections/columns before choosing.
-4. **Opt-in sections** for expensive work that should never run accidentally.
+1. **Verbosity** supplies automatic presets over base categories.
+2. **Section selection** with `-S` supplies explicit scope and backpressure.
+3. **Discovery** with `-D` describes the catalog before content is requested.
+4. **Capabilities** gate network, source-content, and other expensive work.
 
-`-D` and `-S` are intentionally capitalized. They form a small query namespace for discovery and section selection that is less likely to collide with command-specific lowercase options. This matters because the query system is broader than an output formatter: it can affect data collection, network authorization, projection, and rendering. Tools that use lowercase `-f` for templates can mostly get away with it when `-f` means "format output"; a general query system needs a more distinct namespace.
+`-D` and `-S` are intentionally capitalized. They form a query namespace that
+is less likely to collide with command-specific lowercase options.
 
 ## Verbosity
 
-Verbosity is the curated path. It controls how much of the default view appears.
+Verbosity reveals more about the same subject. It must not silently enter
+unrelated domain categories.
 
 | Level | Flag | Intent |
-| ----- | ---- | ------ |
-| Quiet | `-v:q` | Compact identity/context only. |
-| Minimal | `-v:m` | Default high-value summary section(s). |
-| Normal | `-v:n` | Standard non-network sections. |
-| Detailed | `-v:d` | Broad detail, including sections that are allowed by detailed verbosity. |
+| --- | --- | --- |
+| Quiet | `-v:q` | Compact identity/context only |
+| Minimal | `-v:m` | One high-value base section |
+| Normal | `-v:n` | Multiple network-free base sections |
+| Detailed | `-v:d` | All applicable base sections |
 
-Verbosity should reveal more about the same subject. It should not silently run slow source-content checks or unrelated lenses.
+Minimal views should remain close to one screenful. Prefer compact fields,
+counts, and summaries over unbounded inventories.
 
-Minimal/default views use a summary strategy: keep the answer close to one screenful by showing compact fields, counts, or one row per logical item. They should not render long unbounded metadata lists. When a long list is valuable, the minimal view should expose a count or summary signal and leave the full list to a named section, higher verbosity, or `-S @All`.
+## Categories
+
+Base categories define ordinary command evidence. Domain categories are
+separate lenses such as `@Performance`, `@Metadata`, and `@SourceLink`.
+
+Automatic verbosity uses only the base-category union. Selecting an exact
+domain category is the gesture that enters that domain.
+
+There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
+need broad evidence select the relevant authored categories explicitly.
 
 ## Section selection
 
-Bare `-S` renders a curated high-density view. `-S <name>` selects sections by name or wildcard:
+`-S <name>` selects sections or categories by exact name, legacy alias, or
+wildcard:
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Async*"
-dotnet-inspect package System.Text.Json -S "Package Info,Dependencies"
+dotnet-inspect library System.Text.Json -S @Performance
 ```
 
-Section selection does two things:
+Selection controls both rendering and data collection. Only producers needed
+by the requested sections should run.
 
-- It controls rendering.
-- It applies backpressure to data collection, so only scanners needed for requested sections run.
+Focused output retains compact target context where needed so a section query
+does not lose identity, version, TFM, or source information.
 
-For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
+### Bare `-S`
 
-Bare `-S` is command/context-specific: package and library both use their curated fixed overview (see below); library leads with `Library Info`; a single `type Type` uses the fixed overview `Type Info`; a `type` listing uses the fixed overview `API Info`; broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` default view](info-view.md) for the bullseye question each preset is meant to answer.
+Bare `-S` renders the command's compact network-free overview:
 
-For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments, and `Original Source` is SourceLink-backed source text for one method; both render via explicit `-S` (or `-S @Source`, which also includes `IL`). The structured dual of `Annotated Source`, `Facts` (a hidden-fact table), is opt-in via `-S "Facts"` / `--tsv`.
+```text
+Base union AND Fixed AND NetworkFree AND Effective
+```
+
+This is a stable candidate rule, not a promise of an identical rendered set
+for every target. A missing README or unavailable symbol record legitimately
+removes that section.
+
+Other command contexts may use an equivalent focused preset while they migrate
+to authored base categories. See [Bare `-S` default view](info-view.md).
 
 ## Discovery
 
-`-D` discovers sections and columns:
+The library command is the reference discovery model:
 
-```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json -D
-dotnet-inspect member JsonSerializer --package System.Text.Json -D "Method Groups"
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -D Methods
-```
+| Gesture | Meaning |
+| --- | --- |
+| `-D` | Cheap, target-aware base catalog and applicable category doors |
+| `-D --effective` | Full effective base catalog |
+| `-D @Category` | Structural category membership |
+| `-D @Category --effective` | Effective category membership |
+| `-D --schema` | Complete structural graph without target inspection |
+| `-D Section` | Structural section fields |
+| `-D Section --effective` | Fields backed by a full section probe |
 
-For target-based queries, `-D` defaults to effective discovery: it resolves the target and reports only sections/columns that can actually render for that target and option set. Use `--schema` for the static, offline schema.
+Plain `-D` must remain network-free and should return in under 0.5 seconds for
+a local target. Resolving a package that is not local is target acquisition and
+can exceed that budget.
+
+`-D --effective` spends the larger producer budget. Without an explicit
+category, it remains scoped to base categories so it cannot implicitly run
+performance, metadata, SourceLink, and other domains together.
+
+Commands not yet migrated may retain their existing discovery behavior. New
+work should follow the reference model rather than copy a legacy command.
+
+## Network and source capabilities
+
+Package acquisition and symbol/source acquisition are separate.
+
+- A package may be downloaded to resolve the requested target.
+- Default gestures must not automatically fetch symbols or source content.
+- Embedded, adjacent, or cached symbols may be used by network-free gestures
+  when their latency budget permits.
+- Selecting a network-bound section or running full effective discovery for a
+  category may authorize the capability declared by that section.
+
+Capability authorization comes from the user's gesture, not from an internal
+verbosity promotion.
 
 ## Projection
 
-After selecting a section, `--columns` and `--fields` project the data:
+After selecting a section, `--columns` and `--fields` project its data:
 
 ```bash
-dotnet-inspect member JsonSerializer --package System.Text.Json -m Serialize -S Methods --columns "Name;Signature;Obsolete"
+dotnet-inspect member JsonSerializer --package System.Text.Json \
+  -m Serialize -S Methods --columns "Name;Signature;Obsolete"
 ```
 
-Projection is validated against the selected section schema. Unknown fields/columns produce diagnostics; valid-but-empty fields are reported as no data.
+Projection is validated against the selected section schema. Unknown names
+produce diagnostics; valid-but-empty names are reported as no data.
 
-Future row filtering and ordering should extend this same schema path rather
-than adding one flag per column. See [Row query and ordering](row-query-order.md)
-for the proposed `--where`, `--order-by`, `--top`, and `--schema` contract.
+Future filtering and ordering should extend the shared row-query path rather
+than add one flag per column. See
+[Row query and ordering](row-query-order.md).
 
-## Counts and row limits
+## Counts and limits
 
 Use built-in limiters instead of shell pipes:
 
@@ -81,45 +136,33 @@ Use built-in limiters instead of shell pipes:
 dotnet-inspect library System.Private.CoreLib -S "Async*" --count
 dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 10
 dotnet-inspect package System.Text.Json -n 12
-dotnet-inspect package System.Text.Json -n 8 --tail
 ```
 
-- `--count` counts table rows for exactly one selected section.
-- `-n N` and numeric shorthand like `-6` limit output lines.
-- `--tail` takes the count from the end instead of the start.
-- `--rows N` changes the count into per-table data rows while preserving headings and table headers; `--rows 2..10` names the rows instead of counting them.
+- `--count` reports rows for the selected candidate set, including zero-row
+  sections when category membership is being counted.
+- `-n N` and numeric shorthand such as `-6` limit output lines.
+- `--tail` takes lines from the end.
+- `--rows` limits rows within each table while preserving headings and headers.
 
-## Opt-in sections
+## Explicit-only execution
 
-Some sections are explicit-only because they require stronger user intent than detailed verbosity can imply: they may fetch source content, scale with source-file count, or represent exhaustive/diagnostic work rather than a normal detailed view.
+Some sections never enter automatic verbosity because they fetch content,
+scale without a useful bound, or represent specialized diagnostics.
+`ExplicitOnly` is an internal execution policy, not part of the section's
+user-facing identity.
 
-Examples:
+Select those sections or their authored category explicitly:
 
 ```bash
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
-dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S "SourceLink: Availability"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
+dotnet-inspect library System.Text.Json -S @Performance
 ```
 
-These sections do not run from normal verbosity or broad default output. Select them explicitly, or use `-S @All` when you intentionally want every selectable section, including opt-in sections.
+## Maintenance guidance
 
-## `-S @All`
-
-`-S @All` means "select every section the command exposes," including opt-in sections. It renders the command's default/minimal section first, then the remaining sections in alphabetical order. Unlike focused section selection, it does not add the compact context row; the goal is one coherent exhaustive document. It is useful for exhaustive inspection and testing, but agents should avoid it as a default first move because it can authorize expensive work.
-
-Prefer:
-
-1. Start with a targeted section such as `Signals`, `Package Info`, `Package files`, or `Async*`.
-2. Use `-D` to discover more sections.
-3. Use `-S @All` only when the task truly requires exhaustive output.
-
-## Agent guidance
-
-When maintaining commands or docs:
-
-- Preserve cheap defaults.
-- Put slow work behind explicit sections or capability-gated detailed verbosity.
-- Keep section ownership clear; avoid duplicated rows across sections.
-- Add `-D`/schema coverage when adding new sections/columns.
-- Update `skills/dotnet-inspect/SKILL.md` when a progressive-disclosure behavior changes.
+- Preserve cheap, network-free defaults.
+- Put unrelated domains behind authored category doors.
+- Keep selection backpressure wired through producer demand.
+- Add structural and effective discovery coverage for new sections.
+- Do not infer category membership from section names.
+- Update `skills/dotnet-inspect/SKILL.md` when user-facing disclosure changes.

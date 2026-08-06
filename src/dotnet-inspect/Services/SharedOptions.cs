@@ -62,6 +62,10 @@ public class SharedOptions
     public Option<string?> Fields { get; }
     public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
+    public Option<bool> Effective { get; } = new("--effective")
+    {
+        Description = "With -D: run the producers needed to identify sections with data"
+    };
 
     // Performance Triage row predicates
     public Option<bool> PerformanceTriageLoop { get; } = new("--loop") { Description = "Performance Triage: show only opportunities inside loops" };
@@ -121,7 +125,7 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections/categories by name, wildcard, or @All (comma/semicolon-separated)",
+            Description = "Select sections/categories by name or wildcard (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");

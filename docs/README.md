@@ -35,7 +35,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
 | [Architecture](architecture.md) | Current command and metadata architecture. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
-| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for verbosity, `-D`/`-S`, opt-in sections, `-S @All`, counts, and row limits. |
+| [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
 | [Platform Components](platform-components.md) | Accessing SDK libraries vs NuGet packages. |
 | [Private NuGet Feeds](private-feeds.md) | How to give the tool access to a private feed: installing a credential provider, unattended and CI setup, and the `nuget.config` fallback. |

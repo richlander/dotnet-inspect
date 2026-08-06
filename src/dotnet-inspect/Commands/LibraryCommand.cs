@@ -99,12 +99,32 @@ public class LibraryCommand
         }
         options = aliasNormalized.Options;
 
-        // Static discovery mode: -D --schema lists schema without resolving/loading the library.
+        if (options.Effective && options.Discover == null)
+        {
+            CommandError.Write("--effective requires -D/--discover.");
+            return 1;
+        }
+        if (options.Effective && options.Schema)
+        {
+            CommandError.Write("--effective cannot be combined with --schema.");
+            return 1;
+        }
+
+        // Schema and named discovery are structural by default. They describe the catalog without
+        // resolving the target or running producers. Bare -D with a target is the cheap,
+        // target-aware orientation gesture; --effective opts named or bare discovery into producer
+        // execution.
         if (options.Discover != null)
         {
-            if (!options.Schema && hasInputSource)
+            bool requiresInspection = hasInputSource
+                && !options.Schema
+                && (options.Effective
+                    || options.Discover.Length == 0
+                    || HasILOffsetCoordinate(options)
+                    || HasHeapCoordinate(options));
+            if (requiresInspection)
             {
-                // Need to run pipeline to determine effective sections — handled after data collection below.
+                // Handled after data collection below.
             }
             else
             {
@@ -113,8 +133,8 @@ public class LibraryCommand
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap(),
-                    // --schema reveals the full catalog including the @Hidden pole; a static -D
-                    // without --schema keeps the curated top-level view.
+                    // --schema reveals every registered section. Structural category drill-down
+                    // keeps the curated top-level scope when no target inspection is requested.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors: pipeline.GetListedCategoryDoors(),
                     projection: options);
@@ -130,8 +150,7 @@ public class LibraryCommand
         // at Normal so the cache-only PDB read stays enabled (never downgrading a higher verbosity
         // the user asked for, in which case the normal curated ladder applies instead of the fixed
         // overview). Combined with an explicit selector the explicit selection wins and the marker
-        // is dropped, which is what it has always done - it used to emit a spurious "@Default not
-        // found" warning on the way. See #3547.
+        // is dropped. See #3547.
         if (options.Discover == null && options.SelectDefault)
         {
             options = options with { SelectDefault = false };
@@ -139,11 +158,11 @@ public class LibraryCommand
                 options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
-        // -D defaults to effective discovery for target-based commands.
-        bool effectiveDiscovery = options.Discover != null && !options.Schema && hasInputSource;
+        bool discoveryInspection = options.Discover != null && !options.Schema && hasInputSource;
+        bool fullEffectiveDiscovery = discoveryInspection && options.Effective;
         var userVerbosity = options.Verbosity; // preserve for display formatting
         options = options with { UserVerbosityOverride = userVerbosity };
-        if (effectiveDiscovery)
+        if (fullEffectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
         var normalized = NormalizeILOffsetSelection(options);
@@ -162,11 +181,18 @@ public class LibraryCommand
         }
         options = heapNormalized.Options;
 
-        // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
-        // render by exact name, but it is not a render selector. This keeps -S from fanning out to
-        // unbounded @Hidden members as a group.
-        if (RejectHiddenRenderSelector(options.Select))
-            return 1;
+        // --effective with a named section/category scopes producer execution to that structural
+        // selection. Bare --effective is scoped separately to the base-category union so it cannot
+        // implicitly run unrelated domains.
+        if (fullEffectiveDiscovery && options.Discover is { Length: > 0 })
+        {
+            var discoverResult = SelectResolver.ResolveSelectAsSections(
+                options.Discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(), selectDefault: false);
+            if (SelectOutput.WriteUnresolved(discoverResult))
+                return 1;
+            options = options with { IncludeSections = discoverResult.Sections };
+        }
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -314,19 +340,46 @@ public class LibraryCommand
                 return 1;
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+        if (options.Discover == null
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.TabularExplicitlySet, options.IncludeSections))
             return 1;
 
         // Warn if tabular output is combined with detailed verbosity without section selector
-        if (!effectiveDiscovery && !options.Count)
+        if (!discoveryInspection && !options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
-        // Compute which scanners are needed for the requested sections
+        // Cheap discovery runs only the command-level presence probes. Full discovery executes the
+        // requested sections; bare full discovery is bounded to the base-category union.
+        HashSet<string>? discoveryExecutionScope = options.IncludeSections;
+        if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
+            discoveryExecutionScope = [.. pipeline.BaseSectionNames];
+
         if (trace is not null)
             trace.Verbosity = options.Verbosity.ToString();
-        var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
-            effectiveDiscovery ? DiscoveryScanners : null);
+        var scanners = discoveryInspection && !fullEffectiveDiscovery
+            ? pipeline.GetRequiredScanners(
+                Verbosity.Quiet, include: [], fixedOverview: false, trace: trace,
+                commandDemand: DiscoveryScanners)
+            : pipeline.GetRequiredScanners(
+                options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace,
+                discoveryInspection ? DiscoveryScanners : null);
+        var inspectionOptions = fullEffectiveDiscovery
+            && options.IncludeSections is not { Count: > 0 }
+            ? options with { IncludeSections = discoveryExecutionScope }
+            : options;
+        if (discoveryInspection)
+        {
+            inspectionOptions = inspectionOptions with
+            {
+                // Assembly references are a cheap metadata fact and drive both base dependency
+                // doors. Full discovery additionally builds the transitive dependency view when
+                // that section is in scope.
+                IncludeReferences = true,
+                IncludeDependencies = fullEffectiveDiscovery
+                    && discoveryExecutionScope?.Contains(SectionNames.Dependencies) == true,
+            };
+        }
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -376,16 +429,16 @@ public class LibraryCommand
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
-                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
 
                 // Identity of the bytes about to be inspected. Computed once and reused for the
                 // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
                 // discovery run hashes the assembly at most twice.
-                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
+                string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(resolvedPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -395,7 +448,10 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
+                    isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
@@ -413,8 +469,13 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        resolvedPath!, inspection, options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
+                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -446,17 +507,17 @@ public class LibraryCommand
                     return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = effectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
                         packageName: packageName, packageVersion: packageVersion);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
-                string? inspectedContentHash = effectiveDiscovery && assemblyPaths.Count > 0
+                string? inspectedContentHash = fullEffectiveDiscovery && assemblyPaths.Count > 0
                     ? TryGetContentHash(assemblyPaths[0])
                     : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -468,16 +529,20 @@ public class LibraryCommand
 
                 // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
-                if (nupkgPath != null)
+                if (nupkgPath != null && !discoveryInspection)
                 {
                     logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
                 }
 
                 // Inspect all assemblies
+                var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
+                    ? [assemblyPaths[0]]
+                    : assemblyPaths;
                 var inspections = await CollectPackageInspectionsAsync(
-                    assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery, trace);
+                    inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
+                    discoveryInspection && !fullEffectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
                 {
@@ -496,8 +561,13 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspections[0], options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        assemblyPaths[0], inspections[0], options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
+                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print)
@@ -532,14 +602,14 @@ public class LibraryCommand
                     return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
-                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
+                string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
                 {
                     var cached = TryGetCachedEffective(assemblyPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -549,7 +619,10 @@ public class LibraryCommand
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
+                    scanners: scanners, scannerRegistry: scannerRegistry,
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
@@ -566,8 +639,13 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        assemblyPath!, inspection, options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
+                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -859,34 +937,11 @@ public class LibraryCommand
         }, null);
     }
 
-    // Catalog-hidden set for the effective (real-assembly) -D flows. IL-offset
-    // coordinate sections are excluded so they remain discoverable at the -D top
-    // level exactly when a coordinate makes them applicable (FilterEffective drops
-    // them otherwise); they stay grouped under @Hidden for --schema / -S.
+    // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
+    // members form the flat catalog; separate domains remain behind their category
+    // doors even when a coordinate or other explicit input makes a member effective.
     private static IReadOnlySet<string> EffectiveCatalogHidden(SectionPipeline<LibraryInspection> pipeline)
-    {
-        var hidden = pipeline.GetCatalogHiddenSections()
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        hidden.ExceptWith(ILCoordinateSections);
-        return hidden;
-    }
-
-    // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
-    // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
-    // selection from fanning out to unbounded @Hidden members as a group. Shared with the
-    // package embedded-library render path, which resolves
-    // -S against the same curated LibrarySections pipeline.
-    internal static bool RejectHiddenRenderSelector(string[]? select)
-    {
-        if (select is { Length: > 0 }
-            && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
-        {
-            CommandError.Write("@Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Top Leverage\").");
-            return true;
-        }
-
-        return false;
-    }
+        => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
     /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
@@ -1658,24 +1713,71 @@ public class LibraryCommand
         return builder.ToString();
     }
 
-    private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
-        LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool sourceLinkAvailable = false, bool cache = true, string? inspectedContentHash = null)
+    private static int WriteEffectiveSections(
+        string assemblyPath,
+        LibraryInspection inspection,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        Verbosity userVerbosity,
+        bool fullEffectiveness,
+        HashSet<string>? effectivenessScope,
+        bool sourceLinkAvailable = false,
+        bool cache = true,
+        string? inspectedContentHash = null)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
         // inspection already established from an embedded or adjacent PDB).
         inspection.HasSourceLink |= sourceLinkAvailable;
 
-        // Compute all structurally applicable sections for discovery/caching,
-        // including opt-in sections whose renderability depends on the section's
-        // own work (for example SourceLink audit sections).
-        var allEffective = pipeline.GetDiscoverableSections(inspection);
+        List<string> allEffective;
+        if (fullEffectiveness)
+        {
+            var selected = pipeline.GetAvailableSections(inspection, effectivenessScope)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var section in pipeline.GetExplicitlyApplicableSections(
+                         inspection, effectivenessScope))
+            {
+                // These two projections are mutually selected by the normal renderer, but the
+                // same reference fact proves that either focused section can produce data.
+                if (section is SectionNames.References or SectionNames.Dependencies)
+                    selected.Add(section);
+            }
+
+            if (options.Discover is { Length: 0 })
+            {
+                var baseSections = pipeline.BaseSectionNames
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                selected.RemoveWhere(section => !baseSections.Contains(section));
+
+                // Domain doors remain structural orientation in the bare catalog. Their members
+                // stay hidden from the flat section list, but one applicable member is needed in
+                // the effective schema so the category door survives category filtering.
+                foreach (var section in pipeline.GetDiscoverableSections(inspection))
+                {
+                    if (!baseSections.Contains(section))
+                        selected.Add(section);
+                }
+            }
+
+            allEffective = pipeline.SelectableSectionNames
+                .Where(selected.Contains)
+                .ToList();
+        }
+        else
+        {
+            allEffective = pipeline.GetDiscoverableSections(inspection);
+        }
+
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
-        // Field-level filtering on ALL effective sections (unfiltered) for caching
-        var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
+        // Cheap discovery never content-probes fields. Full discovery may narrow dynamic field
+        // schemas after the selected producers have run.
+        var filteredSchema = fullEffectiveness
+            ? FilterSchemaToEffectiveFields(
+                inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
+            : schemaMap;
         if (cache)
             CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
 
@@ -1695,9 +1797,9 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
-    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
-    private const string EffectiveCategory = "effective-v19";
+    // Bumped to v20: bare effective discovery is now the full-effectiveness base catalog with
+    // structural domain-door evidence, rather than the old all-section applicability catalog.
+    private const string EffectiveCategory = "effective-v20";
 
     static LibraryCommand()
     {

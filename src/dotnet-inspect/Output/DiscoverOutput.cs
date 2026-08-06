@@ -112,7 +112,8 @@ public static class DiscoverOutput
         // former and report it clearly instead of the misleading "Section not found".
         if (discover is { Length: > 0 } && fullSchema != null)
         {
-            var remaining = FilterEmptyEffectiveSections(discover, filtered, fullSchema);
+            var remaining = FilterEmptyEffectiveSections(
+                discover, filtered, fullSchema, sectionCategories);
             if (remaining == null)
             {
                 // Every requested section was valid but empty, so the discovered row count is
@@ -140,7 +141,10 @@ public static class DiscoverOutput
     /// or <c>null</c> when every requested section was valid-but-empty (fully handled via notes).
     /// </summary>
     private static string[]? FilterEmptyEffectiveSections(
-        string[] discover, DocumentSchema effective, DocumentSchema fullSchema)
+        string[] discover,
+        DocumentSchema effective,
+        DocumentSchema fullSchema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories)
     {
         var remaining = new List<string>();
         bool emittedNote = false;
@@ -148,6 +152,18 @@ public static class DiscoverOutput
         {
             if (name.StartsWith("@", StringComparison.Ordinal))
             {
+                var categoryName = sectionCategories?.Keys.FirstOrDefault(
+                    candidate => candidate.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (categoryName is not null
+                    && !sectionCategories![categoryName].Any(member =>
+                        effective.SectionNames.Contains(member, StringComparer.OrdinalIgnoreCase)))
+                {
+                    CommandError.WriteNote(
+                        $"category '{categoryName}' has no data for this query");
+                    emittedNote = true;
+                    continue;
+                }
+
                 remaining.Add(name);
                 continue;
             }

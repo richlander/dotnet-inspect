@@ -786,9 +786,11 @@ public partial class CommandExecutionTests
             tsv.Output);
 
         Assert.Equal(0, empty.Exit);
-        Assert.Empty(empty.Error);
-        // An empty escape scan is silently suppressed (row-presence ShowWhenProperty, no EmptyText) —
-        // matching the Performance sections, so absence means "no candidates", never a noisy header.
+        Assert.Contains(
+            "matched section has no data: Array Pool Escapes",
+            empty.Error);
+        // The empty section is suppressed, while the exact selection receives a visible
+        // effectiveness diagnostic rather than success-shaped silence.
         Assert.DoesNotContain("## Array Pool Escapes", empty.Output);
         Assert.DoesNotContain(
             "No actionable resource lifecycle candidates found.",
@@ -967,7 +969,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--where", "Path Confidence=dominates-return",
             "--order-by", "Root Reach desc",
             "--top", "1",
@@ -1125,7 +1127,9 @@ public partial class CommandExecutionTests
             "-S", "Performance: Async", "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        Assert.Contains(
+            "matched section has no data: Performance: Async",
+            error);
         Assert.DoesNotContain("## Performance: Async", output);
     }
 
@@ -1159,7 +1163,7 @@ public partial class CommandExecutionTests
     public async Task PerformanceGroup_TabularRendersSingleKindLabeledTable()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1176,10 +1180,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceDomain_TabularRequiresAConcreteHomogeneousSelection()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("display one section at a time", error);
+        Assert.Contains("Performance:*", error);
+    }
+
+    [Fact]
     public async Task PerformanceGroup_JsonlEmitsOnlyValidRecords_NoBlankSeparators()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--jsonl", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--jsonl", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -1205,9 +1220,9 @@ public partial class CommandExecutionTests
         // identical rows must all survive. Row count must match the with-header data-row count, and
         // no blank section separators may leak into the stream.
         var withHeader = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--order-by", "Allocation", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--order-by", "Allocation", "--tips", "q");
         var noHeader = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--no-header", "--order-by", "Allocation", "--tips", "q");
+            "library", "System.Text.Json", "-S", "Performance:*", "--tsv", "--no-header", "--order-by", "Allocation", "--tips", "q");
 
         Assert.Equal(0, withHeader.Exit);
         Assert.Equal(0, noHeader.Exit);
@@ -1268,7 +1283,7 @@ public partial class CommandExecutionTests
         // headers previously inflated the count and stole a row slot).
         const int cap = 5;
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "@Performance", "--table", "--rows", cap.ToString(),
+            "library", "System.Text.Json", "-S", "Performance:*", "--table", "--rows", cap.ToString(),
             "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -4347,7 +4362,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Methods | section (verbose) |", output);
-        Assert.Contains("| Source Files | section (opt-in) |", output);
+        Assert.Contains("| Source Files | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
@@ -6351,14 +6366,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Annotated Source | section (opt-in) |", output);
+        Assert.Contains("| Annotated Source | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
-        Assert.Contains("| Calls | section (opt-in) |", output);
-        Assert.Contains("| Callers | section (opt-in) |", output);
-        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
-        Assert.Contains("| Call Graph | section (opt-in) |", output);
-        Assert.Contains("| Facts | section (opt-in) |", output);
+        Assert.Contains("| Calls | section |", output);
+        Assert.Contains("| Callers | section |", output);
+        Assert.Contains("| Unsafe Operations | section |", output);
+        Assert.Contains("| Call Graph | section |", output);
+        Assert.Contains("| Facts | section |", output);
         Assert.DoesNotContain("IR (Stages)", output);
         Assert.DoesNotContain("| Methods | section |", output);
     }
@@ -6391,11 +6406,11 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Original Source | section |", output);
-        Assert.Contains("| Calls | section (opt-in) |", output);
-        Assert.Contains("| Callers | section (opt-in) |", output);
-        Assert.Contains("| Call Graph | section (opt-in) |", output);
-        Assert.Contains("| Facts | section (opt-in) |", output);
-        Assert.Contains("| Unsafe Operations | section (opt-in) |", output);
+        Assert.Contains("| Calls | section |", output);
+        Assert.Contains("| Callers | section |", output);
+        Assert.Contains("| Call Graph | section |", output);
+        Assert.Contains("| Facts | section |", output);
+        Assert.Contains("| Unsafe Operations | section |", output);
     }
 
     [Fact]
@@ -7172,7 +7187,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("| Fidelity Causes | section (opt-in) |", output);
+        Assert.Contains("| Fidelity Causes | section |", output);
     }
 
     [Fact]
@@ -7213,7 +7228,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("| Applied Taste | section (opt-in) |", output);
+        Assert.Contains("| Applied Taste | section |", output);
     }
 
     [Fact]
@@ -7303,7 +7318,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Cost Overlay        section (opt-in)", output);
+        Assert.Contains("Cost Overlay        section", output);
     }
 
     [Fact]
@@ -7357,7 +7372,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Semantics Overlay   section (opt-in)", output);
+        Assert.Contains("Semantics Overlay   section", output);
     }
 
     [Fact]
@@ -9112,7 +9127,7 @@ public partial class CommandExecutionTests
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "Library Info", "--tips", "q");
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "Library Info", "--tips", "q");
+            "library", "System.Text.Json", "-D", "Library Info", "--effective", "--tips", "q");
 
         Assert.Equal(0, selectExit);
         Assert.Equal(0, discoverExit);
@@ -9139,9 +9154,10 @@ public partial class CommandExecutionTests
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
             "library", "System.Runtime", "-S", "Library Info", "--tips", "q");
         var (discoverExit, discoverOutput, discoverError) = await RunAppAsync(
-            "library", "System.Runtime", "-D", "Library Info", "--tips", "q");
+            "library", "System.Runtime", "-D", "Library Info", "--effective", "--tips", "q");
         var (multiDiscoverExit, multiDiscoverOutput, multiDiscoverError) = await RunAppAsync(
-            "library", "System.Runtime", "-D", "Library Info,Async Methods", "--tips", "q");
+            "library", "System.Runtime", "-D", "Library Info,Async Methods",
+            "--effective", "--tips", "q");
 
         Assert.Equal(0, selectExit);
         Assert.Equal(0, discoverExit);
@@ -9176,13 +9192,14 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog()
     {
         // -D auto-promotes to a tree at detailed verbosity. That tree must use the same curated
-        // catalog as the flat -D listing: categories-first, no @All/@Default/@Hidden poles, and
-        // no internal (verbose)/(opt-in) annotations. Regression guard for the tree branch wiring.
+        // cheap catalog as the flat -D listing: categories-first, no computed poles, and no
+        // execution-policy annotations. SourceLink is deliberately not asserted because finding
+        // its applicability can require opening a PDB; --effective owns that larger budget.
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "-v:d");
 
         Assert.Equal(0, exit);
         Assert.Contains("@Audit (category)", output);
-        Assert.Contains("@SourceLink (category)", output);
+        Assert.Contains("@Performance (category)", output);
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
         Assert.DoesNotContain("@All", output);
@@ -9362,10 +9379,11 @@ public partial class CommandExecutionTests
             "library", "--package", "Newtonsoft.Json", "-S", "SourceLink: Availability", "--tips", "q");
         Assert.Equal(0, warmExit);
 
-        // Curated catalog: SourceLink audit sections are not @All members, so bare -D lists them
-        // under the @SourceLink door, never at the top level.
+        // Full effective discovery is the explicit larger-budget gesture that may open the warmed
+        // PDB. SourceLink members stay behind their domain door, never in the flat base catalog.
         var (exit, output, error) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "-D", "--effective",
+            "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
@@ -9393,23 +9411,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_RenderSelectHidden_IsRejectedAsDiscoveryOnly()
+    public async Task LibraryCommand_ComputedPolesAreUnresolvable()
     {
-        // @Hidden is a discovery-only pole: -S @Hidden must be rejected (exit 1) so it cannot fan
-        // out to its unbounded members as a group. Discovery (-D @Hidden) and exact-name render
-        // (-S "Top Leverage") remain the supported entrypoints.
+        // Authored categories own every section, so computed @All/@Hidden poles no longer exist.
         var (exit, _, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "@Hidden", "--tips", "q");
 
         Assert.Equal(1, exit);
-        Assert.Contains("discovery-only", error);
+        Assert.Contains("not found", error);
 
-        // -D @Hidden still lists the pole's members (no rejection).
-        var (discoverExit, discoverOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "@Hidden", "--table", "--tips", "q");
-
-        Assert.Equal(0, discoverExit);
-        Assert.Contains(SectionNames.TopLeverage, discoverOutput);
+        var (allExit, _, allError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "@All", "--tips", "q");
+        Assert.Equal(1, allExit);
+        Assert.Contains("not found", allError);
     }
 
     [Fact]
@@ -9448,7 +9462,7 @@ public partial class CommandExecutionTests
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
         Assert.Contains(names, name => name.StartsWith("Integration: ", StringComparison.Ordinal));
 
-        // The topical category doors lead the catalog: they are exactly the six doors, in
+        // The topical category doors lead the catalog, in
         // alphabetical order, and every category row precedes every section row. @Metadata is
         // among them because --schema surfaces the whole catalog, including the explicit-only
         // lens the curated top-level -D still leaves out.
@@ -9457,7 +9471,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Integrations", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);
@@ -9518,10 +9532,65 @@ public partial class CommandExecutionTests
             .ToArray();
 
         Assert.NotEmpty(members);
-        Assert.All(members, name => Assert.StartsWith("Performance: ", name));
+        Assert.Equal(
+            PerformanceKinds.Sections
+                .Append(SectionNames.ArrayPoolEscapes)
+                .Append(SectionNames.TopLeverage)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase),
+            members);
         Assert.Equal(
             members.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToArray(),
             members);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverCategoryDoor_IsStructuralByDefault()
+    {
+        var missingPath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", missingPath, "-D", "@Performance", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Performance: Boxing", output);
+        Assert.Contains("Top Leverage", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverCategoryEffective_ReportsNoData()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "@Context", "--effective", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("category '@Context' has no data for this query", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverFullEffectiveness_IsBaseScoped()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "--effective", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error);
+        Assert.Contains("| References | section |", output);
+        Assert.Contains("| Dependencies | section |", output);
+        Assert.Contains("| @Performance | category |", output);
+        Assert.DoesNotContain("| Performance: Boxing | section |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_EffectiveRequiresDiscovery()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--effective", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--effective requires -D/--discover", error);
     }
 
     [Fact]
@@ -9740,9 +9809,19 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Context: Exception", withoutOutput);
         Assert.DoesNotContain("Context: Callsite", withoutOutput);
         Assert.DoesNotContain("Context: Return Address", withoutOutput);
-        Assert.Contains("Context: Source Location", withOutput);
-        Assert.Contains("Context: Member", withOutput);
-        Assert.Contains("Context: Instruction", withOutput);
+        Assert.Contains("@Context", withOutput);
+        Assert.DoesNotContain("Context: Source Location", withOutput);
+        Assert.DoesNotContain("Context: Member", withOutput);
+        Assert.DoesNotContain("Context: Instruction", withOutput);
+
+        var (contextExit, contextOutput, contextError) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "--il-offset", "0x06000001+0x0", "-D", "@Context", "--table", "--tips", "q");
+        Assert.Equal(0, contextExit);
+        Assert.Empty(contextError);
+        Assert.Contains("Context: Source Location", contextOutput);
+        Assert.Contains("Context: Member", contextOutput);
+        Assert.Contains("Context: Instruction", contextOutput);
     }
 
     [Fact]
@@ -10509,7 +10588,8 @@ public partial class CommandExecutionTests
     public async Task LibraryCommand_DiscoverIntegrationsCategory_ListsRenderableIntegrationSections()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "Microsoft.Extensions.AI", "--library", "-D", "@Integrations", "--table");
+            "library", "--package", "Microsoft.Extensions.AI", "-D", "@Integrations",
+            "--effective", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Integration: AI", output);
@@ -11514,12 +11594,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_RejectsHiddenRenderSelector()
+    public async Task PackageCommand_AllLibraries_RejectsRemovedComputedPole()
     {
         // The embedded-library render path resolves -S against the same curated LibrarySections
-        // pipeline, so it enforces the same @Hidden discovery-only guard as the direct library
-        // command: -S @Hidden must be rejected before any resolution/fetch, while exact-name
-        // render of a @Hidden member stays allowed.
+        // pipeline, so removed computed poles are unresolvable there too.
         var (packagePath, tempDir) = CreateLocalLibPackage();
         try
         {
@@ -11527,7 +11605,7 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "@Hidden", "--tips", "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("discovery-only", error);
+            Assert.Contains("not found", error);
         }
         finally
         {
@@ -11599,7 +11677,7 @@ public partial class CommandExecutionTests
 
             var (exit, output, _) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "@Performance", "--tsv", "--rows", "3", "--tips", "q");
+                "-S", "Performance:*", "--tsv", "--rows", "3", "--tips", "q");
 
             Assert.Equal(0, exit);
             var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);

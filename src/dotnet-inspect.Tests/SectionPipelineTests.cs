@@ -350,17 +350,14 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_CatalogHiddenSections_ExcludeAllMembersIncludeFeeders()
+    public void LibraryPipeline_CatalogHiddenSections_AreOutsideBaseScope()
     {
         var pipeline = LibrarySections.CreatePipeline();
 
         var hidden = pipeline.GetCatalogHiddenSections();
 
-        // Curated catalog: the -D top level lists the visible "spine" (size-classed, bounded,
-        // network-free sections) plus the topical category doors. Catalog-hidden are the sections
-        // that must never appear in the flat top level: the unbounded/expensive footguns
-        // (reached through a category door or by exact name) and the coordinate-gated IL context
-        // sections (reached only when an --il-offset makes them applicable).
+        // The flat -D section list is the base-category union. Domain-only sections remain behind
+        // their authored doors even when they are cheap or applicable.
 
         // Visible spine members are never catalog-hidden — including the now-size-classed
         // sections that used to be opt-in (Switches, Custom Attributes, Non-normalized Paths, ...).
@@ -369,15 +366,13 @@ public class SectionPipelineTests
             "Library Info", "Symbols", "Signals", "References", "Dependencies",
             "Async Methods", "Custom Attributes", "Extension Methods",
             "P/Invoke Methods", "Type Forwarders", "Union Types",
-            "Switches", "Resources", "Non-normalized Paths"
+            "Switches", "Resources"
         };
         foreach (var name in visible)
             Assert.DoesNotContain(name, hidden);
 
-        // Footguns (unbounded/expensive), the kind-scoped performance sub-group (kept behind the
-        // @Performance door via ListedInCatalog=false), the ecosystem integration sub-group (kept
-        // behind the @Integrations door the same way), and coordinate IL-context sections ARE
-        // catalog-hidden.
+        // Performance, integrations, SourceLink, audit-only, and coordinate context sections are
+        // domain-owned and therefore hidden from the flat base catalog.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
         foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append(IntegrationSectionNames.Opportunities))
@@ -386,7 +381,7 @@ public class SectionPipelineTests
                  {
                      "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
                      "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
-                     "Context: Member"
+                     "Context: Member", "Non-normalized Paths", "Array Pool Escapes"
                  })
         {
             Assert.Contains(footgun, hidden);
@@ -397,6 +392,108 @@ public class SectionPipelineTests
         {
             Assert.Contains(name, pipeline.AllSectionNames);
         }
+    }
+
+    [Fact]
+    public void LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var categories = pipeline.GetCategoryMap()
+            .Where(pair => pair.Key is not SectionPipeline<LibraryInspection>.AllCategory
+                and not SectionPipeline<LibraryInspection>.HiddenCategory)
+            .ToArray();
+        var categorized = categories
+            .SelectMany(pair => pair.Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uncategorized = pipeline.SelectableSectionNames
+            .Where(name => !categorized.Contains(name))
+            .ToArray();
+
+        Assert.True(
+            uncategorized.Length == 0,
+            $"Library section(s) have no authored category: {string.Join(", ", uncategorized)}");
+    }
+
+    [Fact]
+    public void LibraryPipeline_BaseScopeIsDerivedFromLibraryAndSurfaceCategories()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.Equal(
+            [SectionCategoryNames.Library, SectionCategoryNames.Surface],
+            pipeline.GetBaseCategoryDoors().OrderBy(name => name, StringComparer.Ordinal));
+
+        var expected = categories[SectionCategoryNames.Library]
+            .Concat(categories[SectionCategoryNames.Surface])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            expected.OrderBy(name => name, StringComparer.Ordinal),
+            pipeline.BaseSectionNames.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryPipeline_SeparateDomainsStayOutsideTheBaseScope()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var baseSections = pipeline.BaseSectionNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in PerformanceKinds.Sections
+                     .Concat(MetadataSectionNames.All)
+                     .Concat(LibraryIntegrationCatalog.CategorySections)
+                     .Concat([
+                         IntegrationSectionNames.Opportunities,
+                         SectionNames.SourceLinkFiles,
+                         SectionNames.SourceLinkAvailability,
+                         SectionNames.SourceLinkMissingFiles,
+                         SectionNames.SourceLinkIntegrity,
+                         SectionNames.TopLeverage,
+                         SectionNames.ArrayPoolEscapes
+                     ]))
+        {
+            Assert.DoesNotContain(section, baseSections);
+        }
+    }
+
+    [Fact]
+    public void LibraryPipeline_AutomaticViewsRequestOnlyBaseCategoryScanners()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
+
+        Assert.DoesNotContain(LibrarySections.ScannerMetadata, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerIntegrations, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerIntegrationOpportunities, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, detailedScanners);
+    }
+
+    [Fact]
+    public void LibraryPipeline_ExplicitDomainSelectionStillRequestsItsScanners()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var performance = pipeline.GetCategoryMap()[SectionCategoryNames.Performance]
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, performance);
+
+        Assert.Contains(LibrarySections.ScannerOptimizationOpportunities, scanners);
+        Assert.Contains(LibrarySections.ScannerResourceTriage, scanners);
+        Assert.Contains(LibrarySections.ScannerTopLeverage, scanners);
+    }
+
+    [Fact]
+    public void LibraryPipeline_FixedOverviewComesFromBaseCategories()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            [SectionNames.LibraryInfo, SectionNames.Symbols, SectionNames.Signals],
+            pipeline.FixedOverviewSectionNames);
     }
 
     [Theory]
@@ -602,7 +699,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: Opportunities" });
 
-        Assert.Contains("Integration: Opportunities", effective);
+        Assert.DoesNotContain("Integration: Opportunities", effective);
         Assert.Contains("Integration: Opportunities", selected);
     }
 
@@ -633,8 +730,41 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
-        Assert.Contains(section, effective);
+        Assert.DoesNotContain(section, effective);
         Assert.Contains(section, selected);
+    }
+
+    [Fact]
+    public void PerformanceDiscovery_StructuralCapabilityDoesNotBecomeFullEffectiveness()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasMethodBodies = true,
+            OptimizationOpportunities =
+            [
+                new OptimizationOpportunitySummary
+                {
+                    Member = "Some.Type.Method()",
+                    Shape = "capturing-delegate",
+                    Evidence = "delegate over a captured receiver or closure",
+                    Fix = "Use a static local function.",
+                    Confidence = "high",
+                }
+            ]
+        };
+
+        var structural = pipeline.GetDiscoverableSections(model);
+        var effective = pipeline.GetAvailableSections(model);
+
+        Assert.Contains(SectionNames.PerformanceBoxing, structural);
+        Assert.Contains(SectionNames.PerformanceClosures, structural);
+        Assert.Contains(SectionNames.TopLeverage, structural);
+        Assert.Contains(SectionNames.PerformanceClosures, effective);
+        Assert.DoesNotContain(SectionNames.PerformanceBoxing, effective);
+        Assert.DoesNotContain(SectionNames.TopLeverage, effective);
+        Assert.DoesNotContain(SectionNames.ArrayPoolEscapes, effective);
     }
 
     [Fact]
@@ -2433,7 +2563,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: OpenTelemetry" });
 
-        Assert.Contains("Integration: OpenTelemetry", effective);
+        Assert.DoesNotContain("Integration: OpenTelemetry", effective);
         Assert.Contains("Integration: OpenTelemetry", selected);
     }
 
@@ -2475,7 +2605,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { prefixed });
 
-        Assert.Contains(prefixed, effective);
+        Assert.DoesNotContain(prefixed, effective);
         Assert.Contains(prefixed, selected);
     }
 
@@ -3271,11 +3401,11 @@ public class SectionPipelineTests
 
         var overloadPipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
         Assert.Contains(SectionNames.SourceLocations, overloadPipeline.AllSectionNames);
-        Assert.Equal("opt-in", Assert.Contains(SectionNames.SourceLocations, overloadPipeline.GetCostAnnotations()));
+        Assert.DoesNotContain(SectionNames.SourceLocations, overloadPipeline.GetCostAnnotations());
 
         var detailPipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
         Assert.Contains(SectionNames.SourceLocations, detailPipeline.AllSectionNames);
-        Assert.Equal("opt-in", Assert.Contains(SectionNames.SourceLocations, detailPipeline.GetCostAnnotations()));
+        Assert.DoesNotContain(SectionNames.SourceLocations, detailPipeline.GetCostAnnotations());
     }
 
     [Fact]
@@ -3353,13 +3483,13 @@ public class SectionPipelineTests
         Assert.Contains("Original Source", detailed);
         Assert.Contains("IL", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
-        var optIn = pipeline.GetCostAnnotations();
-        Assert.Equal("opt-in", Assert.Contains("Calls", optIn));
-        Assert.Equal("opt-in", Assert.Contains("Exception Regions", optIn));
-        Assert.Equal("opt-in", Assert.Contains("Callers", optIn));
-        Assert.Equal("opt-in", Assert.Contains("Call Graph", optIn));
-        Assert.Equal("opt-in", Assert.Contains("Facts", optIn));
-        Assert.Equal("opt-in", Assert.Contains("Unsafe Operations", optIn));
+        var annotations = pipeline.GetCostAnnotations();
+        Assert.DoesNotContain("Calls", annotations);
+        Assert.DoesNotContain("Exception Regions", annotations);
+        Assert.DoesNotContain("Callers", annotations);
+        Assert.DoesNotContain("Call Graph", annotations);
+        Assert.DoesNotContain("Facts", annotations);
+        Assert.DoesNotContain("Unsafe Operations", annotations);
         Assert.DoesNotContain("Calls", normal);
         Assert.DoesNotContain("Exception Regions", normal);
         Assert.DoesNotContain("Callers", normal);

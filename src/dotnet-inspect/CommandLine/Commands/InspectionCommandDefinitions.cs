@@ -327,6 +327,7 @@ public static class InspectionCommandDefinitions
         // trace should advertise the flag. A flag every command accepts and only one honours is
         // worse than an unrecognized argument, which at least fails loudly.
         assemblyCommand.Options.Add(opts.Trace);
+        assemblyCommand.Options.Add(opts.Effective);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
         opts.AddPrintOptionTo(assemblyCommand);
@@ -452,6 +453,7 @@ public static class InspectionCommandDefinitions
                 Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
                 SelectDefault = selectDefault,

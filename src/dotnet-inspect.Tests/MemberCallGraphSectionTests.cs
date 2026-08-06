@@ -194,7 +194,8 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Call Graph\tsection (opt-in)", result.Output);
+        Assert.Contains("Call Graph\tsection", result.Output);
+        Assert.DoesNotContain("(opt-in)", result.Output);
     }
 
     [Fact]
