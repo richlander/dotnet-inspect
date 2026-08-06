@@ -2158,12 +2158,12 @@ permissiveness rule to keep synchronized with the matcher.
 - a catalog-issued `DefinitionJoinToken` projects an opaque definition key into
   either `Exact` or `IndeterminateDuplicateArtifact`. Tokens are stable only for
   that catalog and are the only hashable definition correspondence values;
-- an optional `CatalogMemberJoinKey` exists when the declaring type
-  and every identity-bearing named type in the open parameter and return
-  signature have a catalog-issued join token;
-- a `DegradedMemberCorrespondenceKey` substitutes a
-  catalog-owned `UnresolvedBindingKey` plus structured type name only for an
-  unavailable named type. The binding key represents the exact cached
+- an optional `CatalogMemberJoinKey` exists when the declaring type and every
+  identity-bearing named type in the open parameter and return signature have
+  either a catalog-issued definition token or an eligible degraded component;
+- a degraded `CatalogTypeShape` leaf substitutes a catalog-owned
+  `UnresolvedBindingKey` plus structured type name only for an unavailable
+  named type. The binding key represents the exact cached
   `(AssemblyBindingDomainKey, AssemblyBindingTarget,
   AssemblyResolutionScope)` request, preserving the complete
   assembly/module/current origin instead of collapsing failures into one
