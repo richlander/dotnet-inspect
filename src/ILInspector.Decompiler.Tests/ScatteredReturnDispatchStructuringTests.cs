@@ -60,6 +60,18 @@ public class ScatteredReturnDispatchStructuringTests
         Assert.DoesNotContain("goto", output);
     }
 
+    [Fact]
+    public void TypeTestTrampolineAndGuardFailure_ShareDefaultWithoutLosingReturn()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.GuardedTypeAfterSibling));
+
+        Assert.StartsWith("return value switch", output);
+        Assert.Contains("int number when number > 0 => number", output);
+        Assert.Contains("_ => -1", output);
+        Assert.EndsWith("};", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
     // ── Compiler-backed negatives (the #640 canary) ────────────────────────
 
     [Fact]

@@ -1355,6 +1355,15 @@ public class CfgSampleClass
         return result;
     }
 
+    // #3514 compile-back witness: the shared default is reached by the failed
+    // `int` guard and by the failed `string` type test through a goto trampoline.
+    public static int GuardedTypeAfterSibling(object value) => value switch
+    {
+        string text => text.Length,
+        int number when number > 0 => number,
+        _ => -1
+    };
+
     // A diamond whose false arm carries an internal guard that branches straight
     // to the shared merge — `if (y > 0) goto done;` from inside the false arm,
     // the merge lying past the false arm's lexical boundary. The merge ends in a

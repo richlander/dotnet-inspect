@@ -44,6 +44,15 @@ public static class ScatteredReturnDispatchSample
         _ => Fail(out x)
     };
 
+    // #3514 witness: the default has one direct guard-failure edge and one
+    // type-test-failure edge routed through a pure goto trampoline.
+    public static int GuardedTypeAfterSibling(object value) => value switch
+    {
+        string text => text.Length,
+        int number when number > 0 => number,
+        _ => -1
+    };
+
     static bool Win(int v, out int x) { x = v; return true; }
 
     static bool Fail(out int x) { x = 0; return false; }

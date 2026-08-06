@@ -59,27 +59,14 @@ public class ValidityCoverageReportingTests
         // return-tail candidate now keeps the interleaved default-goto default
         // as the region's trailing terminator, so it returns instead of falling
         // off the end.
-        //
-        // SwapIdiomPass::MatchCarrier is an *addition*, not a regression: the pass
-        // itself landed in #3234, after this census was last refreshed in #3003, and
-        // no previously pinned row changed. It is the first method in this assembly
-        // whose switch-expression default (`_ => null`) is reachable from two edges at
-        // once — a failing `when` guard and a failing type test on the sibling arm:
-        //
-        //     StoreStackSlot slot = V_3 as StoreStackSlot;
-        //     if (slot is null)
-        //     {
-        //         if (V_3 is StoreLocal local)
-        //         {
-        //             if (IsHiddenLocal(...)) { return new HiddenLocalCarrier(...); }
-        //             return null;   // #2959 duplicated the shared return here …
-        //         }
-        //                            // … but not onto the type-test-failure edge,
-        //     }                      // so this block falls off the end (CS0161).
-        //     else { return new StackSlotCarrier(...); }
-        //
-        // Tracked as #3514. Pinned rather than fixed so the release gates unblock;
-        // removing the row is the acceptance criterion for that fix.
+        // #3514 removed four siblings: BooleanFoldingPass::
+        // IsNullableCoalesceExpressionContext, DeconstructionAssignmentPass::
+        // TryMatchTupleSeed, IndexFromEndPass::LengthReceiver, and SwapIdiomPass::
+        // MatchCarrier. Each switch-expression default was reached by one direct
+        // `when`-guard failure and one sibling type-test failure routed through a
+        // pure goto trampoline. Structuring now counts that source conditional as
+        // a scattered-dispatch predecessor and keeps the shared default reachable
+        // from both paths.
         string[] expected =
 #if DEBUG
         [
@@ -88,11 +75,7 @@ public class ValidityCoverageReportingTests
 #else
         [
             "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
-            "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
-            "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
-            "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
-            "ILInspector.Decompiler.Pipeline.SwapIdiomPass::MatchCarrier",
         ];
 #endif
         Assert.Equal(expected, actual);

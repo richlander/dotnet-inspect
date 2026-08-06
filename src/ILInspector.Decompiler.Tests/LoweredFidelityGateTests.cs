@@ -236,6 +236,9 @@ public class LoweredFidelityGateTests
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
         "WhileNestedContinueKeepsArmExclusive",
+        // #3514: structuring keeps the shared switch default reachable from a
+        // direct guard failure and a sibling type-test trampoline.
+        "GuardedTypeAfterSibling",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
