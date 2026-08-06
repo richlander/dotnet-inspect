@@ -67,18 +67,13 @@ public class ValidityCoverageReportingTests
         // pure goto trampoline. Structuring now counts that source conditional as
         // a scattered-dispatch predecessor and keeps the shared default reachable
         // from both paths.
-        string[] expected =
-#if DEBUG
-        [
-            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
-        ];
-#else
-        [
-            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
-            "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
-        ];
-#endif
-        Assert.Equal(expected, actual);
+        // #3840 removed the final two rows, MemberBodyProducer::DecompileBody
+        // and CSharpPrinter::ForLoopIncrementText. Structuring cloned an earlier
+        // past-region arm through a shared return, then dropped that return even
+        // though another control transfer outside the cloned range still entered
+        // it. Clone targets with an external predecessor now remain as the
+        // region's trailing return.
+        Assert.Empty(actual);
     }
 
     static string CaptureConsole(Func<int> action)

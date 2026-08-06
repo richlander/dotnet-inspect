@@ -37,7 +37,13 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> UnconditionalTargets { get; init; }
         public required Dictionary<int, int> ConditionalTargetCounts { get; init; }
         public required HashSet<int> BranchTargets { get; init; }
+        public required Dictionary<int, List<int>> ClonePredecessorIndices { get; init; }
         public required HashSet<int> DroppableBlocks { get; init; }
+        /// <summary>
+        /// Past-region clone ownership by original block index. The original is
+        /// dropped only after every explicit incoming path owns a replacement.
+        /// </summary>
+        public required Dictionary<int, HashSet<int>> CloneOwnerIndices { get; init; }
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
@@ -110,6 +116,7 @@ public sealed class StructuringPass : IIrPass
         // each target offset, by source block index. Used to detect a sibling
         // region interleaved between a shared return's scattered guards (#2978).
         var jumpPredecessorIndices = new Dictionary<int, List<int>>();
+        var clonePredecessorIndices = new Dictionary<int, List<int>>();
         var switchTargets = new HashSet<int>();
         var branchTargets = new HashSet<int>();
         for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
@@ -125,6 +132,7 @@ public sealed class StructuringPass : IIrPass
                     branchPreds.Add(blockIndex);
                     branchTargets.Add(branch.TargetOffset);
                     AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
+                    AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
                 }
                 else if (child is Leave leave)
                 {
@@ -139,6 +147,7 @@ public sealed class StructuringPass : IIrPass
                     preds.Add(blockIndex);
                     branchTargets.Add(conditional.TargetOffset);
                     AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
+                    AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
                 }
                 else if (child is SwitchBranch switchBranch)
                 {
@@ -148,12 +157,16 @@ public sealed class StructuringPass : IIrPass
                         switchTargets.Add(target);
                         branchTargets.Add(target);
                         AddPredecessor(jumpPredecessorIndices, target, blockIndex);
+                        AddPredecessor(clonePredecessorIndices, target, blockIndex);
                     }
                 }
             }
 
             foreach (var leave in block.Descendants.OfType<Leave>())
+            {
                 branchTargets.Add(leave.TargetOffset);
+                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
+            }
         }
 
         // A terminator whose only predecessors are inlined guards (no goto
@@ -244,7 +257,9 @@ public sealed class StructuringPass : IIrPass
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
+            ClonePredecessorIndices = clonePredecessorIndices,
             DroppableBlocks = droppable,
+            CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
@@ -956,14 +971,17 @@ public sealed class StructuringPass : IIrPass
         var unconditionalTargets = new HashSet<int>();
         var conditionalTargetCounts = new Dictionary<int, int>();
         var branchTargets = new HashSet<int>();
-        foreach (var block in blocks)
+        var clonePredecessorIndices = new Dictionary<int, List<int>>();
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
+            var block = blocks[blockIndex];
             foreach (var child in block.Children)
             {
                 if (child is Branch branch)
                 {
                     unconditionalTargets.Add(branch.TargetOffset);
                     branchTargets.Add(branch.TargetOffset);
+                    AddPredecessor(clonePredecessorIndices, branch.TargetOffset, blockIndex);
                 }
                 else if (child is Leave leave)
                 {
@@ -974,6 +992,7 @@ public sealed class StructuringPass : IIrPass
                     conditionalTargetCounts[conditional.TargetOffset] =
                         conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
                     branchTargets.Add(conditional.TargetOffset);
+                    AddPredecessor(clonePredecessorIndices, conditional.TargetOffset, blockIndex);
                 }
                 else if (child is SwitchBranch switchBranch)
                 {
@@ -981,12 +1000,16 @@ public sealed class StructuringPass : IIrPass
                     {
                         unconditionalTargets.Add(target);
                         branchTargets.Add(target);
+                        AddPredecessor(clonePredecessorIndices, target, blockIndex);
                     }
                 }
             }
 
             foreach (var leave in block.Descendants.OfType<Leave>())
+            {
                 branchTargets.Add(leave.TargetOffset);
+                AddPredecessor(clonePredecessorIndices, leave.TargetOffset, blockIndex);
+            }
         }
 
         var fallenInto = new HashSet<int>();
@@ -1010,7 +1033,9 @@ public sealed class StructuringPass : IIrPass
             UnconditionalTargets = unconditionalTargets,
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
+            ClonePredecessorIndices = clonePredecessorIndices,
             DroppableBlocks = [],
+            CloneOwnerIndices = [],
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
@@ -1182,6 +1207,42 @@ public sealed class StructuringPass : IIrPass
         if (!map.TryGetValue(targetOffset, out var preds))
             map[targetOffset] = preds = new List<int>();
         preds.Add(predecessorIndex);
+    }
+
+    static void RecordCloneOwner(Ctx ctx, int blockIndex, int ownerIndex)
+    {
+        if (!ctx.CloneOwnerIndices.TryGetValue(blockIndex, out var owners))
+            ctx.CloneOwnerIndices[blockIndex] = owners = [];
+        owners.Add(ownerIndex);
+    }
+
+    static bool HasUnconsumedExternalJumpPredecessor(
+        Ctx ctx,
+        int blockIndex,
+        int rangeStart,
+        int rangeEnd,
+        int owningGuard)
+    {
+        if (!ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors))
+            return false;
+        var owners = ctx.CloneOwnerIndices[blockIndex];
+        return predecessors.Any(index =>
+            index != owningGuard
+            && !owners.Contains(index)
+            && !ctx.DroppableBlocks.Contains(index)
+            && (index < rangeStart || index >= rangeEnd));
+    }
+
+    static bool CloneOwnersConsumeEveryJumpPredecessor(Ctx ctx, int blockIndex)
+    {
+        if (!ctx.CloneOwnerIndices.TryGetValue(blockIndex, out var owners)
+            || !ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors))
+        {
+            return false;
+        }
+        return predecessors.All(index =>
+            owners.Contains(index)
+            || ctx.DroppableBlocks.Contains(index));
     }
 
     /// <summary>
@@ -1428,7 +1489,8 @@ public sealed class StructuringPass : IIrPass
         while (i < stop)
         {
             // Mirrors Validate: dropped blocks were already cloned/inlined.
-            if (ctx.DroppableBlocks.Contains(i))
+            if (ctx.DroppableBlocks.Contains(i)
+                || CloneOwnersConsumeEveryJumpPredecessor(ctx, i))
             {
                 i++;
                 continue;
@@ -1626,6 +1688,13 @@ public sealed class StructuringPass : IIrPass
                             // as the region's trailing terminator (Validate already
                             // walks it as the merge), inlining a duplicate here.
                             if (ctx.ScatteredReturnDispatchTargets.Contains(blocks[drop].StartOffset))
+                                continue;
+                            // Keep any cloned block that another path enters
+                            // from outside the range. The current conditional
+                            // owns its target clone; every other external entry
+                            // still needs the original block in the linear walk.
+                            RecordCloneOwner(ctx, drop, i);
+                            if (HasUnconsumedExternalJumpPredecessor(ctx, drop, target, inlinedStop, i))
                                 continue;
                             ctx.DroppableBlocks.Add(drop);
                         }

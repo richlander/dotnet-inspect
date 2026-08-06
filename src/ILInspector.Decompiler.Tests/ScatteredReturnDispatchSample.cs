@@ -54,6 +54,16 @@ public static class ScatteredReturnDispatchSample
         _ => -1
     };
 
+    // #3840 witness: the first ternary arm and the non-null coalesce arm share
+    // one return block. The null arm returns directly.
+    public static string ConditionalWithCoalescedFallback(object value)
+        => value is Exception
+            {
+                InnerException: ArgumentException { ParamName: not null } error
+            }
+            ? error.Message
+            : value.ToString()?.TrimEnd(';') ?? "";
+
     static bool Win(int v, out int x) { x = v; return true; }
 
     static bool Fail(out int x) { x = 0; return false; }

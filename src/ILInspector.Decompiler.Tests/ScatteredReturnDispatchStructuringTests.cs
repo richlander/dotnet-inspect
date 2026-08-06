@@ -79,6 +79,45 @@ public class ScatteredReturnDispatchStructuringTests
         Assert.DoesNotContain("goto", output);
     }
 
+    [Fact]
+    public void FallthroughArmAndCoalescedFallback_RetainSharedReturn()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.ConditionalWithCoalescedFallback));
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+    }
+
+    [Fact]
+    public void RealForLoopIncrementText_RetainsNonNullReturn()
+    {
+        string output = Print(typeof(CSharpPrinter), "ForLoopIncrementText");
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void RealMemberBodyProducer_RetainsFallbackReturn()
+    {
+        string output = Print(typeof(MemberBodyProducer), "DecompileBody");
+
+        Assert.Equal(2, output.Split("return DecompileMethod(", StringSplitOptions.None).Length - 1);
+        Assert.EndsWith("printerOptions);", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void FullyConsumedClone_DoesNotRetainUnreachableTail()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Buffers.AhoCorasickNode")!;
+        string output = Print(type, "TryGetChild");
+
+        Assert.EndsWith("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);", output);
+        Assert.DoesNotContain("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);\nindex = 0;", output);
+    }
+
     // ── Compiler-backed negatives (the #640 canary) ────────────────────────
 
     [Fact]

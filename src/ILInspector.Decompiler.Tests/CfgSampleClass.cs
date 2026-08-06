@@ -1364,6 +1364,16 @@ public class CfgSampleClass
         _ => -1
     };
 
+    // #3840 compile-back witness: the first ternary arm and the non-null
+    // coalesce arm converge at one shared return.
+    public static string ConditionalWithCoalescedFallback(object value)
+        => value is Exception
+            {
+                InnerException: ArgumentException { ParamName: not null } error
+            }
+            ? error.Message
+            : value.ToString()?.TrimEnd(';') ?? "";
+
     // A diamond whose false arm carries an internal guard that branches straight
     // to the shared merge — `if (y > 0) goto done;` from inside the false arm,
     // the merge lying past the false arm's lexical boundary. The merge ends in a

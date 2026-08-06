@@ -60,6 +60,10 @@ public class FidelityGateTests
         // valid nested-if form re-lowers with direct returns rather than csc's
         // original result-temp convergence.
         "GuardedTypeAfterSibling",
+        // #3840: retaining the externally entered shared return makes the
+        // compiler-backed coalesce witness valid, but the structured form
+        // materializes the non-null value in a local before returning it.
+        "ConditionalWithCoalescedFallback",
         // This hand-written await-enumerator loop recompiles through the same
         // runtime-async shape but schedules the receiver load after the
         // enumerator-local initialization rather than before it.
