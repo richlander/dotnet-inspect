@@ -700,11 +700,12 @@ jobs:
     # Job timeout raised 55 -> 65 with the step timeout below (#3827).
     # The two must move together: the design depends on the *step* timeout
     # firing first, with enough of the job budget left for the checker and the
-    # artifact upload to still run and fail loudly. Measured on this job: setup
-    # and build are 2m54s, so a step that burns its full 45 gives up around
-    # minute 48. A 65-minute job leaves ~17 minutes for the checker, artifact
-    # upload, and runner-side setup/build variance, preserving the deliberate
-    # gap that keeps a hung gate loud instead of cancelling the job.
+    # artifact upload to still run and fail loudly. Measured on this job: the
+    # gate starts around minute 3, so a step that burns its full 45 gives up
+    # around minute 48. A 65-minute job leaves ~17 minutes for the checker,
+    # artifact upload, and runner-side setup/build variance, preserving the
+    # deliberate gap that keeps a hung gate loud instead of cancelling the job.
+    # A healthy serialized run finishes in 30m37s.
     timeout-minutes: 65
     env:
       DOTNET_INSPECT_TIPS: q
@@ -771,14 +772,13 @@ jobs:
       #
       # Serializing the five compile-back workload classes (#3827) removes the
       # Roslyn reference-binding overlap but necessarily raises wall time. The
-      # 45-test preset is 17m14s locally, up from 11m42s in parallel. The prior
-      # same-machine local-to-CI factor was 1.84x (21m30s / 11m42s), predicting
-      # ~31m45s on this runner. 45 leaves ~42% headroom while staying 20 minutes
+      # first PR run measured the 45-test preset at 27m24s on this runner
+      # (build 2m38s, discovery 1s, checker 4s, job total 30m37s), up from
+      # 21m30s in parallel. 45 leaves ~64% headroom while staying 20 minutes
       # under the job timeout, which is what keeps a hang loud.
       #
-      # The first PR run is the check on that projection; replace it with the
-      # measured CI duration before merge. Re-measure and re-tune both numbers
-      # together whenever the preset or its collection topology changes.
+      # Re-measure and re-tune both numbers together whenever the preset or its
+      # collection topology changes.
       #
       # --no-build is required, not an optimization. Without it `dotnet run`
       # builds implicitly, which would (a) break the guarantee that this run and
