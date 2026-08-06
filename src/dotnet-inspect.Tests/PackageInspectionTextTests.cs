@@ -426,7 +426,7 @@ public class PackageInspectionTextTests
         }
     }
 
-    private static InspectionResult CompleteResult(string value)
+    internal static InspectionResult CompleteResult(string value)
         => new()
         {
             PackageName = value,
