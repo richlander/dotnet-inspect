@@ -906,8 +906,6 @@ public sealed class CatalogMemberCorrespondencePlan
                         (signature.Header.RawValue
                             & CallingConventionMask)
                         == VarargCallingConvention;
-                    int identityParameterCount =
-                        signature.ParameterTypes.Length;
                     int requiredParameterCount =
                         signature.ParameterTypes.Length;
                     if (isVararg)
@@ -923,8 +921,6 @@ public sealed class CatalogMemberCorrespondencePlan
                                 "function-pointer required parameter count "
                                 + "is out of range");
                         }
-                        identityParameterCount =
-                            requiredParameterCount;
                     }
                     return PlannedType.FunctionPointer(
                         signature.Header.RawValue,
@@ -933,8 +929,7 @@ public sealed class CatalogMemberCorrespondencePlan
                         Plan(signature.ReturnType, depth + 1),
                         PlanMany(
                             signature.ParameterTypes,
-                            depth + 1,
-                            identityParameterCount));
+                            depth + 1));
 
                 case TypeRefKind.Unsupported
                     when type.ModifierType is not null
@@ -957,16 +952,14 @@ public sealed class CatalogMemberCorrespondencePlan
 
         ImmutableArray<PlannedType> PlanMany(
             ImmutableArray<TypeRef> types,
-            int depth,
-            int? count = null)
+            int depth)
         {
             if (types.IsDefault)
                 return [];
-            int plannedCount = count ?? types.Length;
             var builder =
-                ImmutableArray.CreateBuilder<PlannedType>(plannedCount);
-            for (int i = 0; i < plannedCount; i++)
-                builder.Add(Plan(types[i], depth));
+                ImmutableArray.CreateBuilder<PlannedType>(types.Length);
+            foreach (TypeRef type in types)
+                builder.Add(Plan(type, depth));
             return builder.MoveToImmutable();
         }
 

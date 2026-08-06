@@ -735,7 +735,7 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
-    public void FunctionPointerVararg_KeysOnlyRequiredPrefix()
+    public void FunctionPointerVararg_PreservesFullTypeIdentity()
     {
         byte[] image = BuildAssembly(
             "Owner",
@@ -804,6 +804,21 @@ public class CatalogMemberCorrespondencePlanTests
                             FirstSignature(3, optional)),
                     ],
                     owner));
+        CatalogMemberCorrespondencePlan malformedOptional =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(
+                    source,
+                    image,
+                    owner,
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            FirstSignature(
+                                1,
+                                TypeRef.UnsupportedFunctionPointer(
+                                    FirstSignature(3, optional)))),
+                    ],
+                    owner));
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context = catalog.CreateContext(
             MissingPolicy.Instance,
@@ -823,18 +838,21 @@ public class CatalogMemberCorrespondencePlanTests
             CatalogMemberJoinProjection.Issued>(
                 twoRequired.Project(context)).Key;
 
-        Assert.Single(first.Requests);
+        Assert.Equal(2, first.Requests.Length);
         Assert.Equal(
             CatalogTypeShapeKind.FunctionPointer,
             firstKey.ParameterTypes[0].Kind);
         Assert.Equal(
             1,
             firstKey.ParameterTypes[0].RequiredParameterCount);
-        Assert.Single(firstKey.ParameterTypes[0].Components);
-        Assert.Equal(firstKey, equivalentKey);
+        Assert.Equal(2, firstKey.ParameterTypes[0].Components.Length);
+        Assert.NotEqual(firstKey, equivalentKey);
         Assert.NotEqual(firstKey, twoRequiredKey);
         AssertFailure<MemberCorrespondenceFailure.MalformedTypeShape>(
             invalid,
+            context);
+        AssertFailure<MemberCorrespondenceFailure.MalformedTypeShape>(
+            malformedOptional,
             context);
     }
 

@@ -2317,10 +2317,11 @@ arguments encoded after the call-site sentinel are invocation data, not part of
 the target member signature. A missing or out-of-range required count produces
 typed incomplete evidence rather than a join key.
 
-The same rule applies recursively to a vararg function-pointer shape embedded
-in the member signature: only its required parameter prefix contributes named
-leaves or resolution requests, while an invalid sentinel position makes the
-whole member plan incomplete.
+An embedded vararg function-pointer shape is different: it is itself a type, so
+its complete parameter list and sentinel position remain identity-bearing. The
+plan retains every embedded parameter as a named leaf or resolution request and
+makes the whole member incomplete when the required-parameter count is out of
+range.
 
 `CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
 separately supplied catalog. Resolved named leaves become
@@ -2684,8 +2685,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - A compiler-produced cross-assembly vararg call with optional arguments joins
   its required-parameter definition and not a lookalike definition whose
   required parameter list happens to match the expanded call-site list.
-- Embedded vararg function pointers likewise exclude optional arguments from
-  correspondence and reject out-of-range required-parameter counts.
+- Embedded vararg function pointers preserve their complete type identity,
+  including post-sentinel parameters, and reject out-of-range required counts.
 - A generic `MemberRef` without a retained open signature cannot fall back to
   its instantiated signature and receive an exact key; partially retained open
   signatures are likewise incomplete.
