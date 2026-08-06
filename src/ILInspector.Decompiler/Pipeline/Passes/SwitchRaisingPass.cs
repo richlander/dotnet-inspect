@@ -298,6 +298,11 @@ public sealed class SwitchRaisingPass : IIrPass
             regions[defaultIndex] = defaultRegion;
             owned.UnionWith(defaultRegion);
         }
+        else if (regions.TryGetValue(defaultIndex, out var sharedDefaultRegion)
+            && ContainsBreakTargetingOutsideRegion(blocks, sharedDefaultRegion))
+        {
+            return false;
+        }
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
         // terminating case (which would wrongly empty-case it). A predecessor
@@ -1165,6 +1170,26 @@ public sealed class SwitchRaisingPass : IIrPass
             }
         }
         return true;
+    }
+
+    /// <summary>A break with no region-local loop/switch owner would bind to the new switch after reparenting.</summary>
+    static bool ContainsBreakTargetingOutsideRegion(IReadOnlyList<Block> blocks, List<int> region)
+    {
+        foreach (int idx in region)
+        {
+            var root = blocks[idx];
+            foreach (var @break in root.Descendants.OfType<Break>())
+            {
+                for (var ancestor = @break.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    if (ReferenceEquals(ancestor, root))
+                        return true;
+                    if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement or Switch)
+                        break;
+                }
+            }
+        }
+        return false;
     }
 
     static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)

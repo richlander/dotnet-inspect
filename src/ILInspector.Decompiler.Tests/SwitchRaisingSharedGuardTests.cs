@@ -49,6 +49,7 @@ static class SharedGuardSwitchFixture
 public class SwitchRaisingSharedGuardTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
 
@@ -137,9 +138,78 @@ public class SwitchRaisingSharedGuardTests
         Assert.Single(function.Descendants.OfType<SwitchBranch>());
     }
 
+    [Fact]
+    public void SharedDefaultContainingEnclosingLoopBreak_RemainsFlat()
+    {
+        var loopBody = new BlockContainer();
+
+        var guard = new Block(0);
+        guard.Add(new ConditionalBranch(
+            new LoadArgument(1, "skip", s_bool),
+            0x30));
+        loopBody.Add(guard);
+
+        var dispatch = new Block(0x0D);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x30, 0x20, 0x20, 0x20]));
+        loopBody.Add(dispatch);
+
+        var sharedDefault = new Block(0x20);
+        sharedDefault.Add(new Break());
+        loopBody.Add(sharedDefault);
+
+        var continuation = new Block(0x30);
+        continuation.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        loopBody.Add(continuation);
+
+        var outerBlock = new Block();
+        outerBlock.Add(new DoWhileLoop(loopBody, new Constant(false, s_bool)));
+        outerBlock.Add(new Return(new LoadLocal(0, s_int)));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_int,
+                [
+                    new Parameter("value", s_int),
+                    new Parameter("skip", s_bool),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [s_int],
+            outerBody);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+    }
+
+    [Fact]
+    public void SharedDefaultContainingNestedLoopBreak_StillRaises()
+    {
+        var function = BuildSharedGuardSwitch(
+            defaultExitsToContinuation: true,
+            defaultContainsNestedLoopBreak: true);
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        var nestedLoop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(nestedLoop.Descendants.OfType<Break>());
+    }
+
     static IrFunction BuildSharedGuardSwitch(
         bool guardTargetsCaseBody = false,
-        bool defaultExitsToContinuation = false)
+        bool defaultExitsToContinuation = false,
+        bool defaultContainsNestedLoopBreak = false)
     {
         var body = new BlockContainer();
 
@@ -172,6 +242,12 @@ public class SwitchRaisingSharedGuardTests
         var rejected = new Block(0x20);
         if (defaultExitsToContinuation)
         {
+            if (defaultContainsNestedLoopBreak)
+            {
+                var nestedBody = new Block();
+                nestedBody.Add(new Break());
+                rejected.Add(new WhileLoop(new Constant(true, s_bool), nestedBody));
+            }
             rejected.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
             rejected.Add(new Branch(0x30));
         }
