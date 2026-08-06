@@ -39,15 +39,16 @@ public sealed class FluentChainRecompositionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        var orderSensitiveArguments = SpilledReceiverFold.OrderSensitiveArguments(function);
         // Fold to a fixpoint: each successful fold removes at least one spill
         // store, so the loop strictly shrinks the function and terminates. Usage
         // is recomputed each round because a fold moves loads into the sink.
-        while (FoldOne(function, context))
+        while (FoldOne(function, context, orderSensitiveArguments))
         {
         }
     }
 
-    static bool FoldOne(IrFunction function, PassContext context)
+    static bool FoldOne(IrFunction function, PassContext context, IReadOnlySet<int> orderSensitiveArguments)
     {
         var usage = SpilledReceiverFold.CountPlaces(function);
         foreach (var node in function.Descendants)
@@ -58,7 +59,13 @@ public sealed class FluentChainRecompositionPass : IIrPass
             {
                 continue;
             }
-            if (SpilledReceiverFold.TryFold(statement, sink, usage, context, "re-compose spilled fluent chain link"))
+            if (SpilledReceiverFold.TryFold(
+                statement,
+                sink,
+                usage,
+                context,
+                "re-compose spilled fluent chain link",
+                orderSensitiveArguments: orderSensitiveArguments))
                 return true;
         }
         return false;

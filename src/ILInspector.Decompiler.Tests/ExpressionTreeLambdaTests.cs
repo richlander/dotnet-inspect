@@ -344,6 +344,7 @@ public class ExpressionTreeLambdaTests
         var output = CSharpPrinter.Print(function).Output;
         Assert.Contains("Expression.Lambda<Func<int, bool>>", output);
         Assert.Contains("Expression.GreaterThan", output);
+        Assert.DoesNotContain("S_", output);
         Assert.DoesNotContain("=>", output);
     }
 

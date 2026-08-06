@@ -70,15 +70,14 @@ public class FidelityGateTests
         // raises into nested if/else, the same honest comparison-tree over-render
         // as the other sparse-switch entries — valid, not opcode-exact.
         "SlotDiamondDispatch",
-        // The next three became compile-checkable only when the fidelity harness
+        // The next two became compile-checkable only when the fidelity harness
         // began reconstructing sibling properties as property syntax (#1412): a
-        // body's `obj.X` / object-initializer / `?.X = v` cannot bind to a bare
+        // body's `obj.X` / `?.X = v` cannot bind to a bare
         // `get_X`/`set_X` method, so these were silently recompile-failing before.
         // The newly-visible diffs are honest decompiler over-renders, not harness
         // artifacts (verified by opcode dump): a flipped short-circuit branch with
         // a temp slot, and reused-slot temporaries — valid C#, not opcode-exact.
         "NullConditionalPropertyAssignment",
-        "ObjectInitializerArgumentBeforeShortCircuit",
         "ReusedSlotStringListCount",
         // SwitchStoreThenUse is the #1710 ConditionalStoreChainPass fold: a
         // compare-chain switch assigning a local folds to a nested conditional
@@ -113,42 +112,11 @@ public class FidelityGateTests
         // honest pre-existing body over-renders (ref/in/out call sites, positional
         // patterns, slot/ternary merges, null-coalescing assignment).
         "FloatPositionalPattern",
-        // Expression-tree factory fixtures are valid and Full, but SDK preview6
-        // compile-back reshapes the manually emitted Expression.* calls around
-        // stack-slot/local temporaries. This is toolchain drift in an existing
-        // over-render frontier, not a new daily product regression.
-        "ManualSimpleExpressionTreeFactory",
-        // The manual factory fixtures below DECLINE and decompile to honest
-        // Expression.* factory-call C# with clean locals: the malformed/shared-graph
-        // near misses (reused parameter identity, duplicate names, unspellable name),
-        // the canonical graphs returned through Expression/LambdaExpression/object
-        // sinks, and the constant-only arithmetic graphs Roslyn would fold. Like
-        // ManualSimpleExpressionTreeFactory, their emitted Expression.* calls
-        // recompile through SDK preview compile-back reshaping of stack-slot/local
-        // temporaries — a valid over-render, not opcode-exact. Verified by running
-        // the Speed=Slow fidelity gate locally.
-        "ManualCanonicalReturnedAsExpression",
-        "ManualCanonicalReturnedAsLambdaExpression",
-        "ManualCanonicalReturnedAsObject",
+        // These malformed/shared-graph near misses keep honest Expression.*
+        // factory calls, but their parameter-alias locals still recompile through
+        // a different stack shape.
         "ManualReusedParameterFactory",
         "ManualDuplicateNameFactory",
-        "ManualUnspellableNameFactory",
-        "ManualConstantOnlyAddFactory",
-        // ManualConstantOnlyComparisonFactory belongs to the same constant-only
-        // manual-factory group, but arrived later (#3053) than the group's docket
-        // entry and so was never added. Its diff is the group's diff — compile-back
-        // reshapes the hand-emitted Expression.* calls around stack-slot temporaries
-        // (added stloc/stloc + ldloc/ldloc, no opcode-kind change elsewhere). It is
-        // an omission unmasked by running this Speed=Slow gate, not a new regression:
-        // the raise itself is pinned by
-        // ExpressionTreeLambdaTests.ManualConstantOnlyComparisonFactory_StaysFactoryCalls,
-        // which stays green. Tracked as #3502.
-        "ManualConstantOnlyComparisonFactory",
-        "ManualConstantOnlySubtractFactory",
-        "ManualConstantOnlyMultiplyFactory",
-        "ManualNestedConstantSubtreeFactory",
-        "ManualConstantOnlyDivideByZeroFactory",
-        "ManualConstantOnlyRemainderOverflowFactory",
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         "MergedTernaryDeclaration",
@@ -496,6 +464,24 @@ public class FidelityGateTests
         "GenericRefKindCallSites",
         "LocalBodyLambda",
         "ManualParameterPlusConstantFactory",
+        // #3502: the late inliner now restores an ordered run of stack-held
+        // arguments directly into a returned call. These factory calls and the
+        // object-initializer near miss all lose their synthetic spill locals and
+        // recompile Exact; pin both the intended comparison fix and every measured
+        // sibling promotion.
+        "ManualCanonicalReturnedAsExpression",
+        "ManualCanonicalReturnedAsLambdaExpression",
+        "ManualCanonicalReturnedAsObject",
+        "ManualConstantOnlyAddFactory",
+        "ManualConstantOnlyComparisonFactory",
+        "ManualConstantOnlyDivideByZeroFactory",
+        "ManualConstantOnlyMultiplyFactory",
+        "ManualConstantOnlyRemainderOverflowFactory",
+        "ManualConstantOnlySubtractFactory",
+        "ManualNestedConstantSubtreeFactory",
+        "ManualSimpleExpressionTreeFactory",
+        "ManualUnspellableNameFactory",
+        "ObjectInitializerArgumentBeforeShortCircuit",
         "NonCapturingLambda",
         "OrBoolIntMix",
         "OrBoolUintMix",
