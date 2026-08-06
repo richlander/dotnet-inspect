@@ -12,11 +12,9 @@ namespace DotnetInspector.Tests;
 public class PackageInspectionTextTests
 {
     private const string Hazard = "HOSTILE\u202EMARKER";
-
-    [Fact]
-    public void PresentationProjection_CoversEveryPackageModelTextProperty()
-    {
-        Dictionary<Type, Type> mappings = new()
+    private const string Benign = "ordinary text";
+    private static readonly IReadOnlyDictionary<Type, Type> PresentationMappings =
+        new Dictionary<Type, Type>
         {
             [typeof(InspectionResult)] = typeof(PackageInspectionText),
             [typeof(PackageDeprecation)] = typeof(PackageDeprecationText),
@@ -29,22 +27,27 @@ public class PackageInspectionTextTests
             [typeof(SignatureVerificationResult)] = typeof(PackageSignatureText),
             [typeof(AuditSignal)] = typeof(PackageAuditSignalText),
         };
+    private static readonly HashSet<string> NonPresentedText =
+    [
+        $"{typeof(RidPackageReference).FullName}.{nameof(RidPackageReference.AvailableDisplay)}",
+        $"{typeof(InspectionResult).FullName}.{nameof(InspectionResult.Tfm)}",
+    ];
+
+    [Fact]
+    public void PresentationProjection_CoversEveryPackageModelTextProperty()
+    {
         // AvailableDisplay is fixed tool text. Tfm is a selection helper ignored by
         // JSON; the rendered Highest TFM comes from the contained TargetFrameworks.
-        HashSet<string> nonPresentedText =
-        [
-            $"{typeof(RidPackageReference).FullName}.{nameof(RidPackageReference.AvailableDisplay)}",
-            $"{typeof(InspectionResult).FullName}.{nameof(InspectionResult.Tfm)}",
-        ];
-
-        foreach ((Type modelType, Type textType) in mappings)
+        foreach ((Type modelType, Type textType) in PresentationMappings)
         {
             foreach (PropertyInfo modelProperty in modelType.GetProperties(
                 BindingFlags.Instance | BindingFlags.Public))
             {
-                Type? expectedCurrency = CurrencyType(modelProperty.PropertyType, mappings);
+                Type? expectedCurrency = CurrencyType(
+                    modelProperty.PropertyType,
+                    PresentationMappings);
                 if (expectedCurrency is null
-                    || nonPresentedText.Contains($"{modelType.FullName}.{modelProperty.Name}"))
+                    || NonPresentedText.Contains($"{modelType.FullName}.{modelProperty.Name}"))
                 {
                     continue;
                 }
@@ -57,6 +60,110 @@ public class PackageInspectionTextTests
                     $"{modelType.Name}.{modelProperty.Name} has no presentation currency.");
                 Assert.Equal(expectedCurrency, NormalizeNullableCurrency(textProperty!.PropertyType));
             }
+        }
+    }
+
+    [Fact]
+    public void RequiredContainment_CoversEveryPackageTextSourceIndividually()
+    {
+        Dictionary<string, Action<InspectionResult>> cases = new()
+        {
+            [nameof(InspectionResult.PackageName)] = result => result.PackageName = Hazard,
+            [nameof(InspectionResult.ManifestVersion)] = result => result.ManifestVersion = Hazard,
+            [nameof(InspectionResult.Version)] = result => result.Version = Hazard,
+            [nameof(InspectionResult.Source)] = result => result.Source = Hazard,
+            [nameof(InspectionResult.Description)] = result =>
+                result.Description = new InertString(TextPolicy.Prose, Hazard),
+            [nameof(InspectionResult.Authors)] = result => result.Authors = Hazard,
+            [nameof(InspectionResult.License)] = result => result.License = Hazard,
+            [nameof(InspectionResult.LicenseUrl)] = result => result.LicenseUrl = Hazard,
+            [nameof(InspectionResult.Repository)] = result => result.Repository = Hazard,
+            [nameof(InspectionResult.RepositoryType)] = result => result.RepositoryType = Hazard,
+            [nameof(InspectionResult.RepositoryCommit)] = result => result.RepositoryCommit = Hazard,
+            [nameof(InspectionResult.Owners)] = result => result.Owners![0] = Hazard,
+            [$"{nameof(InspectionResult.Deprecation)}.{nameof(PackageDeprecation.Reasons)}"] =
+                result => result.Deprecation!.Reasons![0] = Hazard,
+            [$"{nameof(InspectionResult.Deprecation)}.{nameof(PackageDeprecation.Message)}"] =
+                result => result.Deprecation!.Message = Hazard,
+            [$"{nameof(InspectionResult.Deprecation)}.{nameof(PackageDeprecation.AlternatePackageId)}"] =
+                result => result.Deprecation!.AlternatePackageId = Hazard,
+            [$"{nameof(InspectionResult.Vulnerabilities)}[].{nameof(PackageVulnerability.Severity)}"] =
+                result => result.Vulnerabilities![0].Severity = Hazard,
+            [$"{nameof(InspectionResult.Vulnerabilities)}[].{nameof(PackageVulnerability.CveId)}"] =
+                result => result.Vulnerabilities![0].CveId = Hazard,
+            [$"{nameof(InspectionResult.Vulnerabilities)}[].{nameof(PackageVulnerability.Summary)}"] =
+                result => result.Vulnerabilities![0].Summary = Hazard,
+            [$"{nameof(InspectionResult.Vulnerabilities)}[].{nameof(PackageVulnerability.AdvisoryUrl)}"] =
+                result => result.Vulnerabilities![0].AdvisoryUrl = Hazard,
+            [$"{nameof(InspectionResult.Vulnerabilities)}[].{nameof(PackageVulnerability.GhsaId)}"] =
+                result => result.Vulnerabilities![0].GhsaId = Hazard,
+            [nameof(InspectionResult.ReadmeFile)] = result => result.ReadmeFile = Hazard,
+            [nameof(InspectionResult.PackageReadmeFile)] = result => result.PackageReadmeFile = Hazard,
+            [nameof(InspectionResult.PackageTypes)] = result => result.PackageTypes![0] = Hazard,
+            [nameof(InspectionResult.ContentDirectories)] = result => result.ContentDirectories![0] = Hazard,
+            [nameof(InspectionResult.TargetFrameworks)] = result => result.TargetFrameworks![0] = Hazard,
+            [nameof(InspectionResult.SupportedRids)] = result => result.SupportedRids![0] = Hazard,
+            [nameof(InspectionResult.ToolFormat)] = result => result.ToolFormat = Hazard,
+            [nameof(InspectionResult.ToolCommands)] = result => result.ToolCommands![0] = Hazard,
+            [$"{nameof(InspectionResult.RuntimeIdentifierPackages)}[].{nameof(RidPackageReference.RuntimeIdentifier)}"] =
+                result => result.RuntimeIdentifierPackages![0].RuntimeIdentifier = Hazard,
+            [$"{nameof(InspectionResult.RuntimeIdentifierPackages)}[].{nameof(RidPackageReference.PackageId)}"] =
+                result => result.RuntimeIdentifierPackages![0].PackageId = Hazard,
+            [nameof(InspectionResult.RuntimeTargetRid)] = result => result.RuntimeTargetRid = Hazard,
+            [nameof(InspectionResult.NativeFiles)] = result => result.NativeFiles![0] = Hazard,
+            [nameof(InspectionResult.LibraryFiles)] = result => result.LibraryFiles![0] = Hazard,
+            [$"{nameof(InspectionResult.DependencyGroups)}[].{nameof(DependencyGroup.TargetFramework)}"] =
+                result => result.DependencyGroups![0].TargetFramework = Hazard,
+            [$"{nameof(InspectionResult.DependencyGroups)}[].{nameof(DependencyGroup.Dependencies)}[].{nameof(PackageDependency.Id)}"] =
+                result => result.DependencyGroups![0].Dependencies[0].Id = Hazard,
+            [$"{nameof(InspectionResult.DependencyGroups)}[].{nameof(DependencyGroup.Dependencies)}[].{nameof(PackageDependency.Version)}"] =
+                result => result.DependencyGroups![0].Dependencies[0].Version = Hazard,
+            [$"{nameof(InspectionResult.RuntimeDependencies)}[].{nameof(PackageDependency.Id)}"] =
+                result => result.RuntimeDependencies![0].Id = Hazard,
+            [$"{nameof(InspectionResult.RuntimeDependencies)}[].{nameof(PackageDependency.Version)}"] =
+                result => result.RuntimeDependencies![0].Version = Hazard,
+            [$"{nameof(InspectionResult.Files)}[].{nameof(PackageFile.Path)}"] =
+                result => result.Files![0] = result.Files[0] with { Path = Hazard },
+            [$"{nameof(InspectionResult.PackageFiles)}[].{nameof(PackageFile.Path)}"] =
+                result => result.PackageFiles![0] = result.PackageFiles[0] with { Path = Hazard },
+            [$"{nameof(InspectionResult.SourceFiles)}[].{nameof(PackageSourceFileInfo.Library)}"] =
+                result => result.SourceFiles![0] = result.SourceFiles[0] with { Library = Hazard },
+            [$"{nameof(InspectionResult.SourceFiles)}[].{nameof(PackageSourceFileInfo.Type)}"] =
+                result => result.SourceFiles![0] = result.SourceFiles[0] with { Type = Hazard },
+            [$"{nameof(InspectionResult.SourceFiles)}[].{nameof(PackageSourceFileInfo.Url)}"] =
+                result => result.SourceFiles![0] = result.SourceFiles[0] with { Url = Hazard },
+            [$"{nameof(InspectionResult.SignatureResult)}.{nameof(SignatureVerificationResult.Publisher)}"] =
+                result => result.SignatureResult = result.SignatureResult! with { Publisher = Hazard },
+            [$"{nameof(InspectionResult.SignatureResult)}.{nameof(SignatureVerificationResult.Repository)}"] =
+                result => result.SignatureResult = result.SignatureResult! with { Repository = Hazard },
+            [$"{nameof(InspectionResult.SignatureResult)}.{nameof(SignatureVerificationResult.StatusMessage)}"] =
+                result => result.SignatureResult = result.SignatureResult! with { StatusMessage = Hazard },
+            [$"{nameof(InspectionResult.AuditSignals)}[].{nameof(AuditSignal.Area)}"] =
+                result => result.AuditSignals![0] = result.AuditSignals[0] with { Area = Hazard },
+            [$"{nameof(InspectionResult.AuditSignals)}[].{nameof(AuditSignal.Signal)}"] =
+                result => result.AuditSignals![0] = result.AuditSignals[0] with { Signal = Hazard },
+            [$"{nameof(InspectionResult.AuditSignals)}[].{nameof(AuditSignal.Value)}"] =
+                result => result.AuditSignals![0] = result.AuditSignals[0] with { Value = Hazard },
+            [$"{nameof(InspectionResult.AuditSignals)}[].{nameof(AuditSignal.Evidence)}"] =
+                result => result.AuditSignals![0] = result.AuditSignals[0] with { Evidence = Hazard },
+        };
+        string[] expected = EnumeratePresentationSourcePaths(
+                typeof(InspectionResult),
+                prefix: "")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] actual = cases.Keys.Order(StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(expected, actual);
+
+        foreach ((string path, Action<InspectionResult> makeHostile) in cases)
+        {
+            InspectionResult result = CompleteResult(Benign);
+            makeHostile(result);
+
+            Assert.True(
+                new PackageInspectionText(result).RequiredContainment,
+                $"{path} did not contribute to RequiredContainment.");
         }
     }
 
@@ -247,6 +354,53 @@ public class PackageInspectionTextTests
 
     private static Type NormalizeNullableCurrency(Type type)
         => Nullable.GetUnderlyingType(type) ?? type;
+
+    private static IEnumerable<string> EnumeratePresentationSourcePaths(
+        Type modelType,
+        string prefix)
+    {
+        foreach (PropertyInfo property in modelType.GetProperties(
+            BindingFlags.Instance | BindingFlags.Public))
+        {
+            if (property.SetMethod is null
+                || NonPresentedText.Contains($"{modelType.FullName}.{property.Name}"))
+            {
+                continue;
+            }
+
+            Type propertyType = property.PropertyType;
+            string path = prefix + property.Name;
+            if (CurrencyType(propertyType, PresentationMappings) is { } currency
+                && (currency == typeof(InertString) || currency == typeof(List<InertString>)))
+            {
+                yield return path;
+                continue;
+            }
+
+            if (PresentationMappings.ContainsKey(propertyType))
+            {
+                foreach (string nested in EnumeratePresentationSourcePaths(
+                    propertyType,
+                    path + "."))
+                {
+                    yield return nested;
+                }
+                continue;
+            }
+
+            if (propertyType.IsGenericType
+                && propertyType.GetGenericTypeDefinition() == typeof(List<>)
+                && PresentationMappings.ContainsKey(propertyType.GetGenericArguments()[0]))
+            {
+                foreach (string nested in EnumeratePresentationSourcePaths(
+                    propertyType.GetGenericArguments()[0],
+                    path + "[]."))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
 
     private static IEnumerable<string> EnumerateStrings(JsonElement element)
     {

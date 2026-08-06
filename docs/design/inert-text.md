@@ -377,7 +377,9 @@ aggregate materializes it.
 sink unwraps them. It is complete for package inspection, not for every
 `dotnet-inspect` command, and therefore does not yet justify global trust-axis
 flags. `PresentationProjection_CoversEveryPackageModelTextProperty` derives the
-model-to-currency coverage set,
+model-to-currency coverage set, and
+`RequiredContainment_CoversEveryPackageTextSourceIndividually` derives that
+source set again and makes exactly one field hostile per aggregate assertion.
 `JsonProjection_ContainsEveryArtifactTextScalar` supplies the hostile
 non-vacuity gate, and
 `JsonProjection_PreservesTheBenignInspectionResultContract` pins the existing
