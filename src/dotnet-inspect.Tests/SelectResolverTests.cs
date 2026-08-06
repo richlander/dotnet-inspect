@@ -152,6 +152,21 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void ResolveSelect_ExactMiss_SuggestsCategoriesAndSectionsTogether()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Library"] = ["Library Info"]
+        };
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Library"], ["Library Info"], categories: categories);
+
+        var miss = Assert.Single(result.Unresolved);
+        Assert.Equal(["@Library", "Library Info"], miss.Suggestions);
+    }
+
+    [Fact]
     public void ResolveSelect_PartialExactMiss_ContinuesWithMatched()
     {
         var result = SelectResolver.ResolveSelectAsSections(["Files", "Foo"], TestSections);

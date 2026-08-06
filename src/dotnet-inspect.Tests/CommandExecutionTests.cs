@@ -9072,6 +9072,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectMiss_SuggestsCategoryDoors()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", "Library", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Did you mean:", error);
+        var categoryIndex = error.IndexOf("  @Library", StringComparison.Ordinal);
+        var sectionIndex = error.IndexOf("  Library Info", StringComparison.Ordinal);
+        Assert.True(
+            categoryIndex >= 0 && sectionIndex > categoryIndex,
+            error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");

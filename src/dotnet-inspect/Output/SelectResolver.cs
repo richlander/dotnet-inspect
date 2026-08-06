@@ -216,6 +216,22 @@ public static class SelectResolver
                     continue;
                 }
 
+                if (!miss.IsGlob)
+                {
+                    var suggestions = GetSuggestions(
+                        value,
+                        [.. knownSections, .. categories.Keys]);
+                    if (suggestions.Count > 0)
+                    {
+                        unresolved.Add(miss with
+                        {
+                            Suggestions = suggestions,
+                            ListsAllSections = false
+                        });
+                        continue;
+                    }
+                }
+
                 unresolved.Add(miss);
             }
         }
@@ -239,23 +255,29 @@ public static class SelectResolver
     private static List<string> GetSuggestions(string value, string[] allNames, int maxResults = 6)
     {
         var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var valueKey = SuggestionKey(value);
 
         foreach (var name in allNames)
-            if (name.StartsWith(value, StringComparison.OrdinalIgnoreCase))
+            if (SuggestionKey(name).StartsWith(valueKey, StringComparison.OrdinalIgnoreCase))
                 suggestions.Add(name);
 
-        var valueLower = value.ToLowerInvariant();
+        var valueLower = valueKey.ToLowerInvariant();
         foreach (var name in allNames)
         {
-            var score = StringDistance.Similarity(valueLower, name.ToLowerInvariant());
+            var score = StringDistance.Similarity(
+                valueLower,
+                SuggestionKey(name).ToLowerInvariant());
             if (score >= 0.5)
                 suggestions.Add(name);
         }
 
         return suggestions
             .OrderByDescending(s => StringDistance.Similarity(
-                value.ToLowerInvariant(), s.ToLowerInvariant()))
+                valueLower, SuggestionKey(s).ToLowerInvariant()))
             .Take(maxResults)
             .ToList();
     }
+
+    private static string SuggestionKey(string value)
+        => value.StartsWith('@') ? value[1..] : value;
 }
