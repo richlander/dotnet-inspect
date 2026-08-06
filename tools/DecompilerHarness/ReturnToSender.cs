@@ -1155,6 +1155,38 @@ static class ReturnToSender
         MethodDefinitionHandle expected)
         => TryFindMethodBySignature(reader, typeDef, methodName, signature) == expected;
 
+    /// <summary>
+    /// Returns the normalized source-correlation identity only when it resolves
+    /// uniquely to <paramref name="expected"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is the single derivation shared by target discovery and fault isolation.
+    /// Lossy, ambiguous, or undecodable signatures return null so their callers retain
+    /// ordinal fallback. The positive and negative outcomes are gated by
+    /// <c>TryIsolateRecompileFailure_UsesSignatureWhenSourceOverloadOrderDiffers</c>
+    /// and <c>TryIsolateRecompileFailure_FallsBackToOrdinalWhenSignatureIsAmbiguous</c>.
+    /// </remarks>
+    internal static string? UniqueSourceCorrelationSignature(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string methodName,
+        MethodDefinitionHandle expected)
+    {
+        try
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            string? signature = SignatureIdentity.ForMetadataMethod(reader, typeDef, expected);
+            return signature is not null
+                && ResolvesUniquelyBySignature(reader, typeDef, methodName, signature, expected)
+                    ? signature
+                    : null;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     static MethodDefinitionHandle? TryFindMethod(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -2212,9 +2244,11 @@ static class ReturnToSender
         if (sourceIndex is null)
             return null;
 
-        string? signature = string.IsNullOrWhiteSpace(request.SignatureText)
-            ? null
-            : request.SignatureText;
+        string? signature = UniqueSourceCorrelationSignature(
+            request.Reader,
+            request.TargetType,
+            request.MethodName,
+            request.TargetMethod);
         if (!sourceIndex.TryFind(
                 new RequestedTarget(request.FullType, request.MethodName, request.Overload, signature),
                 out var sourceMember)

@@ -5630,6 +5630,109 @@ public class ReturnToSenderPrototypeTests
     }
 
     /// <summary>
+    /// Gates #3804: fault isolation must correlate the authored source member by
+    /// the same normalized signature identity as the source probe, not by the
+    /// same-name declaration ordinal.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_UsesSignatureWhenSourceOverloadOrderDiffers()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "ReversedOverloads.cs",
+            """
+            public class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+
+                public int Pick(int value) { return value + 1; }
+            }
+            """,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            // The rejected body makes the target Pick(int) fail. Substituting the
+            // correct authored body compiles and proves BodyDefect. Ordinal lookup
+            // instead substitutes Pick(string)'s body into an int parameter shell,
+            // which fails on value.Length and falsely reports ShellOrClosureDefect.
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                methodName: "Pick",
+                overload: 0);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
+    /// The close negative for #3804: a lossy normalized metadata signature must
+    /// not override the ordinal when multiple metadata overloads share it.
+    /// </summary>
+    [Fact]
+    public void TryIsolateRecompileFailure_FallsBackToOrdinalWhenSignatureIsAmbiguous()
+    {
+        const string assemblySource = """
+            namespace Sample
+            {
+                public readonly struct Nullable<T> { }
+            }
+
+            public class Class1
+            {
+                public int Pick(Sample.Nullable<int> value) { return 1; }
+
+                public int Pick(int? value) { return value.Value; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "AmbiguousSignature.cs",
+            assemblySource,
+            out var sourceDirectory);
+        var assemblyPath = CompileFixture(assemblySource, sourceDirectory);
+        try
+        {
+            // SignatureIdentity's metadata provider normalizes both overloads to
+            // `0(int?)`. The source index spells the user-defined type as
+            // `0(Nullable<int>)`, so using the lossy signature would select the
+            // second overload and put value.Value into the user-type shell. The
+            // uniqueness guard must drop it and let ordinal 0 select return 1.
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                methodName: "Pick",
+                overload: 0);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    /// <summary>
     /// Gates the invariant the compile-back floor's safety argument rests on (#3783):
     /// fault isolation is never produced for a source member with no authored body.
     /// </summary>
@@ -5649,12 +5752,11 @@ public class ReturnToSenderPrototypeTests
     /// the substitution a miss would return null for the wrong reason and prove nothing.
     /// </para>
     /// <para>
-    /// This gates the common path only. Isolation resolves its source member with
-    /// <c>CorpusMethodIdentity.SignatureText</c> while the index is keyed by
-    /// <c>SignatureIdentity</c>, so its signature lookup always misses and falls
-    /// back to the ordinal (#3804). Where those disagree the two sides can select
-    /// different overloads, and this invariant does not cover that case. The floor
-    /// clearing does not depend on it either way.
+    /// Isolation now derives the same <c>SignatureIdentity</c> used by the source
+    /// index (#3804), but the index deliberately retains ordinal fallback when a
+    /// normalized signature is missing or ambiguous. The substituted index below
+    /// carries no matching signature key, so this test also proves that the fallback
+    /// preserves the authored-body requirement.
     /// </para>
     /// </remarks>
     [Fact]
@@ -5719,16 +5821,18 @@ public class ReturnToSenderPrototypeTests
         string assemblyPath,
         string sourcePath,
         string rejectedTargetBody,
-        ReturnToSenderSourceIndex? sourceIndexOverride = null)
+        ReturnToSenderSourceIndex? sourceIndexOverride = null,
+        string methodName = "M",
+        int overload = 0)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
 
-        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", "M");
-        var function = IrImporter.Import(source, "Class1", "M", 0)
-            ?? throw new InvalidOperationException("Could not import Class1::M.");
+        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", methodName, overload);
+        var function = IrImporter.Import(source, "Class1", methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import Class1::{methodName}#{overload}.");
         var request = new MethodArtifactRequest(
             AssemblyPath: assemblyPath,
             Reader: reader,
@@ -5737,8 +5841,8 @@ public class ReturnToSenderPrototypeTests
             TargetMethod: methodHandle,
             TargetBody: new ProductTargetBody(rejectedTargetBody, []),
             FullType: "Class1",
-            MethodName: "M",
-            Overload: 0,
+            MethodName: methodName,
+            Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
             ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
@@ -5770,7 +5874,8 @@ public class ReturnToSenderPrototypeTests
     static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
         MetadataReader reader,
         string typeName,
-        string methodName)
+        string methodName,
+        int overload = 0)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -5778,15 +5883,19 @@ public class ReturnToSenderPrototypeTests
             if (!string.Equals(reader.GetFullTypeName(type), typeName, StringComparison.Ordinal))
                 continue;
 
+            int seen = 0;
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal))
+                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
+                    && seen++ == overload)
+                {
                     return (typeHandle, methodHandle);
+                }
             }
         }
 
-        throw new InvalidOperationException($"Could not find {typeName}::{methodName}.");
+        throw new InvalidOperationException($"Could not find {typeName}::{methodName}#{overload}.");
     }
 
     [Fact]
