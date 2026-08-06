@@ -13,10 +13,10 @@ namespace ILInspector.DecompilerHarness;
 /// trend table plus a movement table that pivots the most recent runs onto
 /// per-metric rows with goal (↑/↓) and per-step (✓/✗) glyphs.
 ///
-/// The headline metric is <c>invalidBreakdown.productBodyDefect</c>, not raw
-/// <c>invalid</c>: per #3079/#3096 the raw invalid population is ~92% harness
-/// shell-reconstruction noise that does not move on decompiler fixes, so the card
-/// surfaces the product sub-count as the signal that actually tracks progress.
+/// The headline metrics are the product-body-defect counts within invalid rows and
+/// the valid-different IL frontier, not their raw populations: per #3079/#3096 the
+/// raw buckets are dominated by harness shell-reconstruction noise, so the card
+/// surfaces the attributed product sub-counts that track decompiler progress.
 /// </summary>
 static class AuthoredCorpusHistoryCard
 {
@@ -84,8 +84,9 @@ static class AuthoredCorpusHistoryCard
         var movement = BuildMovement(movementWindow);
 
         const string productSignalNote =
-            "Track product defects (target-body decompiler bugs), not raw invalid "
-            + "(~92% harness shell-reconstruction noise per #3079).";
+            "Track attributed product defects (target-body decompiler bugs), not "
+            + "raw invalid or the unpartitioned IL frontier. Frontier attribution "
+            + "is an informational census, not a raw-count ratchet.";
         string note;
         if (movement is not null)
         {
@@ -146,6 +147,14 @@ static class AuthoredCorpusHistoryCard
             ScalarRow("Invalid (raw)", Goal.Lower, window, cols, r => r.Invalid),
         };
         rows.AddRange(ProductDefectRows(window, cols));
+        if (window.Any(run => run.ValidDifferent?.FrontierIlDiffAttribution is not null))
+        {
+            rows.Add(InformationalNullableScalarRow(
+                "Frontier product defects (attributed)",
+                window,
+                cols,
+                run => run.ValidDifferent?.FrontierIlDiffAttribution?.ProductBodyDefect));
+        }
         return rows;
     }
 
@@ -156,6 +165,23 @@ static class AuthoredCorpusHistoryCard
         for (int i = 0; i < window.Count; i++)
             sources[i] = new Source(cols[i], value(window[i]));
         return new MultiSourceRow(label, sources) { Goal = goal };
+    }
+
+    static MultiSourceRow InformationalNullableScalarRow(
+        string label,
+        IReadOnlyList<HistoryRun> window,
+        string[] cols,
+        Func<HistoryRun, int?> value)
+    {
+        var sources = new Source[window.Count];
+        for (int i = 0; i < window.Count; i++)
+        {
+            sources[i] = value(window[i]) is { } measured
+                ? new Source(cols[i], measured)
+                : new Source(cols[i], (IMarkoutCell?)null);
+        }
+
+        return new MultiSourceRow(label, sources);
     }
 
     // Runs predating #3096 carry no invalid breakdown; render those columns as an absent cell so the
@@ -239,7 +265,8 @@ internal sealed record HistoryRunValidDifferent(
     int FrontierIlDiff,
     int? Lowering = null,
     int? KnownTaste = null,
-    int? FrontierIlNoVerdict = null)
+    int? FrontierIlNoVerdict = null,
+    HistoryRunFrontierIlDiffAttribution? FrontierIlDiffAttribution = null)
 {
     /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
     public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
@@ -263,7 +290,26 @@ internal sealed record HistoryRunValidDifferent(
             && FrontierIlDiff >= 0
             && Lowering is not < 0
             && KnownTaste is not < 0
-            && FrontierIlNoVerdict is not < 0;
+            && FrontierIlNoVerdict is not < 0
+            && FrontierIlDiffAttribution is not { CountsAreNonNegative: false };
+}
+
+internal sealed record HistoryRunFrontierIlDiffAttribution(
+    [property: JsonRequired] int Total,
+    [property: JsonRequired] int ProductBodyDefect,
+    [property: JsonRequired] int HarnessShellReconstruction,
+    [property: JsonRequired] int CompileBackFloor,
+    [property: JsonRequired] int Unclassified)
+{
+    public long Sum
+        => (long)ProductBodyDefect + HarnessShellReconstruction + CompileBackFloor + Unclassified;
+
+    public bool CountsAreNonNegative
+        => Total >= 0
+            && ProductBodyDefect >= 0
+            && HarnessShellReconstruction >= 0
+            && CompileBackFloor >= 0
+            && Unclassified >= 0;
 }
 
 internal sealed record HistoryRunInvalidBreakdown(

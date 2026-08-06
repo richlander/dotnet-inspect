@@ -114,6 +114,8 @@
              Link="ReturnToSender.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\SpanAttribution.cs"
              Link="SpanAttribution.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusMethodology.cs"
+             Link="AuthoredCorpusMethodology.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderTypePlanner.cs"
              Link="ReturnToSenderTypePlanner.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderEvidence.cs"

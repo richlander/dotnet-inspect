@@ -22,12 +22,10 @@ namespace ILInspector.DecompilerHarness;
 static class AuthoredCorpusBenchmark
 {
     /// <summary>
-    /// Methodology version for how <c>invalidBreakdown.productBodyDefect</c> is
-    /// computed. Defined by, and co-located with, the attribution rule it stamps
-    /// (see <see cref="SpanAttribution.MethodologyVersion"/>); this alias keeps
-    /// the serialization site readable.
+    /// Methodology version for the authored-corpus attribution fields. The
+    /// serialization alias keeps the report and ratchet call sites readable.
     /// </summary>
-    internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
+    internal const int MethodologyVersion = AuthoredCorpusMethodology.Version;
 
     /// <param name="output">
     /// Where the report is written. Defaults to standard output; tests pass their own
@@ -308,6 +306,7 @@ static class AuthoredCorpusBenchmark
         int evaluated = census.Evaluated;
         int valid = match + different;
         var invalidBreakdown = InvalidBreakdown(results);
+        var frontierBreakdown = FrontierIlDiffBreakdown(results);
 
         output.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
         output.WriteLine();
@@ -328,6 +327,10 @@ static class AuthoredCorpusBenchmark
         output.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
         output.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
         output.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
+        output.WriteLine($"      product body defects            : {frontierBreakdown.ProductBodyDefect}");
+        output.WriteLine($"      harness shell reconstruction    : {frontierBreakdown.HarnessShellReconstruction}");
+        output.WriteLine($"      CompileBack floor (not measured): {frontierBreakdown.CompileBackFloor}");
+        output.WriteLine($"      unclassified IL-diff            : {frontierBreakdown.Unclassified}");
         output.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
         output.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
         output.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
@@ -357,8 +360,17 @@ static class AuthoredCorpusBenchmark
 
         // Both output modes share one exit contract and one partition check, so a
         // malformed run cannot pass in text mode and fail in --json mode.
+        bool frontierPartitionClosed =
+            frontierBreakdown.PartitionClosed && frontierBreakdown.Total == census.FrontierIlDiff;
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
+        if (!frontierPartitionClosed)
+        {
+            Console.Error.WriteLine(
+                $"BLOCKER: frontier IL-diff attribution does not partition the run — "
+                + $"{frontierBreakdown.Sum} reasons / {frontierBreakdown.Total} attributed "
+                + $"vs {census.FrontierIlDiff} frontier rows.");
+        }
 
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
         if (ratchet is not null)
@@ -367,7 +379,7 @@ static class AuthoredCorpusBenchmark
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
         ReportContract(contract, census.Invalid, output);
 
-        return ExitCode(census, inputs, ratchet, contract);
+        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
     }
 
     /// <summary>
@@ -503,11 +515,12 @@ static class AuthoredCorpusBenchmark
         BucketCensus census,
         RunInputs inputs,
         AuthoredCorpusRatchet.Comparison? ratchet,
-        AuthoredCorpusExitContract.QualityContract contract)
+        AuthoredCorpusExitContract.QualityContract contract,
+        bool frontierPartitionClosed = true)
     {
         bool measurementIsSound = AuthoredCorpusExitContract.MeasurementIsSound(
             InputsComplete(census, inputs),
-            census.PartitionClosed,
+            census.PartitionClosed && frontierPartitionClosed,
             census.Drift,
             census.Unsupported,
             census.UnknownOutcome);
@@ -627,6 +640,65 @@ static class AuthoredCorpusBenchmark
         return new InvalidBreakdownCounts(productBodyDefect, harnessShellReconstruction, unclassified);
     }
 
+    internal sealed record FrontierIlDiffBreakdownCounts(
+        int Total,
+        int ProductBodyDefect,
+        int HarnessShellReconstruction,
+        int CompileBackFloor,
+        int Unclassified)
+    {
+        public long Sum
+            => (long)ProductBodyDefect + HarnessShellReconstruction + CompileBackFloor + Unclassified;
+
+        public bool PartitionClosed => Sum == Total;
+    }
+
+    internal static FrontierIlDiffBreakdownCounts FrontierIlDiffBreakdown(
+        IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+    {
+        int productBodyDefect = 0;
+        int harnessShellReconstruction = 0;
+        int compileBackFloor = 0;
+        int unclassified = 0;
+        int total = 0;
+
+        foreach (var result in results.Where(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff))
+        {
+            total++;
+            if (result.UsedCompileBackFloor)
+            {
+                compileBackFloor++;
+                continue;
+            }
+
+            if (result.FaultIsolationMethod != ReturnToSender.FaultIsolationMethod.FidelityControl)
+            {
+                unclassified++;
+                continue;
+            }
+
+            switch (result.FaultIsolationKind)
+            {
+                case ReturnToSender.FaultIsolationKind.BodyDefect:
+                    productBodyDefect++;
+                    break;
+                case ReturnToSender.FaultIsolationKind.ShellOrClosureDefect:
+                    harnessShellReconstruction++;
+                    break;
+                default:
+                    unclassified++;
+                    break;
+            }
+        }
+
+        return new FrontierIlDiffBreakdownCounts(
+            total,
+            productBodyDefect,
+            harnessShellReconstruction,
+            compileBackFloor,
+            unclassified);
+    }
+
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
@@ -658,6 +730,7 @@ static class AuthoredCorpusBenchmark
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
+        var frontierBreakdown = FrontierIlDiffBreakdown(results);
         // Inputs-complete contract: an empty run, a row whose assembly was not
         // supplied, or a corpus row that failed to parse all mean the denominator is
         // not the one the corpus describes. This flag reports only that the inputs were
@@ -681,6 +754,14 @@ static class AuthoredCorpusBenchmark
             knownTaste = census.KnownTaste,
             frontierIlExact = census.FrontierIlExact,
             frontierIlDiff = census.FrontierIlDiff,
+            frontierIlDiffAttribution = new
+            {
+                total = frontierBreakdown.Total,
+                productBodyDefect = frontierBreakdown.ProductBodyDefect,
+                harnessShellReconstruction = frontierBreakdown.HarnessShellReconstruction,
+                compileBackFloor = frontierBreakdown.CompileBackFloor,
+                unclassified = frontierBreakdown.Unclassified,
+            },
             frontierIlNoVerdict = census.FrontierIlNoVerdict,
         };
 
@@ -755,14 +836,23 @@ static class AuthoredCorpusBenchmark
         // Same partition check and exit contract as the text-report path. The ratchet
         // verdict goes to stderr here so it stays visible without corrupting the JSON
         // document that callers redirect to a file; it is also in the payload above.
+        bool frontierPartitionClosed =
+            frontierBreakdown.PartitionClosed && frontierBreakdown.Total == census.FrontierIlDiff;
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
+        if (!frontierPartitionClosed)
+        {
+            Console.Error.WriteLine(
+                $"BLOCKER: frontier IL-diff attribution does not partition the run — "
+                + $"{frontierBreakdown.Sum} reasons / {frontierBreakdown.Total} attributed "
+                + $"vs {census.FrontierIlDiff} frontier rows.");
+        }
 
         if (ratchet is not null)
             AuthoredCorpusRatchet.Report(ratchet, Console.Error);
 
         ReportContract(contract, census.Invalid, Console.Error);
 
-        return ExitCode(census, inputs, ratchet, contract);
+        return ExitCode(census, inputs, ratchet, contract, frontierPartitionClosed);
     }
 }

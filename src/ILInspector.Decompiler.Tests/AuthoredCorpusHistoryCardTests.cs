@@ -204,6 +204,22 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void Render_MovementAddsFrontierProductDefectsOnlyForMethodologyV3()
+    {
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(
+        [
+            """{"date":"2026-08-05","commit":"v2","validPct":56.8,"correct":1576,"validDifferent":{"total":5244,"frontierIlExact":3122,"frontierIlDiff":2112,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0},"invalid":5180,"invalidBreakdown":{"productBodyDefect":325,"harnessShellReconstruction":4807,"unclassified":48},"methodologyVersion":2}""",
+            """{"date":"2026-08-06","commit":"v3","validPct":56.9,"correct":1577,"validDifferent":{"total":5243,"frontierIlExact":3122,"frontierIlDiff":2111,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":2111,"productBodyDefect":200,"harnessShellReconstruction":1300,"compileBackFloor":500,"unclassified":111}},"invalid":5180,"invalidBreakdown":{"productBodyDefect":325,"harnessShellReconstruction":4807,"unclassified":48},"methodologyVersion":3}""",
+        ]);
+
+        string card = AuthoredCorpusHistoryCard.Render(runs, window: 0);
+
+        Assert.Contains("| Frontier product defects (attributed) | - | 200 |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects \u2193 | 325 | 325", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("Product defects (v3", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseHistory_ReadsTheFullValidDifferentPartition()
     {
         var runs = Parse();

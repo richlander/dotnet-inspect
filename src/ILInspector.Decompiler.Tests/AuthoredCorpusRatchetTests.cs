@@ -54,6 +54,8 @@ public class AuthoredCorpusRatchetTests
         int poolMatched = 26,
         int poolTotal = 26,
         int? methodology = 2,
+        int frontierIlDiff = 0,
+        int? frontierProductBodyDefect = null,
         string? sha = "0a7eded85c3e1410",
         string? corpusSha = "c0117050c0117050")
         => new(
@@ -64,7 +66,21 @@ public class AuthoredCorpusRatchetTests
             Evaluated: evaluated,
             ValidPct: 0,
             Correct: correct,
-            ValidDifferent: new HistoryRunValidDifferent(validDifferent, validDifferent, 0, 0, 0, 0),
+            ValidDifferent: new HistoryRunValidDifferent(
+                validDifferent,
+                validDifferent - frontierIlDiff,
+                frontierIlDiff,
+                0,
+                0,
+                0,
+                methodology >= 3
+                    ? new HistoryRunFrontierIlDiffAttribution(
+                        frontierIlDiff,
+                        frontierProductBodyDefect ?? 0,
+                        frontierIlDiff - (frontierProductBodyDefect ?? 0),
+                        0,
+                        0)
+                    : null),
             Invalid: invalid,
             InvalidBreakdown: productBodyDefect is { } defects
                 ? new HistoryRunInvalidBreakdown(defects, invalid - defects, 0)
@@ -86,7 +102,14 @@ public class AuthoredCorpusRatchetTests
         int? productBodyDefect = 326,
         int methodology = 2,
         bool identified = true)
-        => new(valid, correct, invalid, productBodyDefect, methodology, MethodologyStated: true, Identified: identified);
+        => new(
+            valid,
+            correct,
+            invalid,
+            productBodyDefect,
+            methodology,
+            MethodologyStated: true,
+            Identified: identified);
 
     /// <summary>
     /// The contract an ordinary caller gets: whatever the presence of a baseline
@@ -143,6 +166,106 @@ public class AuthoredCorpusRatchetTests
             [Row()]);
 
         Assert.Equal([expected], comparison.Regressions.Select(metric => metric.Name));
+    }
+
+    [Fact]
+    public void Ratchet_V3RowWithoutFrontierAttributionIsNotTrustworthy()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10);
+        row = row with
+        {
+            ValidDifferent = row.ValidDifferent! with { FrontierIlDiffAttribution = null },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V3FrontierAttributionMustCloseAndMatchTheIlDiffPopulation()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10);
+        var attribution = row.ValidDifferent!.FrontierIlDiffAttribution!;
+
+        var shortPartition = row with
+        {
+            ValidDifferent = row.ValidDifferent with
+            {
+                FrontierIlDiffAttribution = attribution with { Unclassified = 1 },
+            },
+        };
+        var wrongPopulation = row with
+        {
+            ValidDifferent = row.ValidDifferent with
+            {
+                FrontierIlDiffAttribution = attribution with { Total = 99 },
+            },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(shortPartition));
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(wrongPopulation));
+        Assert.True(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V3FrontierAttributionSumCannotCloseByIntegerOverflow()
+    {
+        var row = Row(methodology: 3, frontierIlDiff: 100) with
+        {
+            ValidDifferent = new HistoryRunValidDifferent(
+                Total: 100,
+                FrontierIlExact: 0,
+                FrontierIlDiff: 100,
+                Lowering: 0,
+                KnownTaste: 0,
+                FrontierIlNoVerdict: 0,
+                FrontierIlDiffAttribution: new HistoryRunFrontierIlDiffAttribution(
+                    Total: 100,
+                    ProductBodyDefect: int.MaxValue,
+                    HarnessShellReconstruction: int.MaxValue,
+                    CompileBackFloor: 102,
+                    Unclassified: 0)),
+        };
+
+        Assert.Equal(100, unchecked(int.MaxValue + int.MaxValue + 102));
+        Assert.NotEqual(100, row.ValidDifferent!.FrontierIlDiffAttribution!.Sum);
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(row));
+    }
+
+    [Fact]
+    public void Ratchet_V2ToV3KeepsTheUnchangedInvalidMetricComparable()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(
+                productBodyDefect: 327,
+                methodology: 3),
+            [Row(methodology: 2, productBodyDefect: 326)]);
+
+        Assert.Equal(
+            ["productBodyDefect"],
+            comparison.Regressions.Select(metric => metric.Name));
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name == "frontierProductBodyDefect");
+    }
+
+    /// <summary>
+    /// The v3 frontier partition is a census, not a raw-count quality metric. A row
+    /// can move between product, shell, floor, and unclassified attribution without
+    /// product quality changing, so lower-is-better on one sub-bucket would let
+    /// coverage loss masquerade as improvement.
+    /// </summary>
+    [Fact]
+    public void Ratchet_V3DoesNotTreatARawFrontierAttributionCountAsMonotonic()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 3),
+            [Row(methodology: 3, frontierIlDiff: 100, frontierProductBodyDefect: 10)]);
+
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name.StartsWith("frontier", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -1169,14 +1292,17 @@ public class AuthoredCorpusRatchetTests
         // regression by bumping methodologyVersion. A methodology change is the one
         // legitimate reason for the drop (the metric's meaning changed), so pin that
         // reason: any other cause fails here.
-        string[] expected = newest.Methodology == baseline.Methodology
-            ? ["valid", "correct", "invalid", "productBodyDefect"]
-            : ["valid", "correct", "invalid"];
-
-        // That gap is now closed. The store's newest pair is the first two rows
-        // measured over the identified pool, both stamped v2, so this takes the first
-        // branch and productBodyDefect ratchets. Nothing can re-open it: an unstamped
-        // newest row is refused by
+        var expected = new List<string> { "valid", "correct", "invalid" };
+        var newestMetrics = AuthoredCorpusRatchet.RunMetrics.From(newest);
+        var baselineMetrics = AuthoredCorpusRatchet.RunMetrics.From(baseline);
+        if (newestMetrics.InvalidAttributionMethodology == baselineMetrics.InvalidAttributionMethodology)
+            expected.Add("productBodyDefect");
+        // That gap is now closed. The invalid product metric keeps its v2 lineage
+        // when v3 adds the independent frontier control. The frontier partition is
+        // recorded and charted, but is not a raw-count ratchet: rows can move among
+        // its product, shell, floor, and unclassified buckets without quality
+        // changing. Nothing can re-open the omission path: an unstamped newest row
+        // is refused by
         // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces, and a newest row
         // that dropped its identity would land in the branch above as a skip, which
         // this test fails on.
@@ -1632,9 +1758,8 @@ public class AuthoredCorpusRatchetTests
     /// <summary>
     /// The tracked store's rows are copied verbatim from a run, and a run stamps the
     /// methodology constant the code was built with (<c>AuthoredCorpusBenchmark</c>'s
-    /// constant is an alias for <see cref="SpanAttribution.MethodologyVersion"/>, which
-    /// owns the rule) — so a row may not claim a methodology the code never produced,
-    /// and may not go unstamped.
+    /// constant is <see cref="AuthoredCorpusMethodology.Version"/>) — so a row may
+    /// not claim a methodology the code never produced, and may not go unstamped.
     ///
     /// <para>Without this, the ratchet's one legitimate reason to drop a metric becomes
     /// an escape hatch: a reviewer regressed <c>productBodyDefect</c> by 1,000 and hid
@@ -1647,7 +1772,7 @@ public class AuthoredCorpusRatchetTests
     {
         var newest = AuthoredCorpusHistoryCardTests.TrackedHistory()[^1];
 
-        Assert.Equal(SpanAttribution.MethodologyVersion, newest.Methodology);
+        Assert.Equal(AuthoredCorpusMethodology.Version, newest.Methodology);
     }
 
     /// <summary>
@@ -1726,6 +1851,9 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal(
             report.RootElement.GetProperty("validDifferent").GetInt32(),
             breakdown.GetProperty("total").GetInt32());
+        Assert.Equal(
+            breakdown.GetProperty("frontierIlDiff").GetInt32(),
+            breakdown.GetProperty("frontierIlDiffAttribution").GetProperty("total").GetInt32());
 
         // Round-trips into the row member it is copied into, total included.
         var member = JsonSerializer.Deserialize<HistoryRunValidDifferent>(
@@ -1733,6 +1861,7 @@ public class AuthoredCorpusRatchetTests
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
 
         Assert.Equal(report.RootElement.GetProperty("validDifferent").GetInt32(), member.Total);
+        Assert.NotNull(member.FrontierIlDiffAttribution);
     }
 
     /// <summary>

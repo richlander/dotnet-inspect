@@ -60,11 +60,12 @@ static class AuthoredCorpusRatchet
         /// rows — while keeping the row count and the pool left the key intact, so a
         /// wholly different measurement compared clean.</para>
         ///
-        /// <para>Methodology deliberately is <em>not</em> part of this key. It governs
-        /// how <c>productBodyDefect</c> is computed and nothing else, so folding it in
-        /// here discarded three perfectly comparable metrics at every version bump —
-        /// which is what made the tracked-store gate vacuous. It is applied per metric
-        /// in <see cref="Build"/> instead.</para>
+        /// <para>Methodology deliberately is <em>not</em> part of this key. The
+        /// invalid-attribution lineage governs <c>productBodyDefect</c>, while
+        /// valid/correct/raw invalid remain comparable. Folding the global stamp into
+        /// the run key discarded those independent metrics at every version bump.
+        /// Attribution lineage is therefore applied per metric in
+        /// <see cref="Build"/>.</para>
         /// </summary>
         public bool IsComparableTo(RunKey other, out string mismatch)
         {
@@ -106,9 +107,9 @@ static class AuthoredCorpusRatchet
     /// same meaning with none of the rounding.</para>
     ///
     /// <para><see cref="ProductBodyDefect"/> is nullable because rows predating the
-    /// invalid breakdown did not record it; absent means <em>not measured</em>, never
-    /// zero. <see cref="Methodology"/> travels with it because it defines how that one
-    /// number was computed.</para>
+    /// invalid attribution did not record it; absent means <em>not measured</em>,
+    /// never zero. <see cref="Methodology"/> identifies the lineage that defines the
+    /// number.</para>
     /// </summary>
     internal sealed record RunMetrics(
         int? Valid,
@@ -128,6 +129,8 @@ static class AuthoredCorpusRatchet
                 run.Methodology,
                 run.MethodologyVersion is not null,
                 run.PoolSha256 is not null || run.CorpusSha256 is not null);
+
+        public int InvalidAttributionMethodology => Methodology >= 2 ? 2 : 1;
     }
 
     /// <summary>
@@ -301,7 +304,16 @@ static class AuthoredCorpusRatchet
         if (run.ValidDifferent is not { } validDifferent || validDifferent.SubBucketSum != validDifferent.Total)
             return false;
 
-        return run.InvalidBreakdown is not { } breakdown || breakdown.Sum == run.Invalid;
+        if (run.InvalidBreakdown is { } breakdown && breakdown.Sum != run.Invalid)
+            return false;
+
+        var frontierAttribution = validDifferent.FrontierIlDiffAttribution;
+        if (run.Methodology >= 3 && frontierAttribution is null)
+            return false;
+
+        return frontierAttribution is null
+            || (frontierAttribution.Sum == frontierAttribution.Total
+                && frontierAttribution.Total == validDifferent.FrontierIlDiff);
     }
 
     /// <summary>
@@ -455,14 +467,13 @@ static class AuthoredCorpusRatchet
         if (baseline.Valid is { } baselineValid && current.Valid is { } currentValid)
             metrics.Insert(0, new("valid", baselineValid, currentValid, HigherIsBetter: true));
 
-        // productBodyDefect is the product signal (raw invalid is ~92% harness
-        // shell-reconstruction noise), but it is a *lower bound* whose meaning is
-        // defined by the methodology version, so it ratchets only when both sides
-        // measured it the same way. The other three metrics are methodology-
-        // independent and keep ratcheting across a version bump.
+        // Product-defect counts are lower bounds and ratchet only when both sides
+        // measured that specific metric under the same attribution lineage. v3 adds
+        // frontier attribution without changing v2 invalid attribution, so the latter
+        // remains comparable across the v2 -> v3 boundary.
         if (baseline.ProductBodyDefect is { } baselineDefects
             && current.ProductBodyDefect is { } currentDefects
-            && baseline.Methodology == current.Methodology)
+            && baseline.InvalidAttributionMethodology == current.InvalidAttributionMethodology)
         {
             metrics.Add(new("productBodyDefect", baselineDefects, currentDefects, HigherIsBetter: false));
         }
@@ -611,9 +622,9 @@ static class AuthoredCorpusRatchet
             output.WriteLine($"    {(metric.Regressed ? "REGRESSED" : "held     ")}  {metric.Describe()}");
 
         output.WriteLine(
-            "    note: productBodyDefect is a lower bound on decompiler-caused body");
+            "    note: invalid product-defect attribution is a sound lower bound, so");
         output.WriteLine(
-            "    defects (~5.9% oracle coverage), so read its movement as a floor.");
+            "    read productBodyDefect movement as a floor.");
     }
 }
 
