@@ -529,6 +529,9 @@ kbd {
 .member-filter button:hover { color: var(--text); background: var(--panel-raised); }
 .member-filter button.active { color: var(--text); background: var(--panel-active); }
 .member-filter span { flex: 1; }
+.member-access-filter { display: flex; align-items: center; gap: 4px; }
+.member-access-filter button { text-transform: lowercase; }
+.member-access-filter button.active { color: var(--accent); }
 .api-list { border: 1px solid var(--line); }
 .api-row {
   width: 100%;
