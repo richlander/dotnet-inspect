@@ -57,6 +57,18 @@ namespace Target
         public static T Echo<T>(T value) => value;
     }
 
+    // #3340: method overloads that differ only by generic arity.
+    public static class ArityApi
+    {
+        public static void Store(int value)
+        {
+        }
+
+        public static void Store<T>(int value)
+        {
+        }
+    }
+
     public interface IBodilessApi
     {
         void Invoke();

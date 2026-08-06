@@ -44,6 +44,13 @@ namespace Shared
 
         public static void UseEcho() => Target.GenericApi.Echo(1);
 
+        // #3340: one caller per method-generic arity.
+        public static void UseNonGenericStore() =>
+            Target.ArityApi.Store(1);
+
+        public static void UseGenericStore() =>
+            Target.ArityApi.Store<string>(1);
+
         public static void CallBodiless(Target.IBodilessApi target) =>
             target.Invoke();
 

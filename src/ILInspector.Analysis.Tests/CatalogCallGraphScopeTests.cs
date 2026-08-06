@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
@@ -69,7 +70,7 @@ public class CatalogCallGraphScopeTests
     public void DuplicatePhysicalParticipantsAreStoredOnce()
     {
         LibraryBodyIndex first = LibraryBodyIndex.Open(
-            typeof(LibraryBodyIndex).Assembly.Location);
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         LibraryBodyIndex duplicate = LibraryBodyIndex.Open(first.Path);
         ResolvedAssemblyReference firstAssembly = Descriptor(first);
         ResolvedAssemblyReference duplicateAssembly = Descriptor(duplicate);
@@ -82,7 +83,9 @@ public class CatalogCallGraphScopeTests
         var policy = new CountingGroupPolicy(
             [firstAssembly, duplicateAssembly],
             inner);
-        MethodIdentity root = first.DeclaredMethods.First();
+        MethodIdentity root = first.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Entry"
+            && method.Name == "RunTwice");
 
         using var single = new CatalogCallGraphScope(
             policy,
@@ -91,15 +94,77 @@ public class CatalogCallGraphScopeTests
             policy,
             [
                 new(first, firstAssembly),
+                new(first, firstAssembly),
                 new(duplicate, duplicateAssembly),
             ]);
 
         Assert.Equal(single.StorageNodeCount, repeated.StorageNodeCount);
         Assert.Equal(single.StorageEdgeCount, repeated.StorageEdgeCount);
+        CallTreeNode throughFirst = single.BuildCallTree(
+            first,
+            root.MetadataToken);
         CallTreeNode throughDuplicate = repeated.BuildCallTree(
             duplicate,
             root.MetadataToken);
         Assert.Equal(root.Name, throughDuplicate.Member.Name);
+        Assert.Equal(2, throughFirst.Perf?.Fanout);
+        Assert.Equal(
+            throughFirst.Perf?.Fanout,
+            throughDuplicate.Perf?.Fanout);
+    }
+
+    [Fact]
+    public void MethodGenericArityKeepsOverloadsAndTheirCallersSeparate()
+    {
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        ResolvedAssemblyReference targetAssembly = Descriptor(target);
+        ResolvedAssemblyReference callerAssembly = Descriptor(caller);
+        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (
+                    targetAssembly,
+                    (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(target.Path))),
+                (
+                    callerAssembly,
+                    (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(caller.Path))),
+            ]);
+        using var scope = new CatalogCallGraphScope(
+            policy,
+            [
+                new(target, targetAssembly),
+                new(caller, callerAssembly),
+            ]);
+        MethodIdentity[] overloads = target.DeclaredMethods
+            .Where(method =>
+                method.DeclaringType.Name == "ArityApi"
+                && method.Name == "Store")
+            .OrderBy(method => method.GenericArity)
+            .ToArray();
+
+        Assert.Equal(
+            [0, 1],
+            overloads.Select(method => method.GenericArity));
+
+        CallTreeNode nonGeneric = scope.BuildCallerTree(
+            target,
+            overloads[0].MetadataToken);
+        CallTreeNode generic = scope.BuildCallerTree(
+            target,
+            overloads[1].MetadataToken);
+
+        Assert.Equal(1, nonGeneric.Perf?.Fanin);
+        Assert.Equal(1, generic.Perf?.Fanin);
+        Assert.Equal(
+            "UseNonGenericStore",
+            Assert.Single(nonGeneric.Children).Member.Name);
+        Assert.Equal(
+            "UseGenericStore",
+            Assert.Single(generic.Children).Member.Name);
     }
 
     [Fact]
