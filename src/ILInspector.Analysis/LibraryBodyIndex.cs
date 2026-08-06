@@ -3072,6 +3072,8 @@ public sealed class LibraryBodyIndex
                     (methodDef.Attributes & MethodAttributes.Static) != 0)
                 {
                     SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
                 };
 
                 var body =
@@ -3281,18 +3283,21 @@ public sealed class LibraryBodyIndex
             ImmutableArray<TypeRef> parameterTypes;
             TypeRef returnType;
             byte signatureHeader;
+            int requiredParameterCount;
             if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
             {
                 var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
                 parameterTypes = signature.ParameterTypes;
                 returnType = signature.ReturnType;
                 signatureHeader = signature.Header.RawValue;
+                requiredParameterCount = signature.RequiredParameterCount;
             }
             else
             {
                 parameterTypes = [];
                 returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
                 signatureHeader = 0;
+                requiredParameterCount = -1;
             }
             return new MethodIdentity(
                 _assemblyName,
@@ -3309,6 +3314,7 @@ public sealed class LibraryBodyIndex
                 GenericParameterNames(methodDef))
             {
                 SignatureHeader = signatureHeader,
+                RequiredParameterCount = requiredParameterCount,
             };
         }
 
@@ -6197,6 +6203,8 @@ public sealed class LibraryBodyIndex
                 {
                     HasThis = signature.Header.IsInstance,
                     SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
                     GenericArity = signature.GenericParameterCount,
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,

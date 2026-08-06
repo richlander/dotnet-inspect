@@ -29,6 +29,8 @@ internal static class MemberResolver
                     OpenReturnType = signature.ReturnType,
                     HasThis = signature.Header.IsInstance,
                     SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
                     GenericArity = signature.GenericParameterCount,
                 };
             }
@@ -53,6 +55,8 @@ internal static class MemberResolver
                     OpenReturnType = signature.ReturnType,
                     HasThis = signature.Header.IsInstance,
                     SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
                     GenericArity = signature.GenericParameterCount,
                 };
             }

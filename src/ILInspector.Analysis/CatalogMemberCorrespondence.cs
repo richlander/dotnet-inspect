@@ -212,6 +212,7 @@ public sealed class CatalogMemberJoinKey
         int genericArity,
         bool hasThis,
         byte signatureHeader,
+        int requiredParameterCount,
         ImmutableArray<CatalogTypeShape> parameterTypes,
         CatalogTypeShape returnType)
     {
@@ -224,6 +225,7 @@ public sealed class CatalogMemberJoinKey
         GenericArity = genericArity;
         HasThis = hasThis;
         SignatureHeader = signatureHeader;
+        RequiredParameterCount = requiredParameterCount;
         ParameterTypes = parameterTypes;
         ReturnType = returnType;
     }
@@ -237,6 +239,7 @@ public sealed class CatalogMemberJoinKey
     public int GenericArity { get; }
     public bool HasThis { get; }
     public byte SignatureHeader { get; }
+    public int RequiredParameterCount { get; }
     public ImmutableArray<CatalogTypeShape> ParameterTypes { get; }
     public CatalogTypeShape ReturnType { get; }
 
@@ -254,6 +257,7 @@ public sealed class CatalogMemberJoinKey
             || GenericArity != other.GenericArity
             || HasThis != other.HasThis
             || SignatureHeader != other.SignatureHeader
+            || RequiredParameterCount != other.RequiredParameterCount
             || ReturnType != other.ReturnType
             || ParameterTypes.Length != other.ParameterTypes.Length)
         {
@@ -284,6 +288,7 @@ public sealed class CatalogMemberJoinKey
         hash.Add(GenericArity);
         hash.Add(HasThis);
         hash.Add(SignatureHeader);
+        hash.Add(RequiredParameterCount);
         foreach (CatalogTypeShape parameter in ParameterTypes)
             hash.Add(parameter);
         hash.Add(ReturnType);
@@ -360,6 +365,21 @@ public abstract class MemberCorrespondenceFailure
         internal OpenSignatureUnavailable()
         {
         }
+    }
+
+    public sealed class InvalidRequiredParameterCount
+        : MemberCorrespondenceFailure
+    {
+        internal InvalidRequiredParameterCount(
+            int requiredParameterCount,
+            int parameterCount)
+        {
+            RequiredParameterCount = requiredParameterCount;
+            ParameterCount = parameterCount;
+        }
+
+        public int RequiredParameterCount { get; }
+        public int ParameterCount { get; }
     }
 
     public sealed class MissingResolutionProvenance
@@ -460,6 +480,8 @@ public abstract class CatalogMemberJoinProjection
 public sealed class CatalogMemberCorrespondencePlan
 {
     const int MaxShapeDepth = 256;
+    const byte CallingConventionMask = 0x0F;
+    const byte VarargCallingConvention = 0x05;
 
     readonly PlannedType _declaringType;
     readonly string _name;
@@ -467,6 +489,7 @@ public sealed class CatalogMemberCorrespondencePlan
     readonly int _genericArity;
     readonly bool _hasThis;
     readonly byte _signatureHeader;
+    readonly int _requiredParameterCount;
     readonly ImmutableArray<PlannedType> _parameterTypes;
     readonly PlannedType _returnType;
     readonly ImmutableArray<MemberCorrespondenceFailure> _structuralFailures;
@@ -478,6 +501,7 @@ public sealed class CatalogMemberCorrespondencePlan
         int genericArity,
         bool hasThis,
         byte signatureHeader,
+        int requiredParameterCount,
         ImmutableArray<PlannedType> parameterTypes,
         PlannedType returnType,
         ImmutableArray<TypeResolutionRequest> requests,
@@ -489,6 +513,7 @@ public sealed class CatalogMemberCorrespondencePlan
         _genericArity = genericArity;
         _hasThis = hasThis;
         _signatureHeader = signatureHeader;
+        _requiredParameterCount = requiredParameterCount;
         _parameterTypes = parameterTypes;
         _returnType = returnType;
         Requests = requests;
@@ -531,6 +556,7 @@ public sealed class CatalogMemberCorrespondencePlan
                 member.SignatureHeader,
                 hasThis: !member.IsStatic,
                 member.GenericArity),
+            member.RequiredParameterCount,
             member.ParameterTypes,
             member.ReturnType,
             initialFailures);
@@ -583,6 +609,7 @@ public sealed class CatalogMemberCorrespondencePlan
                 member.SignatureHeader,
                 member.HasThis,
                 member.GenericArity),
+            member.RequiredParameterCount,
             parameters,
             returnType,
             initialFailures);
@@ -639,6 +666,7 @@ public sealed class CatalogMemberCorrespondencePlan
             _genericArity,
             _hasThis,
             _signatureHeader,
+            _requiredParameterCount,
             parameters.MoveToImmutable(),
             returnType);
         return new CatalogMemberJoinProjection.Issued(
@@ -654,6 +682,7 @@ public sealed class CatalogMemberCorrespondencePlan
         int genericArity,
         bool hasThis,
         byte signatureHeader,
+        int requiredParameterCount,
         ImmutableArray<TypeRef> parameterTypes,
         TypeRef returnType,
         ImmutableArray<MemberCorrespondenceFailure>.Builder initialFailures)
@@ -681,14 +710,42 @@ public sealed class CatalogMemberCorrespondencePlan
             parameterTypes = [];
         }
 
+        bool isVararg =
+            (signatureHeader & CallingConventionMask)
+            == VarargCallingConvention;
+        int identityParameterCount = parameterTypes.Length;
+        if (isVararg)
+        {
+            if (requiredParameterCount < 0
+                || requiredParameterCount > parameterTypes.Length)
+            {
+                initialFailures.Add(
+                    new MemberCorrespondenceFailure
+                        .InvalidRequiredParameterCount(
+                            requiredParameterCount,
+                            parameterTypes.Length));
+            }
+            else
+            {
+                identityParameterCount = requiredParameterCount;
+            }
+        }
+        else
+        {
+            requiredParameterCount = parameterTypes.Length;
+        }
+
         var builder = new Builder(source, initialFailures);
         PlannedType plannedDeclaring =
             builder.Plan(declaringType, depth: 0);
         var plannedParameters =
             ImmutableArray.CreateBuilder<PlannedType>(
-                parameterTypes.Length);
-        foreach (TypeRef parameter in parameterTypes)
-            plannedParameters.Add(builder.Plan(parameter, depth: 0));
+                identityParameterCount);
+        for (int i = 0; i < identityParameterCount; i++)
+        {
+            plannedParameters.Add(
+                builder.Plan(parameterTypes[i], depth: 0));
+        }
         PlannedType plannedReturn =
             builder.Plan(returnType, depth: 0);
 
@@ -699,6 +756,7 @@ public sealed class CatalogMemberCorrespondencePlan
             genericArity,
             hasThis,
             signatureHeader,
+            requiredParameterCount,
             plannedParameters.MoveToImmutable(),
             plannedReturn,
             builder.Requests.ToImmutableArray(),
@@ -710,7 +768,6 @@ public sealed class CatalogMemberCorrespondencePlan
         bool hasThis,
         int genericArity)
     {
-        const byte CallingConventionMask = 0x0F;
         const byte Generic = 0x10;
         const byte Instance = 0x20;
         const byte ExplicitThis = 0x40;

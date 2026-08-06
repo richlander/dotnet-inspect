@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -467,6 +468,7 @@ public class CatalogMemberCorrespondencePlanTests
         MemberRef vararg = method with
         {
             SignatureHeader = 0x05,
+            RequiredParameterCount = 0,
         };
         CatalogMemberCorrespondencePlan methodPlan =
             CatalogMemberCorrespondencePlan.Create(source, method);
@@ -500,6 +502,15 @@ public class CatalogMemberCorrespondencePlanTests
         Assert.Equal(0x05, varargKey.SignatureHeader);
         Assert.NotEqual(methodKey, functionPointerKey);
         Assert.NotEqual(methodKey, varargKey);
+
+        CatalogMemberCorrespondencePlan invalidVarargPlan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                method with { SignatureHeader = 0x05 });
+        AssertFailure<
+            MemberCorrespondenceFailure.InvalidRequiredParameterCount>(
+                invalidVarargPlan,
+                context);
     }
 
     [Fact]
@@ -532,6 +543,75 @@ public class CatalogMemberCorrespondencePlanTests
 
         Assert.Equal(0x05, member.SignatureHeader & 0x0F);
         Assert.Equal(0x05, key.SignatureHeader & 0x0F);
+        Assert.Equal(0, member.RequiredParameterCount);
+        Assert.Equal(0, key.RequiredParameterCount);
+    }
+
+    [Fact]
+    public void CrossAssemblyVarargCallSite_KeysOnlyRequiredPrefix()
+    {
+        string targetPath =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string callerPath =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        LibraryBodyIndex targetIndex = LibraryBodyIndex.Open(targetPath);
+        LibraryBodyIndex callerIndex = LibraryBodyIndex.Open(callerPath);
+        MethodIdentity oneRequired = Assert.Single(
+            targetIndex.Methods,
+            member => member.DeclaringType.Name == "VarargApi"
+                && member.Name == "Sink"
+                && member.ParameterTypes.Length == 1);
+        MethodIdentity threeRequired = Assert.Single(
+            targetIndex.Methods,
+            member => member.DeclaringType.Name == "VarargApi"
+                && member.Name == "Sink"
+                && member.ParameterTypes.Length == 3);
+        MemberRef callSite = Assert.Single(
+            callerIndex.DirectCalls,
+            call => call.Caller.Name == "UseVararg"
+                && call.Callee.Name == "Sink").Callee;
+        ResolvedAssemblyReference target =
+            ResolvedAssemblyReference.CreateFromPath(
+                targetPath,
+                AssemblyResolutionProvenance.Local("test"));
+        ResolvedAssemblyReference caller =
+            ResolvedAssemblyReference.CreateFromPath(
+                callerPath,
+                AssemblyResolutionProvenance.Local("test"));
+        CatalogMemberCorrespondencePlan onePlan =
+            CatalogMemberCorrespondencePlan.Create(
+                target,
+                oneRequired);
+        CatalogMemberCorrespondencePlan threePlan =
+            CatalogMemberCorrespondencePlan.Create(
+                target,
+                threeRequired);
+        CatalogMemberCorrespondencePlan callPlan =
+            CatalogMemberCorrespondencePlan.Create(caller, callSite);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new ExactPolicy([target]),
+            [target, caller],
+            onePlan.Requests
+                .Concat(threePlan.Requests)
+                .Concat(callPlan.Requests)
+                .Distinct(TypeResolutionRequestComparer.Instance));
+
+        CatalogMemberJoinKey oneKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                onePlan.Project(context)).Key;
+        CatalogMemberJoinKey threeKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                threePlan.Project(context)).Key;
+        CatalogMemberJoinKey callKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                callPlan.Project(context)).Key;
+
+        Assert.Equal(1, callSite.RequiredParameterCount);
+        Assert.Equal(1, callKey.RequiredParameterCount);
+        Assert.Single(callKey.ParameterTypes);
+        Assert.Equal(oneKey, callKey);
+        Assert.NotEqual(threeKey, callKey);
     }
 
     [Fact]

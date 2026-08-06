@@ -2311,6 +2311,12 @@ union many plans into one frozen context before projecting any key.
 `TypeResolutionContext`; plan deduplication and frozen-manifest lookup therefore
 cannot drift.
 
+For a vararg signature, the plan also retains the decoded required-parameter
+count and treats only that open parameter prefix as member identity. Optional
+arguments encoded after the call-site sentinel are invocation data, not part of
+the target member signature. A missing or out-of-range required count produces
+typed incomplete evidence rather than a join key.
+
 `CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
 separately supplied catalog. Resolved named leaves become
 `DefinitionJoinToken` values. `UnboundBinding` and genuine policy
@@ -2666,9 +2672,13 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
   traversal, and repeated named leaves produce one manifest request.
 - `CatalogMemberJoinKey` includes member kind, canonical signature header,
-  method generic arity, and every named leaf in the open declaring, parameter,
-  return, modifier, and function-pointer shapes; instance and static members
-  remain distinct.
+  vararg required-parameter count, method generic arity, and every named leaf in
+  the open declaring, required parameter, return, modifier, and function-pointer
+  shapes; optional vararg arguments do not enter member identity, and instance
+  and static members remain distinct.
+- A compiler-produced cross-assembly vararg call with optional arguments joins
+  its required-parameter definition and not a lookalike definition whose
+  required parameter list happens to match the expanded call-site list.
 - A generic `MemberRef` without a retained open signature cannot fall back to
   its instantiated signature and receive an exact key; partially retained open
   signatures are likewise incomplete.
