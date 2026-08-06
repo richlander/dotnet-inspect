@@ -14,12 +14,16 @@ published engine assets and is no longer independently fixture-backed.
 ## Interaction model
 
 - Package tabs establish scope; the framework selector chooses the API surface.
-- The left pane filters and navigates public types grouped by namespace.
+- The left pane filters and navigates types grouped by namespace. Package views
+  default to the public surface and can opt into protected, internal, and
+  private types.
 - Selecting a type preserves that context across API, source, metadata, IL,
   dependency, and Finding lenses.
-- Public member rows collapse overloads. Selecting a concrete overload and
-  opening Source immediately attempts checksum-verified SourceLink source,
-  then falls back to dotnet-inspect decompilation.
+- Member rows collapse overloads and default to the public surface. Package
+  views can opt into protected, internal, and private members. Selecting a
+  concrete overload and opening Source immediately attempts
+  checksum-verified SourceLink source, then falls back to dotnet-inspect
+  decompilation.
 - Member Overview shows the product-owned stable selector, anchor digest, and
   canonical signature with copy actions.
 - The `demo` action loads `Microsoft.Extensions.DependencyInjection.Abstractions`
@@ -62,9 +66,9 @@ dotnet run -c Release
 
 Open `http://127.0.0.1:5198`. The browser downloads `System.Text.Json` version
 `10.0.0` directly from NuGet's flat-container API, selects its `net10.0`
-compile assets, and uses `AssemblyInspectionSession.ApiSurface()` to populate
-the public type workspace. Remote addresses require HTTPS because the .NET
-loader uses secure-context browser APIs.
+compile assets, and uses `AssemblyInspectionSession.ApiSurface()` to populate the public-by-default type
+and member workspace. Remote addresses require HTTPS because the .NET loader
+uses secure-context browser APIs.
 
 Create a deployable static bundle with:
 
@@ -96,10 +100,11 @@ Azure Static Web App resource's Branch setting from
 
 ## Prototype boundary
 
-Package acquisition, framework selection, public types, public members, and
-lazy per-overload XML documentation and lazy source resolution are real engine
-results. The initial API surface carries only metadata-owned XML documentation
-identities; selecting an overload queries its documentation entry. Source
+Package acquisition, framework selection, full package type/member inventory,
+public-by-default accessibility filters, lazy per-overload XML documentation,
+and lazy source resolution are real engine results. The initial API surface
+carries only metadata-owned XML documentation identities; selecting an
+overload queries its documentation entry. Source
 resolution prefers SourceLink content authenticated by the portable-PDB
 checksum and falls back to decompiling the matching implementation asset. The
 Call graph member section scans implementation IL and lists direct in-assembly

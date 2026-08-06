@@ -73,6 +73,7 @@ const state = {
   selectedOverloadIndex: null,
   memberSection: "overview",
   memberKindFilter: "all",
+  memberAccessibilityFilter: new Set(["public"]),
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
@@ -509,7 +510,7 @@ function filteredTypes() {
 function typeMatchesFilterText(item, needle) {
   if (!needle) return true;
   if (`${item.name} ${item.namespace} ${item.kind} ${libraryKey(item)}`.toLowerCase().includes(needle)) return true;
-  const members = item.api;
+  const members = visibleMembers(item);
   if (!members || !members.length) return false;
   for (const member of members) {
     if ((member.name || "").toLowerCase().includes(needle)) return true;
@@ -576,6 +577,7 @@ function afterLibraryScopeChange() {
   const first = filteredTypes()[0];
   if (first) state.selectedTypeId = first.id;
   state.selectedMemberKey = "";
+  state.memberAccessibilityFilter = new Set(["public"]);
   render();
 }
 
@@ -633,6 +635,56 @@ function accessBucket(access) {
   if (value.includes("internal")) return "internal";
   if (value.includes("private")) return "private";
   return "public";
+}
+
+function memberAccessBucket(member) {
+  return accessBucket(member?.accessibility);
+}
+
+function visibleMembers(type) {
+  return (type?.api ?? []).filter(member =>
+    state.memberAccessibilityFilter.has(memberAccessBucket(member)));
+}
+
+function memberAccessibilityBuckets(type) {
+  const present = new Set((type?.api ?? []).map(memberAccessBucket));
+  present.add("public");
+  return ACCESS_ORDER.filter(bucket => present.has(bucket));
+}
+
+function toggleMemberAccessibilityChip(bucket) {
+  const next = new Set(state.memberAccessibilityFilter);
+  if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
+  if (next.size === 0) next.add("public");
+  state.memberAccessibilityFilter = next;
+
+  const type = selectedType();
+  if (state.selectedMemberKey && !selectedMember(type)) {
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    resetMemberSectionState();
+  }
+}
+
+function memberAccessibilityControl(type) {
+  const buckets = memberAccessibilityBuckets(type);
+  if (buckets.length <= 1) return "";
+  const chips = buckets
+    .map(bucket => `<button class="${state.memberAccessibilityFilter.has(bucket) ? "active" : ""}" data-member-access-chip="${bucket}">${bucket}</button>`)
+    .join("");
+  return `<div class="namespace-chips access-chips member-access-chips" aria-label="Member accessibility filters">${chips}</div>`;
+}
+
+function revealMember(member) {
+  const bucket = memberAccessBucket(member);
+  if (state.memberAccessibilityFilter.has(bucket)) return;
+  const next = new Set(state.memberAccessibilityFilter);
+  next.add(bucket);
+  state.memberAccessibilityFilter = next;
+}
+
+function revealMemberGroup(group) {
+  for (const member of group?.overloads ?? []) revealMember(member);
 }
 
 // Accessibility buckets present in the package, in canonical order. "public" is
@@ -719,9 +771,10 @@ function typeGroups() {
   return groups;
 }
 
-function memberGroups(type) {
+function memberGroups(type, includeHidden = false) {
   const groups = new Map();
-  for (const member of type.api ?? []) {
+  const members = includeHidden ? (type?.api ?? []) : visibleMembers(type);
+  for (const member of members) {
     const key = `${member.kind}:${member.name}`;
     if (!groups.has(key)) groups.set(key, { key, name: member.name, kind: member.kind, overloads: [] });
     groups.get(key).overloads.push(member);
@@ -734,7 +787,7 @@ function selectedMember(type) {
 }
 
 // Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
-// type (one public type), or member (a member + its overloads under the API lens). The
+// type (one type), or member (a member + its overloads under the API lens). The
 // lens strip, detail pane, and arrow keys all react to the active scope.
 function scope() {
   if (state.atPackageRoot) return "package";
@@ -1224,7 +1277,7 @@ function renderNavPane(current, visible) {
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
-// Package (whole package), Types (one public type), and Member (a member of that type,
+// Package (whole package), Types (one type), and Member (a member of that type,
 // shown only once you drill in). Each segment is selectable and swaps the strip beside it:
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
@@ -1258,10 +1311,10 @@ function renderScopeBar() {
 
 function renderTypeNav(current, visible) {
   return `
-    <aside class="type-browser" aria-label="Public types">
+    <aside class="type-browser" aria-label="Types">
       <div class="browser-head">
         <div>
-          <span class="pane-label">PUBLIC TYPES</span>
+          <span class="pane-label">TYPES</span>
           <span class="result-count">${visible.length} shown</span>
         </div>
         <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
@@ -1301,7 +1354,7 @@ function renderTypeNav(current, visible) {
                 <small>${escapeHtml(shortKind(item.kind))}</small>
               </button>`;
             }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+          </section>`).join("") || '<div class="empty-list">No types match these filters.</div>'}
       </div>
       <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
     </aside>`;
@@ -1309,12 +1362,14 @@ function renderTypeNav(current, visible) {
 
 function renderMemberNav(type) {
   const entries = memberNavEntries(type);
+  const visibleGroups = memberGroups(type).length;
+  const totalGroups = memberGroups(type, true).length;
   return `
     <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberGroups(type).length} members</span>
+          <span class="result-count">${visibleGroups}${visibleGroups === totalGroups ? "" : ` of ${totalGroups}`} members</span>
         </div>
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
@@ -1322,6 +1377,7 @@ function renderMemberNav(type) {
         <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
         <small>types</small>
       </button>
+      ${memberAccessibilityControl(type)}
       <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
         ${entries.map(entry => {
           if (entry.kind === "member") {
@@ -2779,10 +2835,12 @@ function drillToPerfMember(token) {
   state.selectedTypeId = targetType.id;
   state.namespaceFilter = "";
   state.memberKindFilter = "all";
+  state.memberAccessibilityFilter = new Set(["public"]);
   state.lens = "api";
   const key = `${member.kind}:${member.name}`;
   state.selectedMemberKey = key;
-  const group = memberGroups(targetType).find(candidate => candidate.key === key);
+  const group = memberGroups(targetType, true).find(candidate => candidate.key === key);
+  revealMember(member);
   const overloadIndex = group && group.overloads.length > 1
     ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
     : -1;
@@ -2918,6 +2976,7 @@ function renderLens(item) {
     return `${typeHeading(item)}${renderTypeMetadata(item)}`;
   }
   const groups = memberGroups(item);
+  const allGroups = memberGroups(item, true);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
   const kindLabels = { constructor: "constructors", method: "methods", property: "properties", field: "fields", event: "events" };
   const presentKinds = kindOrder.filter(kind => groups.some(group => group.kind === kind));
@@ -2928,17 +2987,20 @@ function renderLens(item) {
     .concat(presentKinds.map(kind =>
       `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
     .join("");
+  const accessButtons = memberAccessibilityBuckets(item)
+    .map(bucket => `<button class="${state.memberAccessibilityFilter.has(bucket) ? "active" : ""}" data-member-access-chip="${bucket}">${bucket}</button>`)
+    .join("");
   return `
     ${typeHeading(item)}
     <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-filter">${filterButtons}</div>
+      <div class="section-title"><h2>Members</h2><span>${groups.length} of ${allGroups.length} groups · ${visibleMembers(item).length} of ${item.members} declarations</span></div>
+      <div class="member-filter">${filterButtons}<span></span><div class="member-access-filter" aria-label="Member accessibility filters">${accessButtons}</div></div>
       <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
-          <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
-        </button>`).join("") || '<div class="empty-list">No declared public members.</div>'}</div>
+          <small>${group.overloads.length === 1 ? `${escapeHtml(memberAccessBucket(group.overloads[0]))} · ${escapeHtml(group.kind)}` : `${group.overloads.length} overloads`}</small>
+        </button>`).join("") || '<div class="empty-list">No members match these filters.</div>'}</div>
     </section>`;
 }
 
@@ -3497,6 +3559,7 @@ function bindEvents() {
     state.selectedTypeId = button.dataset.type;
     state.selectedMemberKey = "";
     state.memberKindFilter = "all";
+    state.memberAccessibilityFilter = new Set(["public"]);
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
     render();
   }));
@@ -3521,6 +3584,10 @@ function bindEvents() {
   }));
   document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
     state.memberKindFilter = button.dataset.kind;
+    render();
+  }));
+  document.querySelectorAll("[data-member-access-chip]").forEach(button => button.addEventListener("click", () => {
+    toggleMemberAccessibilityChip(button.dataset.memberAccessChip);
     render();
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
@@ -3732,6 +3799,7 @@ function bindEvents() {
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = new Set(["public"]);
+    state.memberAccessibilityFilter = new Set(["public"]);
     render();
     focusFilter();
   });
@@ -3835,6 +3903,7 @@ function selectTypeByCursor(cursor, items, focusList) {
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
   state.memberKindFilter = "all";
+  state.memberAccessibilityFilter = new Set(["public"]);
   render();
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();
@@ -3983,7 +4052,8 @@ function spotlightTypeMatches(query) {
 // packages or their type counts change.
 let spotlightMemberCache = null;
 function spotlightMemberCandidates() {
-  const signature = `${state.package?.id ?? ""}#${state.packages
+  const accessSignature = [...state.memberAccessibilityFilter].sort().join(",");
+  const signature = `${state.package?.id ?? ""}#${accessSignature}#${state.packages
     .map(pkg => `${pkg.id}:${pkg.types?.length ?? 0}`)
     .join("|")}`;
   if (spotlightMemberCache && spotlightMemberCache.signature === signature) return spotlightMemberCache.pool;
@@ -5076,11 +5146,13 @@ function applyDeepLink(deep) {
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.memberAccessibilityFilter = new Set(["public"]);
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
-    const groups = memberGroups(type);
+    const groups = memberGroups(type, true);
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
+      revealMemberGroup(group);
       state.selectedMemberKey = deep.member;
       const overloadIndex = Number(deep.overload);
       if (deep.overload != null && deep.overload !== ""
@@ -5674,6 +5746,7 @@ function navigateToTypeByName(fullName) {
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
   state.memberKindFilter = "all";
+  state.memberAccessibilityFilter = new Set(["public"]);
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
 }
@@ -6409,6 +6482,7 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  revealMember(group.overloads[overloadIndex ?? 0] ?? group.overloads[0]);
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
   state.memberSection = "call-graph";
@@ -6440,7 +6514,7 @@ function findRuntimeMemberSelection(pack, node) {
   if (!pack || !node?.typeFullName) return null;
   const type = pack.types.find(item => item.id === node.typeFullName);
   if (!type) return null;
-  const named = memberGroups(type).filter(group => group.name === node.memberName);
+  const named = memberGroups(type, true).filter(group => group.name === node.memberName);
   if (!named.length) return null;
   const want = paramNamesFromSig(node.paramSig);
   let arityMatch = null;
@@ -6513,7 +6587,7 @@ function resolveNodeLabel(label) {
   for (const pkg of candidates) {
     if (!pkg?.types) continue;
     for (const type of pkg.types.filter(item => typeMatchesName(item, typeName))) {
-      const group = findMemberGroup(memberGroups(type), memberName);
+      const group = findMemberGroup(memberGroups(type, true), memberName);
       if (group) return { pkg, type, group };
     }
   }
@@ -6551,13 +6625,13 @@ function resolveNodeForSource(label, external = false) {
   const memberName = label.slice(dot + 1);
   if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
   if (!typeName || !memberName) return null;
-  // Accessors and public members already navigate through resolveNodeLabel; compiler
+  // Accessors and inventory members already navigate through resolveNodeLabel; compiler
   // generated helpers (e.g. <DeepEquals>g__...) are not on the metadata surface. The
   // decompile fallback targets ordinary non-public methods of loaded assemblies.
   if (/^(get|set|add|remove)_/.test(memberName)) return null;
   if (memberName.includes("<") || memberName.includes(">")) return null;
 
-  // A declaring type that is a public loaded type routes to its own package/assembly.
+  // A declaring type in the loaded inventory routes to its own package/assembly.
   // The engine resolves the exact declaring type (disambiguating generic arity
   // collisions by which type declares the member), so pass the arity-stripped simple
   // name it can match on.
@@ -6579,10 +6653,11 @@ function resolveNodeForSource(label, external = false) {
     };
   }
 
-  // A non-public declaring type is absent from the public type list; assume the graph
-  // target's package and assembly, where internal implementation types resolve. Nodes the
-  // graph marks as belonging to a different assembly (BCL/runtime) are not in the loaded
-  // workspace, so leave them inert rather than offering a click that cannot resolve.
+  // A declaring type absent from the loaded inventory may still be an implementation type
+  // omitted from a reference asset. Assume the graph target's package and assembly, where
+  // internal implementation types resolve. Nodes the graph marks as belonging to a
+  // different assembly (BCL/runtime) are not in the loaded workspace, so leave them inert
+  // rather than offering a click that cannot resolve.
   const current = selectedType();
   if (!external && current && state.package) {
     return {
@@ -6927,6 +7002,7 @@ function navigateToMember(pkg, type, group) {
   state.package = pkg;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  revealMemberGroup(group);
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
@@ -7035,13 +7111,16 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.kindFilter = "";
     state.libraryScope = null;
     state.accessibilityFilter = new Set(["public"]);
+    state.memberKindFilter = "all";
+    state.memberAccessibilityFilter = new Set(["public"]);
     state.dependenciesFramework = "";
     const deep = pendingDeepLink;
     pendingDeepLink = null;
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {
-      state.selectedTypeId = packageModel.types[0]?.id || "";
+      state.selectedTypeId = packageModel.types.find(type =>
+        accessBucket(type.accessibility) === "public")?.id || packageModel.types[0]?.id || "";
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";

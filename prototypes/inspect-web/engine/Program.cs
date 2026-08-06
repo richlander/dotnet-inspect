@@ -68,6 +68,7 @@ public sealed record BrowserTypeSurface(
 public sealed record BrowserMemberSurface(
     string Name,
     string Kind,
+    string Accessibility,
     string Signature,
     int? MetadataToken,
     string? ReturnType,
@@ -548,23 +549,9 @@ public static partial class BrowserInspectionEngine
             if (!inspection.HasMetadata)
                 continue;
 
-            var publicTypes = inspection.ApiSurface().Types
+            var publicSurface = inspection.ApiSurface();
+            var assemblyTypes = inspection.ApiSurface(includeAll: true).Types
                 .Select(type => ToBrowserType(type, candidate.Entry.Name))
-                .ToArray();
-
-            // Non-public types (internal/private/protected/…) are excluded from the public
-            // surface by design. Pull them in separately so the client can offer an
-            // accessibility filter (public by default). Public types keep their public-only
-            // member lists from the surface above; the includeAll surface would also expand
-            // every public type's members to include private ones, so we take non-public
-            // TYPES from it but not the public entries.
-            var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
-                .Where(type => !string.IsNullOrWhiteSpace(type.Accessibility))
-                .Select(type => ToBrowserType(type, candidate.Entry.Name))
-                .ToArray();
-
-            var assemblyTypes = publicTypes
-                .Concat(nonPublicTypes)
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                 .ThenBy(type => type.Name, StringComparer.Ordinal)
                 .ToArray();
@@ -572,8 +559,8 @@ public static partial class BrowserInspectionEngine
             assemblies.Add(new BrowserAssemblySurface(
                 candidate.Entry.Name,
                 candidate.Entry.FullName,
-                publicTypes.Length,
-                publicTypes.Sum(type => type.Members)));
+                publicSurface.Types.Count,
+                publicSurface.Types.Sum(type => type.Members.Count)));
             types.AddRange(assemblyTypes);
         }
 
@@ -597,7 +584,7 @@ public static partial class BrowserInspectionEngine
             selectedFramework,
             assemblies.ToArray(),
             identifiedTypes,
-            identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members),
+            assemblies.Sum(assembly => assembly.PublicMembers),
             CollectPackageDocuments(archive).ToArray());
 
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
@@ -3469,6 +3456,7 @@ public static partial class BrowserInspectionEngine
             return new BrowserMemberSurface(
                 member.Name,
                 member.Kind,
+                string.IsNullOrWhiteSpace(member.Accessibility) ? "public" : member.Accessibility,
                 member.Signature ?? member.Name,
                 member.MetadataToken,
                 member.SignatureModel?.ReturnType ?? member.ReturnType,
