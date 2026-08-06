@@ -84,7 +84,8 @@ static class ReturnToSender
         FidelityCheck.CompileBackResult? CompileBackFloor = null,
         FaultIsolationResult? FaultIsolation = null,
         SiblingAccessorEvidence? SiblingAccessor = null,
-        IlBodyDiffResult? FidelityDiff = null)
+        IlBodyDiffResult? FidelityDiff = null,
+        FaultIsolationResult? SupersededFaultIsolation = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
         public RoundTripScope Scope { get; init; } = RoundTripScope.Cluster;
@@ -898,11 +899,53 @@ static class ReturnToSender
         => !string.IsNullOrWhiteSpace(result.Source)
            && !string.IsNullOrWhiteSpace(result.TargetBody);
 
-    static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)
+    /// <summary>
+    /// Replaces a failed RTS compile with an independent compile-back result.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Result.FaultIsolation"/> is measured only against a
+    /// <see cref="FidelityCheck.CompileBackStatus.RecompileFail"/> compile (see
+    /// <see cref="TryIsolateRecompileFailure"/>, the sole producer). The floor
+    /// supersedes exactly that compile, so the isolation cannot describe the
+    /// status reported here and is cleared rather than carried forward; keeping
+    /// it would attribute a fault to a row whose compile-back succeeded.
+    /// </para>
+    /// <para>
+    /// The superseded verdict is preserved on the typed
+    /// <see cref="Result.SupersededFaultIsolation"/> field, which
+    /// <c>ReturnToSenderSourceProbe</c> projects onto every corpus row alongside
+    /// <see cref="Result.UsedCompileBackFloor"/> (#3814). It is additionally
+    /// recorded in <see cref="Result.Detail"/> for the standalone RTS report,
+    /// which surfaces it through <c>ExampleLayerAndDetail</c>'s
+    /// <see cref="Result.UsedCompileBackFloor"/> branch; the <c>Detail</c> copy
+    /// alone is not sufficient for corpus rows, because the probe overwrites
+    /// <see cref="Result.Detail"/> before emitting them.
+    /// </para>
+    /// <para>
+    /// The gate for both behaviors is <c>CompileBackFloorFaultIsolationTests</c>.
+    /// Clearing is correct regardless of which source member the isolation was
+    /// measured against: if it described this row's member, it described the
+    /// discarded compile rather than the floor's verdict, and if lookup divergence
+    /// made it describe a different member, it never applied to this row at all.
+    /// </para>
+    /// <para>
+    /// On the common path a row carrying isolation had an authored body and so
+    /// cannot reach the bodyless invalid path, which keeps the invalid breakdown
+    /// stable; that invariant's gate is
+    /// <c>ReturnToSenderPrototypeTests.TryIsolateRecompileFailure_ReturnsNullWhenTheSourceMemberHasNoAuthoredBody</c>.
+    /// It is an invariant of the common path only, not of every input: isolation
+    /// resolves its source member by a different signature format than the probe
+    /// (see #3804), so the two can select different overloads.
+    /// </para>
+    /// </remarks>
+    internal static Result WithCompileBackFloor(Result result, FidelityCheck.CompileBackResult floor)
     {
         string originalFailure = string.IsNullOrWhiteSpace(result.Detail)
             ? result.Status.ToString()
             : $"{result.Status}: {result.Detail}";
+        if (result.FaultIsolation is { } superseded)
+            originalFailure = $"{originalFailure}; superseded-fault-isolation: {superseded.Kind} ({superseded.Method})";
         string floorDetail = string.IsNullOrWhiteSpace(floor.Detail)
             ? $"compile-back-floor: {originalFailure}"
             : $"compile-back-floor: {floor.Detail}; rts: {originalFailure}";
@@ -914,6 +957,8 @@ static class ReturnToSender
             Detail = floorDetail,
             CompileBackFloor = floor,
             FidelityDiff = floor.FidelityDiff,
+            FaultIsolation = null,
+            SupersededFaultIsolation = result.FaultIsolation,
         };
     }
 

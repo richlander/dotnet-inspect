@@ -411,6 +411,35 @@ if (new DirectoryInfo(packageDirectory).LinkTarget is { } pooledElsewhere)
     return;
 }
 
+string manifestPath = Path.Combine(outputDirectory, "manifest.json");
+bool manifestInvalidated = false;
+
+// A manifest describes the pool at one completed sweep. Keep the last good one through
+// input and acquisition work, but remove it before this run first changes either the
+// pool or its assemblies.txt record. A failure after that boundary must leave no
+// manifest rather than the previous run's plausible description of bytes that no
+// longer hold. AFailedSweepLeavesNoManifestForThePoolItChanged gates the failed-run
+// outcome; placing this before the first mutation also covers interruption, which the
+// black-box harness cannot schedule and does not verify.
+bool InvalidateManifest()
+{
+    if (manifestInvalidated)
+        return true;
+
+    try
+    {
+        File.Delete(manifestPath);
+        manifestInvalidated = true;
+        return true;
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine($"Could not invalidate prior manifest '{manifestPath}': {ex.Message}");
+        Environment.ExitCode = 2;
+        return false;
+    }
+}
+
 // The same isolation knobs the CLI already reads (src/dotnet-inspect/Program.cs),
 // honored here so a caller can point this sweep at a cache of its own. Without them the
 // sweep reaches the developer's shared caches and the network unconditionally, which is
@@ -430,6 +459,24 @@ bool isolated = sessionName != null;
 string? cacheBasePath = Environment.GetEnvironmentVariable("DOTNET_INSPECT_CACHE_DIR");
 if (isolated && cacheBasePath == null)
     cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
+
+NuGetSourceOptions? sourceOptions = null;
+string? nugetConfig = Environment.GetEnvironmentVariable("DOTNET_INSPECT_SWEEP_NUGET_CONFIG");
+if (!string.IsNullOrWhiteSpace(nugetConfig))
+{
+    // Sweep-specific rather than a restore setting: the file-based app still restores
+    // with the caller's ordinary NuGet configuration, while package acquisition uses
+    // this explicit boundary. EvilPoolSweepGateTests deletes the named file in one case
+    // so losing either the environment forwarding or this read fails visibly.
+    if (NuGetSourceResolver.DescribeConfigProblem(nugetConfig) is string problem)
+    {
+        Console.Error.WriteLine(problem);
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    sourceOptions = new NuGetSourceOptions { ConfigFile = nugetConfig };
+}
 
 HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
@@ -461,6 +508,7 @@ foreach (var entry in selected)
                 HttpClientFactory.Shared,
                 entry.Package,
                 tempDirPrefix: "decompiler-package-sweep",
+                sourceOptions: sourceOptions,
                 version: honorPin ? pin!.Version : null,
                 forceLatest: !honorPin);
         }
@@ -611,6 +659,9 @@ foreach (var entry in selected)
             }
         }
 
+        if (!InvalidateManifest())
+            return;
+
         string destinationDirectory = Path.Combine(
             packageDirectory,
             $"{entry.Rank:D3}-{SafePathSegment(entry.Package)}",
@@ -753,6 +804,9 @@ foreach (var entry in selected)
 
 assemblies.Sort(StringComparer.Ordinal);
 string assembliesPath = Path.Combine(outputDirectory, "assemblies.txt");
+if (!InvalidateManifest())
+    return;
+
 // This is an interchange file for shell tooling, so its bytes are part of the
 // contract: UTF-8 without a BOM, one LF-terminated path per line. ReplaceTextOrReport
 // supplies the encoding; EvilPoolSweepGateTests.ASweepPoolsTheBytesThePinNames gates
@@ -950,7 +1004,6 @@ var manifest = new PackageSweepManifest(
     Packages: results,
     RemovedFromPool: removedFromPool,
     Unreconciled: unreconciled);
-string manifestPath = Path.Combine(outputDirectory, "manifest.json");
 // JSON values are the manifest contract; terminal whitespace is not. This newline is
 // text-file convenience and is deliberately not gated.
 unwritable = (await ReplaceTextOrReport(

@@ -2169,9 +2169,25 @@ permissiveness rule to keep synchronized with the matcher.
   assembly/module/current origin instead of collapsing failures into one
   bucket.
 
+`TypeResolutionOutcome.UnboundBinding` and
+`TypeResolutionOutcome.Unavailable` carry an opaque, non-hashable
+`UnresolvedBindingReference` minted beside the terminal cached binding answer.
+Candidate-open failures remain `Rejected` and never receive that reference.
+`TypeResolutionCatalog.ProjectUnresolvedBindingKey` projects a current
+reference into `UnresolvedBindingKey`; its closed result distinguishes
+`Issued`, `IncomparableCatalogs`, and `StaleGeneration`.
+
 `UnresolvedBindingKey` has the same internal-constructor and generation scope
 as `DefinitionJoinToken`; it cannot survive or compare across a generation
-advance.
+advance. The catalog issues one key for one complete binding request in one
+generation, whether policy authoritatively found no candidate
+(`UnboundBinding`) or could not provide one (`Unavailable`).
+
+`TypeResolutionCatalog.ProjectDefinitionJoinToken` returns a closed
+`DefinitionJoinTokenProjection` result. `Issued` carries the token;
+`IncomparableCatalogs` and `StaleGeneration` preserve why no token can be
+issued. Projection is neither nullable nor exception-shaped for those expected
+catalog-lifetime states.
 
 ```csharp
 public enum DefinitionJoinKind
@@ -2267,12 +2283,14 @@ public sealed class UnresolvedBindingKey : IEquatable<UnresolvedBindingKey>
 }
 ```
 
-The constructor and `(catalog, generation, value)` fields are internal. Equality
-and hashing use that triple plus `Kind`; class-scoped `Evidence` is excluded.
-The catalog returns one token class for every definition correspondence class
-in a frozen generation. Duplicate-artifact tokens deliberately join but retain
-an indeterminate kind; consumers cannot construct an exact token or change an
-issued token's kind.
+The constructors and `(catalog, generation, value)` fields are internal.
+Definition-token equality and hashing use that triple plus `Kind`;
+class-scoped `Evidence` is excluded. Unresolved-binding-key equality and
+hashing use the triple. The catalog returns one token class for every definition
+correspondence class and one unresolved key for every eligible complete binding
+request in a frozen generation. Duplicate-artifact tokens deliberately join but
+retain an indeterminate kind; consumers cannot construct an exact token or
+change an issued token's kind.
 
 Named types nested under generic instances, arrays, byrefs, and pointers use the
 same recursive correspondence projection. Replacing only the declaring
@@ -2288,9 +2306,11 @@ Graph joins hash only catalog-issued join tokens, never
 When both sides have the same degraded key under one catalog and binding scope,
 the graph likewise retains an `IndeterminateCorrespondence` edge and emits
 incomplete-graph evidence; it does not report exact definition correspondence.
-`NotFound`, ambiguous, rejected, or cross-catalog uses do not degraded-join.
-Every non-success remains attached to its storage node, never enters a shared
-unresolved bucket, and never becomes an ordinary "no edge."
+Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
+complete terminal binding request. `NotFound`, ambiguous, rejected, or
+cross-catalog uses do not degraded-join. Every non-success remains attached to
+its storage node, never enters a shared unresolved bucket, and never becomes an
+ordinary "no edge."
 
 Today's graph joins on canonical simple assembly names and therefore merges
 version, culture, token, and several core-library facade spellings. The
@@ -2569,6 +2589,14 @@ definition keys, with no spelling alias model.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
 
+Slice 6 is in progress under
+[#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
+currently issues generation-scoped `DefinitionJoinToken` values for exact and
+duplicate-indeterminate TypeDef correspondence classes and
+`UnresolvedBindingKey` values for complete unbound or unavailable binding
+requests. Member-level correspondence, graph migration, and cache-lifetime
+binding remain to be delivered.
+
 Claim: direct callers and transitive call graphs share one definition identity.
 
 ## Gates
@@ -2590,6 +2618,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   declaration/resolution cache entry; `!=` returns false.
 - Independently minted equal `DefinitionJoinToken` and
   `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
+- Every `DefinitionJoinTokenProjection` arm is produced by a focused gate;
+  cross-catalog and stale keys never receive an `Issued` result.
+- Every `UnresolvedBindingKeyProjection` arm is produced by a focused gate;
+  only `UnboundBinding` and genuine policy `Unavailable` outcomes expose its
+  opaque projection input, and cross-catalog or stale references never receive
+  an `Issued` result.
 - Independently constructed equal reference and intrinsic-core-library
   `AssemblyBindingTarget` values compare and hash equally and hit one binding
   cache entry per source domain.

@@ -60,6 +60,7 @@ those documents exist.
 | Area | Read first |
 | --- | --- |
 | User-visible capabilities, commands, or examples | `README.md` |
+| Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
@@ -119,6 +120,19 @@ for the generated skill listing.
 - Treat identifiers, provenance, local evidence, correspondence, and
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
+
+### Platform compatibility
+
+- Treat cross-platform operation as the default requirement for product
+  libraries and reusable feature paths. Browser/Wasm compatibility is a design target.
+- Before introducing a dependency, API, or design that cannot run on a
+  supported platform -- especially single-threaded Browser/Wasm -- stop and
+  obtain explicit user approval for that specific exception.
+- Document every approved exception in the owning design or architecture
+  document and in the PR. Name the supported and unsupported platforms, the
+  rationale, the affected surface, the visible failure or degradation mode, and
+  the validation used for supported hosts. Do not let a broad catch, silent
+  fallback, or generic diagnostic stand in for that documentation.
 
 ### Output contract
 
@@ -234,10 +248,12 @@ commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `--gate <preset>` flag (`--gate list` prints the table); the taxonomy and the
 per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
 
-Only `src/dotnet-inspect` and `src/runfaster` are packable, and internal
-libraries carry no versioning story or API-stability commitment: treat their
-public surface as an internal design constraint, not an external compatibility
-surface. `docs/release-workflow.md` owns the packaging mechanics.
+Only tool projects explicitly set `IsPackable=true`, and `IsTool` makes those
+same projects available to solution-level `dotnet publish`. Internal libraries
+carry no versioning story or API-stability commitment: treat their public
+surface as an internal design constraint, not an external compatibility
+surface. Packability and publishability control SDK commands; release workflow
+membership remains owned by `docs/release-workflow.md`.
 
 Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
 release, and `README.md` (packed as the package readme) and the shipped
