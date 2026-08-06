@@ -211,6 +211,37 @@ cached token exists.
 Set the token in the environment instead, as under [Unattended and CI](#unattended-and-ci). The
 environment-driven paths do not use MSAL and are unaffected.
 
+## When a feed is slow
+
+Requests default to a 30 second timeout. A large feed can take longer than that to answer a
+search, which surfaces as a cancelled request rather than as an error from the feed:
+
+```text
+Error: No configured NuGet source could be searched.
+  myfeed: The request was canceled due to the configured HttpClient.Timeout of 30 seconds elapsing.
+```
+
+Give it more time with `--http-timeout`:
+
+```bash
+dotnet inspect package search widgets --source myfeed --http-timeout 120
+```
+
+Or set `DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS`, which is the more convenient form in CI where
+the same value applies to every command:
+
+```bash
+DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS=120 dotnet inspect package search widgets --source myfeed
+```
+
+Whole seconds only, from 1 to 3600. The flag wins over the variable, so an export left in a shell
+profile cannot override what you typed. A value outside the range, or one that is not a whole
+number, fails the command when given as a flag and is ignored when given as the variable: you
+typed the flag just now, but a stale variable should not make every command fail.
+
+Fetching source content through SourceLink keeps the fixed 30 second timeout. Those URLs come
+from the package rather than from a feed you configured, so they are not covered by this setting.
+
 ## See also
 
 - [NuGet Feed Authentication](design/nuget-authentication.md) — how the tool authenticates, which

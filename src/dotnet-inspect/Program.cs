@@ -65,8 +65,55 @@ try
         cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
     }
 
+    // Parse --http-timeout <seconds> early: Shared is built lazily on first use, so the
+    // default has to be settled before any client exists. Both spellings are handled, because
+    // stripping only the spaced form would let --http-timeout=120 reach the parser as a
+    // root-level option and be silently discarded.
+    const string HttpTimeoutFlag = "--http-timeout";
+    string? httpTimeoutValue = null;
+    var timeoutArgs = new List<string>(args);
+    for (int i = 0; i < timeoutArgs.Count; i++)
+    {
+        if (timeoutArgs[i] == HttpTimeoutFlag)
+        {
+            httpTimeoutValue = string.Empty;
+            if (i + 1 < timeoutArgs.Count)
+            {
+                httpTimeoutValue = timeoutArgs[i + 1];
+                timeoutArgs.RemoveAt(i + 1);
+            }
+            timeoutArgs.RemoveAt(i);
+            break;
+        }
+
+        if (timeoutArgs[i].StartsWith($"{HttpTimeoutFlag}=", StringComparison.Ordinal))
+        {
+            httpTimeoutValue = timeoutArgs[i][(HttpTimeoutFlag.Length + 1)..];
+            timeoutArgs.RemoveAt(i);
+            break;
+        }
+    }
+
+    TimeSpan? httpTimeout = null;
+    if (httpTimeoutValue is not null)
+    {
+        args = timeoutArgs.ToArray();
+
+        // Rejected rather than clamped, and fatal rather than ignored: the operator typed this
+        // one, so silently running with the 30 second default is the wrong kind of surprise.
+        if (!DotnetInspector.Core.HttpClientFactory.TryParseTimeoutSeconds(httpTimeoutValue, out TimeSpan parsedHttpTimeout))
+        {
+            CommandError.Write(
+                $"{HttpTimeoutFlag} expects a whole number of seconds between 1 and 3600.",
+                $"Got: '{httpTimeoutValue}'");
+            return 1;
+        }
+
+        httpTimeout = parsedHttpTimeout;
+    }
+
     // Initialize library configuration
-    DotnetInspector.Core.HttpClientFactory.Initialize(offline);
+    DotnetInspector.Core.HttpClientFactory.Initialize(offline, httpTimeout);
 
     // Credential plugins are how a private feed is read without a password stored in nuget.config,
     // and NuGet ranks them as the most secure of the credential mechanisms. Discovery is only a

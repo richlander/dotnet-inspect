@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 
@@ -11,7 +12,19 @@ namespace DotnetInspector.Core;
 public static class HttpClientFactory
 {
     private const string UserAgent = "dotnet-inspect";
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Upper bound accepted from <c>--http-timeout</c> and
+    /// <c>DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS</c>.
+    /// <see cref="HttpClient.Timeout"/> rejects any value above <see cref="int.MaxValue"/>
+    /// milliseconds, roughly 24.8 days, so accepting a value without a ceiling would let
+    /// configuration crash the process instead of configuring it.
+    /// </summary>
+    private static readonly TimeSpan MaximumConfiguredTimeout = TimeSpan.FromHours(1);
+
     private static bool _offline;
+    private static TimeSpan? _configuredTimeout;
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
@@ -22,9 +35,17 @@ public static class HttpClientFactory
     /// Configure the factory before first use. Safe to call multiple times;
     /// the shared instance is created lazily on first access.
     /// </summary>
-    public static void Initialize(bool offline = false)
+    /// <param name="offline">When true, every request throws <see cref="OfflineException"/>.</param>
+    /// <param name="defaultTimeout">
+    /// Default request timeout for <see cref="Shared"/>, normally the parsed <c>--http-timeout</c>
+    /// value. When null, <c>DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS</c> is consulted instead, so
+    /// the flag wins over the variable and the variable still works for callers that never parse
+    /// a command line.
+    /// </param>
+    public static void Initialize(bool offline = false, TimeSpan? defaultTimeout = null)
     {
         _offline = offline;
+        _configuredTimeout = defaultTimeout;
     }
 
     public static bool IsOffline => _offline;
@@ -152,8 +173,65 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        client.Timeout = timeout ?? ResolveConfiguredTimeout();
         return client;
+    }
+
+    /// <summary>
+    /// Resolves the default request timeout for <see cref="Shared"/>: the parsed
+    /// <c>--http-timeout</c> value if one was supplied to <see cref="Initialize"/>, otherwise
+    /// <c>DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS</c>, otherwise 30 seconds.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A package search against a large authenticated feed can take longer than 30 seconds to
+    /// answer, and the cap was previously unreachable from outside the process, so the command
+    /// failed with no way for the operator to give it more time.
+    /// </para>
+    /// <para>
+    /// An explicit per-call timeout argument still wins over both, so this only sets the default.
+    /// </para>
+    /// <para>
+    /// This deliberately does not govern <see cref="SharedUntrustedFetch"/>. That client fetches
+    /// URLs that originate in untrusted artifacts, so how long it will wait is part of its
+    /// containment story, not a feed-performance knob.
+    /// </para>
+    /// </remarks>
+    internal static TimeSpan ResolveConfiguredTimeout()
+    {
+        if (_configuredTimeout is TimeSpan fromCommandLine)
+            return fromCommandLine;
+
+        return TryParseTimeoutSeconds(
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS"),
+            out TimeSpan fromEnvironment)
+            ? fromEnvironment
+            : DefaultTimeout;
+    }
+
+    /// <summary>
+    /// Parses a request timeout expressed as whole seconds, accepting [1, 3600].
+    /// </summary>
+    /// <remarks>
+    /// Shared by <c>--http-timeout</c> and <c>DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS</c> so the
+    /// two cannot drift apart on what they accept. Out-of-range values are rejected rather than
+    /// clamped: clamping would turn a mistyped value into a silent one hour timeout, which is
+    /// worse than the documented default. The flag reports the rejection and stops; the
+    /// environment variable falls back to the default, because a stale variable in a shell
+    /// profile should not make every command fail.
+    /// </remarks>
+    public static bool TryParseTimeoutSeconds(string? value, out TimeSpan timeout)
+    {
+        timeout = default;
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds))
+            return false;
+
+        var requested = TimeSpan.FromSeconds(seconds);
+        if (requested < TimeSpan.FromSeconds(1) || requested > MaximumConfiguredTimeout)
+            return false;
+
+        timeout = requested;
+        return true;
     }
 
     /// <summary>
@@ -162,6 +240,11 @@ public static class HttpClientFactory
     /// including redirect hops — is validated to resolve to a public IP address, and automatic
     /// redirects are capped. Offline mode and DEBUG traffic logging are still honored.
     /// </summary>
+    /// <remarks>
+    /// The 30 second default here is fixed on purpose. It is not read from
+    /// <c>DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS</c>, because the URLs this client visits come
+    /// from untrusted artifacts rather than from a feed the operator chose.
+    /// </remarks>
     public static HttpClient CreateUntrustedFetchClient(TimeSpan? timeout = null)
     {
         HttpMessageHandler handler = new SocketsHttpHandler
