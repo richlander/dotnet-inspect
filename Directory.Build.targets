@@ -1,5 +1,18 @@
 <Project>
 
+  <!-- IsTool controls only published XML documentation. The SDK derives the
+       two specific documentation properties before this file is imported, so
+       set all three here. A tool then publishes neither its own API
+       documentation nor documentation from a referenced library, while the
+       libraries continue generating XML documentation in their own outputs.
+       Packaging properties stay explicit in each tool project because the SDK
+       consumes PackAsTool before this file is imported. -->
+  <PropertyGroup Condition="'$(IsTool)' == 'true'">
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+  </PropertyGroup>
+
   <!-- Runtime async (compiler "async v2") is only valid on net11.0. Enable it there.
        This lives in Directory.Build.targets (not .props) because TargetFramework is
        not yet set when .props files are imported, so a net11.0 condition would never
