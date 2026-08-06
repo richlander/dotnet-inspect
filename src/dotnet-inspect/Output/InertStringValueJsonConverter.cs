@@ -11,7 +11,7 @@ namespace DotnetInspector.Output;
 /// <remarks>
 /// Gated by <c>DependencyNode_CarriesInertTextThroughMarkdownAndJsonSinks</c>.
 /// </remarks>
-internal sealed class InertStringJsonConverter : JsonConverter<InertString>
+internal sealed class InertStringValueJsonConverter : JsonConverter<InertString>
 {
     public override InertString Read(
         ref Utf8JsonReader reader,
