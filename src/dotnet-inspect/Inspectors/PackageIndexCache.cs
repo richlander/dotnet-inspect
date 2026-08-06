@@ -1,10 +1,12 @@
 using System.Buffers;
+using System.Buffers.Text;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Core;
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using MarkdownTable.Formatting;
 
 namespace DotnetInspector.Inspectors;
@@ -16,7 +18,10 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class PackageIndexCache
 {
-    internal const string Category = "pkg-index-v10";
+    internal const string Category = "pkg-index-v12";
+    private static ReadOnlySpan<byte> DescriptionLengthPrefix => "description-bytes: "u8;
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     static PackageIndexCache()
     {
@@ -35,13 +40,14 @@ internal static class PackageIndexCache
 
         try
         {
-            using var doc = FieldDocument.Parse(bytes);
+            var (description, fieldsOffset) = ReadDescriptionEnvelope(bytes);
+            using var doc = FieldDocument.Parse(bytes[fieldsOffset..]);
             var result = new InspectionResult
             {
                 PackageName = doc.GetString("packageName") ?? packageName,
                 ManifestVersion = doc.GetString("manifestVersion"),
                 Version = doc.GetString("version") ?? version,
-                Description = doc.GetString("description"),
+                Description = description,
                 Authors = doc.GetString("authors"),
                 License = doc.GetString("license"),
                 LicenseUrl = doc.GetString("licenseUrl"),
@@ -119,19 +125,20 @@ internal static class PackageIndexCache
 
     /// <summary>
     /// Caches an InspectionResult (filesystem-derived fields only).
-    /// Uses plain field format (key: value) written as UTF-8 bytes directly.
+    /// Stores the encoded description in a length-delimited UTF-8 envelope followed by plain
+    /// fields (<c>key: value</c>).
     /// </summary>
     public static void Set(string packageName, string version, InspectionResult result)
     {
         string key = $"{packageName.ToLowerInvariant()}@{version}";
 
         var buf = new ArrayBufferWriter<byte>(1024);
+        WriteDescriptionEnvelope(buf, result.Description);
 
         // Scalars first, ordered by access frequency and display priority
         WriteField(buf, "packageName"u8, result.PackageName);
         WriteField(buf, "manifestVersion"u8, result.ManifestVersion);
         WriteField(buf, "version"u8, result.Version);
-        WriteField(buf, "description"u8, result.Description);
         WriteField(buf, "authors"u8, result.Authors);
         WriteField(buf, "license"u8, result.License);
         WriteField(buf, "licenseUrl"u8, result.LicenseUrl);
@@ -191,7 +198,7 @@ internal static class PackageIndexCache
         CoreCache.SetBytes(Category, key, buf.WrittenSpan.ToArray(), extension: "md");
     }
 
-    // ── Field serialization (plain format: "key: value", UTF-8 bytes) ──
+    // ── Description envelope + field serialization ──
 
     private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, string? value)
     {
@@ -200,6 +207,106 @@ internal static class PackageIndexCache
         Write(buf, ": "u8);
         Write(buf, value);
         Write(buf, "\n"u8);
+    }
+
+    private static void WriteDescriptionEnvelope(
+        ArrayBufferWriter<byte> buf,
+        InertString? description)
+    {
+        Write(buf, DescriptionLengthPrefix);
+
+        if (description is not { } inert)
+        {
+            WriteInteger(buf, -1);
+            Write(buf, "\n\n"u8);
+            return;
+        }
+
+        if (inert.IsTruncated)
+        {
+            throw new InvalidOperationException(
+                "A truncated package description cannot be persisted without its provenance.");
+        }
+
+        string encoded = inert.ToString();
+        WriteInteger(buf, Encoding.UTF8.GetByteCount(encoded));
+        Write(buf, "\n"u8);
+        Write(buf, encoded);
+        Write(buf, "\n"u8);
+    }
+
+    private static (InertString? Description, int FieldsOffset) ReadDescriptionEnvelope(
+        byte[] bytes)
+    {
+        ReadOnlySpan<byte> content = bytes;
+        int headerEnd = content.IndexOf((byte)'\n');
+        if (headerEnd < 0)
+            throw new InvalidDataException("Cached package description header is missing.");
+
+        ReadOnlySpan<byte> header = content[..headerEnd];
+        if (!header.StartsWith(DescriptionLengthPrefix))
+            throw new InvalidDataException("Cached package description header is invalid.");
+
+        ReadOnlySpan<byte> lengthText = header[DescriptionLengthPrefix.Length..];
+        if (!Utf8Parser.TryParse(
+                lengthText,
+                out int descriptionLength,
+                out int consumed)
+            || consumed != lengthText.Length
+            || descriptionLength < -1)
+        {
+            throw new InvalidDataException("Cached package description length is invalid.");
+        }
+
+        int descriptionStart = headerEnd + 1;
+        int storedLength = Math.Max(descriptionLength, 0);
+        long descriptionEndLong = (long)descriptionStart + storedLength;
+        if (descriptionEndLong >= bytes.Length)
+            throw new InvalidDataException("Cached package description is truncated.");
+
+        int descriptionEnd = (int)descriptionEndLong;
+        if (bytes[descriptionEnd] != (byte)'\n')
+            throw new InvalidDataException("Cached package description boundary is invalid.");
+
+        InertString? description = null;
+        if (descriptionLength >= 0)
+        {
+            string encoded;
+            try
+            {
+                encoded = StrictUtf8.GetString(content.Slice(
+                    descriptionStart,
+                    descriptionLength));
+            }
+            catch (DecoderFallbackException ex)
+            {
+                throw new InvalidDataException(
+                    "Cached package description is not valid UTF-8.",
+                    ex);
+            }
+
+            try
+            {
+                description = InertString.FromEncoded(TextPolicy.Prose, encoded);
+            }
+            catch (FormatException ex)
+            {
+                throw new InvalidDataException(
+                    "Cached package description is not valid encoded text.",
+                    ex);
+            }
+        }
+
+        return (description, descriptionEnd + 1);
+    }
+
+    private static void WriteInteger(ArrayBufferWriter<byte> buf, int value)
+    {
+        Span<byte> destination = buf.GetSpan(11);
+        if (!Utf8Formatter.TryFormat(value, destination, out int written))
+            throw new InvalidOperationException("Could not format a cache field length.");
+
+        buf.Advance(written);
     }
 
     private static void WriteField(ArrayBufferWriter<byte> buf, ReadOnlySpan<byte> key, bool value)
