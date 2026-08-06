@@ -12311,6 +12311,78 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageLibraryMode_ValueJsonArray_CarriesShapeProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", "--fields", "Assembly Version",
+                "--value", "--json-array", "--row", "first", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            var row = Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Equal("Library Info", row.GetProperty("section").GetString());
+            Assert.Matches(@"^\d+\.\d+\.\d+\.\d+$", row.GetProperty("value").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryMode_Value_CarriesProjectionRow()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", "--fields", "Assembly Version",
+                "--value", "--row", "2", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("row 2 is not in this section", error);
+            Assert.DoesNotContain("produced unprojected output", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--urls", "selected section has no URL values")]
+    [InlineData("--paths", "selected section has no path values")]
+    [InlineData("--json-array", "--json-array requires --value, --urls, --paths, or --print")]
+    public async Task PackageLibraryMode_CarriesRejectedProjectionOptions(
+        string option,
+        string expectedError)
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", option, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(expectedError, error);
+            Assert.DoesNotContain("produced unprojected output", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
     {
         // Both timeline sections grow with the version range, so there is no fixed/bounded subset
