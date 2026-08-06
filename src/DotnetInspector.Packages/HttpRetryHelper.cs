@@ -106,80 +106,82 @@ public static class HttpRetryHelper
 
         while (true)
         {
-            try
+            using (NetworkTelemetry.Scope(trafficKind))
             {
-                using var trafficScope = NetworkTelemetry.Scope(trafficKind);
-                var response = await requestFactory(cancellationToken).ConfigureAwait(false);
-
-                if (response.IsSuccessStatusCode)
+                try
                 {
-                    return new HttpRetryResult(response, response.StatusCode);
+                    var response = await requestFactory(cancellationToken).ConfigureAwait(false);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return new HttpRetryResult(response, response.StatusCode);
+                    }
+
+                    var statusCode = response.StatusCode;
+                    response.Dispose();
+
+                    // Not found is not retryable, and is the one status that genuinely means the
+                    // package is absent rather than the source being unreadable, so it is not
+                    // recorded as a source failure.
+                    if (statusCode == HttpStatusCode.NotFound)
+                    {
+                        return new HttpRetryResult(null, statusCode);
+                    }
+
+                    // Check if retryable
+                    if (!IsRetryableStatus(statusCode))
+                    {
+                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
+                        FeedFailureTelemetry.Record(url, statusCode);
+                        return new HttpRetryResult(null, statusCode);
+                    }
+
+                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
+                }
+                catch (HttpRequestException ex)
+                {
+                    var (isRetryable, socketError) = GetSocketError(ex);
+
+                    if (!isRetryable)
+                    {
+                        log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
+                        FeedFailureTelemetry.Record(url, null);
+                        return new HttpRetryResult(null, null);
+                    }
+
+                    log?.Invoke($"Socket error {socketError} (retryable): {url}");
+                }
+                catch (NotSupportedException ex)
+                {
+                    // Thrown by HttpRequestMessage when the URL scheme is unsupported
+                    // (e.g. file:// or a raw local folder path). Treat as non-retryable
+                    // so a local folder NuGet source listed in NuGet.Config can't crash
+                    // remote queries. Issue #310.
+                    log?.Invoke($"HTTP {methodName} unsupported URL (not retryable): {ex.Message}");
+                    return new HttpRetryResult(null, null);
+                }
+                catch (DotnetInspector.Core.OfflineException)
+                {
+                    log?.Invoke($"Network access is disabled (--offline mode).");
+                    return new HttpRetryResult(null, null);
+                }
+                catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (TaskCanceledException)
+                {
+                    // Timeout - treat as retryable
+                    log?.Invoke($"{methodName} request timeout (retryable): {url}");
                 }
 
-                var statusCode = response.StatusCode;
-                response.Dispose();
-
-                // Not found is not retryable, and is the one status that genuinely means the
-                // package is absent rather than the source being unreadable, so it is not
-                // recorded as a source failure.
-                if (statusCode == HttpStatusCode.NotFound)
+                // Check retry limit while the attempt's traffic currency is still active.
+                if (attempts++ >= retryCount)
                 {
-                    return new HttpRetryResult(null, statusCode);
-                }
-
-                // Check if retryable
-                if (!IsRetryableStatus(statusCode))
-                {
-                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
-                    FeedFailureTelemetry.Record(url, statusCode);
-                    return new HttpRetryResult(null, statusCode);
-                }
-
-                log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
-            }
-            catch (HttpRequestException ex)
-            {
-                var (isRetryable, socketError) = GetSocketError(ex);
-
-                if (!isRetryable)
-                {
-                    log?.Invoke($"HTTP {methodName} error (not retryable): {ex.Message}");
+                    log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
                     FeedFailureTelemetry.Record(url, null);
                     return new HttpRetryResult(null, null);
                 }
-
-                log?.Invoke($"Socket error {socketError} (retryable): {url}");
-            }
-            catch (NotSupportedException ex)
-            {
-                // Thrown by HttpRequestMessage when the URL scheme is unsupported
-                // (e.g. file:// or a raw local folder path). Treat as non-retryable
-                // so a local folder NuGet source listed in NuGet.Config can't crash
-                // remote queries. Issue #310.
-                log?.Invoke($"HTTP {methodName} unsupported URL (not retryable): {ex.Message}");
-                return new HttpRetryResult(null, null);
-            }
-            catch (DotnetInspector.Core.OfflineException)
-            {
-                log?.Invoke($"Network access is disabled (--offline mode).");
-                return new HttpRetryResult(null, null);
-            }
-            catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TaskCanceledException)
-            {
-                // Timeout - treat as retryable
-                log?.Invoke($"{methodName} request timeout (retryable): {url}");
-            }
-
-            // Check retry limit
-            if (attempts++ >= retryCount)
-            {
-                log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
-                FeedFailureTelemetry.Record(url, null);
-                return new HttpRetryResult(null, null);
             }
 
             // Exponential backoff with jitter

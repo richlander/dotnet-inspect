@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
@@ -97,6 +98,33 @@ public class FeedFailureTelemetryTests
     }
 
     /// <summary>
+    /// A no-response failure is recorded from catch or retry-exhaustion handling, after the HTTP
+    /// send has completed. The helper's explicit phase must remain current through both paths
+    /// rather than falling back to its caller's ambient phase.
+    /// </summary>
+    [Theory]
+    [InlineData(SocketError.ConnectionRefused)] // Non-retryable connection failure.
+    [InlineData(SocketError.ConnectionReset)]   // Retryable failure exhausted with retryCount 0.
+    public async Task AConnectionFailureKeepsTheHelpersExplicitTrafficPhase(SocketError socketError)
+    {
+        using var failureScope = FeedFailureTelemetry.Scope();
+        using var outerTrafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
+        using var client = new HttpClient(new ThrowingHandler(socketError));
+
+        var body = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://private.example/v3/index.json",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        Assert.Null(body);
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(NetworkTrafficKind.PackageSourceDiscovery, failure.Phase);
+        Assert.Equal(NetworkTrafficKind.PackageSearch, NetworkTelemetry.CurrentTrafficKind);
+    }
+
+    /// <summary>
     /// The HTTP helpers are called from paths that never open a scope, so recording must be a
     /// no-op there rather than throwing or leaking into a later scope.
     /// </summary>
@@ -185,5 +213,17 @@ public class FeedFailureTelemetryTests
                 RequestMessage = request,
                 Content = new StringContent(string.Empty)
             });
+    }
+
+    private sealed class ThrowingHandler(SocketError socketError) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            throw new HttpRequestException(
+                "No response",
+                new SocketException((int)socketError));
+        }
     }
 }
