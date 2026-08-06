@@ -1,4 +1,4 @@
-# Decompiler gate: pinned known-red tests
+# Decompiler gate: pinned known-red cases
 #
 # Cases listed here are known to fail and are allowed to fail in the pre-merge
 # `decompiler-gates` CI job. Everything else in `--gate pre-merge` must pass.

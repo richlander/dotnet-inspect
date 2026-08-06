@@ -1,4 +1,4 @@
-// Compares the failing tests of a decompiler gate run against the pinned
+// Compares the failing cases of a decompiler gate run against the pinned
 // known-red list, so the gate can run pre-merge while known failures are
 // still open. Drift in either direction is an error:
 //
@@ -744,7 +744,7 @@ if (nowPassing.Count > 0)
         Console.WriteLine($"  {name}");
     Console.WriteLine();
     Console.WriteLine($"  Remove these from {pinPath}. A pin that outlives its failure silently");
-    Console.WriteLine("  un-gates the test it names.");
+    Console.WriteLine("  un-gates the case it names.");
     Console.WriteLine();
 }
 

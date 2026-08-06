@@ -328,7 +328,7 @@ and treats drift in **both** directions as an error:
 | --- | --- |
 | a failure that is not pinned | new breakage — the gate did its job |
 | a pinned case that passed | the fix landed; retire the pin |
-| a pinned case that never ran | dead pin — the test was renamed or deleted |
+| a pinned case that never ran | dead pin — the case was renamed or deleted |
 | a gate test that neither passed nor failed | coverage silently disappeared |
 | an expected class with nothing executed | the preset stopped selecting it |
 | a discovered case ID that never starts | the report is incomplete |
@@ -345,7 +345,7 @@ and treats drift in **both** directions as an error:
 Only `Pass` counts as passing. A skipped gate test is neither passing nor
 failing, and treating it as either is how a gate becomes vacuous: an unpinned
 skip would report an exact match, and a pinned skip would look like a landed
-fix, prompting removal of the pin that was the last thing naming the test.
+fix, prompting removal of the pin that was the last thing naming the case.
 Skipping is not an approved way to green this job.
 
 `eng/decompiler-gate-expected-classes.txt` records the classes `--gate pre-merge`
@@ -403,7 +403,7 @@ possibly-corrupt report. They are not evidence of completeness and are not
 relied on as such.
 
 The stale-pin check is what keeps the pin list a ratchet rather than a growing
-exemption set: a pin that outlives its failure silently un-gates the test it
+exemption set: a pin that outlives its failure silently un-gates the case it
 names. Pass `--partial` to suppress the dead-pin, expected-class, and
 completeness checks when deliberately running a subset locally. CI runs the full
 preset and never passes it.
