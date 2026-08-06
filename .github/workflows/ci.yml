@@ -48,6 +48,7 @@ jobs:
   # Detect what changed to determine which jobs to run
   changes:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
       csharpdiff: ${{ steps.filter.outputs.csharpdiff }}
@@ -68,20 +69,75 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Self-test change detection
+        shell: bash
+        run: dotnet run eng/test-ci-change-detection.cs
+
       - name: Detect changes
         id: filter
+        shell: bash
         run: |
           # This step must never fail. Every downstream job is gated on its
           # outputs, so failing here does not just lose the filter -- it SKIPS
           # the entire build and test matrix, landing an unvalidated commit on
           # main. So when the change set cannot be determined, force every
           # output true: CI over-runs instead of silently vanishing. Enforced
-          # by the fallback branch below, which runs no fallible command, not
-          # by an automated gate.
+          # by the fallback branch below, which runs no fallible command, and
+          # by eng/test-ci-change-detection.cs.
           FILES=""
           RESOLVED=false
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only); then
+            # An empty PR diff is ambiguous: the base may now contain equivalent
+            # changes, or the API may have returned no usable change set. In
+            # either case, over-run rather than let every gated job disappear.
+            # An empty push diff remains resolved below because it means the
+            # before and after trees do not differ.
+            # The files API reports both sides of a rename. Encode the complete
+            # NUL-delimited path stream because shell variables cannot contain
+            # NULs and newline-delimited names cannot represent every Git path.
+            if FILES=$(
+              {
+                EXPECTED_FILES=$(
+                  gh api \
+                    "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+                    --jq '.changed_files'
+                ) || exit 1
+                case "$EXPECTED_FILES" in
+                  ''|*[!0-9]*) exit 1 ;;
+                esac
+                RECORDS=$(
+                  gh api --paginate \
+                    "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                    --jq '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
+                ) || exit 1
+                ACTUAL_FILES=0
+                while IFS= read -r encoded; do
+                  if [ "$encoded" = ":file" ]; then
+                    ACTUAL_FILES=$((ACTUAL_FILES + 1))
+                  fi
+                done <<< "$RECORDS"
+                # Compare the API's canonical decimal text without Bash integer
+                # coercion: an out-of-range value must fail closed, not turn the
+                # `[` diagnostic into a false condition.
+                if [ "$ACTUAL_FILES" != "$EXPECTED_FILES" ]; then
+                  exit 1
+                fi
+                while IFS= read -r encoded; do
+                  if [ -z "$encoded" ] || [ "$encoded" = ":file" ]; then
+                    continue
+                  fi
+                  if ! printf '%s' "$encoded" | base64 --decode; then
+                    exit 1
+                  fi
+                  printf '\0'
+                done <<< "$RECORDS"
+              } |
+                base64 -w0
+            ) && [ -n "$FILES" ]; then
               RESOLVED=true
             fi
           else
@@ -94,7 +150,12 @@ jobs:
               # change detection is asking. "What differs between the old tip
               # and the new tip" is exactly the two-dot diff, and for the
               # fast-forward pushes main receives the two agree anyway.
-              if FILES=$(git diff --name-only "$BEFORE" "${{ github.sha }}"); then
+              # Disable rename collapsing so both the deletion and addition are
+              # classified, then preserve arbitrary path bytes through base64.
+              if FILES=$(
+                git diff --no-renames --name-only -z "$BEFORE" "${{ github.sha }}" |
+                  base64 -w0
+              ); then
                 RESOLVED=true
               fi
             fi
@@ -121,7 +182,7 @@ jobs:
           ILROUNDTRIP=false
           PACKAGING=false
           SHIPPED=false
-          while IFS= read -r file; do
+          while IFS= read -r -d '' file; do
             case "$file" in
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
@@ -305,7 +366,7 @@ jobs:
               global.json|nuget.config|NuGet.config) SHIPPED=true ;;
               .github/workflows/ci.yml) SHIPPED=true ;;
             esac
-          done <<< "$FILES"
+          done < <(printf '%s' "$FILES" | base64 --decode)
           # `ilroundtrip` does not have a job of its own: its two steps live
           # inside the `test` job, which is gated on `code`. So an input that
           # sets only `ilroundtrip` computes an output nothing can act on --
@@ -328,8 +389,7 @@ jobs:
           echo "ilroundtrip=$ILROUNDTRIP" >> "$GITHUB_OUTPUT"
           echo "packaging=$PACKAGING" >> "$GITHUB_OUTPUT"
           echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
-          echo "Changed files:"
-          echo "$FILES"
+          echo "Changed files were decoded and classified without logging raw path bytes."
           echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1160,23 +1220,24 @@ jobs:
   #    skipped required check does not block a merge -- the failure it exists to
   #    catch would be exactly what silences it.
   #
-  # 2. `skipped` must pass but `cancelled` must not. Path-gated jobs are skipped
-  #    on most PRs and that is correct. A cancelled job is a job that hit its
-  #    timeout, and this repository has already been burned by that distinction
-  #    twice: the Deep Inspect notifier stayed silent because a cancelled job
-  #    satisfies neither `failure()` nor a failed conclusion (#3432), and seven
-  #    decompiler test classes sat at a 45-minute timeout unnoticed (#3489-#3493).
-  #    Treating `cancelled` as success would rebuild that hole at the merge gate.
+  # 2. `skipped` must pass for path-gated jobs but not for `changes`, and
+  #    `cancelled` must never pass. Path-gated jobs are skipped on most PRs and
+  #    that is correct. `changes` supplies every gate, so skipping it silently
+  #    skips the entire matrix. A cancelled job is a job that hit its timeout,
+  #    and this repository has already been burned by that distinction twice:
+  #    the Deep Inspect notifier stayed silent because a cancelled job satisfies
+  #    neither `failure()` nor a failed conclusion (#3432), and seven decompiler
+  #    test classes sat at a 45-minute timeout unnoticed (#3489-#3493).
   #
   # 3. The check is an allow list, not a deny list. Only `success` and `skipped`
-  #    pass; anything else blocks. A deny list of `failure|cancelled` would admit
-  #    any result state GitHub adds later, which is the fail-open direction. This
-  #    fails closed, matching the repository rule that failure stays visible.
+  #    pass for path-gated jobs; only `success` passes for `changes`. Anything
+  #    else blocks. A deny list of `failure|cancelled` would admit any result
+  #    state GitHub adds later, which is the fail-open direction.
   #
   # `changes` is in `needs` deliberately. If it fails, every downstream job is
   # skipped, so a check that looked only at the gated jobs would see nothing but
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
-  # `failure` is what closes that path.
+  # `failure` or `skipped` is what closes that path.
   ci-required:
     needs:
       - changes
@@ -1199,7 +1260,13 @@ jobs:
       # the thing proven non-vacuous is the same thing that gates the merge.
       RESULT_FILTER: >-
         to_entries[]
-        | select(.value.result != "success" and .value.result != "skipped")
+        | select(
+            (.key == "changes" and .value.result != "success")
+            or
+            (.key != "changes"
+              and .value.result != "success"
+              and .value.result != "skipped")
+          )
         | "\(.key)=\(.value.result)"
     steps:
       - uses: actions/checkout@v6
@@ -1219,16 +1286,60 @@ jobs:
           python3 -c '
           import json, os, sys, yaml
           with open(".github/workflows/ci.yml") as f:
-              jobs = set(yaml.safe_load(f)["jobs"])
+              workflow = yaml.safe_load(f)
+          jobs = set(workflow["jobs"])
           jobs.discard("ci-required")
           needs = set(json.loads(os.environ["NEEDS"]))
           missing = sorted(jobs - needs)
           extra = sorted(needs - jobs)
+          forbidden = sorted(
+              key for key in (
+                  "if",
+                  "continue-on-error",
+                  "defaults",
+                  "env",
+                  "container",
+                  "strategy")
+              if key in workflow["jobs"]["changes"])
+          self_tests = [
+              step for step in workflow["jobs"]["changes"].get("steps", [])
+              if isinstance(step, dict)
+              and step.get("name") == "Self-test change detection"
+          ]
+          self_test_errors = []
+          if len(self_tests) != 1:
+              self_test_errors.append(
+                  "expected one Self-test change detection step, "
+                  f"found {len(self_tests)}")
+          else:
+              self_test = self_tests[0]
+              if self_test.get("run") != "dotnet run eng/test-ci-change-detection.cs":
+                  self_test_errors.append(
+                      "Self-test change detection must run the C# gate")
+              if self_test.get("shell") != "bash":
+                  self_test_errors.append(
+                      "Self-test change detection must use shell: bash")
+              forbidden_step = sorted(
+                  key for key in (
+                      "if",
+                      "continue-on-error",
+                      "env",
+                      "working-directory")
+                  if key in self_test)
+              if forbidden_step:
+                  self_test_errors.append(
+                      "Self-test change detection must not declare: "
+                      + ", ".join(forbidden_step))
           if missing:
               print("::error::ci-required does not depend on: " + ", ".join(missing))
           if extra:
               print("::error::ci-required depends on unknown jobs: " + ", ".join(extra))
-          sys.exit(1 if missing or extra else 0)
+          if forbidden:
+              print("::error::changes job must not declare: " + ", ".join(forbidden))
+          for error in self_test_errors:
+              print("::error::" + error)
+          sys.exit(
+              1 if missing or extra or forbidden or self_test_errors else 0)
           '
           echo "Gate covers every job in the workflow."
 
@@ -1239,9 +1350,9 @@ jobs:
       - name: Self-test the result filter
         run: |
           set -euo pipefail
-          probe='{"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
+          probe='{"changes":{"result":"skipped"},"ok":{"result":"success"},"gated":{"result":"skipped"},"broke":{"result":"failure"},"timeout":{"result":"cancelled"},"future":{"result":"neutral"}}'
           got=$(printf '%s' "$probe" | jq -r "$RESULT_FILTER" | paste -sd, -)
-          expected='broke=failure,timeout=cancelled,future=neutral'
+          expected='changes=skipped,broke=failure,timeout=cancelled,future=neutral'
           if [ "$got" != "$expected" ]; then
             echo "::error::Result filter no longer discriminates. Expected [$expected], got [$got]."
             exit 1
