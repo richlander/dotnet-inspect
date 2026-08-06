@@ -26,7 +26,15 @@ namespace DotnetInspector.Tests;
 /// confines any deletion to <c>%TEMP%/dotnet-inspect-info-scope-probe</c>, a path
 /// nothing but this test names.
 /// </para>
+/// <para>
+/// Joined to the <c>Console</c> collection so these child processes cannot run alongside
+/// <c>PackageAcquisitionConcurrencyTests</c>, which asserts that two thread-pool work items
+/// are scheduled within five seconds. Spawning CLI processes in parallel with that deadline
+/// is a thread-pool contention risk on a slow two-core runner, and the collection is already
+/// the suite's serialization group for timing- and process-global-state-sensitive tests.
+/// </para>
 /// </summary>
+[Collection("Console")]
 public sealed class InfoOptionScopeTests : IDisposable
 {
     private readonly string _cacheDirectory = Path.Combine(
