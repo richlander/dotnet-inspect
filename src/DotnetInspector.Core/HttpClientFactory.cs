@@ -43,12 +43,15 @@ public static class HttpClientFactory
     /// a command line.
     /// </param>
     /// <remarks>
-    /// "Before first use" is a real precondition for <paramref name="defaultTimeout"/>, not
-    /// advice. <see cref="HttpClient.Timeout"/> is assigned once, when <see cref="Shared"/> is
-    /// constructed, so a call made after that point does not retune the existing client.
-    /// <see cref="_offline"/> is read per request and does not share the limitation. The CLI is
-    /// unaffected because <c>Program.cs</c> calls this in top-level code before any command
-    /// runs; a test that needs to reconfigure calls <see cref="ResetSharedForTesting"/> first.
+    /// "Before first use" is a real precondition, not advice, and it covers both parameters.
+    /// Each is consumed when a client is constructed rather than per request:
+    /// <paramref name="defaultTimeout"/> becomes <see cref="HttpClient.Timeout"/>, and
+    /// <paramref name="offline"/> decides whether an offline handler joins the chain. A call
+    /// made once <see cref="Shared"/> exists therefore governs later <see cref="CreateNew"/>
+    /// calls and leaves that instance alone. <see cref="ResetSharedForTesting"/> is how the
+    /// tests reconfigure; the CLI is unaffected because <c>Program.cs</c> calls this in
+    /// top-level code before any command runs. Pinned by
+    /// <c>HttpClientFactoryTests.Initialize_OnceSharedExists_GovernsOnlyLaterClients</c>.
     /// </remarks>
     public static void Initialize(bool offline = false, TimeSpan? defaultTimeout = null)
     {

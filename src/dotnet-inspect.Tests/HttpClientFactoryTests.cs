@@ -174,6 +174,27 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     /// <summary>
+    /// Gates the precondition stated on <c>Initialize</c>. Both of its parameters are consumed
+    /// in <c>CreateNew</c>, so a call made once <c>Shared</c> exists governs the next client
+    /// built and leaves the cached one alone. Documented rather than fixed: resetting the cache
+    /// on every call would discard a client that may be mid-request, and the CLI never hits it
+    /// because <c>Program.cs</c> initializes before any command runs.
+    /// </summary>
+    [Fact]
+    public void Initialize_OnceSharedExists_GovernsOnlyLaterClients()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(45));
+        var shared = DotnetInspector.Core.HttpClientFactory.Shared;
+        Assert.Equal(TimeSpan.FromSeconds(45), shared.Timeout);
+
+        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(9));
+
+        Assert.Same(shared, DotnetInspector.Core.HttpClientFactory.Shared);
+        Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Core.HttpClientFactory.Shared.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(9), DotnetInspector.Core.HttpClientFactory.CreateNew().Timeout);
+    }
+
+    /// <summary>
     /// Both spellings of the setting share one validator, so they cannot drift apart on what
     /// they accept. The flag reports a rejection and stops; the variable falls back.
     /// </summary>
