@@ -186,7 +186,7 @@ public class FeedFailureTelemetryTests
     [InlineData("https://private.example/v3/index.json?sig=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/v3/index.json?accessToken=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
-    public async Task ASecretInTheSourceUrlIsNeverStoredOrPrinted(string url, string secret)
+    public async Task ASecretInTheSourceUrlIsNeverStoredOrRendered(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
         using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));

@@ -282,7 +282,12 @@ public sealed record NetworkRequestObservation(
         return new InertString(TextPolicy.Field, builder.Uri.ToString());
     }
 
-    internal static InertString RedactSensitiveUrlText(string value)
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
+    /// Gated by <c>HttpClientFactoryTests.NetworkTelemetry_AddsActivityEvent</c> and
+    /// <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
             return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);

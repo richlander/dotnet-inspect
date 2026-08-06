@@ -143,4 +143,58 @@ public class HttpRetryHelperTests
     {
         Assert.Equal(3, HttpRetryHelper.DefaultRetryCount);
     }
+
+    [Theory]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "https://user:sup3rs3cret@private.example/v3/index.json")]
+    [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret")]
+    [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json")]
+    [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret")]
+    public async Task FailureLogsRedactTheUrlOnEveryBranch(RetryFailureMode mode, string url)
+    {
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(mode));
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            url,
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        Assert.NotEmpty(messages);
+        Assert.DoesNotContain(messages, message =>
+            message.Contains("sup3rs3cret", StringComparison.Ordinal));
+        Assert.Contains(messages, message =>
+            message.Contains("private.example", StringComparison.Ordinal));
+    }
+
+    public enum RetryFailureMode
+    {
+        NonRetryableStatus,
+        RetryableStatus,
+        RetryableSocket,
+        Timeout,
+    }
+
+    private sealed class FailureHandler(RetryFailureMode mode) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            mode switch
+            {
+                RetryFailureMode.NonRetryableStatus =>
+                    Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)),
+                RetryFailureMode.RetryableStatus =>
+                    Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)),
+                RetryFailureMode.RetryableSocket =>
+                    Task.FromException<HttpResponseMessage>(new HttpRequestException(
+                        "Connection reset",
+                        new SocketException((int)SocketError.ConnectionReset))),
+                RetryFailureMode.Timeout =>
+                    Task.FromException<HttpResponseMessage>(new TaskCanceledException()),
+                _ => throw new InvalidOperationException($"Unexpected failure mode: {mode}"),
+            };
+    }
 }

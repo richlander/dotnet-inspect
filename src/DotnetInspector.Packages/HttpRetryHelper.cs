@@ -103,6 +103,7 @@ public static class HttpRetryHelper
         NetworkTrafficKind trafficKind)
     {
         int attempts = 0;
+        var redactedUrl = NetworkRequestObservation.RedactSensitiveUrlText(url);
 
         while (true)
         {
@@ -131,12 +132,12 @@ public static class HttpRetryHelper
                     // Check if retryable
                     if (!IsRetryableStatus(statusCode))
                     {
-                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {url}");
+                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {redactedUrl}");
                         FeedFailureTelemetry.Record(url, statusCode);
                         return new HttpRetryResult(null, statusCode);
                     }
 
-                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {url}");
+                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {redactedUrl}");
                 }
                 catch (HttpRequestException ex)
                 {
@@ -149,7 +150,7 @@ public static class HttpRetryHelper
                         return new HttpRetryResult(null, null);
                     }
 
-                    log?.Invoke($"Socket error {socketError} (retryable): {url}");
+                    log?.Invoke($"Socket error {socketError} (retryable): {redactedUrl}");
                 }
                 catch (NotSupportedException ex)
                 {
@@ -172,13 +173,13 @@ public static class HttpRetryHelper
                 catch (TaskCanceledException)
                 {
                     // Timeout - treat as retryable
-                    log?.Invoke($"{methodName} request timeout (retryable): {url}");
+                    log?.Invoke($"{methodName} request timeout (retryable): {redactedUrl}");
                 }
 
                 // Check retry limit while the attempt's traffic currency is still active.
                 if (attempts++ >= retryCount)
                 {
-                    log?.Invoke($"Max retries ({retryCount}) exceeded: {url}");
+                    log?.Invoke($"Max retries ({retryCount}) exceeded: {redactedUrl}");
                     FeedFailureTelemetry.Record(url, null);
                     return new HttpRetryResult(null, null);
                 }
