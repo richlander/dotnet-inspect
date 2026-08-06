@@ -208,34 +208,9 @@ public class EvilPoolPinTests
             // -- the reasons are whatever the sweep says -- but a case that stops
             // isolating its rule now collides with the case for the rule that caught it,
             // which is the shape of the defect rather than one instance of it.
-            var byRule = written
-                .Select((entry, index) => (entry.Case, entry.Rule, Reason: verdicts[index + 1]))
-                .GroupBy(entry => entry.Rule)
-                .ToArray();
-
-            var ambiguous = byRule
-                .Where(rule => rule.Select(entry => entry.Reason).Distinct().Count() != 1)
-                .Select(rule => $"'{rule.Key}' is refused {rule.Select(e => e.Reason).Distinct().Count()} "
-                    + $"different ways: {string.Join(" / ", rule.Select(e => e.Reason).Distinct())}")
-                .ToArray();
-
-            Assert.True(
-                ambiguous.Length == 0,
-                "cases naming one rule are refused for different reasons, so at least one "
-                + $"of them is not tripping the rule it names: {string.Join("; ", ambiguous)}");
-
-            var collided = byRule
-                .GroupBy(rule => rule.First().Reason)
-                .Where(reason => reason.Count() > 1)
-                .Select(reason => $"{string.Join(" and ", reason.Select(rule => $"'{rule.Key}'"))} "
-                    + $"are both refused with: {reason.Key}")
-                .ToArray();
-
-            Assert.True(
-                collided.Length == 0,
-                "cases naming different rules are refused for the same reason, so a rule "
-                + "one of them names is gone or never applied and the case is passing on "
-                + $"another rule's refusal: {string.Join("; ", collided)}");
+            AssertRuleReasonsAreDistinct(
+                written.Select((entry, index) =>
+                    (entry.Case, entry.Rule, Reason: verdicts[index + 1])).ToArray());
         }
         finally
         {
@@ -249,13 +224,14 @@ public class EvilPoolPinTests
     ///
     /// <para>The rule names come from the sweep's enforcing tables, not from a second
     /// declaration here. Set equality means a rule added without a case and a case whose
-    /// rule disappeared both fail. Each whole-list tamper is placed at the end of the
-    /// committed list, outside the requested rank 1-2 window, so deleting its intended
+    /// rule disappeared both fail. Each whole-list tamper targets the highest-ranked
+    /// package, outside the requested rank 1-2 window, so deleting its intended
     /// rule does not fall into a neighbouring list refusal. Measured one rule at a time,
     /// the cases then exit 134, 1, or 0 rather than the required 2. Two window cases leave
-    /// the list intact and vary only the requested window; the contiguity case shifts
-    /// every rank after the first, preserving positive distinct ranks and the requested
-    /// count so only the gap refusal applies (#3715).</para>
+    /// the list intact and vary only the requested window; the contiguity case shifts every
+    /// rank greater than one, preserving positive distinct ranks and the requested count so
+    /// only the gap refusal applies. Distinct refusal reasons catch a fixture that falls
+    /// into a different declared rule after the committed JSON is reordered (#3715).</para>
     ///
     /// <para>The committed pin accompanies every case so pin presence cannot become a
     /// common exit-1 false positive. Any case that reaches acquisition after its rule is
@@ -273,18 +249,23 @@ public class EvilPoolPinTests
         (string Case, string Rule, int StartRank, int Count, Action<JsonArray> Tamper)[] cases =
         [
             ("a null entry", "null-entry", 1, 2,
-                list => list[list.Count - 1] = null),
+                list => list[IndexOfHighestRank(list)] = null),
             ("a non-positive rank", "invalid-entry", 1, 2,
-                list => list[list.Count - 1]!["rank"] = 0),
+                list => list[IndexOfHighestRank(list)]!["rank"] = 0),
             ("a package reference instead of a bare id", "bare-id", 1, 2,
-                list => list[list.Count - 1]!["package"] =
-                    list[list.Count - 1]!["package"]!.GetValue<string>() + "@1.0.0"),
+                list =>
+                {
+                    int index = IndexOfHighestRank(list);
+                    list[index]!["package"] =
+                        list[index]!["package"]!.GetValue<string>() + "@1.0.0";
+                }),
             ("the same rank twice", "duplicate-rank", 1, 2,
-                list => list[list.Count - 1]!["rank"] =
-                    list[list.Count - 2]!["rank"]!.GetValue<int>()),
+                list => list[IndexOfHighestRank(list)]!["rank"] =
+                    list[IndexOfSecondHighestRank(list)]!["rank"]!.GetValue<int>()),
             ("the same package twice with different casing", "duplicate-package", 1, 2,
-                list => list[list.Count - 1]!["package"] =
-                    list[list.Count - 2]!["package"]!.GetValue<string>().ToUpperInvariant()),
+                list => list[IndexOfHighestRank(list)]!["package"] =
+                    list[IndexOfSecondHighestRank(list)]!["package"]!
+                        .GetValue<string>().ToUpperInvariant()),
             ("a window starting after the final rank", "nonempty-window", 101, 1,
                 _ => { }),
             ("a window shorter than requested", "window-count", 99, 3,
@@ -292,10 +273,10 @@ public class EvilPoolPinTests
             ("a window whose second rank is missing", "contiguous-window", 1, 2,
                 list =>
                 {
-                    for (int index = 1; index < list.Count; index++)
+                    foreach (JsonNode? entry in list.Where(entry =>
+                        entry!["rank"]!.GetValue<int>() >= 2))
                     {
-                        list[index]!["rank"] =
-                            list[index]!["rank"]!.GetValue<int>() + 1;
+                        entry!["rank"] = entry["rank"]!.GetValue<int>() + 1;
                     }
                 }),
         ];
@@ -313,6 +294,7 @@ public class EvilPoolPinTests
         string scratch = Directory.CreateTempSubdirectory("evil-ranked-list-rules").FullName;
         try
         {
+            var outcomes = new List<(string Case, string Rule, string? Reason)>();
             foreach (var (name, rule, startRank, count, tamper) in cases)
             {
                 string fakeRoot = Path.Combine(scratch, rule);
@@ -323,7 +305,13 @@ public class EvilPoolPinTests
                     committedPin,
                     Path.Combine(data, Path.GetFileName(PinRelativePath)));
 
-                var list = JsonNode.Parse(original.ToJsonString())!.AsArray();
+                // JSON order is not rank order by contract. Exercise the fixtures after
+                // reordering so their isolation depends on ranks, as the sweep does.
+                var list = new JsonArray(
+                    original
+                        .Select(entry => entry!.DeepClone())
+                        .OrderBy(entry => entry!["package"]!.GetValue<string>(), StringComparer.Ordinal)
+                        .ToArray());
                 tamper(list);
                 File.WriteAllText(
                     Path.Combine(data, Path.GetFileName(ListRelativePath)),
@@ -342,7 +330,14 @@ public class EvilPoolPinTests
                     $"the sweep exited {sweep.ExitCode} instead of refusing {name} under "
                     + $"ranked-list rule '{rule}'.\nstdout:\n{sweep.Output}"
                     + $"\nstderr:\n{sweep.Errors}");
+
+                outcomes.Add((
+                    name,
+                    rule,
+                    sweep.Errors.Replace(fakeRoot, "<root>", StringComparison.Ordinal).Trim()));
             }
+
+            AssertRuleReasonsAreDistinct(outcomes);
         }
         finally
         {
@@ -435,6 +430,48 @@ public class EvilPoolPinTests
 
     static HashSet<string> RankedListRuleNamesFromSweep(string root) =>
         RuleNamesFromSweep(root, "--list-ranked-list-rules", "Ranked-list");
+
+    static void AssertRuleReasonsAreDistinct(
+        IReadOnlyList<(string Case, string Rule, string? Reason)> outcomes)
+    {
+        var byRule = outcomes
+            .GroupBy(entry => entry.Rule)
+            .ToArray();
+
+        var ambiguous = byRule
+            .Where(rule => rule.Select(entry => entry.Reason).Distinct().Count() != 1)
+            .Select(rule => $"'{rule.Key}' is refused {rule.Select(e => e.Reason).Distinct().Count()} "
+                + $"different ways: {string.Join(" / ", rule.Select(e => e.Reason).Distinct())}")
+            .ToArray();
+
+        Assert.True(
+            ambiguous.Length == 0,
+            "cases naming one rule are refused for different reasons, so at least one "
+            + $"of them is not tripping the rule it names: {string.Join("; ", ambiguous)}");
+
+        var collided = byRule
+            .GroupBy(rule => rule.First().Reason)
+            .Where(reason => reason.Count() > 1)
+            .Select(reason => $"{string.Join(" and ", reason.Select(rule => $"'{rule.Key}'"))} "
+                + $"are both refused with: {reason.Key}")
+            .ToArray();
+
+        Assert.True(
+            collided.Length == 0,
+            "cases naming different rules are refused for the same reason, so a rule "
+            + "one of them names is gone or never applied and the case is passing on "
+            + $"another rule's refusal: {string.Join("; ", collided)}");
+    }
+
+    static int IndexOfHighestRank(JsonArray list) =>
+        Enumerable.Range(0, list.Count)
+            .MaxBy(index => list[index]!["rank"]!.GetValue<int>());
+
+    static int IndexOfSecondHighestRank(JsonArray list) =>
+        Enumerable.Range(0, list.Count)
+            .OrderByDescending(index => list[index]!["rank"]!.GetValue<int>())
+            .Skip(1)
+            .First();
 
     /// <summary>
     /// The names of one family of rules, as the sweep reports them.
