@@ -1,15 +1,16 @@
 # Decompiler gate: pinned known-red tests
 #
-# Tests listed here are known to fail and are allowed to fail in the pre-merge
+# Cases listed here are known to fail and are allowed to fail in the pre-merge
 # `decompiler-gates` CI job. Everything else in `--gate pre-merge` must pass.
 #
 # This list is a ratchet in both directions. `eng/check-decompiler-gate.cs`
-# fails the job when a test fails that is NOT listed here (new breakage) and
-# also when a test listed here PASSES (the fix landed; retire the pin). A pin is
+# fails the job when a case fails that is NOT listed here (new breakage) and
+# also when a case listed here PASSES (the fix landed; retire the pin). A pin is
 # a dated debt with an owner, not a permanent exemption.
 #
-# Format: one fully qualified `Namespace.Class.Method` per line. Precede each
-# entry with the issue that tracks it and the date it was pinned.
+# Format: one `Namespace.Class.Method [xUnit TestCaseUniqueID]` per line.
+# Precede each entry with the issue that tracks it and the date it was pinned.
+# Pins are case-granular: pinning one theory row never exempts its siblings.
 #
 # ---------------------------------------------------------------------------
 # No pins. #3489, #3490 and #3491 were pinned 2026-07-29 and retired 2026-07-30

@@ -11,6 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 /// that part of the changed population.
 /// </summary>
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class NestedTargetLookupTests
 {
     const string Outer = "ILInspector.Decompiler.Tests.NestedTargetFixture";

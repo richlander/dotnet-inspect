@@ -255,7 +255,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | six `-class` filters | the docket, byte-neutrality and printer/cluster fidelity gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | ten `-class` filters | the tractable fidelity gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -287,11 +287,14 @@ the hot `test` lane, and runs `--gate pre-merge`:
 
 ```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
-  --gate pre-merge -noColor -list methods/json > /tmp/expected.json
+  --gate pre-merge -preEnumerateTheories -noColor -list full/json \
+  > /tmp/expected.json
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- \
-  --gate pre-merge -xml /tmp/gates.xml
+  --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
+  -reporter json -xml /tmp/gates.xml | tee /tmp/events.jsonl
 dotnet run eng/check-decompiler-gate.cs -- \
   /tmp/gates.xml \
+  /tmp/events.jsonl \
   eng/decompiler-gate-known-red.txt \
   eng/decompiler-gate-expected-classes.txt \
   /tmp/expected.json
@@ -300,20 +303,22 @@ dotnet run eng/check-decompiler-gate.cs -- \
 The gate was turned on **red**. That was not made conditional on the open
 failures being fixed first: a gate's job is to make *new* breakage attributable,
 and waiting for green is what let the current backlog accumulate. Open failures
-are pinned in `eng/decompiler-gate-known-red.txt`, one fully qualified test name
-per line, each preceded by its issue and the date it was pinned.
+are pinned in `eng/decompiler-gate-known-red.txt`, one
+`Namespace.Class.Method [TestCaseUniqueID]` per line, each preceded by its issue
+and the date it was pinned. Pins are case-granular, so one red theory row never
+exempts its siblings.
 
 As of #3528 the list is **empty** and the gate runs green — #3489 through #3493
 are fixed and their pins retired. That is the intended end state of a pin, not a
 reason to remove the mechanism: the next regression gets pinned with an issue and
-a date, and the checker keeps failing the job while an unpinned test is red.
+a date, and the checker keeps failing the job while an unpinned case is red.
 
 That list is a record of *open, filed* failures, not an escape hatch. Do not add
 an entry to make your own change go green, and do not skip a gate test to green
 it — the checker treats a test that neither passed nor failed as a coverage hole
 and fails the job. A new failure means either a regression to fix or a diff to
 docket in the owning gate with a rationale. Adding a pin requires an issue and a
-date, and the checker fails the job when a pinned test starts passing, so retire
+date, and the checker fails the job when a pinned case starts passing, so retire
 pins as fixes land.
 
 `eng/check-decompiler-gate.cs` decides the job's pass/fail from the run report,
@@ -322,13 +327,15 @@ and treats drift in **both** directions as an error:
 | Condition | Meaning |
 | --- | --- |
 | a failure that is not pinned | new breakage — the gate did its job |
-| a pinned test that passed | the fix landed; retire the pin |
-| a pinned test that never ran | dead pin — the test was renamed or deleted |
+| a pinned case that passed | the fix landed; retire the pin |
+| a pinned case that never ran | dead pin — the test was renamed or deleted |
 | a gate test that neither passed nor failed | coverage silently disappeared |
 | an expected class with nothing executed | the preset stopped selecting it |
-| a discovered test with no row in the report | the report is incomplete |
-| a row for a test discovery never listed | report and listing describe different runs |
-| one test with more than one result row | the method expanded into several cases |
+| a discovered case ID that never starts | the report is incomplete |
+| an execution case ID discovery never listed | report and listing describe different runs |
+| one discovered case ID starts more than once | theory enumeration was delayed, or the test retried |
+| discovery and execution attach one case ID to different methods | structured identity is inconsistent |
+| JSON reporter and XML method counts disagree | the two result artifacts describe different runs |
 | a `<test>` with no usable name | the report is malformed |
 | the report contradicts its own declared totals | truncated or rewritten |
 | the report declares skipped, not-run, or errored tests | coverage did not run |
@@ -360,55 +367,35 @@ Completeness is a separate property, and it needs a reference the report cannot
 forge. The report's own summary counters are not one — they are written by the
 same run, so a report containing four of fifteen tests and honestly declaring
 `total="4"` is entirely self-consistent. The checker therefore compares the
-results against a **discovery listing** produced by `-list methods/json` over
-the same preset, which enumerates what should run without running it. Every
-discovered test must appear in the results, and every result must correspond to
-a discovered test. Identity for every decision — pins, class coverage, and
-completeness alike — comes from the report's `type` and `method` attributes.
-The display name is a presentation string: it carries theory arguments, honors
-`-methodDisplayOptions`, and can disagree with the structured attributes
-outright, so a row whose name claims to be a pinned test cannot pass a new
-failure off as a known one.
+results against a **case discovery listing** produced by
+`-preEnumerateTheories -list full/json` over the same preset. Each listing row
+carries xUnit's stable `ID`. The run uses xUnit's JSON reporter, whose
+`TestCaseUniqueID` is the same value, so every discovered case must start and
+every started case must have been discovered.
 
-That comparison is **method-granular**, because discovery runs
-`-list methods/json`. A method that expands to five cases is listed once, so a
-run that lost four of them would still satisfy the check.
-`-preEnumerateTheories -list full/json` lists one entry per case with a stable
-unique ID and is the natural basis for a case-level expectation, but it expands
-only theories whose data is serializable — see the caveat below. Until the
-checker carries a validated case-level expectation, method granularity is
-sufficient only while every gate test is exactly one case, and that is enforced
-rather than assumed —
-`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
-every test in a gate class to carry exactly `FactAttribute`.
+The equality is not merely a set comparison. `-preEnumerateTheories` expands
+serializable theory data, but xUnit falls back to delayed enumeration when data
+is not serializable. In that shape discovery emits one case ID for a method,
+then execution starts several tests under the same ID. The checker therefore
+requires **exactly one** `test-starting` event per discovered case ID. Zero
+means a case vanished; more than one means discovery did not independently
+enumerate every execution (or the runner retried a test). Both fail.
 
-It is an **allow list**, not a deny list, because rejecting only `[Theory]`
-would miss `[CulturedFact]` — which derives from `FactAttribute`, not
-`TheoryAttribute`, and still yields one case per culture — and would miss any
-future multi-case attribute. It is anchored on `IFactAttribute` rather than on
-`FactAttribute`, because that is the abstraction xUnit itself keys on
-(`ExtensibilityPointFactory.GetMethodFactAttributes` returns
-`IReadOnlyCollection<IFactAttribute>`): an attribute can implement that
-interface directly, skip `FactAttribute` entirely, and supply a discoverer that
-emits several cases. It scans the same method surface xUnit discovers,
-including inherited and non-public methods and interface declarations, because
-a theory inherited from a base class runs exactly like a declared one, and
-because a `[Fact]` on a *default interface method* runs on the implementing
-class. Multiplicity is counted per method signature, not judged per attribute:
-a plain `[Fact]` on an interface method declaration and a plain `[Fact]` on its
-implementation produce two cases from two perfectly ordinary `FactAttribute`s,
-so only their number is wrong. Resolving each preset class by name in the same
-test also catches an arm naming a renamed or deleted class, which would
-otherwise select zero tests and exit 0.
+The JSON reporter owns case identity and case-level known-red matching; XML
+owns diagnostics and class coverage. The checker cross-checks total,
+per-method, and per-outcome execution counts between them.
+Discovery `Class`/`Method`, reporter `TestClassName`/`TestMethodName`, and XML
+`type`/`method` must agree structurally. Display names remain presentation
+strings: they carry theory arguments, honor `-methodDisplayOptions`, and are
+never parsed to manufacture identity.
 
-That guard is prevention, and it has been wrong three times, so it is not the
-only line of defence. The checker independently fails any report in which one
-`(type, method)` produced more than one row. That check is purely
-observational: it needs to know nothing about xUnit's attribute model, and it
-catches every multi-case shape above — plus any future one — by counting what
-the run actually produced. The two are complementary. The guard fails fast, in
-the fast lane, before a multi-case test can ever reach the gate; the row check
-is the backstop for the case where the guard's reflection is wrong again.
+This observational contract replaces the old reflection guard that restricted
+the preset to plain `[Fact]` methods. It needs no knowledge of xUnit attribute
+types, inherited methods, interface declarations, custom discoverers, or data
+serialization rules; it measures what discovery and execution actually did.
+The four theory-bearing classes added in #3837 use serializable primitive
+`[InlineData]`, so all 42 cases receive distinct IDs and satisfy the same
+completeness contract as facts.
 
 The declared totals are still cross-checked, including `passed` and `failed`
 against the actual rows, but only as an internal-consistency check on a
@@ -447,12 +434,11 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects five gate classes rather than the whole
+`pre-merge` deliberately selects nine workload classes rather than the whole
 `Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
-along in the preset it guards. Two different reasons keep the rest out, and only
-one of them is cost.
+along in the preset it guards.
 
-The five workload classes share `FidelityGateCollection` and therefore run
+The nine workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
 boundary is intentional: run 30885078644 overlapped the newly gated Printer
 compile-back with Cluster capture for 7m01s and the lowered gate for another
@@ -463,74 +449,27 @@ guard with no compile-back work.
 `PreMergeWorkloadClasses_ShareFidelityGateCollection` derives the workload set
 from the preset and fails if a future gate class escapes the collection.
 
-**Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
-suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
+`DiffFixtureFidelityTests`, `NestedTargetLookupTests`,
+`AuthoredRebuildFidelityTests`, and `AnnotatedCompileBackFailureTests` carry
+theories but are nearly free: 42 cases in 2.4 seconds combined. Before #3837
+they remained outside the preset because the checker compared
+method-granular discovery (28 methods) with case-granular execution (42
+cases), so fourteen cases could disappear undetected.
+
+The case-ID contract above makes them safe to gate. With pre-enumeration, their
+primitive `[InlineData]` produces 42 distinct discovery IDs; the JSON reporter
+starts each ID exactly once. The delayed-enumeration negative canary remains
+`CSharpPrecedenceTests`: its non-serializable
+`TheoryData<IrExpression, Precedence>` discovers two case IDs but executes
+nineteen tests, with one ID starting eighteen times. The checker rejects that
+shape as `NON-ENUMERATED OR REPEATED CASES`.
+
+`SkeletonEmitTests` is the remaining cost exclusion. It is the most expensive
+class in the suite (~630s on CI, #3495) and wants the emit-bound residual
+addressed first.
 Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
-simply adopt a narrower build. It also carries theories, so the second reason
-below applies to it too; making it cheap is necessary but not sufficient.
-
-**Excluded on a checker limitation.** `DiffFixtureFidelityTests`,
-`NestedTargetLookupTests`, `AuthoredRebuildFidelityTests` and
-`AnnotatedCompileBackFailureTests` are nearly free — run together they are
-42 cases in 2.4 seconds — and still cannot be gated today, because every one of
-them carries a `[Theory]`.
-
-The problem is not the runtime, it is what the completeness check compares
-against. Run those four classes and the runner reports:
-
-```text
-Discovered:  ILInspector.Decompiler.Tests (28 test cases to be run)
-...
-Total: 42, Errors: 0, Failed: 0, Skipped: 0, Time: 2.373s
-```
-
-Discovery is method-granular (28) while execution is case-granular (42). A
-checker built on that discovery would confirm all 28 methods executed while 14
-cases silently vanished — the same undetected-loss shape the gate exists to
-prevent.
-
-That is a limitation of *this checker* rather than an absolute one. Passing
-`-preEnumerateTheories -list full/json` emits one entry per case for these four,
-each with a stable unique `ID`:
-
-```text
-...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v1")
-...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v2")
-```
-
-So gating these four is a tractable prerequisite rather than a standing
-principle: switch the discovery step to pre-enumerated full JSON and compare
-case IDs rather than method names.
-
-That upgrade is not free in general, though, and the trap is worth knowing
-before anyone reaches for it. `-preEnumerateTheories` only expands theories
-whose data is **serializable**. A `[MemberData]` source typed
-`TheoryData<IrExpression, Precedence>` is not, so xUnit falls back to a single
-delayed-enumeration entry per method. `CSharpPrecedenceTests` in this assembly
-demonstrates it:
-
-```text
-$ ... -class ...CSharpPrecedenceTests -preEnumerateTheories -list full/json
-2 entries
-$ ... -class ...CSharpPrecedenceTests
-Discovered: 2 test cases to be run
-Total: 19
-```
-
-Two entries, nineteen tests — under the very flag meant to prevent that. A
-case-ID checker adopted without checking would look stricter while reopening the
-same hole, and would do it on the classes least able to advertise the problem.
-So the prerequisite is not "switch the flag" but "switch the flag and verify
-discovery emitted every case the run produced". The four classes above happen to
-use primitive `[InlineData]` and do expand correctly, all 42 of them.
-
-Until that lands,
-`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
-closed on any non-`FactAttribute` test attribute, which is what makes method
-granularity sound here rather than merely assumed.
-
-Widen the preset as classes get cheap enough, and once the completeness check
-carries the case granularity a theory needs.
+simply adopt a narrower build. Case granularity is no longer a blocker; making
+the class tractable is.
 
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this

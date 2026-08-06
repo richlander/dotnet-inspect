@@ -15,6 +15,7 @@ namespace ILInspector.Decompiler.Tests;
 /// green suite verifies the <c>fix:</c> line, not merely its wording.
 /// </summary>
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class AnnotatedCompileBackFailureTests
 {
     const char Zwnj = '\u200C';

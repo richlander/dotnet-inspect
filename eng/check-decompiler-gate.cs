@@ -3,11 +3,12 @@
 // still open. Drift in either direction is an error:
 //
 //   * a failure that is not pinned  -> new breakage, the gate did its job
-//   * a pinned test that passed     -> the fix landed, retire the pin
-//   * a pinned test that never ran  -> the pin is dead (renamed/deleted test)
+//   * a pinned case that passed     -> the fix landed, retire the pin
+//   * a pinned case that never ran  -> the pin is dead (renamed/deleted case)
 //   * a gate test that did not run  -> coverage silently disappeared
 //   * an expected class is absent   -> the preset stopped selecting it
-//   * a discovered test has no row  -> the report is incomplete
+//   * a discovered case has no execution -> the report is incomplete
+//   * a case runs more than once         -> discovery was delayed or the run retried
 //
 // The last two are different properties and both are needed.
 //
@@ -19,23 +20,36 @@
 // summary counters are not one: they are written by the same run. A report
 // containing four of fourteen tests and honestly declaring total="4" is
 // internally consistent and tells the checker nothing. So the expected test set
-// comes from a separate `-list methods` discovery pass over the same preset,
-// and every discovered test must appear in the results.
+// comes from a separate pre-enumerated `-list full/json` discovery pass over
+// the same preset. The JSON reporter emits the same TestCaseUniqueID while the
+// test runs, so every discovered case must execute exactly once.
 //
-// Only "Pass" counts as passing. A gate test that is skipped is neither
+// "Exactly once" is load-bearing. xUnit falls back to delayed enumeration when
+// theory data is not serializable: discovery then emits one case ID for the
+// method, and execution starts several tests under that same ID. Comparing sets
+// alone would call that complete. Counting executions per ID rejects the
+// fallback rather than trusting -preEnumerateTheories.
+//
+// Pins use `Namespace.Class.Method [TestCaseUniqueID]`, so one red theory case
+// never exempts its siblings. Only "Pass" counts as passing. A gate test that
+// is skipped is neither
 // passing nor failing, and treating it as either is how a gate becomes
 // vacuous: an unpinned skip would report an exact match, and a pinned skip
 // would be reported as a landed fix, prompting removal of the pin that was the
 // last thing naming the test.
 //
 // Usage:
-//   dotnet run eng/check-decompiler-gate.cs -- <results.xml> <known-red.txt> \
-//       <expected-classes.txt> <discovered-tests.json> [--partial]
+//   dotnet run eng/check-decompiler-gate.cs -- <results.xml> <events.jsonl> \
+//       <known-red.txt> <expected-classes.txt> <discovered-tests.json> [--partial]
 //
 // Produce the discovery listing with the *same* preset as the run, so the two
 // cannot drift:
 //   dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
-//       --gate pre-merge -noColor -list methods/json > discovered-tests.json
+//       --gate pre-merge -preEnumerateTheories -noColor -list full/json \
+//       > discovered-tests.json
+//   dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+//       --gate pre-merge -preEnumerateTheories -noColor -noAutoReporters \
+//       -reporter json -xml results.xml | tee events.jsonl
 //
 // --partial suppresses the dead-pin, expected-class, and completeness checks,
 // for developers running a subset of the gate classes locally. CI always runs
@@ -47,18 +61,19 @@ using System.Xml.Linq;
 var positional = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 bool partial = args.Contains("--partial", StringComparer.Ordinal);
 
-if (positional.Length != 4)
+if (positional.Length != 5)
 {
     Console.Error.WriteLine(
-        "usage: check-decompiler-gate <results.xml> <known-red.txt> <expected-classes.txt> "
-            + "<discovered-tests.json> [--partial]");
+        "usage: check-decompiler-gate <results.xml> <events.jsonl> <known-red.txt> "
+            + "<expected-classes.txt> <discovered-tests.json> [--partial]");
     return 2;
 }
 
 string resultsPath = positional[0];
-string pinPath = positional[1];
-string expectedClassesPath = positional[2];
-string discoveredPath = positional[3];
+string eventsPath = positional[1];
+string pinPath = positional[2];
+string expectedClassesPath = positional[3];
+string discoveredPath = positional[4];
 
 if (!File.Exists(resultsPath))
 {
@@ -72,6 +87,14 @@ if (!File.Exists(resultsPath))
 if (!File.Exists(pinPath))
 {
     Console.Error.WriteLine($"error: known-red file not found: {pinPath}");
+    return 2;
+}
+
+if (!File.Exists(eventsPath))
+{
+    Console.Error.WriteLine($"error: execution-events file not found: {eventsPath}");
+    Console.Error.WriteLine("The gate run must use '-reporter json' and preserve stdout. Without");
+    Console.Error.WriteLine("the reporter's TestCaseUniqueID values, case completeness is unprovable.");
     return 2;
 }
 
@@ -157,8 +180,8 @@ if (declaredPassed != actualPassed || declaredFailed != actualFailed)
     return 2;
 }
 
-// Identity for *every* decision -- pins, coverage, and completeness alike --
-// comes from the structured type/method attributes, not the display name.
+// Identity for XML decisions -- pins, outcomes, and class coverage -- comes
+// from the structured type/method attributes, not the display name.
 // Splitting the two was a real bug: a row whose name said one thing and whose
 // method attribute said another could pass a new failure off as a pinned one.
 // The display name carries theory arguments and honors -methodDisplayOptions,
@@ -173,38 +196,47 @@ static string? TestName(XElement test)
     if (hasType && hasMethod)
         return $"{type}.{method}";
 
-    // A row carrying only half of the structured identity is malformed, and
-    // must not quietly fall back: the display name would then assert an
-    // identity the row's own attributes do not corroborate, which is exactly
-    // the substitution the structured identity exists to prevent. Treat it as
-    // unidentified, which fails the run rather than clearing it.
-    if (hasType || hasMethod)
-        return null;
-
-    // Fall back to the display name only when the structured identity is
-    // absent entirely.
-    string? name = (string?)test.Attribute("name");
-    return string.IsNullOrWhiteSpace(name) ? null : name;
+    // Partial or absent structured identity is malformed. The display name is
+    // presentation, not a fallback identity.
+    return null;
 }
 
 static string? TestClass(XElement test)
 {
     string? type = (string?)test.Attribute("type");
-    if (!string.IsNullOrWhiteSpace(type))
-        return type;
-    if (TestName(test) is not string name)
-        return null;
-    int paren = name.IndexOf('(', StringComparison.Ordinal);
-    string bare = paren >= 0 ? name[..paren] : name;
-    int dot = bare.LastIndexOf('.');
-    return dot > 0 ? bare[..dot] : bare;
+    return string.IsNullOrWhiteSpace(type) ? null : type;
 }
 
-var passed = new HashSet<string>(StringComparer.Ordinal);
-var failed = new HashSet<string>(StringComparer.Ordinal);
+static string? JsonString(JsonElement element, string propertyName)
+{
+    if (!element.TryGetProperty(propertyName, out JsonElement value)
+        || value.ValueKind != JsonValueKind.String)
+    {
+        return null;
+    }
+
+    string? text = value.GetString();
+    return string.IsNullOrWhiteSpace(text) ? null : text;
+}
+
+static string CaseLabel(
+    string caseId,
+    IReadOnlyDictionary<string, string> discovered,
+    IReadOnlyDictionary<string, string> reported)
+{
+    if (discovered.TryGetValue(caseId, out string? method)
+        || reported.TryGetValue(caseId, out method))
+    {
+        return $"{method} [{caseId}]";
+    }
+
+    return caseId;
+}
+
 var notExecuted = new SortedDictionary<string, string>(StringComparer.Ordinal);
 var executedClasses = new HashSet<string>(StringComparer.Ordinal);
 var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+var xmlOutcomeOccurrences = new Dictionary<(string Method, string Result), int>();
 int unidentified = 0;
 
 foreach (var test in tests)
@@ -220,13 +252,13 @@ foreach (var test in tests)
     occurrences[name] = occurrences.GetValueOrDefault(name) + 1;
 
     string result = (string?)test.Attribute("result") ?? "(no result attribute)";
+    var outcomeKey = (name, result);
+    xmlOutcomeOccurrences[outcomeKey] =
+        xmlOutcomeOccurrences.GetValueOrDefault(outcomeKey) + 1;
     switch (result)
     {
         case "Fail":
-            failed.Add(name);
-            break;
         case "Pass":
-            passed.Add(name);
             break;
         default:
             notExecuted[name] = result;
@@ -236,10 +268,6 @@ foreach (var test in tests)
     if (result is "Pass" or "Fail" && TestClass(test) is string cls)
         executedClasses.Add(cls);
 }
-
-// A test that both passed and failed in one report (a retry) is treated as
-// failing: the gate reports the worst observed outcome, never the best.
-passed.ExceptWith(failed);
 
 var pinned = File.ReadAllLines(pinPath)
     .Select(line => line.Trim())
@@ -258,9 +286,6 @@ if (expectedClasses.Count == 0)
     return 2;
 }
 
-var executed = new HashSet<string>(passed, StringComparer.Ordinal);
-executed.UnionWith(failed);
-
 // A class counts as covered only if it executed something. A class present in
 // the report solely as skips is a coverage hole, and is already reported as
 // one above.
@@ -271,113 +296,304 @@ var missingClasses = partial
     : expectedClasses.Except(coveredClasses, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 
 // Completeness, against a reference the results file cannot forge. Discovery
-// enumerates what the preset selects without running anything, so a run that
-// was cut short, filtered down, or rewritten has a smaller result set than the
-// listing regardless of how self-consistent its own counters are.
+// enumerates what the preset selects without running it. The JSON reporter then
+// carries the same stable case ID into execution. This keeps case identity out
+// of display names and makes serializable theories as strict as facts.
 //
-// This is *method*-granular, because the discovery pass above uses
-// `-list methods/json`: a theory with five cases lists once, so a run that lost
-// four of them would still satisfy this check.
-//
-// `-preEnumerateTheories -list full/json` lists one entry per case with a
-// stable unique ID, and is the obvious foundation for a case-level expectation
-// -- but only for theories xUnit can actually pre-enumerate. Theory data has to
-// be serializable for that. A [MemberData] source typed
-// TheoryData<IrExpression, Precedence> is not, so xUnit falls back to a single
-// delayed-enumeration entry per method: this assembly's CSharpPrecedenceTests
-// lists 2 entries under that flag and then runs 19 tests. Adopting case IDs
-// naively would therefore reintroduce the very hole it was meant to close, on
-// exactly the classes least able to advertise it. Any such move has to verify
-// that discovery emitted every case the run produced.
-//
-// Until then, method granularity is only sufficient while the gate classes
-// declare no theories, which is not an assumption --
-// GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts enforces
-// it, and adding a theory to a gate class fails that test rather than quietly
-// weakening this one.
-// Method-granular completeness is only sufficient while one method means one
-// case. Rather than trust that, measure it: if any (type, method) produced
-// more than one row, that method expanded, and a lost case would be invisible
-// to the comparison below.
-//
-// This is deliberately observational. The fast-lane guard
-// (GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts) tries to
-// prevent multi-case tests by inspecting attributes, but that reflection has
-// been wrong repeatedly -- it missed [CulturedFact], then attributes that
-// implement IFactAttribute without deriving from FactAttribute, then a plain
-// [Fact] declared on *both* an interface method and its implementation, which
-// yields two cases from two ordinary FactAttributes. This check needs to know
-// none of that: it counts what the run actually produced.
-//
-// A duplicate here means one of two things, and both must fail: the method
-// expanded into several cases, or the same case was reported twice (a retry).
-// Neither is compatible with method-granular completeness.
-var multiCase = occurrences
-    .Where(kv => kv.Value > 1)
-    .Select(kv => $"{kv.Key} ({kv.Value} rows)")
-    .Order(StringComparer.Ordinal)
-    .ToList();
+// A set comparison is not enough. When theory data is not serializable, xUnit
+// emits one delayed discovery case and starts several tests under that one case
+// ID. Every discovered case must therefore start exactly one test. Zero is a
+// missing case; more than one is delayed enumeration or a retry, and both fail.
+var reporterCaseMethods = new Dictionary<string, string>(StringComparer.Ordinal);
+var reporterCaseMetadataOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+var reporterCaseStarts = new Dictionary<string, int>(StringComparer.Ordinal);
+var reporterTestIds = new HashSet<string>(StringComparer.Ordinal);
+var reporterCaseOutcomes = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+var reporterProblems = new List<string>();
+int reporterJsonEvents = 0;
 
-List<string> missingTests = [];
-List<string> unexpectedTests = [];
-
-if (!partial)
+foreach ((string line, int index) in File.ReadLines(eventsPath).Select((line, index) => (line, index)))
 {
-    HashSet<string> discovered;
+    int jsonStart = line.IndexOf("{\"$type\":", StringComparison.Ordinal);
+    if (jsonStart < 0)
+        continue;
+
+    int jsonEnd = line.LastIndexOf('}');
+    if (jsonEnd < jsonStart)
+    {
+        reporterProblems.Add($"line {index + 1}: truncated JSON event");
+        continue;
+    }
+
+    JsonDocument eventDocument;
     try
     {
-        using var listing = JsonDocument.Parse(File.ReadAllText(discoveredPath));
-        if (listing.RootElement.ValueKind != JsonValueKind.Array)
-        {
-            Console.Error.WriteLine($"error: {discoveredPath} is not a JSON array of test names.");
-            Console.Error.WriteLine("Produce it with '-noColor -list methods/json'.");
-            return 2;
-        }
-
-        discovered = listing.RootElement
-            .EnumerateArray()
-            .Where(e => e.ValueKind == JsonValueKind.String)
-            .Select(e => e.GetString()!)
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .ToHashSet(StringComparer.Ordinal);
+        eventDocument = JsonDocument.Parse(line[jsonStart..(jsonEnd + 1)]);
     }
     catch (JsonException ex)
     {
-        Console.Error.WriteLine($"error: {discoveredPath} is not well-formed JSON: {ex.Message}");
-        Console.Error.WriteLine("A truncated listing would understate what the run owed, so this");
-        Console.Error.WriteLine("cannot be treated as an empty expectation.");
-        return 2;
+        reporterProblems.Add($"line {index + 1}: malformed JSON event ({ex.Message})");
+        continue;
     }
 
-    if (discovered.Count == 0)
+    using (eventDocument)
     {
-        Console.Error.WriteLine($"error: {discoveredPath} lists no tests.");
-        Console.Error.WriteLine("Discovery matched nothing, so every report would satisfy it. A filter");
-        Console.Error.WriteLine("naming a renamed or deleted class discovers nothing and exits 0 --");
-        Console.Error.WriteLine("that is a broken preset, not an empty gate that passed.");
-        return 2;
-    }
+        JsonElement root = eventDocument.RootElement;
+        reporterJsonEvents++;
+        string? eventType = root.TryGetProperty("$type", out JsonElement typeElement)
+            ? typeElement.GetString()
+            : null;
 
-    // `executed` is already keyed by method identity, so the comparison needs
-    // no name parsing.
-    missingTests = discovered.Except(executed, StringComparer.Ordinal)
-        .Order(StringComparer.Ordinal).ToList();
-    unexpectedTests = executed.Except(discovered, StringComparer.Ordinal)
-        .Order(StringComparer.Ordinal).ToList();
+        if (eventType == "test-case-starting")
+        {
+            string? caseId = JsonString(root, "TestCaseUniqueID");
+            string? className = JsonString(root, "TestClassName");
+            string? methodName = JsonString(root, "TestMethodName");
+            if (caseId is null || className is null || methodName is null)
+            {
+                reporterProblems.Add(
+                    $"line {index + 1}: test-case-starting lacks case, class, or method identity");
+                continue;
+            }
+
+            string method = $"{className}.{methodName}";
+            reporterCaseMetadataOccurrences[caseId] =
+                reporterCaseMetadataOccurrences.GetValueOrDefault(caseId) + 1;
+            if (reporterCaseMethods.TryGetValue(caseId, out string? priorMethod)
+                && priorMethod != method)
+            {
+                reporterProblems.Add(
+                    $"case {caseId}: metadata changed from {priorMethod} to {method}");
+            }
+            else
+            {
+                reporterCaseMethods[caseId] = method;
+            }
+        }
+        else if (eventType == "test-starting")
+        {
+            string? caseId = JsonString(root, "TestCaseUniqueID");
+            string? testId = JsonString(root, "TestUniqueID");
+            if (caseId is null || testId is null)
+            {
+                reporterProblems.Add(
+                    $"line {index + 1}: test-starting lacks case or test identity");
+                continue;
+            }
+
+            reporterCaseStarts[caseId] = reporterCaseStarts.GetValueOrDefault(caseId) + 1;
+            if (!reporterTestIds.Add(testId))
+                reporterProblems.Add($"test {testId}: duplicate test-starting event");
+        }
+        else if (eventType is "test-passed" or "test-failed" or "test-skipped" or "test-not-run")
+        {
+            string? caseId = JsonString(root, "TestCaseUniqueID");
+            if (caseId is null)
+            {
+                reporterProblems.Add(
+                    $"line {index + 1}: {eventType} lacks case identity");
+                continue;
+            }
+
+            string result = eventType switch
+            {
+                "test-passed" => "Pass",
+                "test-failed" => "Fail",
+                "test-skipped" => "Skip",
+                _ => "NotRun",
+            };
+
+            if (!reporterCaseOutcomes.TryGetValue(caseId, out List<string>? outcomes))
+                reporterCaseOutcomes[caseId] = outcomes = [];
+            outcomes.Add(result);
+        }
+    }
 }
 
-var newFailures = failed.Except(pinned, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-var nowPassing = pinned.Intersect(passed, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+if (reporterJsonEvents == 0)
+    reporterProblems.Add("the execution-events file contains no JSON reporter events");
+
+foreach ((string caseId, int count) in reporterCaseMetadataOccurrences)
+{
+    if (count != 1)
+        reporterProblems.Add($"case {caseId}: {count} test-case-starting events");
+}
+
+var reporterMethodOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+foreach ((string caseId, int count) in reporterCaseStarts)
+{
+    if (!reporterCaseMethods.TryGetValue(caseId, out string? method))
+    {
+        reporterProblems.Add($"case {caseId}: test started without test-case metadata");
+        continue;
+    }
+
+    reporterMethodOccurrences[method] =
+        reporterMethodOccurrences.GetValueOrDefault(method) + count;
+}
+
+foreach (string caseId in reporterCaseMethods.Keys.Except(reporterCaseStarts.Keys, StringComparer.Ordinal))
+    reporterProblems.Add($"case {caseId}: metadata was reported but no test started");
+
+var reporterOutcomeOccurrences = new Dictionary<(string Method, string Result), int>();
+foreach (string caseId in reporterCaseStarts.Keys.Union(reporterCaseOutcomes.Keys, StringComparer.Ordinal))
+{
+    int started = reporterCaseStarts.GetValueOrDefault(caseId);
+    int outcomes = reporterCaseOutcomes.TryGetValue(caseId, out List<string>? values)
+        ? values.Count
+        : 0;
+    if (started != outcomes)
+        reporterProblems.Add($"case {caseId}: {started} tests started but {outcomes} outcomes were reported");
+
+    if (!reporterCaseMethods.TryGetValue(caseId, out string? method) || values is null)
+        continue;
+
+    foreach (string result in values)
+    {
+        var outcomeKey = (method, result);
+        reporterOutcomeOccurrences[outcomeKey] =
+            reporterOutcomeOccurrences.GetValueOrDefault(outcomeKey) + 1;
+    }
+}
+
+if (reporterTestIds.Count != tests.Count)
+{
+    reporterProblems.Add(
+        $"the JSON reporter started {reporterTestIds.Count} tests but the XML contains {tests.Count} rows");
+}
+
+foreach (string method in occurrences.Keys.Union(reporterMethodOccurrences.Keys, StringComparer.Ordinal))
+{
+    int xmlCount = occurrences.GetValueOrDefault(method);
+    int reporterCount = reporterMethodOccurrences.GetValueOrDefault(method);
+    if (xmlCount != reporterCount)
+    {
+        reporterProblems.Add(
+            $"{method}: XML contains {xmlCount} rows but the JSON reporter started {reporterCount} tests");
+    }
+}
+
+foreach (var key in xmlOutcomeOccurrences.Keys.Union(reporterOutcomeOccurrences.Keys))
+{
+    int xmlCount = xmlOutcomeOccurrences.GetValueOrDefault(key);
+    int reporterCount = reporterOutcomeOccurrences.GetValueOrDefault(key);
+    if (xmlCount != reporterCount)
+    {
+        reporterProblems.Add(
+            $"{key.Method} {key.Result}: XML contains {xmlCount} rows but the JSON reporter contains "
+                + $"{reporterCount} outcomes");
+    }
+}
+
+var discoveredCases = new Dictionary<string, string>(StringComparer.Ordinal);
+var discoveryProblems = new List<string>();
+try
+{
+    using var listing = JsonDocument.Parse(File.ReadAllText(discoveredPath));
+    if (listing.RootElement.ValueKind != JsonValueKind.Array)
+    {
+        Console.Error.WriteLine($"error: {discoveredPath} is not a JSON array of test cases.");
+        Console.Error.WriteLine("Produce it with '-preEnumerateTheories -noColor -list full/json'.");
+        return 2;
+    }
+
+    foreach ((JsonElement entry, int index) in listing.RootElement
+        .EnumerateArray()
+        .Select((entry, index) => (entry, index)))
+    {
+        if (entry.ValueKind != JsonValueKind.Object)
+        {
+            discoveryProblems.Add($"entry {index + 1}: expected an object");
+            continue;
+        }
+
+        string? caseId = JsonString(entry, "ID");
+        string? className = JsonString(entry, "Class");
+        string? methodName = JsonString(entry, "Method");
+        if (caseId is null || className is null || methodName is null)
+        {
+            discoveryProblems.Add($"entry {index + 1}: lacks ID, Class, or Method");
+            continue;
+        }
+
+        string method = $"{className}.{methodName}";
+        if (!discoveredCases.TryAdd(caseId, method))
+            discoveryProblems.Add($"entry {index + 1}: duplicate case ID {caseId}");
+    }
+}
+catch (JsonException ex)
+{
+    Console.Error.WriteLine($"error: {discoveredPath} is not well-formed JSON: {ex.Message}");
+    Console.Error.WriteLine("A truncated listing would understate what the run owed, so this");
+    Console.Error.WriteLine("cannot be treated as an empty expectation.");
+    return 2;
+}
+
+if (discoveredCases.Count == 0)
+{
+    Console.Error.WriteLine($"error: {discoveredPath} lists no test cases.");
+    Console.Error.WriteLine("Discovery matched nothing, so every report would satisfy it. A filter");
+    Console.Error.WriteLine("naming a renamed or deleted class discovers nothing and exits 0 --");
+    Console.Error.WriteLine("that is a broken preset, not an empty gate that passed.");
+    return 2;
+}
+
+List<string> missingCases = [];
+List<string> unexpectedCases = [];
+var repeatedCases = reporterCaseStarts
+    .Where(kv => kv.Value != 1)
+    .Select(kv => $"{CaseLabel(kv.Key, discoveredCases, reporterCaseMethods)} ({kv.Value} executions)")
+    .Order(StringComparer.Ordinal)
+    .ToList();
+var mismatchedCaseMethods = discoveredCases.Keys
+    .Intersect(reporterCaseMethods.Keys, StringComparer.Ordinal)
+    .Where(caseId => discoveredCases[caseId] != reporterCaseMethods[caseId])
+    .Select(caseId =>
+        $"{caseId}: discovery={discoveredCases[caseId]}, execution={reporterCaseMethods[caseId]}")
+    .Order(StringComparer.Ordinal)
+    .ToList();
+
+if (!partial)
+{
+    missingCases = discoveredCases.Keys.Except(reporterCaseStarts.Keys, StringComparer.Ordinal)
+        .Select(caseId => CaseLabel(caseId, discoveredCases, reporterCaseMethods))
+        .Order(StringComparer.Ordinal)
+        .ToList();
+    unexpectedCases = reporterCaseStarts.Keys.Except(discoveredCases.Keys, StringComparer.Ordinal)
+        .Select(caseId => CaseLabel(caseId, discoveredCases, reporterCaseMethods))
+        .Order(StringComparer.Ordinal)
+        .ToList();
+}
+
+var passedCases = reporterCaseOutcomes
+    .Where(kv => kv.Value.Contains("Pass", StringComparer.Ordinal))
+    .Select(kv => CaseLabel(kv.Key, discoveredCases, reporterCaseMethods))
+    .ToHashSet(StringComparer.Ordinal);
+var failedCases = reporterCaseOutcomes
+    .Where(kv => kv.Value.Contains("Fail", StringComparer.Ordinal))
+    .Select(kv => CaseLabel(kv.Key, discoveredCases, reporterCaseMethods))
+    .ToHashSet(StringComparer.Ordinal);
+passedCases.ExceptWith(failedCases);
+
+var reportedCases = new HashSet<string>(passedCases, StringComparer.Ordinal);
+reportedCases.UnionWith(failedCases);
+reportedCases.UnionWith(
+    reporterCaseOutcomes
+        .Where(kv => kv.Value.Any(result => result is "Skip" or "NotRun"))
+        .Select(kv => CaseLabel(kv.Key, discoveredCases, reporterCaseMethods)));
+
+var newFailures = failedCases.Except(pinned, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+var nowPassing = pinned.Intersect(passedCases, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
 var deadPins = partial
     ? []
-    : pinned.Except(executed, StringComparer.Ordinal)
-        .Except(notExecuted.Keys, StringComparer.Ordinal)
+    : pinned.Except(reportedCases, StringComparer.Ordinal)
         .Order(StringComparer.Ordinal)
         .ToList();
 
 Console.WriteLine(
-    $"Decompiler gate: {tests.Count} tests, {passed.Count} passed, {failed.Count} failed, "
-        + $"{notExecuted.Count} not executed, {coveredClasses.Count}/{expectedClasses.Count} expected "
+    $"Decompiler gate: {tests.Count} cases, {actualPassed} passed, {actualFailed} failed, "
+        + $"{tests.Count - actualPassed - actualFailed} not executed, "
+        + $"{coveredClasses.Count}/{expectedClasses.Count} expected "
         + $"classes covered, {pinned.Count} pinned known-red.");
 Console.WriteLine();
 
@@ -403,42 +619,68 @@ if (missingClasses.Count > 0)
     Console.WriteLine();
 }
 
-if (missingTests.Count > 0)
+if (discoveryProblems.Count > 0)
 {
-    Console.WriteLine($"INCOMPLETE REPORT ({missingTests.Count}) — discovered but absent from the results:");
-    foreach (var name in missingTests)
-        Console.WriteLine($"  {name}");
+    Console.WriteLine($"MALFORMED DISCOVERY ({discoveryProblems.Count}) — unusable case entries:");
+    foreach (var problem in discoveryProblems)
+        Console.WriteLine($"  {problem}");
     Console.WriteLine();
-    Console.WriteLine("  Discovery says the preset selects these; the report does not contain them.");
-    Console.WriteLine("  The run was cut short or the report was rewritten. A report that is missing");
-    Console.WriteLine("  tests cannot clear the gate no matter how consistent its own counters are.");
+    Console.WriteLine("  Discovery is the independent completeness reference. Missing or duplicate");
+    Console.WriteLine("  structured identities make that reference unsafe.");
     Console.WriteLine();
 }
 
-if (multiCase.Count > 0)
+if (reporterProblems.Count > 0)
 {
-    Console.WriteLine($"MULTI-CASE TESTS ({multiCase.Count}) — one method, several result rows:");
-    foreach (var name in multiCase)
-        Console.WriteLine($"  {name}");
+    Console.WriteLine($"MALFORMED EXECUTION EVENTS ({reporterProblems.Count}) — reporter/XML disagreement:");
+    foreach (var problem in reporterProblems.Order(StringComparer.Ordinal))
+        Console.WriteLine($"  {problem}");
     Console.WriteLine();
-    Console.WriteLine("  Completeness here is method-granular, because discovery runs");
-    Console.WriteLine("  '-list methods/json'. A method that expands to several cases breaks that:");
-    Console.WriteLine("  it is discovered once, so losing all but one of its cases would look");
-    Console.WriteLine("  complete. Make these plain single-case [Fact] tests, or teach this checker");
-    Console.WriteLine("  a case-level expectation before adding them to a gate class.");
-    Console.WriteLine();
-    Console.WriteLine("  If you take the second route: '-preEnumerateTheories -list full/json'");
-    Console.WriteLine("  lists one entry per case with a stable ID, but only for theories whose");
-    Console.WriteLine("  data is serializable. Others collapse to one delayed-enumeration entry");
-    Console.WriteLine("  per method, so verify discovery emitted every case the run produced --");
-    Console.WriteLine("  otherwise case IDs reopen this same hole while looking stricter.");
+    Console.WriteLine("  The JSON reporter supplies case identity while XML supplies outcomes.");
+    Console.WriteLine("  They must describe the same execution before either can clear the gate.");
     Console.WriteLine();
 }
 
-if (unexpectedTests.Count > 0)
+if (missingCases.Count > 0)
 {
-    Console.WriteLine($"UNEXPECTED RESULTS ({unexpectedTests.Count}) — in the results but never discovered:");
-    foreach (var name in unexpectedTests)
+    Console.WriteLine($"INCOMPLETE REPORT ({missingCases.Count}) — discovered cases that never executed:");
+    foreach (var name in missingCases)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  Discovery says the preset selects these cases; the reporter never started");
+    Console.WriteLine("  them. The run was cut short, filtered down, or rewritten.");
+    Console.WriteLine();
+}
+
+if (repeatedCases.Count > 0)
+{
+    Console.WriteLine($"NON-ENUMERATED OR REPEATED CASES ({repeatedCases.Count}) — case ID did not run once:");
+    foreach (var name in repeatedCases)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  Every pre-enumerated case ID must start exactly one test. More than one");
+    Console.WriteLine("  means xUnit delayed theory enumeration (or retried a test), so discovery");
+    Console.WriteLine("  did not independently enumerate every execution and cannot prove");
+    Console.WriteLine("  completeness. Use serializable theory data or plain facts.");
+    Console.WriteLine();
+}
+
+if (mismatchedCaseMethods.Count > 0)
+{
+    Console.WriteLine(
+        $"CASE IDENTITY MISMATCHES ({mismatchedCaseMethods.Count}) — discovery and execution disagree:");
+    foreach (var name in mismatchedCaseMethods)
+        Console.WriteLine($"  {name}");
+    Console.WriteLine();
+    Console.WriteLine("  A stable case ID must name the same structured class and method in both");
+    Console.WriteLine("  artifacts. Display names are deliberately not used as a fallback.");
+    Console.WriteLine();
+}
+
+if (unexpectedCases.Count > 0)
+{
+    Console.WriteLine($"UNEXPECTED RESULTS ({unexpectedCases.Count}) — executed but never discovered:");
+    foreach (var name in unexpectedCases)
         Console.WriteLine($"  {name}");
     Console.WriteLine();
     Console.WriteLine("  The results and the discovery listing describe different runs. They must be");
@@ -452,6 +694,30 @@ if (newFailures.Count > 0)
     foreach (var name in newFailures)
         Console.WriteLine($"  {name}");
     Console.WriteLine();
+    foreach (string method in newFailures
+        .Select(name =>
+        {
+            int bracket = name.LastIndexOf(" [", StringComparison.Ordinal);
+            return bracket > 0 ? name[..bracket] : null;
+        })
+        .OfType<string>()
+        .Distinct(StringComparer.Ordinal))
+    {
+        foreach (XElement test in tests.Where(test =>
+            (string?)test.Attribute("result") == "Fail"
+            && TestName(test) == method))
+        {
+            string displayName = (string?)test.Attribute("name") ?? method;
+            string? message = test.Descendants("message").FirstOrDefault()?.Value;
+            Console.WriteLine($"  {displayName}");
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                foreach (string line in message.Split('\n'))
+                    Console.WriteLine($"    {line.TrimEnd('\r')}");
+            }
+            Console.WriteLine();
+        }
+    }
     Console.WriteLine("  This is the gate working. Fix the regression, or — only if the diff is");
     Console.WriteLine("  understood and intentional — docket it in the owning gate and, if it must");
     Console.WriteLine("  stay red, add it to the known-red list with an issue and a date.");
@@ -488,7 +754,7 @@ if (deadPins.Count > 0)
     foreach (var name in deadPins)
         Console.WriteLine($"  {name}");
     Console.WriteLine();
-    Console.WriteLine("  The test was renamed or deleted. Update the pin, or pass --partial if you");
+    Console.WriteLine("  The case was renamed or deleted. Update the pin, or pass --partial if you");
     Console.WriteLine("  deliberately ran a subset.");
     Console.WriteLine();
 }
@@ -498,16 +764,19 @@ if (newFailures.Count == 0
     && nowPassing.Count == 0
     && deadPins.Count == 0
     && missingClasses.Count == 0
-    && missingTests.Count == 0
-    && unexpectedTests.Count == 0
-    && multiCase.Count == 0
+    && discoveryProblems.Count == 0
+    && reporterProblems.Count == 0
+    && missingCases.Count == 0
+    && unexpectedCases.Count == 0
+    && repeatedCases.Count == 0
+    && mismatchedCaseMethods.Count == 0
     && unidentified == 0)
 {
     Console.WriteLine("OK: the failing set matches the known-red list exactly.");
     if (pinned.Count > 0)
     {
         Console.WriteLine();
-        Console.WriteLine($"Reminder: {pinned.Count} gate test(s) are still red. They are pinned, not fixed.");
+        Console.WriteLine($"Reminder: {pinned.Count} gate case(s) are still red. They are pinned, not fixed.");
     }
     return 0;
 }

@@ -5,6 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class DiffFixtureFidelityTests
 {
     static readonly string[] DiffFocusedMethods =
