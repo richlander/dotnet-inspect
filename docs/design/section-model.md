@@ -176,9 +176,9 @@ view.
 ### Two orthogonal gates
 
 - **Cost is an execution gate, not a membership gate.** An `Unbounded` section
-  is `ExplicitOnly` and never auto-runs in the verbosity ladder — not even
-  `-v:d`. It may still be *rooted* in a topical category (so it is discoverable
-  by drilling `-D @Category`), and **discovery never runs it**: `-D` and
+  never auto-runs in the verbosity ladder — not even `-v:d` — whether or not it
+  is also `ExplicitOnly`. It may still be *rooted* in a topical category (so it
+  is discoverable by drilling `-D @Category`), and **discovery never runs it**: `-D` and
   `-D @Category` list members structurally and never execute them. It runs only
   via explicit render selection: an exact name (`-S "Unsafe Members"`) or a
   topical door that roots it (`-S @Category`), which expands to explicit
@@ -191,8 +191,8 @@ view.
     Members. `-D @SourceLink` / `-D @Audit` never
     execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
     expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
-    nuance) is a deferred follow-up; today `ExplicitOnly` only keeps them out of
-    the verbosity ladder, not out of door expansion.
+    nuance) is a deferred follow-up; today cost keeps them out of the verbosity
+    ladder, not out of door expansion.
 - **`-D` listing is the discovery gate.** The top-level `-D` catalog lists the
   topical category doors (alpha) followed by one flat group of effective
   standalone sections. `ListedInCatalog=false` keeps a section out of that flat
