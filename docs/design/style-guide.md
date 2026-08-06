@@ -42,7 +42,14 @@ already follows this: `# System.Text.Json` with the rest in fields.
 
 ### 2. Description paragraph
 
-An optional plain-text paragraph immediately after the H1. This is where documentation summaries appear. No special formatting (not a blockquote, not italicized).
+An optional description immediately after the H1. Tool-authored documentation
+summaries are plain paragraphs with no special formatting.
+
+Package manifest descriptions are the exception: they are untrusted,
+package-authored prose, so every line renders inside a Markdown blockquote. The
+quotation is a security boundary rather than emphasis; it keeps headings,
+tables, and other block syntax visibly inside package content instead of
+letting them impersonate peer structures emitted by the tool.
 
 ```markdown
 # System.Text.Json.JsonSerializer

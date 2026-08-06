@@ -195,10 +195,13 @@ public sealed class SwitchRaisingPass : IIrPass
     /// continuation — so the cases reaching it are empty <c>break;</c> sections
     /// and the rest of the table (the other case targets and the default) tile the
     /// span before it. The default may break to the join through a conditional
-    /// (<c>if (c) break;</c>) and may fall through into a single-block terminating
-    /// case, whose terminator is duplicated into the default body (C# forbids
-    /// falling from <c>default:</c> into a case). This is the
-    /// TraceLoggingMetadataCollector::AddArray shape.
+    /// (<c>if (c) break;</c>), may fall through into a single-block terminating
+    /// case whose terminator is duplicated into the default body (C# forbids
+    /// falling from <c>default:</c> into a case), or may itself be one of the
+    /// terminating case targets. The join is proven either by an owned section
+    /// exiting to it or by a predecessor before the switch reaching it as a shared
+    /// continuation. These are the TraceLoggingMetadataCollector::AddArray and
+    /// NLoptSolver::CheckInequalityConstraintAvailability shapes.
     /// </summary>
     static bool RaiseCaseTargetJoin(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
@@ -215,10 +218,6 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < caseTargets.Length; i++)
             if (!offsetToIndex.TryGetValue(sw.TargetOffsets[i], out caseTargets[i]) || caseTargets[i] <= s)
                 return false;
-
-        // The default head being a case target is the SpinLock fold (handled by Raise).
-        if (caseTargets.Contains(defaultIndex))
-            return false;
 
         var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
         foreach (int joinCandidate in caseTargets.Distinct())
@@ -243,6 +242,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var regions = new Dictionary<int, List<int>>();
         var terminatingCases = new HashSet<int>();
         bool anyExitToJoin = false;
+        bool defaultSharesTarget = caseTargets.Contains(defaultIndex);
 
         // Every distinct case target other than the join grows into a region that
         // terminates or exits only (unconditionally) to the join.
@@ -267,38 +267,47 @@ public sealed class SwitchRaisingPass : IIrPass
             owned.UnionWith(region);
         }
 
-        // The default region: breaks to the join (conditionally or not) and may
-        // fall through into a single-block terminating case (whose terminator is
-        // cloned into the default body).
-        if (!GrowRegion(blocks, defaultIndex, s, offsetToIndex, preds, out var defaultRegion, out var defaultExits))
-            return false;
-        if (owned.Overlaps(defaultRegion))
-            return false;
         int? fallThroughCase = null;
-        foreach (int e in defaultExits)
+        if (!defaultSharesTarget)
         {
-            if (e == join)
+            // A separate default region breaks to the join (conditionally or not)
+            // and may fall through into a single-block terminating case, whose
+            // terminator is cloned into the default body.
+            if (!GrowRegion(blocks, defaultIndex, s, offsetToIndex, preds, out var defaultRegion, out var defaultExits))
+                return false;
+            if (owned.Overlaps(defaultRegion))
+                return false;
+            foreach (int e in defaultExits)
             {
-                anyExitToJoin = true;
-                continue;
+                if (e == join)
+                {
+                    anyExitToJoin = true;
+                    continue;
+                }
+                if (terminatingCases.Contains(e) && regions[e] is [int only] && only == e)
+                {
+                    if (fallThroughCase is { } existing && existing != e)
+                        return false;
+                    fallThroughCase = e;
+                    continue;
+                }
+                return false;
             }
-            if (terminatingCases.Contains(e) && regions[e] is [int only] && only == e)
-            {
-                if (fallThroughCase is { } existing && existing != e)
-                    return false;
-                fallThroughCase = e;
-                continue;
-            }
-            return false;
+            if (!DefaultExitsAreBreakable(blocks, defaultRegion, offsetToIndex, joinOffset))
+                return false;
+            regions[defaultIndex] = defaultRegion;
+            owned.UnionWith(defaultRegion);
         }
-        if (!DefaultExitsAreBreakable(blocks, defaultRegion, offsetToIndex, joinOffset))
+        if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        regions[defaultIndex] = defaultRegion;
-        owned.UnionWith(defaultRegion);
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
-        // terminating case (which would wrongly empty-case it).
-        if (!anyExitToJoin)
+        // terminating case (which would wrongly empty-case it). A predecessor
+        // before the switch is independent proof that the target is the shared
+        // continuation rather than a table-owned case body.
+        bool reachedFromBeforeSwitch = preds.TryGetValue(join, out var joinPredecessors)
+            && joinPredecessors.Any(predecessor => predecessor < s);
+        if (!anyExitToJoin && !reachedFromBeforeSwitch)
             return false;
 
         // The owned blocks must tile [s+1, join) exactly, with the join just past them.
@@ -314,8 +323,8 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex, join,
-            fallThroughCase, regionEnd, stepper);
+        BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex,
+            defaultSharesTarget, join, fallThroughCase, regionEnd, stepper);
         return true;
     }
 
@@ -1160,6 +1169,26 @@ public sealed class SwitchRaisingPass : IIrPass
         return true;
     }
 
+    /// <summary>A break with no region-local loop/switch owner would bind to the new switch after reparenting.</summary>
+    static bool ContainsBreakTargetingOutsideRegion(IReadOnlyList<Block> blocks, List<int> region)
+    {
+        foreach (int idx in region)
+        {
+            var root = blocks[idx];
+            foreach (var @break in root.Descendants.OfType<Break>())
+            {
+                for (var ancestor = @break.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                {
+                    if (ReferenceEquals(ancestor, root))
+                        return true;
+                    if (ancestor is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement or Switch)
+                        break;
+                }
+            }
+        }
+        return false;
+    }
+
     static bool OnlyReachedByTable(IReadOnlyList<Block> blocks, HashSet<int> owned, int s, HashSet<int> leaveTargets)
     {
         var ownedOffsets = owned.Select(i => blocks[i].StartOffset).ToHashSet();
@@ -1937,7 +1966,7 @@ public sealed class SwitchRaisingPass : IIrPass
 
     static void BuildCaseTargetJoin(
         BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
-        Dictionary<int, List<int>> regions, int defaultIndex, int join,
+        Dictionary<int, List<int>> regions, int defaultIndex, bool defaultSharesTarget, int join,
         int? fallThroughCase, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
@@ -1961,13 +1990,16 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
             if (target == join)
-                sections.Add(new SwitchSection(IntLabels(labels), isDefault: false, EmptyBreakBody()));
+                sections.Add(new SwitchSection(IntLabels(labels),
+                    isDefault: defaultSharesTarget && target == defaultIndex, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection(IntLabels(labels), isDefault: false,
+                sections.Add(new SwitchSection(IntLabels(labels),
+                    isDefault: defaultSharesTarget && target == defaultIndex,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
-        sections.Add(new SwitchSection([], isDefault: true,
-            DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
+        if (!defaultSharesTarget)
+            sections.Add(new SwitchSection([], isDefault: true,
+                DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
 
         var switchBlock = all[s];
         var value = (IrExpression)sw.DetachChildren()[0];
@@ -1979,7 +2011,7 @@ public sealed class SwitchRaisingPass : IIrPass
             rebuilt.Add(all[idx]);
         for (int idx = regionEnd; idx < all.Count; idx++)
             rebuilt.Add(all[idx]);
-        stepper.StepOver("raise IL jump table to switch (default routes into cases)", container);
+        stepper.StepOver("raise IL jump table to switch (case target is continuation)", container);
         container.ReplaceWith(rebuilt);
     }
 

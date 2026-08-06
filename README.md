@@ -18,9 +18,10 @@ dnx dotnet-inspect -y -- <command>
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use a .NET 11 daily SDK.
-The decompiler tracks compiler-produced C# shapes, and some correctness work
-needs daily compiler/runtime packs before the next public preview ships.
+above. Contributors building this repository should use the latest .NET 11
+preview SDK. Published previews provide a coherent SDK, runtime, and workload
+pack set; daily builds are reserved for explicit work on compiler or runtime
+changes that have not reached a preview.
 
 First check how `dotnet` is installed and which SDK it selects:
 
@@ -29,7 +30,7 @@ command -v dotnet
 dotnet --version
 ```
 
-If that already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+If that already resolves to a dotnetup-managed .NET 11 preview SDK, use normal
 `dotnet` commands:
 
 ```bash
@@ -43,15 +44,15 @@ it or prepend another `dotnet` to PATH unless that is intentional for your
 machine. Use dotnetup in command-isolation mode, or ask your system
 administrator which setup is appropriate.
 
-Install and track the daily SDK with dotnetup:
+Install and track the latest preview SDK with dotnetup:
 
 ```bash
 curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
 bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-dotnetup sdk install 11.0-daily --interactive false
+dotnetup sdk install preview --interactive false
 ```
 
-Then run repo commands through dotnetup when you want the nightly SDK without
+Then run repo commands through dotnetup when you want the preview SDK without
 making it your shell default:
 
 ```bash
@@ -79,10 +80,11 @@ dotnet --version
 dotnetup list
 ```
 
-The Deep Inspect `nightly` lane uses the same acquisition model in an isolated
-workspace install. It restores with a temporary NuGet config that includes both
-the .NET 11 daily feed and nuget.org: most projects target the nightly
-`net11.0` SDK, while a few fixture projects still target stable `net10.0` packs.
+The Deep Inspect `nightly` lane is the deliberate daily-build exception. It
+uses the same acquisition model in an isolated workspace install and restores
+with a temporary NuGet config that includes both the .NET 11 daily feed and
+nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
+projects still target stable `net10.0` packs.
 
 ## What it inspects
 

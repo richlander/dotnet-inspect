@@ -189,6 +189,11 @@ public class ReturnToSenderFixtureCatalogTests
             FaultIsolationKind = null,
             Detail = "closure-stalled-unextracted[CS0246]: CS0246: missing closure type",
         };
+        var unmeasured = product with
+        {
+            FaultIsolationKind = null,
+            Detail = "CS0103: The name 'Missing' does not exist in the current context",
+        };
         var valid = product with
         {
             Outcome = ReturnToSenderSourceOutcome.ValidDifferent,
@@ -198,6 +203,7 @@ public class ReturnToSenderFixtureCatalogTests
         Assert.Equal(ReturnToSenderInvalidKind.ProductBodyDefect, ReturnToSenderInvalidClassifier.Classify(product));
         Assert.Equal(ReturnToSenderInvalidKind.HarnessShellReconstruction, ReturnToSenderInvalidClassifier.Classify(shell));
         Assert.Equal(ReturnToSenderInvalidKind.HarnessShellReconstruction, ReturnToSenderInvalidClassifier.Classify(closure));
+        Assert.Equal(ReturnToSenderInvalidKind.Unclassified, ReturnToSenderInvalidClassifier.Classify(unmeasured));
         Assert.Null(ReturnToSenderInvalidClassifier.Classify(valid));
     }
 

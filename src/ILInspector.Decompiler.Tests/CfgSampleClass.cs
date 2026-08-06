@@ -1355,6 +1355,15 @@ public class CfgSampleClass
         return result;
     }
 
+    // #3514 compile-back witness: the shared default is reached by the failed
+    // `Exception` guard and by the failed type test through a goto trampoline.
+    public static int GuardedTypeAfterSibling(object value) => value switch
+    {
+        string text => text.Length,
+        Exception error when error.Message.Length > 0 => error.Message.Length,
+        _ => -1
+    };
+
     // A diamond whose false arm carries an internal guard that branches straight
     // to the shared merge — `if (y > 0) goto done;` from inside the false arm,
     // the merge lying past the false arm's lexical boundary. The merge ends in a
@@ -5270,6 +5279,28 @@ public sealed class CtorChainSamples : CtorChainBase
     public CtorChainSamples(string message, bool _) : base(message ?? "default") { }
 
     public CtorChainSamples(long value) : this(value.ToString()) { }
+}
+
+public class NamedCtorArgumentOrderBase
+{
+    protected NamedCtorArgumentOrderBase(int before, int after)
+    {
+        Before = before;
+        After = after;
+    }
+
+    public int Before { get; }
+    public int After { get; }
+}
+
+public sealed class NamedCtorArgumentOrder : NamedCtorArgumentOrderBase
+{
+    public NamedCtorArgumentOrder(int value)
+        : base(after: Mutate(ref value), before: value)
+    {
+    }
+
+    static int Mutate(ref int value) => value++;
 }
 
 /// <summary>Lock shapes the lock-sugar pass must raise, including static-field, instance-field, and parameter receivers.</summary>

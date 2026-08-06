@@ -1,3 +1,6 @@
+using System.Net;
+using System.Text;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -65,6 +68,27 @@ public class DependencyResolutionServiceTests
     public void ResolveVersionFromRange_InvalidRange_ReturnsNull()
     {
         Assert.Null(DependencyResolutionService.ResolveVersionFromRange("not-a-version"));
+    }
+
+    [Fact]
+    public async Task ResolveDependencyTree_MalformedTransitiveNuspec_PropagatesTypedRejection()
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        var handler = new MalformedNuspecHandler();
+        using var client = new HttpClient(handler);
+        string packageId = $"typed-rejection-probe-{Guid.NewGuid():N}";
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = packageId, Version = "1.0.0" }
+        };
+
+        await Assert.ThrowsAsync<NuspecParseException>(
+            () => DependencyResolutionService.ResolveDependencyTreeAsync(
+                client,
+                dependencies,
+                "net10.0",
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log: null));
     }
 
     [Fact]
@@ -295,5 +319,25 @@ public class DependencyResolutionServiceTests
         Assert.Equal("Author2", node.Author);
         Assert.Single(node.Children);
         Assert.Equal("ChildPkg", node.Children[0].PackageId);
+    }
+
+    private sealed class MalformedNuspecHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string body = request.RequestUri!.AbsolutePath.EndsWith(
+                ".nuspec",
+                StringComparison.OrdinalIgnoreCase)
+                ? "<package><metadata><id>REJECTED-TEXT</metadata></package>"
+                : """{"resources":[{"@type":"PackageBaseAddress/3.0.0","@id":"https://content.example.test/flat/"}]}""";
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+                RequestMessage = request
+            });
+        }
     }
 }

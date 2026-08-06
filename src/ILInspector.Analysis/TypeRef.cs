@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection.Metadata;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -48,6 +49,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public string GenericParameterName { get; private init; } = "";
     public string UnsupportedReason { get; private init; } = "";
     public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
+
+    // Preserve identity-bearing signature payload for catalog correspondence
+    // without changing existing Unsupported structural equality or display.
+    internal TypeRef? UnmodifiedType { get; private init; }
+    internal TypeRef? ModifierType { get; private init; }
+    internal bool IsRequiredModifier { get; private init; }
+    internal MethodSignature<TypeRef>? FunctionPointerSignature
+        { get; private init; }
 
     /// <summary>
     /// Decoder-retained origin and exact metadata name. It is excluded from
@@ -119,6 +128,32 @@ public sealed class TypeRef : IEquatable<TypeRef>
         {
             UnsupportedReason = reason,
             MetadataNameFailure = metadataNameFailure,
+        };
+
+    internal static TypeRef UnsupportedModified(
+        TypeRef modifier,
+        TypeRef unmodifiedType,
+        bool isRequired)
+    {
+        ArgumentNullException.ThrowIfNull(modifier);
+        ArgumentNullException.ThrowIfNull(unmodifiedType);
+        return new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason =
+                $"custom modifier ({(isRequired ? "modreq" : "modopt")} "
+                + $"{modifier.ToDisplayString()})",
+            ModifierType = modifier,
+            UnmodifiedType = unmodifiedType,
+            IsRequiredModifier = isRequired,
+        };
+    }
+
+    internal static TypeRef UnsupportedFunctionPointer(
+        MethodSignature<TypeRef> signature) =>
+        new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason = "function pointer",
+            FunctionPointerSignature = signature,
         };
 
     public TypeRef Instantiate(ImmutableArray<TypeRef> typeArguments, ImmutableArray<TypeRef> methodArguments)

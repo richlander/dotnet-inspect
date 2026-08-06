@@ -102,6 +102,54 @@ public class NuGetSearchSourcesTests
 
         Assert.Contains("No configured NuGet source could be searched", ex.Message);
         Assert.Contains("no searchable endpoint", ex.Message);
+        Assert.DoesNotContain("requires credentials", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "requires credentials")]
+    [InlineData(HttpStatusCode.Forbidden, "denied access")]
+    [InlineData(HttpStatusCode.BadRequest, "service index unavailable")]
+    public async Task SearchAsync_RefusedServiceIndex_ReportsTypedFailure(
+        HttpStatusCode status,
+        string expectedReason)
+    {
+        var handler = new RouteHandler();
+        handler.RespondWith(IndexUrl, status);
+        using var client = new HttpClient(handler);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client, "Contoso", sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        Assert.Contains(expectedReason, ex.Message);
+        Assert.Contains($"HTTP {(int)status} {status}", ex.Message);
+        Assert.Contains("reading the service index", ex.Message);
+        Assert.DoesNotContain("no searchable endpoint", ex.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ServiceIndexFailures_AreAttributedPerSource()
+    {
+        const string refusedIndex = "https://refused.example/v3/index.json";
+        const string unsearchableIndex = "https://unsearchable.example/v3/index.json";
+
+        var handler = new RouteHandler
+        {
+            [unsearchableIndex] = """{"version":"3.0.0","resources":[]}"""
+        };
+        handler.RespondWith(refusedIndex, HttpStatusCode.Unauthorized);
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig(
+            [("refused", refusedIndex), ("unsearchable", unsearchableIndex)]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client, "Contoso", sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("refused: source requires credentials", ex.Message);
+        Assert.Contains(
+            $"unsearchable: no searchable endpoint for '{unsearchableIndex}'",
+            ex.Message);
     }
 
     [Fact]
@@ -808,12 +856,16 @@ public class NuGetSearchSourcesTests
     /// </summary>
     private sealed class RouteHandler : HttpMessageHandler
     {
-        private readonly Dictionary<string, string> _routes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Url, AuthenticationHeaderValue? Auth)> _requests = [];
 
-        public string this[string url] { set => _routes[url] = value; }
+        public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
 
         public IReadOnlyList<string> Requested => _requests.Select(r => r.Url).ToList();
+
+        public void RespondWith(string url, HttpStatusCode status, string body = "") =>
+            _routes[url] = (status, body);
 
         public AuthenticationHeaderValue? AuthFor(string url) =>
             _requests.FirstOrDefault(r => WithoutQuery(r.Url).Equals(url, StringComparison.OrdinalIgnoreCase)).Auth;
@@ -824,8 +876,10 @@ public class NuGetSearchSourcesTests
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
 
-            HttpResponseMessage response = _routes.TryGetValue(WithoutQuery(url), out string? body)
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) }
+            HttpResponseMessage response = _routes.TryGetValue(
+                WithoutQuery(url),
+                out (HttpStatusCode Status, string Body) route)
+                ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
 
             response.RequestMessage = request;

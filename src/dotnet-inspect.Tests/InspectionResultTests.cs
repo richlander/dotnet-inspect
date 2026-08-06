@@ -5,6 +5,7 @@ using DotnetInspector;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -14,6 +15,26 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class InspectionResultTests
 {
+    [Theory]
+    [InlineData("ordinary text", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("literal \\u202E text", false)]
+    [InlineData("text\u202Eoverride", true)]
+    public void PackageView_AggregatesRequiredContainmentBeforeRendering(
+        string description,
+        bool expected)
+    {
+        var result = new InspectionResult
+        {
+            Description = new InertString(TextPolicy.Prose, description),
+        };
+
+        var view = new InspectionResultView(result);
+
+        Assert.Equal(expected, view.RequiredContainment);
+        Assert.NotNull(view.Description);
+    }
+
     [Theory]
     [InlineData(500, "500")]
     [InlineData(1_000, "1K")]
