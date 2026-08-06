@@ -2297,6 +2297,37 @@ same recursive correspondence projection. Replacing only the declaring
 assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
 
+Analysis materializes that recursive work once as a
+`CatalogMemberCorrespondencePlan`. The plan stores the open declaring type,
+method name, method generic arity, instance/static shape, ordered open parameter
+shapes, and open return shape. The source descriptor supplied to the plan is the
+descriptor for the image that produced the decoded member; a simple-name
+mismatch is rejected as a sanity check, while correct source/member pairing
+remains the caller's acquisition invariant. The plan exposes the distinct
+`TypeResolutionRequest` values needed by those shapes so a graph builder can
+union many plans into one frozen context before projecting any key.
+`TypeResolutionRequestComparer` uses the same structural manifest key as
+`TypeResolutionContext`; plan deduplication and frozen-manifest lookup therefore
+cannot drift.
+
+`CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
+separately supplied catalog. Resolved named leaves become
+`DefinitionJoinToken` values. `UnboundBinding` and genuine policy
+`Unavailable` leaves become `UnresolvedBindingKey` plus their exact
+`MetadataTypeDefinitionName`. Other resolution outcomes, absent open generic
+signatures, missing decoder provenance, unsupported shapes, malformed or
+over-depth shapes, stale generations, and plan expansion remain closed typed
+failures. A plan-expansion failure carries its `ResolutionPlanRequest` so the
+coordinator can advance the catalog rather than treating the member as absent.
+
+The resulting `CatalogMemberJoinKey` exposes its catalog, generation, and
+`Exact` or `Indeterminate` kind. Its recursive `CatalogTypeShape` can be
+constructed only by Analysis from catalog-issued definition or unresolved
+binding currency. Custom-modifier and function-pointer payloads are retained by
+the decoder for this projection without changing the existing structural
+equality or display of Analysis's `Unsupported` `TypeRef` arm. An ordinary
+unsupported shape still produces typed incomplete evidence.
+
 Graph joins hash only catalog-issued join tokens, never
 `ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
 `Exact` yields an exact edge. Matching keys containing any token whose kind is
@@ -2594,8 +2625,12 @@ Slice 6 is in progress under
 currently issues generation-scoped `DefinitionJoinToken` values for exact and
 duplicate-indeterminate TypeDef correspondence classes and
 `UnresolvedBindingKey` values for complete unbound or unavailable binding
-requests. Member-level correspondence, graph migration, and cache-lifetime
-binding remain to be delivered.
+requests. Analysis now materializes one reusable open-signature correspondence
+plan and projects it through one frozen context into a generation-scoped
+`CatalogMemberJoinKey` or typed incomplete evidence. Total graph storage
+identity, `ScopeGraph` migration, unresolved-edge presentation, and
+cache-lifetime binding remain to be delivered together so the storage shape is
+validated by its first consumer rather than added as an unused parallel key.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 
@@ -2624,6 +2659,19 @@ Claim: direct callers and transitive call graphs share one definition identity.
   only `UnboundBinding` and genuine policy `Unavailable` outcomes expose its
   opaque projection input, and cross-catalog or stale references never receive
   an `Issued` result.
+- `TypeResolutionRequestComparer` equates exactly the assembly, reference,
+  intrinsic-core-library, and module starts that occupy one frozen manifest
+  entry; requesting registrations and scopes remain identity-bearing.
+- Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
+  traversal, and repeated named leaves produce one manifest request.
+- `CatalogMemberJoinKey` includes method generic arity and every named leaf in
+  the open declaring, parameter, return, modifier, and function-pointer shapes;
+  instance and static members remain distinct.
+- A generic `MemberRef` without a retained open signature cannot fall back to
+  its instantiated signature and receive an exact key; partially retained open
+  signatures are likewise incomplete.
+- `CatalogMemberJoinKey`, `CatalogTypeShape`, correspondence evidence,
+  failures, and projection arms cannot be externally forged or extended.
 - Independently constructed equal reference and intrinsic-core-library
   `AssemblyBindingTarget` values compare and hash equally and hit one binding
   cache entry per source domain.

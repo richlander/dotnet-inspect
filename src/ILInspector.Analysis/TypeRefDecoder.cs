@@ -286,9 +286,13 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => TypeRef.GenericParameter(index, NameAt(genericContext.TypeParameters, index));
     public TypeRef GetGenericMethodParameter(GenericScope genericContext, int index)
         => TypeRef.MethodGenericParameter(index, NameAt(genericContext.MethodParameters, index));
-    public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature) => TypeRef.Unsupported("function pointer");
+    public TypeRef GetFunctionPointerType(MethodSignature<TypeRef> signature)
+        => TypeRef.UnsupportedFunctionPointer(signature);
     public TypeRef GetModifiedType(TypeRef modifier, TypeRef unmodifiedType, bool isRequired)
-        => TypeRef.Unsupported($"custom modifier ({(isRequired ? "modreq" : "modopt")} {modifier.ToDisplayString()})");
+        => TypeRef.UnsupportedModified(
+            modifier,
+            unmodifiedType,
+            isRequired);
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";
