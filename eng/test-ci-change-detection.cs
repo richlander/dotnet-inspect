@@ -25,7 +25,17 @@ AssertAll(
         "pull_request",
         "README.md",
         outputs,
-        reportedChangedFileCount: 2),
+        reportedChangedFileCount: "2"),
+    "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        reportedChangedFileCount:
+            "999999999999999999999999999999999999"),
     "true");
 AssertAll(
     RunDetection(
@@ -196,6 +206,18 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     RequireScalarValue(detectionStep, "shell", "bash", "Detect changes");
     RequireAbsent(detectionStep, "if", "Detect changes");
     RequireAbsent(detectionStep, "continue-on-error", "Detect changes");
+    YamlMappingNode detectionEnvironment =
+        GetRequiredMapping(detectionStep, "env", "Detect changes");
+    if (detectionEnvironment.Children.Count != 1)
+    {
+        throw new InvalidOperationException(
+            "Detect changes.env must declare only GH_TOKEN.");
+    }
+    RequireScalarValue(
+        detectionEnvironment,
+        "GH_TOKEN",
+        "${{ github.token }}",
+        "Detect changes.env");
     string body = GetRequiredScalar(detectionStep, "run", "Detect changes");
     if (body.Length == 0)
     {
@@ -297,7 +319,7 @@ static Dictionary<string, string> RunDetection(
     string files,
     IReadOnlyCollection<string> expectedOutputs,
     string previousFiles = "",
-    int? reportedChangedFileCount = null,
+    string? reportedChangedFileCount = null,
     bool resolutionSucceeds = true)
 {
     const string Before = "1111111111111111111111111111111111111111";
@@ -426,7 +448,7 @@ static Dictionary<string, string> RunDetection(
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
         startInfo.Environment["REPORTED_CHANGED_FILE_COUNT"] =
-            reportedChangedFileCount?.ToString() ?? "";
+            reportedChangedFileCount ?? "";
         startInfo.Environment["RESOLUTION_SUCCEEDS"] =
             resolutionSucceeds.ToString().ToLowerInvariant();
 

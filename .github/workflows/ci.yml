@@ -120,7 +120,10 @@ jobs:
                     ACTUAL_FILES=$((ACTUAL_FILES + 1))
                   fi
                 done <<< "$RECORDS"
-                if [ "$ACTUAL_FILES" -ne "$EXPECTED_FILES" ]; then
+                # Compare the API's canonical decimal text without Bash integer
+                # coercion: an out-of-range value must fail closed, not turn the
+                # `[` diagnostic into a false condition.
+                if [ "$ACTUAL_FILES" != "$EXPECTED_FILES" ]; then
                   exit 1
                 fi
                 while IFS= read -r encoded; do
