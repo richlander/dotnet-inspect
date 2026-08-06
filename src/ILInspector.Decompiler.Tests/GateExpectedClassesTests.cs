@@ -45,11 +45,15 @@ public class GateExpectedClassesTests
     /// Requires every test in the <c>pre-merge</c> gate classes to be a plain <c>[Fact]</c>,
     /// and proves the preset names classes that exist.
     ///
-    /// <para>The CI completeness check compares the run against a <c>-list methods</c>
-    /// discovery listing, and no <c>-list</c> mode enumerates individual cases: a method
-    /// that expands to five cases is listed once, so a run that lost four of them would
-    /// still satisfy the check. Method granularity is sufficient only while every gate
-    /// test is exactly one case. This test is what makes that true instead of assumed.</para>
+    /// <para>The CI completeness check compares the run against a <c>-list methods/json</c>
+    /// discovery listing, which is method-granular: a method that expands to five cases
+    /// is listed once, so a run that lost four of them would still satisfy the check.
+    /// <c>-preEnumerateTheories -list full/json</c> lists one entry per case with a stable
+    /// unique ID, but only for theories whose data is serializable; others collapse to one
+    /// delayed-enumeration entry per method, so case IDs are not a free upgrade. Until the
+    /// checker is taught a validated case-level expectation, method granularity is
+    /// sufficient only while every gate test is exactly one case. This test is what makes
+    /// that true instead of assumed.</para>
     ///
     /// <para>It is an allow list, not a deny list. Rejecting only <c>[Theory]</c> would miss
     /// <c>[CulturedFact]</c>, which derives from <see cref="FactAttribute"/> rather than
@@ -145,11 +149,14 @@ public class GateExpectedClassesTests
 
         Assert.True(
             offenders.Count == 0,
-            "The pre-merge gate completeness check is method-granular because xUnit's discovery "
-                + "listing does not enumerate individual cases, so a test that expands to several "
-                + "cases and silently loses some would still satisfy it. Gate classes must contain "
-                + "only plain [Fact] tests. Either make these facts, or teach "
-                + "eng/check-decompiler-gate.cs a case-level expectation before adding them:"
+            "The pre-merge gate completeness check is method-granular because its discovery "
+                + "pass runs '-list methods/json', so a test that expands to several cases and "
+                + "silently loses some would still satisfy it. Gate classes must contain only "
+                + "plain [Fact] tests. Either make these facts, or teach "
+                + "eng/check-decompiler-gate.cs a case-level expectation first -- note that "
+                + "'-preEnumerateTheories -list full/json' expands only theories whose data is "
+                + "serializable, and collapses the rest to one entry per method, so it must be "
+                + "validated against what the run produced rather than trusted:"
                 + Environment.NewLine
                 + string.Join(Environment.NewLine, offenders.Select(o => "  " + o)));
     }
