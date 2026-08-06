@@ -1627,11 +1627,15 @@ public class SectionPipelineTests
 
         var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var allPole = pipeline.GetAllSelectorSections(model);
+        var annotations = pipeline.GetCostAnnotations();
 
         foreach (var name in expensiveSections)
         {
             Assert.DoesNotContain(name, detailed);
             Assert.DoesNotContain(name, allPole);
+            Assert.Equal(
+                SectionAnnotations.OptIn,
+                Assert.Contains(name, annotations));
 
             // The other half, and what stops the first from passing for the wrong reason: absence
             // from the ladder must be the cost decision, not an inability to render. Every one of

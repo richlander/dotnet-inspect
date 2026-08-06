@@ -369,9 +369,10 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
-    /// <c>"opt-in"</c> for <see cref="SectionEntry{TModel}.ExplicitOnly"/> sections (never shown
-    /// in a default flow), and <c>"verbose"</c> for explicitly applicable alternate
-    /// sections that render only outside the compact default preset.
+    /// <c>"opt-in"</c> for sections never shown in a default flow because they are
+    /// <see cref="SectionEntry{TModel}.ExplicitOnly"/> or <see cref="SectionCost.Unbounded"/>,
+    /// and <c>"verbose"</c> for explicitly applicable alternate sections that render only
+    /// outside the compact default preset.
     /// Default sections are omitted (no annotation).
     /// </summary>
     public Dictionary<string, string> GetCostAnnotations()
@@ -379,7 +380,7 @@ public sealed class SectionPipeline<TModel>
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var e in _entries)
         {
-            if (e.ExplicitOnly)
+            if (e.ExplicitOnly || e.Cost == SectionCost.Unbounded)
             {
                 map[e.Name] = SectionAnnotations.OptIn;
                 continue;
@@ -639,10 +640,10 @@ public sealed class SectionPipeline<TModel>
     /// <remarks>
     /// For an <see cref="SectionCost.Unbounded"/> section this returns Detailed as a nominal
     /// high-water mark even though the ladder never auto-renders it at any verbosity (see
-    /// <see cref="IsCuratedAutoRendered"/>). That is harmless: an Unbounded section is also
-    /// <see cref="SectionEntry{TModel}.ExplicitOnly"/>, so it is reached only through an explicit
-    /// include, and an explicit include overrides the ladder in <see cref="IsRequested"/>. The
-    /// promoted verbosity therefore never causes it (or anything else) to auto-render.
+    /// <see cref="IsCuratedAutoRendered"/>). That is harmless: an Unbounded section is reached
+    /// only through an explicit include, and an explicit include overrides the ladder in
+    /// <see cref="IsRequested"/>. The promoted verbosity therefore never causes it (or anything
+    /// else) to auto-render.
     /// </remarks>
     private static Verbosity CuratedRequiredVerbosity(SectionEntry<TModel> entry)
     {

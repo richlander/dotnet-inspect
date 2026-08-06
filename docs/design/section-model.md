@@ -289,9 +289,10 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
   *render selection*, not discovery — they execute the selected members like
   exact names.
 - No **render-selectable** category roots an `Unbounded` member *for the
-  verbosity ladder* — `Unbounded` sections are `ExplicitOnly`, so no `-v` level
-  auto-runs them. They remain reachable by exact name and, as a known deferred
-  footgun, by `-S @SourceLink` / `-S @Audit` door expansion (see the cost gate).
+  verbosity ladder* — the cost itself keeps it off every `-v` level, independently
+  of `ExplicitOnly`. Discovery labels both cases as opt-in. They remain reachable
+  by exact name and, as a known deferred footgun, by `-S @SourceLink` /
+  `-S @Audit` door expansion (see the cost gate).
 - The `-v` ladder is cumulative and never auto-runs an `Unbounded` section.
 - Every visible section is reachable from at least one topical door or the flat
   `@All` set; internal-only sections fall into the computed `@Hidden` complement.
