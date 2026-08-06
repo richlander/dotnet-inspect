@@ -1,13 +1,15 @@
 <Project>
 
-  <!-- IsTool controls only published XML documentation. The SDK derives the
-       two specific documentation properties before this file is imported, so
-       set all three here. A tool then publishes neither its own API
-       documentation nor documentation from a referenced library, while the
-       libraries continue generating XML documentation in their own outputs.
-       Packaging properties stay explicit in each tool project because the SDK
-       consumes PackAsTool before this file is imported. -->
+  <!-- IsTool controls shared tool publish behavior. The SDK derives the two
+       specific documentation properties before this file is imported, so set
+       all three here. A tool then participates in solution publish and carries
+       neither its own API documentation nor documentation from a referenced
+       library, while libraries remain non-publishable and continue generating
+       XML documentation in their own outputs. Packaging properties stay
+       explicit in each tool project because the SDK consumes PackAsTool before
+       this file is imported. -->
   <PropertyGroup Condition="'$(IsTool)' == 'true'">
+    <IsPublishable>true</IsPublishable>
     <PublishDocumentationFiles>false</PublishDocumentationFiles>
     <PublishDocumentationFile>false</PublishDocumentationFile>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
