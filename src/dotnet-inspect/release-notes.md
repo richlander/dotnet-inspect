@@ -74,6 +74,10 @@
   inspection models. Markdown renders the description as a quotation so its
   headings and tables cannot impersonate tool sections; JSON retains the prose
   shape and applies its own structural escaping.
+- Carries every package-inspection text field through one typed presentation
+  projection before Markdown or JSON unwraps it, and exposes an aggregate
+  containment signal for future artifact-level refusal policy. This does not
+  add the broader CLI trust flags yet.
 
 ### Output and projections
 

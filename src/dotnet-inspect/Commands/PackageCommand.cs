@@ -823,7 +823,9 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(results.ToArray(), JsonContext.Default.InspectionResultArray));
+            Console.WriteLine(JsonSerializer.Serialize(
+                results.Select(PackageInspectionJson.Create).ToArray(),
+                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
             return 0;
         }
 

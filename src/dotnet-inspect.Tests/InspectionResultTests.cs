@@ -115,6 +115,18 @@ public class InspectionResultTests
     }
 
     [Fact]
+    public void PackageInfo_HighestTfm_RemainsIndependentOfSelectionOverride()
+    {
+        var result = new InspectionResult
+        {
+            TargetFrameworks = ["net8.0", "net10.0"],
+            Tfm = "net8.0",
+        };
+
+        Assert.Equal("net10.0", new InspectionResultView(result).HighestTfm);
+    }
+
+    [Fact]
     public void PackageInfo_RendersNuspecMetadataDetails()
     {
         var result = new InspectionResult

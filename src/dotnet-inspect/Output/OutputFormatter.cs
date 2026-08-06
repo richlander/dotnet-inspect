@@ -242,7 +242,9 @@ public static class OutputFormatter
     {
         if (options.JsonOutput && !options.Count)
         {
-            return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
+            return JsonSerializer.Serialize(
+                PackageInspectionJson.Create(result),
+                PackageInspectionJsonContext.Default.PackageInspectionJson);
         }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);

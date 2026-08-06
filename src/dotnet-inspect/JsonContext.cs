@@ -13,8 +13,6 @@ namespace DotnetInspector;
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(InspectionResult))]
-[JsonSerializable(typeof(InspectionResult[]))]
 [JsonSerializable(typeof(LibraryInspection))]
 [JsonSerializable(typeof(LibraryInspection[]))]
 [JsonSerializable(typeof(PerformanceProjection))]
@@ -51,6 +49,16 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(PackageSourceFileInfo))]
 [JsonSerializable(typeof(List<PackageSourceFileInfo>))]
 public partial class JsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(PackageInspectionJson))]
+[JsonSerializable(typeof(PackageInspectionJson[]))]
+internal partial class PackageInspectionJsonContext : JsonSerializerContext
 {
 }
 

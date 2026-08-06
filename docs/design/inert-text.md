@@ -346,30 +346,48 @@ compiler: there is no conversion that would let a `string` into any of those
 fields. That is a stronger enforcement than a test, and it is the reason to
 prefer carrying the type over re-checking the text.
 
-Package descriptions are the second worked example. A nuspec description is
+Package inspection is the second worked example. A nuspec description is
 presentation-bound from the moment it is parsed, so `NuspecData.Description`
 contains it under `TextPolicy.Prose`; `InspectionResult.Description` carries the
-same `InertString`; and only the two sinks take it apart. JSON writes its encoded
-text as a JSON string, leaving structural escaping to the serializer. Markdown
-prefixes every line as a quotation, so package-authored headings and tables
-remain visibly package content rather than becoming peer structures in tool
-output. The line-oriented package cache is a persistence sink: it stores the
-exact encoded value in a length-delimited UTF-8 segment, then reconstructs the
-wrapper with `InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither
-operation recovers the untreated description, and the cache consumer never
-names the decoder capability namespace. `PackageIndexCacheTests` gates that
-round-trip, malformed-entry rejection, and the distinction between null and
-empty descriptions.
-`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` gates
-the two model fields, and
-`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson` gates both sinks.
+same `InertString`. The line-oriented package cache is a persistence sink: it
+stores the exact encoded value in a length-delimited UTF-8 segment, then
+reconstructs the wrapper with
+`InertString.FromEncoded(TextPolicy.Prose, ...)` on read. Neither operation
+recovers the untreated description, and the cache consumer never names the
+decoder capability namespace. `PackageIndexCacheTests` gates that round-trip,
+malformed-entry rejection, and the distinction between null and empty
+descriptions.
 
-The other nuspec fields remain `string` deliberately. Package IDs, versions,
-dependency coordinates, and readme paths participate in identity, parsing,
-matching, and path resolution before any of them reaches presentation. Encoding
-them at acquisition would change those answers. Their known grammars want typed
-allow-list rejection instead, which is a separate contract from
-presentation-bound prose.
+The other package fields stay exact while they participate in identity,
+parsing, matching, path selection, and dependency resolution. Encoding a
+package ID or readme path at acquisition would change those answers. At the
+last shared boundary after that work, `PackageInspectionText` projects every
+output-bound string to `InertString`. `InspectionResultView` and
+`PackageInspectionJson` consume that same projection, so Markdown and direct
+JSON cannot disagree about which package fields crossed containment. Markdown
+takes strings apart only in its sink properties; JSON does so only in its
+serializer-facing getters. The package file collection is projected lazily, so
+an ordinary summary does not allocate one wrapper per archive entry; asking for
+its section or for the exhaustive aggregate materializes it.
+
+`PackageInspectionText.RequiredContainment` ORs the typed values before either
+sink unwraps them. It is complete for package inspection, not for every
+`dotnet-inspect` command, and therefore does not yet justify global trust-axis
+flags. `PresentationProjection_CoversEveryPackageModelTextProperty` derives the
+model-to-currency coverage set,
+`JsonProjection_ContainsEveryArtifactTextScalar` supplies the hostile
+non-vacuity gate, and
+`JsonProjection_PreservesTheBenignInspectionResultContract` pins the existing
+structured schema and benign values.
+`PackageFileText_IsLazyUntilTheAggregateRequiresIt` and
+`PackageFileFamily_ProjectsOnlySelectedRows` gate the large-collection
+allocation boundary. The description-specific gates remain
+`NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` and
+`HostileDescription_RemainsQuotedInMarkdownAndContainedInJson`.
+
+Known grammars still want typed allow-list rejection in addition to this
+presentation boundary. Containment prevents a sink from acting on a package ID;
+it does not make an invalid ID valid.
 
 ## Holding a value is not the same as being able to reverse it
 
