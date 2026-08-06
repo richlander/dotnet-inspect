@@ -1,4 +1,4 @@
-#:project ../tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj
+#:project ../tests/CSharpText.Tests/CSharpText.Tests.csproj
 #:property EnablePreviewFeatures=true
 #:property NoWarn=CA2252
 
@@ -21,7 +21,7 @@
 // because both branches of a group always carried the same grammar. Before citing a zero, read
 // what the generator can actually emit.
 
-using DotnetInspector.CSharpBodySlicer.Tests;
+using CSharpText.Tests;
 
 int seed = args.Length > 0 && int.TryParse(args[0], out var s) ? s : Environment.TickCount;
 int cases = args.Length > 1 && int.TryParse(args[1], out var c) ? c : 20000;
