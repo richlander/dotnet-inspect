@@ -298,11 +298,8 @@ public sealed class SwitchRaisingPass : IIrPass
             regions[defaultIndex] = defaultRegion;
             owned.UnionWith(defaultRegion);
         }
-        else if (regions.TryGetValue(defaultIndex, out var sharedDefaultRegion)
-            && ContainsBreakTargetingOutsideRegion(blocks, sharedDefaultRegion))
-        {
+        if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
             return false;
-        }
 
         // The join must be a genuine merge a section breaks to — never an arbitrary
         // terminating case (which would wrongly empty-case it). A predecessor
