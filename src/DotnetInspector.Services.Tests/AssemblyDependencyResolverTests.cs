@@ -5,6 +5,121 @@ namespace DotnetInspector.Services.Tests;
 public class AssemblyDependencyResolverTests
 {
     [Fact]
+    public void Select_IntrinsicCoreLibraryUsesTheTargetsBindingDomain()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+        ResolvedAssemblyReference target =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "binding-policy test"));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(target),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+        var repeated = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+        Assert.Same(selected.Assembly, repeated.Assembly);
+
+        MetadataTypeDefinitionName objectName = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System",
+                    ["Object"])).Name;
+        TypeResolutionRequest typeRequest =
+            TypeResolutionRequest.FromCoreLibrary(
+                target,
+                AssemblyResolutionScope.Platform,
+                objectName);
+        using TypeResolutionContext context =
+            TypeResolutionContext.Create(
+                resolver,
+                [target],
+                [typeRequest]);
+        var resolved = Assert.IsType<
+            TypeResolutionOutcome.Resolved>(
+                context.Resolve(typeRequest));
+        Assert.Equal(
+            typeof(object).Assembly.GetName().Name,
+            resolved.Definition.Assembly.Assembly.Identity.Name);
+    }
+
+    [Fact]
+    public void AssemblyGroup_SelectsCoreLibraryFromTheRequestingDescriptor()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        ResolvedAssemblyReference template =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "group binding test"));
+        int firstOpens = 0;
+        int secondOpens = 0;
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.Create(
+                template.Identity,
+                path,
+                () =>
+                {
+                    Interlocked.Increment(ref firstOpens);
+                    return File.OpenRead(path);
+                },
+                template.Provenance);
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.Create(
+                template.Identity,
+                path,
+                () =>
+                {
+                    Interlocked.Increment(ref secondOpens);
+                    return File.OpenRead(path);
+                },
+                template.Provenance);
+        ResolvedAssemblyReference coreLibrary =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(object).Assembly.Location,
+                AssemblyResolutionProvenance.Platform(
+                    "runtime",
+                    frameworkVersion: null,
+                    "group binding test"));
+        var firstPolicy = new SelectedPolicy(coreLibrary);
+        var secondPolicy = new SelectedPolicy(coreLibrary);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (first, (IAssemblyBindingPolicy)firstPolicy),
+                (second, (IAssemblyBindingPolicy)secondPolicy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(second),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(request));
+        _ = group.Select(request);
+
+        Assert.Same(coreLibrary, selected.Assembly);
+        Assert.Equal(0, firstOpens);
+        Assert.Equal(1, secondOpens);
+        Assert.Equal(0, firstPolicy.SelectionCount);
+        Assert.Equal(1, secondPolicy.SelectionCount);
+    }
+
+    [Fact]
     public void Resolve_PlatformReference_RollsForwardToInstalledAssembly()
     {
         var current = typeof(System.Data.Common.DbDataReader).Assembly.GetName();
@@ -39,6 +154,21 @@ public class AssemblyDependencyResolverTests
                 token),
             AssemblyResolutionScope.Platform);
         Assert.Null(future);
+    }
+
+    sealed class SelectedPolicy(
+        ResolvedAssemblyReference selected) : IAssemblyBindingPolicy
+    {
+        internal int SelectionCount { get; private set; }
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return AssemblyBindingSelection.Found(selected);
+        }
     }
 
     [Fact]

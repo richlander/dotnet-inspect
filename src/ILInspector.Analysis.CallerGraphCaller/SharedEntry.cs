@@ -22,7 +22,7 @@ namespace Shared
         }
 
         // Distinct callers of the int and string Ping overloads. A caller graph rooted at one
-        // overload must report only its own caller; a CallerGraphKey that drops parameter
+        // overload must report only its own caller; correspondence that drops parameter
         // types would collapse these onto Ping and cross-link them (#1623 rung 1).
         public static void RunInt() => Target.Api.Ping(1);
 

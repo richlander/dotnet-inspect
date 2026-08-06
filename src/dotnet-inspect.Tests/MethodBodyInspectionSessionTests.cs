@@ -115,9 +115,15 @@ public class MethodBodyInspectionSessionTests
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
         var token = CalledToken(index);
 
-        var expected = index.BuildCallerTree(token, [Analysis.LibraryBodyIndex.Open(TestPath)]);
-        var actual = MethodBodyInspectionSession.Open(ProductPath)
-            .CallerTree(token, [MethodBodyInspectionSession.Open(TestPath)]);
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        using Analysis.CatalogCallGraphScope scope =
+            MethodBodyInspectionSession.CreateCallGraphScope(
+                [target, caller]);
+        var expected = target.BodyIndex.BuildCallerTree(token, scope);
+        var actual = target.CallerTree(token, [caller]);
 
         Assert.Equal(expected.Children.Count(), actual.Children.Count());
     }

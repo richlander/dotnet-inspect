@@ -10,7 +10,7 @@ namespace Target
 
         // Overloads sharing the simple name Ping. A cross-assembly caller graph rooted at one
         // overload must not pull in callers of the other; that requires the param-bearing
-        // CallerGraphKey, which is only exercised across assemblies (#1623 rung 1).
+        // catalog member correspondence, which is exercised across assemblies.
         public static void Ping(int value)
         {
         }

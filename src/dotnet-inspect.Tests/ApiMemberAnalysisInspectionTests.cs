@@ -10,11 +10,10 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// The caller-scope prefilter (#3331) is only allowed to change how much work a caller query does,
-/// never which reverse-graph builder answers it. <see cref="ApiMemberAnalysisInspection.CallerScopes"/>
-/// is that decision: <see langword="null"/> selects the same-assembly builder and any non-null list
-/// selects the cross-assembly one, and the two do not produce identical trees. These assert the
-/// decision itself rather than a rendered tree, because the small call-graph fixtures happen not to
-/// distinguish the two builders at all — an output-level test here would pass no matter what.
+/// never whether a catalog graph scope was requested. <see cref="ApiMemberAnalysisInspection.CallerScopes"/>
+/// carries that decision: <see langword="null"/> selects the same-assembly graph and any non-null
+/// list selects the catalog-owned assembly-group graph. Their identity and ordering domains may
+/// produce different trees even when no additional assembly survives filtering.
 ///
 /// The decision is a question about the <em>request</em>, never about how readable the scope turned
 /// out to be, so most of these pin cases where the scope yields nothing to walk yet the choice must
@@ -241,9 +240,9 @@ public class ApiMemberAnalysisInspectionTests
     // Round-8 review (Gemini): the routing flag must not be set by a candidate this walk opens
     // itself. Classification could not decide this path, so it is SELECTED, so the open below
     // settles whether the scope really had a session — and when that open fails, the unfiltered
-    // walk also ended with an empty opened list and took the token builder. Deriving the flag from
-    // every candidate rather than only the ruled-out ones routed this to the structural builder
-    // instead and printed a different tree for the same request.
+    // walk also ended with an empty opened list and kept the same-assembly graph. Deriving the flag
+    // from every candidate rather than only the ruled-out ones created a catalog scope for a
+    // request whose scope never opened.
     //
     // The path carries an embedded null, so File.OpenRead throws ArgumentException — outside the
     // BadImageFormatException/IOException/UnauthorizedAccessException set that means "definitely

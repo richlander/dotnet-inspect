@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -22,11 +23,13 @@ public sealed class MethodBodyInspectionSession
     MethodBodyInspectionSession(
         Analysis.LibraryBodyIndex index,
         ResolvedAssemblyReference assembly,
-        string sourceName)
+        string sourceName,
+        IAssemblyBindingPolicy bindingPolicy)
     {
         BodyIndex = index;
         Assembly = assembly;
         SourceName = sourceName;
+        BindingPolicy = bindingPolicy;
     }
 
     /// <summary>
@@ -36,6 +39,8 @@ public sealed class MethodBodyInspectionSession
     public Analysis.LibraryBodyIndex BodyIndex { get; }
 
     public ResolvedAssemblyReference Assembly { get; }
+
+    internal IAssemblyBindingPolicy BindingPolicy { get; }
 
     /// <summary>
     /// Short assembly name (file name without extension) this session was opened from. Used to
@@ -126,7 +131,8 @@ public sealed class MethodBodyInspectionSession
                 bodyScope,
                 bodyTypeScope),
             assembly,
-            Path.GetFileNameWithoutExtension(assemblyPath));
+            Path.GetFileNameWithoutExtension(assemblyPath),
+            BindingPolicyFor(resolver));
     }
 
     internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
@@ -146,23 +152,69 @@ public sealed class MethodBodyInspectionSession
                 assemblyPath,
                 AssemblyResolutionProvenance.Local(
                     "prefetched method body inspection")),
-            Path.GetFileNameWithoutExtension(assemblyPath));
+            Path.GetFileNameWithoutExtension(assemblyPath),
+            BindingPolicyFor(resolver));
     }
 
     /// <summary>
     /// Inbound caller graph rooted at one method, extended across sibling caller-scope
     /// <paramref name="scopes"/> (opened as their own sessions).
     ///
-    /// A <see langword="null"/> <paramref name="scopes"/> means no cross-assembly scope was
-    /// requested and selects the same-assembly-only reverse graph. A non-null but empty list means
-    /// a scope was requested and contributed no assemblies; that still takes the cross-assembly
-    /// builder, because the two builders key the reverse graph differently and the result must not
-    /// depend on how many scope assemblies happened to survive filtering.
+    /// A <see langword="null"/> <paramref name="scopes"/> selects the same-assembly-only reverse
+    /// graph. A non-null list creates one catalog scope over the target and supplied sessions;
+    /// an empty list therefore preserves the requested catalog identity and ordering domain
+    /// without adding another assembly.
     /// </summary>
     public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession>? scopes)
-        => scopes is null
-            ? BodyIndex.BuildCallerTree(methodToken)
-            : BodyIndex.BuildCallerTree(methodToken, scopes.Select(s => s.BodyIndex).ToArray());
+    {
+        if (scopes is null)
+            return BodyIndex.BuildCallerTree(methodToken);
+
+        using Analysis.CatalogCallGraphScope scope =
+            CreateCallGraphScope([this, .. scopes]);
+        return WithoutGraphEvidence(
+            BodyIndex.BuildCallerTree(methodToken, scope));
+    }
+
+    internal Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        Analysis.CatalogCallGraphScope scope) =>
+        BodyIndex.BuildCallerTree(methodToken, scope);
+
+    static Analysis.CallTreeNode WithoutGraphEvidence(
+        Analysis.CallTreeNode node) =>
+        node with
+        {
+            GraphEvidence = null,
+            Children =
+            [
+                .. node.Children.Select(WithoutGraphEvidence),
+            ],
+        };
+
+    internal static Analysis.CatalogCallGraphScope CreateCallGraphScope(
+        IReadOnlyList<MethodBodyInspectionSession> sessions)
+    {
+        MethodBodyInspectionSession[] participants = sessions
+            .GroupBy(session => (
+                session.Assembly.Identity,
+                session.BodyIndex.DeclaredMethods.FirstOrDefault()
+                    ?.ModuleVersionId ?? Guid.Empty))
+            .Select(group => group.First())
+            .ToArray();
+        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+            participants.Select(
+                session => (
+                    session.Assembly,
+                    session.BindingPolicy)));
+        return new Analysis.CatalogCallGraphScope(
+            policy,
+            participants.Select(
+                session =>
+                    new Analysis.CatalogCallGraphParticipant(
+                        session.BodyIndex,
+                        session.Assembly)));
+    }
 
     /// <summary>
     /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the
@@ -218,6 +270,31 @@ public sealed class MethodBodyInspectionSession
         }
 
         return edges.ToImmutable();
+    }
+
+    static IAssemblyBindingPolicy BindingPolicyFor(
+        IAssemblyReferenceResolver? resolver) =>
+        resolver switch
+        {
+            IAssemblyBindingPolicy policy => policy,
+            not null => new AssemblyReferenceBindingPolicy(resolver),
+            null => MissingAssemblyBindingPolicy.Instance,
+        };
+
+    sealed class MissingAssemblyBindingPolicy : IAssemblyBindingPolicy
+    {
+        internal static MissingAssemblyBindingPolicy Instance { get; } =
+            new();
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+                ? AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.UnsupportedScope))
+                : AssemblyBindingSelection.NotFound();
     }
 }
 
