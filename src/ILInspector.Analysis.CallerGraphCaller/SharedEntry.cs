@@ -46,5 +46,12 @@ namespace Shared
 
         public static void CallBodiless(Target.IBodilessApi target) =>
             target.Invoke();
+
+        public static void UseVararg() =>
+            Target.VarargApi.Sink(
+                new Target.VarargArg(),
+                __arglist(
+                    new Target.VarargArg(),
+                    new Target.VarargArg()));
     }
 }
