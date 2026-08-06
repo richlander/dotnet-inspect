@@ -55,6 +55,11 @@ public class FidelityGateTests
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #3514: the compiler-backed reference-type switch witness proves the
+        // missing shared default is restored and the body compiles, but the
+        // valid nested-if form re-lowers with direct returns rather than csc's
+        // original result-temp convergence.
+        "GuardedTypeAfterSibling",
         // This hand-written await-enumerator loop recompiles through the same
         // runtime-async shape but schedules the receiver load after the
         // enumerator-local initialization rather than before it.
@@ -494,9 +499,6 @@ public class FidelityGateTests
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
-        // #3514: structuring keeps the shared switch default reachable from a
-        // direct guard failure and a sibling type-test trampoline.
-        "GuardedTypeAfterSibling",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>

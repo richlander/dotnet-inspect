@@ -1356,11 +1356,11 @@ public class CfgSampleClass
     }
 
     // #3514 compile-back witness: the shared default is reached by the failed
-    // `int` guard and by the failed `string` type test through a goto trampoline.
+    // `Exception` guard and by the failed type test through a goto trampoline.
     public static int GuardedTypeAfterSibling(object value) => value switch
     {
         string text => text.Length,
-        int number when number > 0 => number,
+        Exception error when error.Message.Length > 0 => error.Message.Length,
         _ => -1
     };
 

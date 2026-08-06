@@ -72,10 +72,10 @@ public class ScatteredReturnDispatchStructuringTests
     {
         string output = Print(nameof(ScatteredReturnDispatchSample.GuardedTypeAfterSibling));
 
-        Assert.StartsWith("return value switch", output);
-        Assert.Contains("int number when number > 0 => number", output);
-        Assert.Contains("_ => -1", output);
-        Assert.EndsWith("};", output);
+        Assert.Contains("if (V_3 is Exception error)", output);
+        Assert.Contains("if (error.Message.Length > 0)", output);
+        Assert.Equal(2, output.Split("return -1;", StringSplitOptions.None).Length - 1);
+        Assert.EndsWith("return -1;", output);
         Assert.DoesNotContain("goto", output);
     }
 

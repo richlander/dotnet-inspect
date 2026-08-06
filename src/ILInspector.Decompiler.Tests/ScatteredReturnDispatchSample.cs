@@ -50,7 +50,7 @@ public static class ScatteredReturnDispatchSample
     public static int GuardedTypeAfterSibling(object value) => value switch
     {
         string text => text.Length,
-        int number when number > 0 => number,
+        Exception error when error.Message.Length > 0 => error.Message.Length,
         _ => -1
     };
 
