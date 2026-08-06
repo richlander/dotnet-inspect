@@ -2299,9 +2299,10 @@ is not a migration.
 
 Analysis materializes that recursive work once as a
 `CatalogMemberCorrespondencePlan`. The plan stores the open declaring type,
-method name, method generic arity, instance/static shape, ordered open parameter
-shapes, and open return shape. The source descriptor supplied to the plan is the
-descriptor for the image that produced the decoded member; a simple-name
+method name, member kind, canonical signature header, method generic arity,
+instance/static shape, ordered open parameter shapes, and open return shape. The
+source descriptor supplied to the plan is the descriptor for the image that
+produced the decoded member; a simple-name
 mismatch is rejected as a sanity check, while correct source/member pairing
 remains the caller's acquisition invariant. The plan exposes the distinct
 `TypeResolutionRequest` values needed by those shapes so a graph builder can
@@ -2664,9 +2665,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   entry; requesting registrations and scopes remain identity-bearing.
 - Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
   traversal, and repeated named leaves produce one manifest request.
-- `CatalogMemberJoinKey` includes method generic arity and every named leaf in
-  the open declaring, parameter, return, modifier, and function-pointer shapes;
-  instance and static members remain distinct.
+- `CatalogMemberJoinKey` includes member kind, canonical signature header,
+  method generic arity, and every named leaf in the open declaring, parameter,
+  return, modifier, and function-pointer shapes; instance and static members
+  remain distinct.
 - A generic `MemberRef` without a retained open signature cannot fall back to
   its instantiated signature and receive an exact key; partially retained open
   signatures are likewise incomplete.

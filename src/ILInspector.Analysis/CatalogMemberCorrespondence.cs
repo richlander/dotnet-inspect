@@ -208,8 +208,10 @@ public sealed class CatalogMemberJoinKey
         CatalogMemberCorrespondenceKind kind,
         CatalogTypeShape declaringType,
         string name,
+        MemberKind memberKind,
         int genericArity,
         bool hasThis,
+        byte signatureHeader,
         ImmutableArray<CatalogTypeShape> parameterTypes,
         CatalogTypeShape returnType)
     {
@@ -218,8 +220,10 @@ public sealed class CatalogMemberJoinKey
         Kind = kind;
         DeclaringType = declaringType;
         Name = name;
+        MemberKind = memberKind;
         GenericArity = genericArity;
         HasThis = hasThis;
+        SignatureHeader = signatureHeader;
         ParameterTypes = parameterTypes;
         ReturnType = returnType;
     }
@@ -229,8 +233,10 @@ public sealed class CatalogMemberJoinKey
     public CatalogMemberCorrespondenceKind Kind { get; }
     public CatalogTypeShape DeclaringType { get; }
     public string Name { get; }
+    public MemberKind MemberKind { get; }
     public int GenericArity { get; }
     public bool HasThis { get; }
+    public byte SignatureHeader { get; }
     public ImmutableArray<CatalogTypeShape> ParameterTypes { get; }
     public CatalogTypeShape ReturnType { get; }
 
@@ -244,8 +250,10 @@ public sealed class CatalogMemberJoinKey
             || Kind != other.Kind
             || DeclaringType != other.DeclaringType
             || !string.Equals(Name, other.Name, StringComparison.Ordinal)
+            || MemberKind != other.MemberKind
             || GenericArity != other.GenericArity
             || HasThis != other.HasThis
+            || SignatureHeader != other.SignatureHeader
             || ReturnType != other.ReturnType
             || ParameterTypes.Length != other.ParameterTypes.Length)
         {
@@ -272,8 +280,10 @@ public sealed class CatalogMemberJoinKey
         hash.Add(Kind);
         hash.Add(DeclaringType);
         hash.Add(Name, StringComparer.Ordinal);
+        hash.Add(MemberKind);
         hash.Add(GenericArity);
         hash.Add(HasThis);
+        hash.Add(SignatureHeader);
         foreach (CatalogTypeShape parameter in ParameterTypes)
             hash.Add(parameter);
         hash.Add(ReturnType);
@@ -453,8 +463,10 @@ public sealed class CatalogMemberCorrespondencePlan
 
     readonly PlannedType _declaringType;
     readonly string _name;
+    readonly MemberKind _memberKind;
     readonly int _genericArity;
     readonly bool _hasThis;
+    readonly byte _signatureHeader;
     readonly ImmutableArray<PlannedType> _parameterTypes;
     readonly PlannedType _returnType;
     readonly ImmutableArray<MemberCorrespondenceFailure> _structuralFailures;
@@ -462,8 +474,10 @@ public sealed class CatalogMemberCorrespondencePlan
     CatalogMemberCorrespondencePlan(
         PlannedType declaringType,
         string name,
+        MemberKind memberKind,
         int genericArity,
         bool hasThis,
+        byte signatureHeader,
         ImmutableArray<PlannedType> parameterTypes,
         PlannedType returnType,
         ImmutableArray<TypeResolutionRequest> requests,
@@ -471,8 +485,10 @@ public sealed class CatalogMemberCorrespondencePlan
     {
         _declaringType = declaringType;
         _name = name;
+        _memberKind = memberKind;
         _genericArity = genericArity;
         _hasThis = hasThis;
+        _signatureHeader = signatureHeader;
         _parameterTypes = parameterTypes;
         _returnType = returnType;
         Requests = requests;
@@ -506,8 +522,15 @@ public sealed class CatalogMemberCorrespondencePlan
             source,
             GenericMemberIdentity.OpenDeclaringType(member.DeclaringType),
             member.Name,
+            member.Name is ".ctor" or ".cctor"
+                ? MemberKind.Constructor
+                : MemberKind.Method,
             member.GenericArity,
             hasThis: !member.IsStatic,
+            CanonicalSignatureHeader(
+                member.SignatureHeader,
+                hasThis: !member.IsStatic,
+                member.GenericArity),
             member.ParameterTypes,
             member.ReturnType,
             initialFailures);
@@ -530,14 +553,17 @@ public sealed class CatalogMemberCorrespondencePlan
                 member.ReturnType)
             || member.ParameterTypes.Any(
                 GenericMemberIdentity.ContainsGenericParameter);
-        if (requiresOpenSignature && member.OpenReturnType is null)
-        {
-            initialFailures.Add(
-                new MemberCorrespondenceFailure.OpenSignatureUnavailable());
-        }
-        if (member.OpenReturnType is not null
-            && member.OpenParameterTypes.IsDefaultOrEmpty
-            && !member.ParameterTypes.IsEmpty)
+        bool retainedOpenSignatureIsIncomplete =
+            member.OpenReturnType is not null
+                ? member.OpenParameterTypes.Length
+                    != member.ParameterTypes.Length
+                : !member.OpenParameterTypes.IsEmpty;
+        bool methodArgumentsAreMalformed =
+            !member.TypeArguments.IsEmpty
+            && member.TypeArguments.Length != member.GenericArity;
+        if ((requiresOpenSignature && member.OpenReturnType is null)
+            || retainedOpenSignatureIsIncomplete
+            || methodArgumentsAreMalformed)
         {
             initialFailures.Add(
                 new MemberCorrespondenceFailure.OpenSignatureUnavailable());
@@ -550,8 +576,13 @@ public sealed class CatalogMemberCorrespondencePlan
             source,
             GenericMemberIdentity.OpenDeclaringType(member.DeclaringType),
             member.Name,
+            member.Kind,
             member.GenericArity,
             member.HasThis,
+            CanonicalSignatureHeader(
+                member.SignatureHeader,
+                member.HasThis,
+                member.GenericArity),
             parameters,
             returnType,
             initialFailures);
@@ -604,8 +635,10 @@ public sealed class CatalogMemberCorrespondencePlan
             kind,
             declaring,
             _name,
+            _memberKind,
             _genericArity,
             _hasThis,
+            _signatureHeader,
             parameters.MoveToImmutable(),
             returnType);
         return new CatalogMemberJoinProjection.Issued(
@@ -617,8 +650,10 @@ public sealed class CatalogMemberCorrespondencePlan
         ResolvedAssemblyReference source,
         TypeRef declaringType,
         string name,
+        MemberKind memberKind,
         int genericArity,
         bool hasThis,
+        byte signatureHeader,
         ImmutableArray<TypeRef> parameterTypes,
         TypeRef returnType,
         ImmutableArray<MemberCorrespondenceFailure>.Builder initialFailures)
@@ -660,12 +695,34 @@ public sealed class CatalogMemberCorrespondencePlan
         return new CatalogMemberCorrespondencePlan(
             plannedDeclaring,
             name ?? "",
+            memberKind,
             genericArity,
             hasThis,
+            signatureHeader,
             plannedParameters.MoveToImmutable(),
             plannedReturn,
             builder.Requests.ToImmutableArray(),
             builder.Failures.ToImmutable());
+    }
+
+    static byte CanonicalSignatureHeader(
+        byte signatureHeader,
+        bool hasThis,
+        int genericArity)
+    {
+        const byte CallingConventionMask = 0x0F;
+        const byte Generic = 0x10;
+        const byte Instance = 0x20;
+        const byte ExplicitThis = 0x40;
+
+        byte canonical = (byte)(
+            signatureHeader
+            & (CallingConventionMask | ExplicitThis));
+        if (genericArity > 0)
+            canonical |= Generic;
+        if (hasThis)
+            canonical |= Instance;
+        return canonical;
     }
 
     sealed class Builder

@@ -90,6 +90,8 @@ public sealed record MethodIdentity(
         init => _genericParameterNames = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(GenericParameterNames));
     }
 
+    internal byte SignatureHeader { get; init; }
+
     public bool Equals(MethodIdentity? other)
         => other is not null
             && AssemblyName == other.AssemblyName
@@ -103,6 +105,7 @@ public sealed record MethodIdentity(
             && IsExtension == other.IsExtension
             && CallerUnsafeMode == other.CallerUnsafeMode
             && GenericArity == other.GenericArity
+            && SignatureHeader == other.SignatureHeader
             && ImmutableArrayValueEquality.SequenceEqual(
                 GenericParameterNames,
                 other.GenericParameterNames);
@@ -121,6 +124,7 @@ public sealed record MethodIdentity(
         hash.Add(IsExtension);
         hash.Add(CallerUnsafeMode);
         hash.Add(GenericArity);
+        hash.Add(SignatureHeader);
         ImmutableArrayValueEquality.AddToHash(ref hash, GenericParameterNames);
         return hash.ToHashCode();
     }

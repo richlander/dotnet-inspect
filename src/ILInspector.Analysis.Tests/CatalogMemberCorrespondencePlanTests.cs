@@ -393,6 +393,19 @@ public class CatalogMemberCorrespondencePlanTests
             MemberCorrespondenceFailure.OpenSignatureUnavailable>(
                 partialPlan,
                 context);
+
+        var truncated = member with
+        {
+            ParameterTypes = [argument, argument],
+            OpenParameterTypes = [TypeRef.GenericParameter(0)],
+            OpenReturnType = TypeRef.GenericParameter(0),
+        };
+        CatalogMemberCorrespondencePlan truncatedPlan =
+            CatalogMemberCorrespondencePlan.Create(source, truncated);
+        AssertFailure<
+            MemberCorrespondenceFailure.OpenSignatureUnavailable>(
+                truncatedPlan,
+                context);
     }
 
     [Fact]
@@ -433,6 +446,92 @@ public class CatalogMemberCorrespondencePlanTests
         Assert.False(staticKey.HasThis);
         Assert.True(instanceKey.HasThis);
         Assert.NotEqual(staticKey, instanceKey);
+    }
+
+    [Fact]
+    public void MemberKindAndCallingConvention_AreIdentityBearing()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        var method = new MemberRef(
+            owner,
+            "M",
+            [],
+            owner,
+            MemberKind.Method);
+        MemberRef functionPointer = method with
+        {
+            Kind = MemberKind.FunctionPointer,
+        };
+        MemberRef vararg = method with
+        {
+            SignatureHeader = 0x05,
+        };
+        CatalogMemberCorrespondencePlan methodPlan =
+            CatalogMemberCorrespondencePlan.Create(source, method);
+        CatalogMemberCorrespondencePlan functionPointerPlan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                functionPointer);
+        CatalogMemberCorrespondencePlan varargPlan =
+            CatalogMemberCorrespondencePlan.Create(source, vararg);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            methodPlan.Requests
+                .Concat(functionPointerPlan.Requests)
+                .Concat(varargPlan.Requests)
+                .Distinct(TypeResolutionRequestComparer.Instance));
+
+        CatalogMemberJoinKey methodKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                methodPlan.Project(context)).Key;
+        CatalogMemberJoinKey functionPointerKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                functionPointerPlan.Project(context)).Key;
+        CatalogMemberJoinKey varargKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                varargPlan.Project(context)).Key;
+
+        Assert.Equal(MemberKind.Method, methodKey.MemberKind);
+        Assert.Equal(MemberKind.FunctionPointer, functionPointerKey.MemberKind);
+        Assert.Equal(0x05, varargKey.SignatureHeader);
+        Assert.NotEqual(methodKey, functionPointerKey);
+        Assert.NotEqual(methodKey, varargKey);
+    }
+
+    [Fact]
+    public void CompilerProducedVararg_PreservesCallingConvention()
+    {
+        string assemblyPath =
+            typeof(CatalogMemberCorrespondencePlanTests).Assembly.Location;
+        int token = typeof(CatalogMemberCorrespondencePlanTests)
+            .GetMethod(
+                nameof(VarargFixture),
+                BindingFlags.NonPublic | BindingFlags.Static)!
+            .MetadataToken;
+        LibraryBodyIndex index = LibraryBodyIndex.Open(assemblyPath);
+        MethodIdentity member = Assert.Single(
+            index.Methods,
+            candidate => candidate.MetadataToken == token);
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        ResolvedAssemblyReference source = Descriptor(image);
+        CatalogMemberCorrespondencePlan plan =
+            CatalogMemberCorrespondencePlan.Create(source, member);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            plan.Requests);
+
+        CatalogMemberJoinKey key = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                plan.Project(context)).Key;
+
+        Assert.Equal(0x05, member.SignatureHeader & 0x0F);
+        Assert.Equal(0x05, key.SignatureHeader & 0x0F);
     }
 
     [Fact]
@@ -873,6 +972,10 @@ public class CatalogMemberCorrespondencePlanTests
             0x06000001,
             IsStatic: true,
             GenericArity: genericArity);
+
+    static void VarargFixture(__arglist)
+    {
+    }
 
     static byte[] BuildAssembly(
         string assemblyName,

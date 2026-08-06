@@ -3069,7 +3069,10 @@ public sealed class LibraryBodyIndex
                     signature.ParameterTypes,
                     signature.ReturnType,
                     MetadataTokens.GetToken(methodHandle),
-                    (methodDef.Attributes & MethodAttributes.Static) != 0);
+                    (methodDef.Attributes & MethodAttributes.Static) != 0)
+                {
+                    SignatureHeader = signature.Header.RawValue,
+                };
 
                 var body =
                     _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
@@ -3277,16 +3280,19 @@ public sealed class LibraryBodyIndex
             var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
             ImmutableArray<TypeRef> parameterTypes;
             TypeRef returnType;
+            byte signatureHeader;
             if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
             {
                 var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
                 parameterTypes = signature.ParameterTypes;
                 returnType = signature.ReturnType;
+                signatureHeader = signature.Header.RawValue;
             }
             else
             {
                 parameterTypes = [];
                 returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
+                signatureHeader = 0;
             }
             return new MethodIdentity(
                 _assemblyName,
@@ -3300,7 +3306,10 @@ public sealed class LibraryBodyIndex
                 IsExtensionMethod(typeHandle, methodDef),
                 ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
                 methodDef.GetGenericParameters().Count,
-                GenericParameterNames(methodDef));
+                GenericParameterNames(methodDef))
+            {
+                SignatureHeader = signatureHeader,
+            };
         }
 
         ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)

@@ -27,11 +27,16 @@ public class MemberIdentityValueEqualityTests
         var differentDuplicates = Method(
             ImmutableArray.Create(Int32, String, String),
             ImmutableArray.Create("T", "U"));
+        MethodIdentity differentHeader = first with
+        {
+            SignatureHeader = 0x05,
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
         Assert.NotEqual(first, reordered);
         Assert.NotEqual(first, differentDuplicates);
+        Assert.NotEqual(first, differentHeader);
     }
 
     [Fact]
