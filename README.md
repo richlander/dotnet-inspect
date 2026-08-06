@@ -27,7 +27,7 @@ Each line is one JSON record with this schema (camelCase):
 | --- | --- |
 | `assembly`, `assemblyVersion`, `tfm` | Pinned assembly identity the method came from. |
 | `type`, `method`, `overload`, `signature` | RTS `RequestedTarget` identity (overload is the RTS ordinal). |
-| `metadataToken`, `parameterCount`, `ilSize` | Method metadata. |
+| `metadataToken`, `moduleVersionId`, `parameterCount`, `ilSize` | Method metadata. The module ID binds the token to the logical module used for harvest and benchmark attribution. |
 | `sourceUrl`, `checksumAlgorithm`, `checksum` | SourceLink provenance for the authored file at the pinned commit. |
 | `authoredBody` | The checksum-verified authored member body (member-only slice). |
 | `difficulty` | EVIL only: IL-difficulty breakdown (`ilSize`, `blockCount`, `branchCount`, `switchCount`, `exceptionRegionCount`, `exceptionNestingDepth`, `rareOpcodeCount`, `localCount`, `maxStack`, `score`) used to rank candidates. Absent on CIVIL rows. |
@@ -54,6 +54,18 @@ real-world pins, deduped by assembly name. Candidates are ranked by IL
 difficulty so the corpus concentrates the hardest real methods; only libraries
 whose authored source resolves and checksum-verifies through SourceLink
 contribute rows.
+
+The `moduleVersionId` field was added after the original harvest from the same
+pinned NuGet artifacts. The migration validated every row's assembly version,
+MethodDef token, declaring type, method name, and overload against that module;
+all existing JSON fields, including the SourceLink checksum and authored body,
+were preserved unchanged. A fresh token-based acquisition also confirmed that
+all 24,000 rows still bind to their stored SourceLink document checksum. The
+benchmark revalidates the module ID, token,
+identity, overload, and normalized signature before using a body for fault
+attribution. The module ID is a logical build identity under the non-hostile,
+pinned-package corpus contract, not a cryptographic digest of the assembly
+bytes.
 
 This corpus lives on an orphan branch precisely so these snapshots stay out of
 the main project history.
