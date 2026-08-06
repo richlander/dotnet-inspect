@@ -14,12 +14,10 @@ namespace ILInspector.Instructions.Tests;
 /// exercised together rather than asserted about a helper.
 /// </summary>
 /// <remarks>
-/// Exactly five cases do not, because their claim is not about a comparison. Measured by
-/// making <c>CompareMembers</c> throw and listing what still passed, rather than by
-/// reading:
+/// Some cases do not, because their claim is about metadata or correspondence directly:
 /// <list type="bullet">
 /// <item><see cref="PlaceholderCannotBeSpelledByAMetadataName"/> and
-/// <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> build one image and read the
+/// <see cref="CacheFieldNameSeparatorCannotBeSpelledByAMetadataName"/> build one image and read the
 /// names back out of it, because they claim a hostile name cannot exist at all.</item>
 /// <item><see cref="DefaultStringDecoder_StillFolds"/> and
 /// <see cref="NonDefaultStringDecoder_FoldsNothing"/> call
@@ -114,25 +112,24 @@ public class CompilerGeneratedOrdinalTests
     /// compare equal once the correspondence folds their names.
     /// </summary>
     /// <remarks>
-    /// The correspondence keys a method on its declaring type, its ordinal-free name, and
-    /// its arity — deliberately not on its signature, because a signature blob encodes
-    /// type references as metadata tokens that legitimately differ between the two
-    /// assemblies being compared. Everything the key does not carry has to reach the
-    /// rendered operand instead, and <c>EXPLICITTHIS</c> did not: both headers rendered
-    /// as <c>instance</c>, so folding the names left nothing to tell the two apart.
-    ///
-    /// The assertion is deliberately not "does not fold". The names still fold, which is
-    /// correct — these really are the same member modulo ordinal as far as the key can
-    /// tell. What must survive is the <em>difference</em>, now spelled in the operand.
+    /// The structural correspondence key carries the raw signature header, so the names
+    /// do not fold and the changed target remains visible even if an operand renderer
+    /// omits the bit.
     /// </remarks>
     [Fact]
     public void MethodsDifferingOnlyInExplicitThis_DoNotFold()
     {
+        var oldMember =
+            new Member("<M>g__L|3_0", CompilerGenerated: true, SignatureHeader: 0x20);
+        var newMember =
+            new Member("<M>g__L|7_0", CompilerGenerated: true, SignatureHeader: 0x60);
+
         // 0x20 is HASTHIS; 0x60 adds EXPLICITTHIS.
         Assert.False(Compare(
-            [new Member("<M>g__L|3_0", CompilerGenerated: true, SignatureHeader: 0x20)],
-            [new Member("<M>g__L|7_0", CompilerGenerated: true, SignatureHeader: 0x60)],
+            [oldMember],
+            [newMember],
             Ordinals).IsExact);
+        AssertMethodsDoNotCorrespond(oldMember, newMember);
 
         // The control: identical headers still fold, so the case above fails for the
         // signature bit rather than because this shape stopped folding altogether.
@@ -141,6 +138,61 @@ public class CompilerGeneratedOrdinalTests
             [new Member("<M>g__L|7_0", CompilerGenerated: true, SignatureHeader: 0x20)],
             Ordinals).IsExact);
     }
+
+    [Theory]
+    [MemberData(nameof(StructuralSignatureDiscriminators))]
+    public void StructuralSignatureDiscriminators_DoNotCorrespond(
+        byte[] oldSignature,
+        byte[] newSignature)
+    {
+        AssertMethodsCorrespond(
+            new Member(
+                "<M>g__L|3_0",
+                CompilerGenerated: true,
+                RawSignature: oldSignature),
+            new Member(
+                "<M>g__L|7_0",
+                CompilerGenerated: true,
+                RawSignature: oldSignature));
+        AssertMethodsCorrespond(
+            new Member(
+                "<M>g__L|3_0",
+                CompilerGenerated: true,
+                RawSignature: newSignature),
+            new Member(
+                "<M>g__L|7_0",
+                CompilerGenerated: true,
+                RawSignature: newSignature));
+        AssertMethodsDoNotCorrespond(
+            new Member(
+                "<M>g__L|3_0",
+                CompilerGenerated: true,
+                RawSignature: oldSignature),
+            new Member(
+                "<M>g__L|7_0",
+                CompilerGenerated: true,
+                RawSignature: newSignature));
+    }
+
+    public static TheoryData<byte[], byte[]> StructuralSignatureDiscriminators()
+        => new()
+        {
+            // CLASS versus VALUETYPE for the same TypeDefOrRef token.
+            {
+                [0x00, 0x00, 0x12, 0x08],
+                [0x00, 0x00, 0x11, 0x08]
+            },
+            // Same rank and element type, different explicit MD-array size.
+            {
+                [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x03, 0x01, 0x00],
+                [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x04, 0x01, 0x00]
+            },
+            // Same rank, size, and element type, different lower bound.
+            {
+                [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x03, 0x01, 0x00],
+                [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x03, 0x01, 0x01]
+            },
+        };
 
     /// <summary>
     /// A function-pointer type carries the same <c>this</c> attributes a method signature
@@ -785,11 +837,8 @@ public class CompilerGeneratedOrdinalTests
 
     /// <summary>
     /// A decoder that really does return a name containing NUL. Under the default decoder
-    /// such a name cannot exist, which is what makes <c>OrdinalPlaceholder</c> safe to
-    /// embed in compared text and <c>KeySeparator</c> safe to flatten keys with. The two
-    /// consequences differ: the placeholder does reach the rendered operand, while keys
-    /// are never rendered, so the separator's safety is about injectivity rather than
-    /// about output.
+    /// such a name cannot exist, which is what makes <c>OrdinalPlaceholder</c> and the
+    /// cache-field name separator safe to embed in compared text.
     /// </summary>
     sealed class NulReturningDecoder() : MetadataStringDecoder(Encoding.UTF8)
     {
@@ -968,21 +1017,21 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The property the key separator's injectivity rests on, asserted against the constant
-    /// the product actually uses: a metadata name cannot contain the separator, so no
-    /// forged name can reproduce a different segmentation of the same flattened key.
+    /// A metadata field name cannot contain the separator used in a synthetic cache-field
+    /// comparison name.
     /// </summary>
     /// <remarks>
-    /// Driven from <see cref="CompilerGeneratedOrdinalCorrespondence.KeySeparator"/>, so a separator
+    /// Driven from <see cref="CompilerGeneratedOrdinalCorrespondence.CacheFieldNameSeparator"/>, so a separator
     /// changed to any spellable character fails here. That is the half
     /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> cannot see: its attack
     /// is written against the historical <c>.</c>/<c>+</c>/<c>::</c> joining, so it does
     /// not fire for an arbitrary spellable single-character separator.
     /// </remarks>
     [Fact]
-    public void KeySeparatorCannotBeSpelledByAMetadataName()
+    public void CacheFieldNameSeparatorCannotBeSpelledByAMetadataName()
     {
-        string forged = $"A{CompilerGeneratedOrdinalCorrespondence.KeySeparator}B";
+        string forged =
+            $"A{CompilerGeneratedOrdinalCorrespondence.CacheFieldNameSeparator}B";
         using var pe = new PEReader(new MemoryStream(
             BuildImage("Probe", [Generated("<M>g__L|3_0")], typeName: forged)));
 
@@ -992,21 +1041,16 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// A key is a flattened sequence of segments, so the flattening has to be injective.
-    /// A method named <c>&lt;M&gt;g__L::&lt;N&gt;g__X|3_0</c> on type <c>C</c> and a method
-    /// named <c>&lt;N&gt;g__X|7_0</c> on a type named <c>C::&lt;M&gt;g__L</c> are different
-    /// members of different types, but a spellable separator flattens both to the same key.
-    /// Each is unique on its own side, so both pass the two-sided ambiguity check, and the
-    /// rendered operand concatenates the same way — so folding them equates two genuinely
-    /// different call targets.
+    /// Structural keys preserve the boundary between declaring-type and method names.
+    /// A method named <c>&lt;M&gt;g__L::&lt;N&gt;g__X|3_0</c> on type <c>C</c> and a
+    /// method named <c>&lt;N&gt;g__X|7_0</c> on a type named
+    /// <c>C::&lt;M&gt;g__L</c> are different members of different types and cannot share
+    /// a key.
     /// </summary>
     /// <remarks>
-    /// This pins the concrete historical shape — a <c>.</c>/<c>+</c> path joined to the
-    /// member name by <c>::</c> — and fails when that scheme is restored. It does not by
-    /// itself prove every spellable separator is unsafe; a single-character separator
-    /// defeats this particular name while remaining forgeable by a name containing that
-    /// character. The general property rests on the separator being unspellable, which is
-    /// the property <see cref="KeySeparatorCannotBeSpelledByAMetadataName"/> asserts.
+    /// This pins the concrete collision shape from the former display-shaped key. The
+    /// shared structural codec separately gates arbitrary name segmentation with
+    /// <c>Build_LengthPrefixesEveryNameSegmentation</c>.
     /// </remarks>
     [Fact]
     public void ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes()
@@ -1246,16 +1290,14 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The case the method key's arity term carries. A method's arity is recorded twice —
-    /// in the <c>GenericParam</c> table and in the signature — and nothing in the format
-    /// ties the two together. When the signature says non-generic, the renderer spells no
-    /// arity tick, so two methods differing only in their <c>GenericParam</c> rows produce
-    /// operands that are identical once their names fold.
+    /// A method's arity is recorded twice — in the <c>GenericParam</c> table and in the
+    /// signature — and nothing in the format ties the two together. The structural key
+    /// carries both. When the signature says non-generic, the renderer spells no arity
+    /// tick, so the declared parameter rows are the only discriminator after name elision.
     /// </summary>
     /// <remarks>
     /// Roslyn never emits this, but this tool reads untrusted assemblies, and folding here
-    /// would report a changed call target as unchanged. Deleting the arity term from the
-    /// method key fails this test and nothing else.
+    /// would report a changed call target as unchanged.
     /// <para>
     /// Discovered by review: the original version of this control used a fixture that
     /// emitted <c>GenericParam</c> rows without declaring them in the signature, so it was
@@ -1287,14 +1329,13 @@ public class CompilerGeneratedOrdinalTests
 
     /// <summary>
     /// Two generated methods whose only difference is a generic-parameter constraint must
-    /// not fold. The key carries a name and an arity, and the rendered operand spells no
-    /// constraint, so folding would report <c>Exact</c> for a real difference.
+    /// not fold. The rendered operand spells no constraint, so the structural definition
+    /// key must carry it or folding would report <c>Exact</c> for a real difference.
     /// </summary>
     /// <remarks>
     /// The arity is equal on both sides and the names differ only in the member ordinal,
     /// which is exactly the shape the correspondence exists to fold; the constraint is the
-    /// single remaining discriminator. Held by <c>HasConstrainedGenericParameters</c>,
-    /// which declines the candidate outright rather than extending the key.
+    /// single remaining discriminator.
     /// </remarks>
     [Fact]
     public void MembersDifferingOnlyInAGenericConstraint_DoNotFold()
@@ -1310,8 +1351,7 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The type side of <see cref="MembersDifferingOnlyInAGenericConstraint_DoNotFold"/>,
-    /// gating the constraint refusal in <c>TypeKeyPrefix</c>.
+    /// The type side of <see cref="MembersDifferingOnlyInAGenericConstraint_DoNotFold"/>.
     /// </summary>
     [Fact]
     public void TypesDifferingOnlyInAGenericConstraint_DoNotFold()
@@ -1328,28 +1368,16 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// Two generated members inside <em>identically</em> constrained types do not fold
-    /// either. This is a deliberate false negative, pinned so it is a decision rather than
-    /// an accident.
+    /// Two generated members inside identically constrained types still fold.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The index is built independently per side and only then matched by key, so at the
-    /// moment a candidate is accepted or refused there is no other side to compare its
-    /// constraints against. Refusing unconditionally is the only fail-closed option
-    /// available at that layer; narrowing it to "refuse only when the two sides differ"
-    /// requires the constraints to be *in the key*, which means a side-independent digest
-    /// of them — that is #3681, and it would make this case fold again for free.
-    /// </para>
-    /// <para>
-    /// The cost is a missed fold, never a masked difference, and it is measured rather
-    /// than assumed: the fidelity corpus retires the same 68 rows with and without the
-    /// refusal. When #3681 lands, this test is expected to fail and should be inverted —
-    /// that is the point of pinning it.
+    /// The independently built side keys carry the same positional constraint digest, so
+    /// equality recovers the fold without consulting the other reader during indexing.
     /// </para>
     /// </remarks>
     [Fact]
-    public void LocalFunctionsInsideIdenticallyConstrainedTypes_DoNotFoldEither()
+    public void LocalFunctionsInsideIdenticallyConstrainedTypes_StillFold()
     {
         using var oldPe = new PEReader(new MemoryStream(BuildImage(
             "Probe",
@@ -1360,7 +1388,7 @@ public class CompilerGeneratedOrdinalTests
             [Generated("<M>g__L|2_0")],
             declaringTypeConstraint: GenericParameterAttributes.ReferenceTypeConstraint)));
 
-        Assert.False(Compare(oldPe, newPe, Ordinals).IsExact);
+        Assert.True(Compare(oldPe, newPe, Ordinals).IsExact);
     }
 
     /// <summary>
@@ -1370,10 +1398,8 @@ public class CompilerGeneratedOrdinalTests
     /// constraint must still not fold.
     /// </summary>
     /// <remarks>
-    /// This is the case that makes the refusal in <c>TypeKeyPrefix</c> load-bearing rather
-    /// than redundant with the method-loop check: the members here have arity 0, so the
-    /// method check cannot see anything, and only the declaring chain carries the
-    /// difference. Removing the <c>TypeKeyPrefix</c> refusal fails this and nothing else.
+    /// The members here have arity 0, so only the declaring type's structural constraint
+    /// digest carries the difference.
     /// </remarks>
     [Fact]
     public void LocalFunctionsInsideDifferentlyConstrainedTypes_DoNotFold()
@@ -1391,14 +1417,11 @@ public class CompilerGeneratedOrdinalTests
     }
 
     /// <summary>
-    /// The constraint refusal must be narrow: a generated member with generic parameters
-    /// that carry no constraint still folds.
+    /// An unconstrained generated member still folds.
     /// </summary>
     /// <remarks>
-    /// Without this, widening <c>HasConstrainedGenericParameters</c> to "has any generic
-    /// parameter" — or to "always true" — would silently disable the feature for every
-    /// generic member while both refusal controls above still passed. This is the control
-    /// that makes those two mean something.
+    /// This prevents a strict definition key from accidentally disabling correspondence
+    /// for every generic member.
     /// </remarks>
     [Fact]
     public void UnconstrainedGenericMembers_StillFold()
@@ -1411,12 +1434,39 @@ public class CompilerGeneratedOrdinalTests
         Assert.True(result.IsExact);
     }
 
+    [Fact]
+    public void IdenticallyConstrainedGenericMembers_StillFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|1_0", 1) with
+                { GenericConstraint = GenericParameterAttributes.ReferenceTypeConstraint }],
+            [GenericGenerated("<M>g__L|2_0", 1) with
+                { GenericConstraint = GenericParameterAttributes.ReferenceTypeConstraint }],
+            Ordinals);
+
+        Assert.True(result.IsExact);
+    }
+
+    [Fact]
+    public void IdenticallyConstrainedGeneratedTypes_StillFold()
+    {
+        var result = CompareTypes(
+            ["<M>d__3"],
+            ["<M>d__7"],
+            oldTypeArities: [1],
+            newTypeArities: [1],
+            oldTypeConstraints: [GenericParameterAttributes.ReferenceTypeConstraint],
+            newTypeConstraints: [GenericParameterAttributes.ReferenceTypeConstraint]);
+
+        Assert.True(result.IsExact);
+    }
+
     /// <summary>
     /// A generic parameter carrying a <c>GenericParamConstraint</c> row rather than an
-    /// attribute flag is refused too. The two live in different tables, so a check that
-    /// read only <see cref="GenericParameter.Attributes"/> would pass every control above
-    /// while leaving type constraints — <c>where T : IDisposable</c>, the common case —
-    /// folding.
+    /// attribute flag remains load-bearing too. The two live in different tables, so a key
+    /// that read only <see cref="GenericParameter.Attributes"/> would pass every control
+    /// above while leaving type constraints — <c>where T : IDisposable</c>, the common
+    /// case — folding.
     /// </summary>
     [Fact]
     public void MembersDifferingOnlyInATypeConstraintRow_DoNotFold()
@@ -1427,6 +1477,19 @@ public class CompilerGeneratedOrdinalTests
             Ordinals);
 
         Assert.False(result.IsExact);
+    }
+
+    [Fact]
+    public void MembersWithIdenticalTypeConstraintRows_StillFold()
+    {
+        var result = Compare(
+            [GenericGenerated("<M>g__L|1_0", 1) with
+                { GenericConstraintType = "System.IDisposable" }],
+            [GenericGenerated("<M>g__L|2_0", 1) with
+                { GenericConstraintType = "System.IDisposable" }],
+            Ordinals);
+
+        Assert.True(result.IsExact);
     }
 
     /// <summary>
@@ -1900,7 +1963,7 @@ public class CompilerGeneratedOrdinalTests
     /// <remarks>
     /// The composed name is substituted into the compared operand text, so it shares a
     /// namespace with every raw name that text can carry. Before this was separated with
-    /// <c>KeySeparator</c> the composition was plain concatenation, so a field literally
+    /// <c>CacheFieldNameSeparator</c> the composition was plain concatenation, so a field literally
     /// named <c>&lt;&gt;9__&lt;Run&gt;b__0_0</c> rendered identically to the surrogate
     /// built for <c>&lt;&gt;9__0_0</c> whose sibling is <c>&lt;Run&gt;b__0_0</c>, and two
     /// assemblies that differ reported <c>Exact</c>. Roslyn does not emit such a name;
@@ -2044,6 +2107,48 @@ public class CompilerGeneratedOrdinalTests
             newPe.GetMetadataReader(),
             MetadataTokens.MethodDefinitionHandle(1),
             normalization: normalization).Diff;
+    }
+
+    static void AssertMethodsDoNotCorrespond(Member oldMember, Member newMember)
+    {
+        using var oldPe = new PEReader(
+            new MemoryStream(BuildImage("Probe", [oldMember])));
+        using var newPe = new PEReader(
+            new MemoryStream(BuildImage("Probe", [newMember])));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader);
+
+        Assert.False(
+            oldSide.TryGetMethodName(
+                MethodNamed(oldReader, oldMember.Name),
+                out _));
+        Assert.False(
+            newSide.TryGetMethodName(
+                MethodNamed(newReader, newMember.Name),
+                out _));
+    }
+
+    static void AssertMethodsCorrespond(Member oldMember, Member newMember)
+    {
+        using var oldPe = new PEReader(
+            new MemoryStream(BuildImage("Probe", [oldMember])));
+        using var newPe = new PEReader(
+            new MemoryStream(BuildImage("Probe", [newMember])));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader);
+
+        Assert.True(
+            oldSide.TryGetMethodName(
+                MethodNamed(oldReader, oldMember.Name),
+                out _));
+        Assert.True(
+            newSide.TryGetMethodName(
+                MethodNamed(newReader, newMember.Name),
+                out _));
     }
 
     /// <summary>

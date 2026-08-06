@@ -15,9 +15,9 @@ public enum MethodCorrespondenceStatus
 
 /// <summary>
 /// Total cross-reader correspondence for one metadata method definition.
-/// Exact correspondence requires exactly one target method with the same
-/// structural cross-module identity (see <see cref="MethodStructuralSignature"/>);
-/// display names and metadata row numbers are never used as cross-module
+/// Exact correspondence requires exactly one target method with the same strict
+/// cross-module definition key (see <see cref="MethodStructuralSignature"/>);
+/// display signatures and metadata row numbers are never used as cross-module
 /// identity.
 /// </summary>
 public sealed record MethodCorrespondenceResult(
@@ -53,12 +53,10 @@ public static class MethodCorrespondenceResolver
                 sourceMethod,
                 IsExtensionMethod(sourceReader, sourceType, sourceMethod));
 
-            // Correspondence is decided by a structural cross-module identity, not
-            // the display-oriented canonical signature: the structural key carries
-            // return type, calling convention, generic arity (positionally), custom
-            // modifiers, and the nested-versus-namespace boundary, so genuinely
-            // distinct CLR methods cannot collide and a renamed generic parameter
-            // cannot break a real match.
+            // This is definition correspondence, not ECMA MemberRef lookup: the key
+            // carries generic constraints in addition to the structural signature,
+            // while representing generic parameters positionally so renaming one
+            // cannot break a real cross-build match.
             string sourceKey = MethodStructuralSignature.Build(sourceReader, sourceMethod);
 
             List<MetadataMethodAddress> candidates = [];
