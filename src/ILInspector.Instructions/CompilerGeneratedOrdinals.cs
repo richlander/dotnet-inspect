@@ -397,14 +397,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// it owns: <c>&lt;&lt;Run&gt;b__0_0&gt;g__Local|0_0</c> parsed at the first angle
     /// yields a remainder of <c>b__0_0&gt;g__Local|0_0</c>, which matches neither
     /// <c>d__</c> nor <c>g__</c>, so a local function the correspondence is responsible
-    /// for is disowned. Two consequences, both bad: the correspondence stops folding a
-    /// name it should fold, and — because IlBodyDiff asks this same predicate which names
-    /// are the correspondence's — the per-side rewrite is handed a name it should never
-    /// have been handed and folds it on weaker evidence.
+    /// for is disowned, so two corresponding members keep their different raw ordinals
+    /// and report a false-positive operand difference.
     ///
     /// Found by adversarial review (round 12); gated by
-    /// GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned and, end-to-end,
-    /// by CompilerGeneratedCorrespondence_KeepsTheRewriteOffAnOwnedNameNestedInsideAnother.
+    /// GeneratedNameWhoseContainingNameIsItselfGenerated_IsStillOwned.
     /// The scan is a single left-to-right pass over the name, so a hostile name cannot
     /// amplify it (see docs/design/untrusted-data-threat-model.md).
     /// </remarks>
@@ -436,9 +433,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// — a local function and a lambda respectively. A name carrying one form
     /// on the other kind is not a shape any compiler produces, so nothing
     /// relates the two sides' ordinals and folding them would mask a real
-    /// difference. This mirrors the rule
-    /// <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
-    /// already applies to non-canonical ordinals.
+    /// difference.
     /// </remarks>
     internal enum GeneratedNameKind
     {
@@ -448,14 +443,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// <summary>A name read from a method definition or reference.</summary>
         Method,
 
-        /// <summary>
-        /// Either kind. Used only by the ownership guard, which asks whether a
-        /// name belongs to this correspondence at all so the per-side rewrite
-        /// can keep off it. Answering broadly there costs at most a false
-        /// positive, while answering narrowly would hand an owned form to a
-        /// weaker folder.
-        /// </summary>
-        Any,
     }
 
     internal static string? TryElideOrdinal(string name, GeneratedNameKind kind)
@@ -471,9 +458,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         //
         // `<>9__N_K` is refused here like the others, and is still folded -- but by the
         // field loop, through the sibling lambda method it pairs with, never on its own
-        // name. Nothing about that fold passes through this function, and the per-side
-        // rewrite is kept off the field by FieldNameOutsideCorrespondence rather than by
-        // this guard.
+        // name. Nothing about that fold passes through this function.
         int close = FindClosingAngle(name);
         if (close <= 1)
             return null;
@@ -483,7 +468,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         if (rest.StartsWith("d__", StringComparison.Ordinal))
         {
-            return kind != GeneratedNameKind.Method && IsCanonicalOrdinal(rest[3..])
+            return kind == GeneratedNameKind.Type && IsCanonicalOrdinal(rest[3..])
                 ? $"{containing}d__{OrdinalPlaceholder}"
                 : null;
         }
@@ -627,12 +612,6 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     /// between two names no compiler produced and that nothing else relates.
     /// Requiring the canonical encoding costs at most a false positive on such
     /// a name, which is the safe direction.
-    /// <para>
-    /// This is deliberately the same rule the per-side rewrite applies in
-    /// <c>IlBodyDiff.SynthesizedOrdinals</c>. The two mechanisms partition the
-    /// generated name space, so a name either mechanism would refuse must not
-    /// become foldable by arriving at the other one.
-    /// </para>
     /// <para>
     /// Gated by <c>CompilerGeneratedOrdinalTests.NonCanonicalOrdinals_DoNotFold</c>
     /// against both forms and both of the local-function indices.

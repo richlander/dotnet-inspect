@@ -40,6 +40,13 @@ This is the default and the most common case. Resolution follows this order:
    reported it, use only a payload cached under one of those producers;
    otherwise download from one of them.
 
+When usable local package versions exist but freshness metadata has expired, the
+network lookup has a one-second budget. A timeout remains a visible resolution
+failure rather than silently selecting stale content, but the diagnostic lists
+the newest local versions and shows an exact `Name@Version` command that works
+without version discovery. Explicit `Name@latest` keeps its always-check
+behavior and is not subject to this shortened budget.
+
 Adding `--preview`/`--prerelease` switches step 1/2 to a separate prerelease-aware
 version cache/feed query and may resolve to a preview version.
 
@@ -274,7 +281,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Download or check | Cache behavior |
 | --- | --- |
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
-| Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
+| Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When usable local versions exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |

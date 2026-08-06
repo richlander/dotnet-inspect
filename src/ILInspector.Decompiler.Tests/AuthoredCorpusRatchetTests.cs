@@ -707,14 +707,13 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_IdentifiesThePoolItMeasured_NotThePoolItWasHanded()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         byte[] bytes = File.ReadAllBytes(original);
 
         string first = pool.Write("first", "Copy.dll", bytes);
         string second = pool.Write("second", "Copy.dll", [.. bytes, 0, 0, 0, 0]);
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         string firstOrder = PoolIdentityOf([first, second], corpus);
         string secondOrder = PoolIdentityOf([second, first], corpus);
@@ -739,18 +738,12 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_CountsAnErasedCorpusRowAsMalformed()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
-        // The second row differs by metadata token. This control was two copies of one
-        // row until the reader began rejecting a repeated identity, at which point the
-        // "sound" corpus reported a malformed row -- correctly, because one method
-        // counted twice is not a sound corpus.
-        string second = row.Replace("\"metadataToken\":1", "\"metadataToken\":2", StringComparison.Ordinal);
-        Assert.NotEqual(row, second);
-        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{second}\n"));
+        string correlatedRows = AuthoredCorpusTestData.CorrelatedRows(original);
+        string row = correlatedRows.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0];
+        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes(correlatedRows));
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
 
         using var sound = JsonDocument.Parse(RunForJson([assembly], intact));
@@ -772,11 +765,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_FailsIntegrityOnAnErasedCorpusRow()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
+        string row = AuthoredCorpusTestData.CorrelatedRow(original);
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n\n"));
 
         int exit = AuthoredCorpusBenchmark.Run(
@@ -1477,11 +1469,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_WritesTheContractVerdictToTheCallersWriter()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         var captured = new StringWriter();
         AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
@@ -1724,11 +1715,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_EmitsAValidBreakdownARowCanBeBuiltFrom()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
+            AuthoredCorpusTestData.CorrelatedRow(original)));
 
         using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
         var breakdown = report.RootElement.GetProperty("validBreakdown");
@@ -2069,11 +2059,10 @@ public class AuthoredCorpusRatchetTests
     public void Benchmark_ReportsASchemaMalformedCorpusRowRatherThanCrashing()
     {
         using var pool = new TempPool();
-        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
-        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string original = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
+        string row = AuthoredCorpusTestData.CorrelatedRow(original);
         string wrongShape = """{"date":"2026-07-26","validPct":56.7,"correct":1576}""";
         string corpus = pool.Write("mixed", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{wrongShape}\n"));
 

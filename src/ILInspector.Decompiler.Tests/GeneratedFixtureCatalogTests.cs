@@ -466,6 +466,21 @@ public class GeneratedFixtureCatalogTests
         Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
     }
 
+    [Fact]
+    public void ReturnToSenderCatalogFailureReason_PreservesDiagnosticWhenFaultIsolationWasNotEvaluated()
+    {
+        var result = new ReturnToSender.Result(
+            MinimalReturnToSenderPlan(),
+            Source: "",
+            Status: FidelityCheck.CompileBackStatus.RecompileFail,
+            OriginalOpcodes: "",
+            RecompiledOpcodes: "",
+            Detail: "CS0103: The name 'Missing' does not exist in the current context");
+
+        Assert.Equal("CS0103", GeneratedFixtureRunner.FailureReason(result));
+        Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+    }
+
     static CompileBackReconstructionPlan MinimalReturnToSenderPlan()
         => new(
             AssemblyPath: "",
