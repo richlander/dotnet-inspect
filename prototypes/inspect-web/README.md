@@ -67,7 +67,9 @@ dotnet run -c Release
 Open `http://127.0.0.1:5198`. The browser downloads `System.Text.Json` version
 `10.0.0` directly from NuGet's flat-container API, selects its `net10.0`
 compile assets, and uses `AssemblyInspectionSession.ApiSurface()` to populate the public-by-default type
-and member workspace. Remote addresses require HTTPS because the .NET loader
+and member workspace while `ApiSurface(includeAll: true)` supplies the
+protected, internal, and private opt-in inventory. Remote addresses require
+HTTPS because the .NET loader
 uses secure-context browser APIs.
 
 Create a deployable static bundle with:

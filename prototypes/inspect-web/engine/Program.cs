@@ -550,8 +550,23 @@ public static partial class BrowserInspectionEngine
                 continue;
 
             var publicSurface = inspection.ApiSurface();
+            var publicTypes = publicSurface.Types.ToDictionary(type => type.FullName, StringComparer.Ordinal);
             var assemblyTypes = inspection.ApiSurface(includeAll: true).Types
-                .Select(type => ToBrowserType(type, candidate.Entry.Name))
+                .Where(type =>
+                    !IsPublicAccessibility(type.Accessibility)
+                    || publicTypes.ContainsKey(type.FullName))
+                .Select(type =>
+                {
+                    HashSet<string>? publicMemberSelectors = null;
+                    if (publicTypes.TryGetValue(type.FullName, out var publicType))
+                    {
+                        publicMemberSelectors = publicType.Members
+                            .Select(member => ApiMemberIdentity.GetMemberAnchor(publicType, member).StableSelector)
+                            .ToHashSet(StringComparer.Ordinal);
+                    }
+
+                    return ToBrowserType(type, candidate.Entry.Name, publicMemberSelectors);
+                })
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                 .ThenBy(type => type.Name, StringComparer.Ordinal)
                 .ToArray();
@@ -3424,7 +3439,14 @@ public static partial class BrowserInspectionEngine
         return bytes;
     }
 
-    static BrowserTypeSurface ToBrowserType(ApiType type, string assembly)
+    static bool IsPublicAccessibility(string? accessibility)
+        => string.IsNullOrWhiteSpace(accessibility)
+            || accessibility.Equals("public", StringComparison.OrdinalIgnoreCase);
+
+    static BrowserTypeSurface ToBrowserType(
+        ApiType type,
+        string assembly,
+        HashSet<string>? publicMemberSelectors = null)
     {
         // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using real generic
         // parameter names when the surface carries them, else placeholders — never the raw
@@ -3449,10 +3471,17 @@ public static partial class BrowserInspectionEngine
         modifiers.Add(type.Kind);
         modifiers.Add(displayName);
 
-        var members = type.Members.Select(member =>
+        var members = type.Members
+            .Select(member => (Member: member, Anchor: ApiMemberIdentity.GetMemberAnchor(type, member)))
+            .Where(item =>
+                publicMemberSelectors is null
+                || !IsPublicAccessibility(item.Member.Accessibility)
+                || publicMemberSelectors.Contains(item.Anchor.StableSelector))
+            .Select(item =>
         {
+            var member = item.Member;
             var documentationId = GetDocumentationId(type, member);
-            var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+            var anchor = item.Anchor;
             return new BrowserMemberSurface(
                 member.Name,
                 member.Kind,

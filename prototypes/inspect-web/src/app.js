@@ -191,9 +191,12 @@ function viewSignature() {
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
     o: state.selectedOverloadIndex,
+    os: selectedOverloadSelector(),
     s: state.memberSection,
     pr: state.atPackageRoot,
-    pl: state.packageLens
+    pl: state.packageLens,
+    a: [...state.accessibilityFilter].sort(),
+    ma: [...state.memberAccessibilityFilter].sort()
   });
 }
 
@@ -204,9 +207,12 @@ function captureView() {
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
+    selectedOverloadSelector: selectedOverloadSelector(),
     memberSection: state.memberSection,
     atPackageRoot: state.atPackageRoot,
-    packageLens: state.packageLens
+    packageLens: state.packageLens,
+    accessibilityFilter: [...state.accessibilityFilter],
+    memberAccessibilityFilter: [...state.memberAccessibilityFilter]
   };
 }
 
@@ -225,10 +231,12 @@ function applyView(view) {
   state.lens = view.lens;
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
-  state.selectedOverloadIndex = view.selectedOverloadIndex;
+  state.selectedOverloadIndex = null;
   state.memberSection = view.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
+  state.accessibilityFilter = new Set(view.accessibilityFilter ?? ["public"]);
+  state.memberAccessibilityFilter = new Set(view.memberAccessibilityFilter ?? ["public"]);
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -238,6 +246,20 @@ function applyView(view) {
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   const type = selectedType();
+  if (type) revealType(type);
+  const fullGroup = memberGroups(type, true).find(group => group.key === state.selectedMemberKey);
+  if (fullGroup) {
+    if (!view.memberAccessibilityFilter) revealMemberGroup(fullGroup);
+    const group = selectedMember(type);
+    const selector = view.selectedOverloadSelector;
+    if (selector && group) {
+      const index = group.overloads.findIndex(overload => overload.stableSelector === selector);
+      state.selectedOverloadIndex = index >= 0 ? index : null;
+    } else if (group && Number.isInteger(view.selectedOverloadIndex)
+      && view.selectedOverloadIndex >= 0 && view.selectedOverloadIndex < group.overloads.length) {
+      state.selectedOverloadIndex = view.selectedOverloadIndex;
+    }
+  }
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
@@ -313,7 +335,7 @@ function base64UrlDecode(value) {
 // type/member — so the visible query stays down to a human-readable ?package=<id>. Keys are
 // terse to keep the encoded string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
-//   y/m/o/c = selected type / member / overload / member section (type view only)
+//   y/m/o/d/c = selected type / member / overload index / stable selector / section
 function encodeShareState() {
   const packet = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
@@ -333,6 +355,8 @@ function encodeShareState() {
     if (state.selectedTypeId) packet.y = state.selectedTypeId;
     if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
+    const overloadSelector = selectedOverloadSelector();
+    if (overloadSelector) packet.d = overloadSelector;
     if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
   }
   return base64UrlEncode(JSON.stringify(packet));
@@ -355,7 +379,7 @@ function decodeShareState(value) {
     const raw = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
     if (Array.isArray(raw)) {
-      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, overloadSelector: null, section: null, library: null };
     }
     if (raw && Array.isArray(raw.t)) {
       return {
@@ -366,6 +390,7 @@ function decodeShareState(value) {
         type: raw.y != null ? String(raw.y) : null,
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
+        overloadSelector: raw.d != null ? String(raw.d) : null,
         section: raw.c != null ? String(raw.c) : null,
         library: raw.l != null ? String(raw.l) : null
       };
@@ -401,6 +426,7 @@ function parseLocation() {
   let type = params.get("type");
   let member = params.get("member");
   let overload = params.get("overload");
+  let overloadSelector = params.get("overloadSelector");
   let section = params.get("section");
   let viewToken = location.hash.slice(1);
   let tabs = [];
@@ -418,6 +444,7 @@ function parseLocation() {
       type = share.type;
       member = share.member;
       overload = share.overload;
+      overloadSelector = share.overloadSelector;
       section = share.section;
       library = share.library;
     } else {
@@ -436,6 +463,7 @@ function parseLocation() {
     type,
     member,
     overload,
+    overloadSelector,
     section,
     lens: view.lens,
     atPackageRoot: view.atPackageRoot,
@@ -468,6 +496,7 @@ let pendingDeepLink = {
   type: initialLocation.type,
   member: initialLocation.member,
   overload: initialLocation.overload,
+  overloadSelector: initialLocation.overloadSelector,
   section: initialLocation.section
 };
 
@@ -637,6 +666,14 @@ function accessBucket(access) {
   return "public";
 }
 
+function revealType(type) {
+  const bucket = accessBucket(type?.accessibility);
+  if (state.accessibilityFilter.has(bucket)) return;
+  const next = new Set(state.accessibilityFilter);
+  next.add(bucket);
+  state.accessibilityFilter = next;
+}
+
 function memberAccessBucket(member) {
   return accessBucket(member?.accessibility);
 }
@@ -653,16 +690,27 @@ function memberAccessibilityBuckets(type) {
 }
 
 function toggleMemberAccessibilityChip(bucket) {
+  const type = selectedType();
+  const overloadSelector = selectedOverloadSelector(type);
   const next = new Set(state.memberAccessibilityFilter);
   if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
   if (next.size === 0) next.add("public");
   state.memberAccessibilityFilter = next;
 
-  const type = selectedType();
-  if (state.selectedMemberKey && !selectedMember(type)) {
+  const group = selectedMember(type);
+  if (state.selectedMemberKey && !group) {
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
     resetMemberSectionState();
+  } else if (overloadSelector) {
+    const index = group.overloads.findIndex(overload => overload.stableSelector === overloadSelector);
+    if (index >= 0) {
+      state.selectedOverloadIndex = group.overloads.length > 1 ? index : null;
+    } else {
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
+    }
   }
 }
 
@@ -784,6 +832,13 @@ function memberGroups(type, includeHidden = false) {
 
 function selectedMember(type) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
+}
+
+function selectedOverloadSelector(type = selectedType()) {
+  const group = selectedMember(type);
+  if (!group) return null;
+  const index = state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : null);
+  return index == null ? null : group.overloads[index]?.stableSelector ?? null;
 }
 
 // Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
@@ -2833,14 +2888,16 @@ function drillToPerfMember(token) {
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
+  revealType(targetType);
   state.namespaceFilter = "";
   state.memberKindFilter = "all";
   state.memberAccessibilityFilter = new Set(["public"]);
   state.lens = "api";
   const key = `${member.kind}:${member.name}`;
   state.selectedMemberKey = key;
-  const group = memberGroups(targetType, true).find(candidate => candidate.key === key);
-  revealMember(member);
+  const fullGroup = memberGroups(targetType, true).find(candidate => candidate.key === key);
+  revealMemberGroup(fullGroup);
+  const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
     ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
     : -1;
@@ -3024,6 +3081,10 @@ function renderMember(type, member) {
   }
   const overloadIndex = state.selectedOverloadIndex ?? 0;
   const overload = member.overloads[overloadIndex];
+  if (!overload) {
+    state.selectedOverloadIndex = null;
+    return renderMember(type, member);
+  }
   let content;
   if (state.memberSection === "overview") {
     const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
@@ -3463,11 +3524,14 @@ function highlightCSharp(value) {
 function bindEvents() {
   document.querySelectorAll("[data-package]").forEach(button => button.addEventListener("click", () => {
     state.package = state.packages.find(item => item.id === button.dataset.package);
-    state.selectedTypeId = state.package.types[0].id;
-    state.selectedMemberKey = "";
+    state.accessibilityFilter = new Set(["public"]);
+    state.memberAccessibilityFilter = new Set(["public"]);
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.selectedTypeId = filteredTypes()[0]?.id || "";
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
     render();
   }));
   document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
@@ -4840,8 +4904,11 @@ function pickSpotlightMember(result) {
   state.package = pkg;
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
+  revealType(type);
   state.lens = "api";
   state.selectedMemberKey = result.memberKey;
+  const group = memberGroups(type, true).find(item => item.key === result.memberKey);
+  revealMemberGroup(group);
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -4866,6 +4933,7 @@ function pickSpotlight(pkgId, typeId) {
   state.package = pkg;
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
+  revealType(type);
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
@@ -5057,6 +5125,7 @@ function executeCommand() {
       || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
       state.selectedTypeId = match.id;
+      revealType(match);
       state.selectedMemberKey = "";
     }
   } else if (verb === "show") {
@@ -5142,22 +5211,32 @@ function applyDeepLink(deep) {
   const pkg = state.package;
   if (!pkg) return;
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
-  state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
+  const defaultType = pkg.types.find(item => accessBucket(item.accessibility) === "public");
+  state.selectedTypeId = restoreType ? deep.type : (defaultType?.id || pkg.types[0]?.id || "");
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
+  state.accessibilityFilter = new Set(["public"]);
   state.memberAccessibilityFilter = new Set(["public"]);
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
+    revealType(type);
     const groups = memberGroups(type, true);
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
       revealMemberGroup(group);
       state.selectedMemberKey = deep.member;
+      const visibleGroup = selectedMember(type);
+      const selectorIndex = deep.overloadSelector && visibleGroup
+        ? visibleGroup.overloads.findIndex(overload => overload.stableSelector === deep.overloadSelector)
+        : -1;
       const overloadIndex = Number(deep.overload);
-      if (deep.overload != null && deep.overload !== ""
+      if (selectorIndex >= 0) {
+        state.selectedOverloadIndex = visibleGroup.overloads.length > 1 ? selectorIndex : null;
+      } else if (deep.overload != null && deep.overload !== ""
         && Number.isInteger(overloadIndex) && overloadIndex >= 0
-        && overloadIndex < group.overloads.length) {
+        && overloadIndex < visibleGroup.overloads.length
+        && new Set(group.overloads.map(memberAccessBucket)).size === 1) {
         state.selectedOverloadIndex = overloadIndex;
       }
       if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
@@ -6482,7 +6561,8 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
-  revealMember(group.overloads[overloadIndex ?? 0] ?? group.overloads[0]);
+  revealType(type);
+  revealMemberGroup(group);
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
   state.memberSection = "call-graph";
@@ -7002,6 +7082,7 @@ function navigateToMember(pkg, type, group) {
   state.package = pkg;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  revealType(type);
   revealMemberGroup(group);
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = null;
@@ -7094,7 +7175,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
       assemblies: result.assemblies ?? [],
       types,
-      totalTypes: types.filter(type => accessBucket(type.accessibility) === "public").length,
+      totalTypes: (result.assemblies ?? []).reduce((sum, assembly) => sum + assembly.publicTypes, 0),
       totalMembers: result.totalMembers,
       documents: result.documents ?? []
     };
