@@ -177,21 +177,55 @@ public class HttpClientFactoryTests : IDisposable
     /// Gates the precondition stated on <c>Initialize</c>. Both of its parameters are consumed
     /// in <c>CreateNew</c>, so a call made once <c>Shared</c> exists governs the next client
     /// built and leaves the cached one alone. Documented rather than fixed: resetting the cache
-    /// on every call would discard a client that may be mid-request, and the CLI never hits it
-    /// because <c>Program.cs</c> initializes before any command runs.
+    /// on every call would discard a client that may be mid-request and disturb the
+    /// authentication decorator wiring, and the CLI never hits it because <c>Program.cs</c>
+    /// initializes before any command runs.
     /// </summary>
+    /// <remarks>
+    /// Both parameters are asserted, not just the timeout. An earlier version of this test
+    /// passed <c>offline: false</c> throughout, so making the offline flag a per-request check
+    /// left it green while breaking the very claim it was named as the gate for. The requests
+    /// go to a closed loopback port, so an online client is refused at the socket and an
+    /// offline one is short-circuited before it gets there.
+    /// </remarks>
     [Fact]
-    public void Initialize_OnceSharedExists_GovernsOnlyLaterClients()
+    public async Task Initialize_OnceSharedExists_GovernsOnlyLaterClients()
     {
+        const string ClosedPort = "http://127.0.0.1:1/";
+
         DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(45));
         var shared = DotnetInspector.Core.HttpClientFactory.Shared;
         Assert.Equal(TimeSpan.FromSeconds(45), shared.Timeout);
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(9));
+        DotnetInspector.Core.HttpClientFactory.Initialize(offline: true, defaultTimeout: TimeSpan.FromSeconds(9));
 
+        // The cached client keeps the instance, the timeout, and the handler chain it was
+        // built with. Reaching the socket and being refused is what proves it is still online.
         Assert.Same(shared, DotnetInspector.Core.HttpClientFactory.Shared);
         Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Core.HttpClientFactory.Shared.Timeout);
-        Assert.Equal(TimeSpan.FromSeconds(9), DotnetInspector.Core.HttpClientFactory.CreateNew().Timeout);
+        Assert.Null(FindOffline(await Record.ExceptionAsync(() => shared.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
+
+        // The same call does govern the next client built.
+        var later = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        Assert.Equal(TimeSpan.FromSeconds(9), later.Timeout);
+        Assert.NotNull(FindOffline(await Record.ExceptionAsync(() => later.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
+    }
+
+    /// <summary>
+    /// Walks the inner-exception chain, because <c>HttpClient</c> is free to wrap whatever the
+    /// handler pipeline throws and asserting on the outermost type would be brittle.
+    /// </summary>
+    private static OfflineException? FindOffline(Exception? exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OfflineException offline)
+            {
+                return offline;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
