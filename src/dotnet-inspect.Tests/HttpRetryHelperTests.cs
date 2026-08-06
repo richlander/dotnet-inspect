@@ -145,11 +145,15 @@ public class HttpRetryHelperTests
     }
 
     [Theory]
-    [InlineData(RetryFailureMode.NonRetryableStatus, "https://user:sup3rs3cret@private.example/v3/index.json")]
-    [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret")]
-    [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json")]
-    [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret")]
-    public async Task FailureLogsRedactTheUrlOnEveryBranch(RetryFailureMode mode, string url)
+    [InlineData(RetryFailureMode.NonRetryableStatus, "https://user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret", "503 (retryable)", true)]
+    [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "Socket error", true)]
+    [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret", "request timeout", true)]
+    public async Task FailureLogsRedactTheUrlOnEveryBranch(
+        RetryFailureMode mode,
+        string url,
+        string branchMessage,
+        bool exhaustsRetries)
     {
         var messages = new List<string>();
         using var client = new HttpClient(new FailureHandler(mode));
@@ -163,6 +167,11 @@ public class HttpRetryHelperTests
 
         Assert.Null(content);
         Assert.NotEmpty(messages);
+        Assert.Contains(messages, message =>
+            message.Contains(branchMessage, StringComparison.Ordinal));
+        Assert.Equal(
+            exhaustsRetries,
+            messages.Any(message => message.Contains("Max retries", StringComparison.Ordinal)));
         Assert.DoesNotContain(messages, message =>
             message.Contains("sup3rs3cret", StringComparison.Ordinal));
         Assert.Contains(messages, message =>
