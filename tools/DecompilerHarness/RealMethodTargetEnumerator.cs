@@ -112,11 +112,7 @@ static class RealMethodTargetEnumerator
                     continue;
 
                 int parameterCount = ParameterCount(reader, typeDef, method);
-                string? signature = ReturnToSender.UniqueSourceCorrelationSignature(
-                    reader,
-                    typeHandle,
-                    methodName,
-                    methodHandle);
+                string? signature = ResolveUniqueSignature(reader, typeDef, methodName, methodHandle);
                 IlDifficulty difficulty = ComputeDifficulty(pe, reader, typeDef, method);
 
                 targets.Add(new RealMethodTarget(
@@ -171,6 +167,30 @@ static class RealMethodTargetEnumerator
         {
             return method.GetParameters().Count;
         }
+    }
+
+    static string? ResolveUniqueSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        string methodName,
+        MethodDefinitionHandle methodHandle)
+    {
+        string? signature;
+        try
+        {
+            signature = SignatureIdentity.ForMetadataMethod(reader, typeDef, methodHandle);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+
+        if (signature is null)
+            return null;
+
+        return ReturnToSender.ResolvesUniquelyBySignature(reader, typeDef, methodName, signature, methodHandle)
+            ? signature
+            : null;
     }
 
     static IlDifficulty ComputeDifficulty(
