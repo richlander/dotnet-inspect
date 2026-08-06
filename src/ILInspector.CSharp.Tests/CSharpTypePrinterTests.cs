@@ -721,7 +721,62 @@ public sealed class CSharpTypePrinterTests
         var result = _printer.Print(new CSharpTypePrintRequest(type));
 
         Assert.Contains("using System.Threading.Tasks;", result.Source, StringComparison.Ordinal);
+        Assert.Equal(["System.Threading.Tasks"], result.Usings);
         Assert.Contains("public Task Run();", result.Units[0].Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullMemberUsesBareTypesBackedByNamespaceSet()
+    {
+        var type = CreateEmptyType("Samples", "FieldWriter");
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter { Type = "System.IO.TextWriter", Name = "writer" },
+                    new ApiParameter { Type = "Markout.Formatting.IFieldFormatter", Name = "formatter" },
+                    new ApiParameter
+                    {
+                        Type = "Markout.MarkoutWriterOptions?",
+                        Name = "options",
+                        HasDefault = true,
+                        DefaultValueText = "null"
+                    }
+                ]
+            }
+        };
+        type.Members.Add(constructor);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides:
+            [
+                new CSharpMemberPolicy(
+                    constructor,
+                    CSharpBodyPolicy.Full,
+                    new CSharpBlockBody(
+                        """
+                        this.writer = writer;
+                        this.formatter = formatter;
+                        _options = options ?? new MarkoutWriterOptions();
+                        """))
+            ]));
+
+        Assert.Equal(
+            ["Markout", "Markout.Formatting", "System.IO"],
+            result.Usings);
+        Assert.Contains(
+            "public FieldWriter(TextWriter writer, IFieldFormatter formatter, MarkoutWriterOptions? options = null)",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "using Markout;\nusing Markout.Formatting;\nusing System.IO;\n",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -763,6 +818,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.DoesNotContain("using Alpha;", result.Source, StringComparison.Ordinal);
         Assert.DoesNotContain("using Beta;", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Usings);
         Assert.Contains(
             "public Alpha.Widget Convert(Beta.Widget value);",
             result.Units[0].Source,

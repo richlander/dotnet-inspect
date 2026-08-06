@@ -48,6 +48,9 @@ public sealed class CSharpTypePrinter
         }
 
         var derivedUsings = ComputeDerivedUsings(preparedTypes, options);
+        var effectiveUsings = options.IncludeUsings
+            ? options.Usings.Concat(derivedUsings).ToImmutableSortedSet(StringComparer.Ordinal)
+            : ImmutableSortedSet.Create<string>(StringComparer.Ordinal);
 
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
@@ -70,8 +73,9 @@ public sealed class CSharpTypePrinter
         var unitList = units.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
+            effectiveUsings,
             diagnostics.ToImmutable(),
-            () => ComposeSource(unitList, derivedUsings, options));
+            () => ComposeSource(unitList, effectiveUsings, options));
     }
 
     /// <summary>
@@ -108,7 +112,7 @@ public sealed class CSharpTypePrinter
 
     static string ComposeSource(
         ImmutableArray<CSharpTypeSourceUnit> units,
-        IReadOnlyList<string> derivedUsings,
+        ImmutableSortedSet<string> usings,
         CSharpTypePrintOptions options)
     {
         var sb = new System.Text.StringBuilder();
@@ -118,11 +122,8 @@ public sealed class CSharpTypePrinter
             sb.AppendLf($"[assembly: {attribute}]");
         foreach (var attribute in options.ModuleAttributes)
             sb.AppendLf($"[module: {attribute}]");
-        if (options.IncludeUsings)
-        {
-            foreach (var ns in options.Usings.Concat(derivedUsings).Select(CSharpFormatter.EscapeNamespace).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                sb.AppendLf($"using {ns};");
-        }
+        foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace))
+            sb.AppendLf($"using {ns};");
         foreach (var unit in units)
             sb.AppendLf(unit.Source);
 

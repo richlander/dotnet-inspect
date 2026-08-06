@@ -295,16 +295,28 @@ public sealed record CSharpTypePrintResult
 
     public CSharpTypePrintResult(
         ImmutableArray<CSharpTypeSourceUnit> units,
+        ImmutableSortedSet<string> usings,
         ImmutableArray<CSharpTypePrintDiagnostic> diagnostics,
         Func<string> sourceFactory)
     {
+        ArgumentNullException.ThrowIfNull(usings);
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
+        Usings = usings;
         Diagnostics = diagnostics;
         _source = new Lazy<string>(sourceFactory);
     }
 
     public ImmutableArray<CSharpTypeSourceUnit> Units { get; }
+
+    /// <summary>
+    /// The raw namespace names required by the shortened references in
+    /// <see cref="Units"/>, plus any namespaces explicitly supplied in
+    /// <see cref="CSharpTypePrintOptions.Usings"/>. Values are de-duplicated and
+    /// ordinal-sorted namespace identities, not rendered <c>using ...;</c> lines.
+    /// Empty when using emission is disabled.
+    /// </summary>
+    public ImmutableSortedSet<string> Usings { get; }
 
     public ImmutableArray<CSharpTypePrintDiagnostic> Diagnostics { get; }
 
@@ -320,8 +332,9 @@ public sealed record CSharpTypePrintResult
     public bool Equals(CSharpTypePrintResult? other)
         => other is not null
             && Units.SequenceEqual(other.Units)
+            && Usings.SetEquals(other.Usings)
             && Diagnostics.SequenceEqual(other.Diagnostics);
 
     public override int GetHashCode()
-        => HashCode.Combine(Units.Length, Diagnostics.Length);
+        => HashCode.Combine(Units.Length, Usings.Count, Diagnostics.Length);
 }
