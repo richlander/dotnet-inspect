@@ -201,9 +201,13 @@ public class HttpClientFactoryTests : IDisposable
 
         // The cached client keeps the instance, the timeout, and the handler chain it was
         // built with. Reaching the socket and being refused is what proves it is still online.
+        // The failure is asserted to exist as well as to not be offline, since an assertion
+        // only that it is not offline would also pass if no request had been made at all.
         Assert.Same(shared, DotnetInspector.Core.HttpClientFactory.Shared);
         Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Core.HttpClientFactory.Shared.Timeout);
-        Assert.Null(FindOffline(await Record.ExceptionAsync(() => shared.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
+        var cachedFailure = await Record.ExceptionAsync(() => shared.GetAsync(ClosedPort, TestContext.Current.CancellationToken));
+        Assert.NotNull(cachedFailure);
+        Assert.Null(FindOffline(cachedFailure));
 
         // The same call does govern the next client built.
         var later = DotnetInspector.Core.HttpClientFactory.CreateNew();
