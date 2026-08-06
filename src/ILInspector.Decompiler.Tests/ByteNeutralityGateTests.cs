@@ -66,6 +66,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </para>
 /// </summary>
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public sealed class ByteNeutralityGateTests
 {
     static string AssemblyPath => typeof(ByteNeutralityGateTests).Assembly.Location;
