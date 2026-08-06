@@ -56,4 +56,28 @@ namespace Target
     {
         public static T Echo<T>(T value) => value;
     }
+
+    public interface IBodilessApi
+    {
+        void Invoke();
+    }
+
+    public sealed class VarargArg
+    {
+    }
+
+    public static class VarargApi
+    {
+        public static VarargArg Sink(
+            VarargArg required,
+            __arglist) =>
+            required;
+
+        public static VarargArg Sink(
+            VarargArg required,
+            VarargArg second,
+            VarargArg third,
+            __arglist) =>
+            required;
+    }
 }

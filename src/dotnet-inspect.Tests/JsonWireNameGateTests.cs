@@ -27,7 +27,7 @@ public class JsonWireNameGateTests
     [
         typeof(DotnetInspector.JsonContext).Assembly,
         typeof(DotnetInspector.Services.DepsJsonParser).Assembly,
-        typeof(ILInspector.Metadata.SourceDocumentPath).Assembly,
+        typeof(ILInspector.SourceLink.SourceLinkService).Assembly,
     ];
 
     /// <summary>Every concrete generated context in the product, discovered rather than listed.</summary>

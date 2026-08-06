@@ -43,5 +43,15 @@ namespace Shared
         public static void UseBox2() => new Target.Box<int, string>().Store(1);
 
         public static void UseEcho() => Target.GenericApi.Echo(1);
+
+        public static void CallBodiless(Target.IBodilessApi target) =>
+            target.Invoke();
+
+        public static void UseVararg() =>
+            Target.VarargApi.Sink(
+                new Target.VarargArg(),
+                __arglist(
+                    new Target.VarargArg(),
+                    new Target.VarargArg()));
     }
 }

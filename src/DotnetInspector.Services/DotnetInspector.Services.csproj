@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="ILInspector.SourceLink" />
     <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
@@ -21,9 +22,11 @@
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="../ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../ILInspector.Text/ILInspector.Text.csproj" />
     <ProjectReference Include="../DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <ProjectReference Include="../DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="../InertText/InertText.csproj" />
   </ItemGroup>
 
   <ItemGroup>

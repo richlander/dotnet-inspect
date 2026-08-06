@@ -816,24 +816,26 @@ internal static class CSharpDeclarationWriter
             : AppendTypeParameterConstraints(declaration, typeParameters);
 
     /// <summary>
-    /// Restates only what C# permits on a member that inherits its constraints: the
-    /// bare <c>class</c> or <c>struct</c> keyword. The annotated <c>class?</c> form is
-    /// itself CS0460, and <c>unmanaged</c> is a value-type constraint, so both are
-    /// reduced to the legal spelling that preserves how <c>T?</c> binds.
+    /// Restates what C# permits on a member that inherits its constraints. The
+    /// inherited constraints themselves may not be repeated -- that is CS0460 -- but
+    /// exactly one fact about each type parameter must be, because it decides whether
+    /// <c>T?</c> in the signature binds as a nullable reference type or as
+    /// Nullable&lt;T&gt;: whether the parameter is known to be a reference type
+    /// (<c>class</c>), known to be a value type (<c>struct</c>), or neither
+    /// (<c>default</c>).
     /// </summary>
     /// <remarks>
     /// Every clause emitted here was compiled against csc as a restatement on an
     /// override, and the reduction is gated by
-    /// <c>OverrideGenericMethod_RestatesOnlyTheConstraintCSharpAllows</c> plus the two
-    /// real-artifact canaries in <c>ApiOutputFormatterTests</c>. What is emitted is
-    /// therefore correct, but it is knowingly *incomplete*: a base constraint that is
-    /// not one of these keywords — <c>notnull</c>, a named class or interface type, or
-    /// no constraint at all — also needs a restatement (<c>class</c> or <c>default</c>,
-    /// per the table in issue #3721) once the signature spells <c>T?</c>, and none is
-    /// emitted for it. Deciding those rows needs a reference-/value-type fact about the
-    /// constraint type that <see cref="TypeParameter"/> does not carry and that Metadata
-    /// rather than this layer must own, so it is tracked as #3721 rather than guessed at
-    /// here. Those cases render exactly as they did before this reduction existed.
+    /// <c>OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires</c> plus the
+    /// real-artifact canaries in <c>ApiOutputFormatterTests</c>. Note that the fact
+    /// cannot be recovered from the constraint spelling: <c>System.Enum</c> is a class
+    /// yet requires <c>default</c>, while any other named class requires <c>class</c>,
+    /// so a name-based guess gets that row backwards. <see cref="TypeParameter.TypeKind"/>
+    /// carries the classified answer instead, decided in Metadata where the constraint
+    /// type can actually be resolved. When Metadata could not classify it the clause is
+    /// omitted, which renders exactly as this member did before the rule existed --
+    /// guessing would be CS8822 or CS8665 rather than merely incomplete.
     /// </remarks>
     static string AppendInheritedConstraintRestatement(
         string declaration,
@@ -851,33 +853,29 @@ internal static class CSharpDeclarationWriter
     }
 
     /// <summary>
-    /// The single keyword an inheriting member may restate for one type parameter, or
-    /// null when it has no reference- or value-type constraint to restate. Reads
-    /// <see cref="TypeParameter.StructuredConstraints"/> when the producer populated
-    /// it, so a constraint *type* literally named <c>class</c> is never mistaken for
-    /// the keyword.
+    /// The single keyword an inheriting member must restate for one type parameter, or
+    /// null when Metadata could not classify it and no clause can be emitted safely.
     /// </summary>
     static string? RestatableConstraint(TypeParameter typeParameter)
-    {
-        var keywords = typeParameter.StructuredConstraints is { } structured
-            ? structured.Where(constraint => !constraint.IsTypeName).Select(constraint => constraint.Value)
-            : typeParameter.Constraints.Where(s_specialConstraintKeywords.Contains);
-
-        string? keyword = null;
-        foreach (var candidate in keywords)
+        => typeParameter.TypeKind switch
         {
-            switch (candidate)
-            {
-                case "class" or "class?":
-                    return "class";
-                case "struct" or "unmanaged":
-                    keyword = "struct";
-                    break;
-            }
-        }
+            // The bare keyword, never the annotated `class?` metadata records: the
+            // annotated form is itself CS0460 here.
+            TypeParameterTypeKind.ReferenceType => "class",
+            TypeParameterTypeKind.ValueType => "struct",
 
-        return keyword;
-    }
+            // Nothing is proven about T, so `T?` in the signature would bind to
+            // Nullable<T> unless the override says otherwise. `default` is the only
+            // spelling that says it, and it is legal only on a member that inherits its
+            // constraints -- which is the only place this runs.
+            TypeParameterTypeKind.NeitherReferenceNorValue => "default",
+
+            // A constraint type this assembly could not classify. Both concrete answers
+            // are compile errors when guessed wrong (CS8822 restating `default` against
+            // a reference type, CS8665 restating `class` against System.Enum), so the
+            // clause is omitted and the render stays as it was before #3721.
+            _ => null,
+        };
 
     static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
     {

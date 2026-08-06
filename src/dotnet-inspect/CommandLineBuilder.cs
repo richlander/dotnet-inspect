@@ -102,6 +102,11 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
+        catch (DotnetInspector.Services.NuspecParseException ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             return 1;
@@ -183,7 +188,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand));
+        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));

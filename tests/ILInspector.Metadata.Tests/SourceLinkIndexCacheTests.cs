@@ -81,8 +81,8 @@ public class SourceLinkIndexCacheTests
     public void TwoAssembliesFromOneOrigin_DoNotShareACachedTypeIndex()
     {
         string fetchPath = typeof(SLF.SourceLinkResolver).Assembly.Location;
-        string metadataPath = typeof(SourceLinkService).Assembly.Location;
-        Assert.NotEqual(fetchPath, metadataPath);
+        string sourceLinkPath = typeof(SourceLinkService).Assembly.Location;
+        Assert.NotEqual(fetchPath, sourceLinkPath);
 
         var shared = new RecordingIndexCache();
 
@@ -90,21 +90,42 @@ public class SourceLinkIndexCacheTests
         using (var first = SourceLinkService.Open(fetchPath, null, shared))
             fromFetch = first.GetTrackedFilesForType("SourceLinkResolver");
 
-        string[] fromMetadata;
-        using (var second = SourceLinkService.Open(metadataPath, null, shared))
-            fromMetadata = second.GetTrackedFilesForType("SourceLinkResolver");
+        string[] fromSourceLink;
+        using (var second = SourceLinkService.Open(sourceLinkPath, null, shared))
+            fromSourceLink = second.GetTrackedFilesForType("SourceLinkResolver");
 
         // Non-vacuity: both assemblies really do declare the type, so an empty result would mean
         // the probe stopped exercising the collision rather than that the collision is gone.
         Assert.NotEmpty(fromFetch);
-        Assert.NotEmpty(fromMetadata);
+        Assert.NotEmpty(fromSourceLink);
 
         Assert.Contains(fromFetch, f => f.Replace('\\', '/').Contains("/SourceLinkFetch/"));
-        Assert.Contains(fromMetadata, f => f.Replace('\\', '/').Contains("/ILInspector.Metadata/"));
-        Assert.DoesNotContain(fromMetadata, f => f.Replace('\\', '/').Contains("/SourceLinkFetch/"));
+        Assert.Contains(fromSourceLink, f => f.Replace('\\', '/').Contains("/ILInspector.SourceLink/"));
+        Assert.DoesNotContain(fromSourceLink, f => f.Replace('\\', '/').Contains("/SourceLinkFetch/"));
 
         // And when keys were formed at all, the two assemblies formed different ones.
         Assert.True(shared.Keys.Count is 0 or 2, $"expected 0 or 2 keys, saw {shared.Keys.Count}");
+    }
+
+    [Fact]
+    public void PdbLoadedThroughContext_InvalidatesServiceState()
+    {
+        string assemblyPath = typeof(SourceLinkIndexCacheTests).Assembly.Location;
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        Assert.True(File.Exists(pdbPath));
+
+        using var source = SourceLinkService.Open(assemblyPath);
+        var first = source.GetTrackedFiles();
+        int version = source.Context.PdbVersion;
+
+        source.Context.LoadPdbFromFile(pdbPath);
+
+        Assert.True(source.Context.PdbVersion > version);
+        var second = source.GetTrackedFiles();
+        Assert.NotSame(first, second);
+        Assert.Equal(
+            first.Select(static document => document.FilePath),
+            second.Select(static document => document.FilePath));
     }
 
     private sealed class RecordingIndexCache : ISourceLinkIndexCache

@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -88,6 +89,7 @@ public static class TypeOptionsParser
         var projectPath = parseResult.GetValue(args.ProjectOption);
         bool hasProjectSource = !string.IsNullOrWhiteSpace(projectPath);
         bool hasNonProjectSource = sourceInputs.HasExplicitSource;
+        var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
 
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && !hasProjectSource)
@@ -99,6 +101,10 @@ public static class TypeOptionsParser
 
         if (hasProjectSource && hasNonProjectSource)
             return new VersionError("--project cannot be combined with --package, --library, or --platform.");
+
+        IReadOnlyList<string> sourceKeys = hasProjectSource
+            ? []
+            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
 
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
@@ -128,7 +134,7 @@ public static class TypeOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
             source = sourceSelection.Source;
         }
 
@@ -211,7 +217,7 @@ public static class TypeOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+            SourceOptions = sourceOptions
         });
 
         options = options with

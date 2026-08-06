@@ -1375,8 +1375,8 @@ public class LibraryViewShapeDerivedContainmentTests
     /// repository draws. Tracked in #3463.
     /// </description></item>
     /// <item><description>
-    /// <c>TypeRef</c> has no public constructor; it is factory-built from
-    /// metadata handles.
+    /// <c>TypeRef</c> and <c>MetadataTypeDefinitionName</c> have no public
+    /// constructors; they are factory-built from metadata relationships.
     /// </description></item>
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
@@ -1393,6 +1393,7 @@ public class LibraryViewShapeDerivedContainmentTests
     private static readonly string[] OutOfReach =
     [
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
+        "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "LibraryInspection.AI (List`1): computed projection still null after the walk",
         "LibraryInspection.AspNetCore (List`1): computed projection still null after the walk",
         "LibraryInspection.Aspire (List`1): computed projection still null after the walk",
@@ -1423,6 +1424,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "MemberRef.ReturnType (TypeRef): no public constructor",
         "MethodIdentity.DeclaringType (TypeRef): no public constructor",
         "MethodIdentity.ReturnType (TypeRef): no public constructor",
+        "TypeForwarder.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "TypeParameter.DisplayName (String): string with no setter",
     ];
 

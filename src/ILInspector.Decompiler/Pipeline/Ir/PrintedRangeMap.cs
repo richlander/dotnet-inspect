@@ -1,4 +1,5 @@
 using System.Collections;
+using ILInspector.Decompiler;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -9,6 +10,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Always a non-empty slice — see <see cref="PrintedRangeMap"/>.
 /// </summary>
 public readonly record struct PrintedRange(IrNode Node, Range Characters);
+
+/// <summary>A named printed region while it is still bound to absolute character offsets.</summary>
+internal readonly record struct BoundPrintedRegion(PrintedRegionRole Role, Range Characters);
 
 /// <summary>
 /// Which characters of the printer's own output each IR node emitted, recorded
@@ -22,6 +26,11 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// enumerates, in the tradition of <see cref="IReadOnlyDictionary{K, V}"/> and
 /// <c>ILookup</c>: annotation anchoring walks the parent chain doing keyed
 /// lookups, while the correlation seams enumerate to build line tables.
+/// </para>
+/// <para>
+/// Named construct and clause regions are recorded in a separate channel.
+/// They carry no <see cref="IrNode"/> identity and do not participate in this
+/// list's count, index, or descendants-before-ancestors enumeration contract.
 /// </para>
 /// <para>
 /// Enumeration order promises exactly one thing: <em>every node follows all of
@@ -123,6 +132,7 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     public static PrintedRangeMap Empty { get; } = new();
 
     readonly List<PrintedRange> _ranges = [];
+    readonly List<BoundPrintedRegion> _printedRegions = [];
     readonly Dictionary<IrNode, int> _index = [];
     readonly Dictionary<IrNode, int> _insertionPoints = [];
     int[]? _lineStarts;
@@ -133,6 +143,9 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     public int Count => _ranges.Count;
 
     public PrintedRange this[int index] => _ranges[index];
+
+    /// <summary>Named regions recorded directly by the printer.</summary>
+    internal IReadOnlyList<BoundPrintedRegion> PrintedRegions => _printedRegions;
 
     /// <summary>Struct enumerator, so <c>foreach</c> over this map allocates nothing.</summary>
     public List<PrintedRange>.Enumerator GetEnumerator() => _ranges.GetEnumerator();
@@ -219,6 +232,16 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     }
 
     /// <summary>
+    /// Records one named syntactic region at the exact character offsets where
+    /// the printer emitted it.
+    /// </summary>
+    internal void RecordRegion(PrintedRegionRole role, int start, int end)
+    {
+        if (end > start)
+            _printedRegions.Add(new BoundPrintedRegion(role, start..end));
+    }
+
+    /// <summary>
     /// Binds the text the ranges were measured against, so a range and the
     /// string it indexes always travel together.
     /// </summary>
@@ -239,9 +262,51 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     }
 
     /// <summary>
-    /// Where <paramref name="node"/>'s characters sit in text coordinates: the
-    /// 0-based <paramref name="line"/>, the 0-based <paramref name="column"/>
-    /// within it, and the <paramref name="length"/> in characters.
+    /// Where <paramref name="node"/>'s characters sit in text coordinates.
+    /// The end position is exclusive and may be on a later line.
+    /// </summary>
+    public bool TryGetExtent(IrNode node, out PrintedExtent extent)
+    {
+        if (TryGetRange(node, out var range))
+            return TryGetExtent(range, out extent);
+        extent = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Projects an absolute character range into portable, end-exclusive text
+    /// coordinates.
+    /// </summary>
+    internal bool TryGetExtent(Range range, out PrintedExtent extent)
+    {
+        extent = default;
+        int start = range.Start.GetOffset(Output.Length);
+        int end = range.End.GetOffset(Output.Length);
+
+        // A statement's range runs through the line break appended with it. The
+        // break separates statements; it is not part of the statement's visible
+        // extent. The same normalization applies to named regions recorded
+        // around line-oriented emission.
+        while (end > start && (Output[end - 1] == '\n' || Output[end - 1] == '\r'))
+            end--;
+        if (end == start)
+            return false;
+
+        var starts = _lineStarts ??= BuildLineStarts(Output);
+        int startLine = LineAt(start);
+        int endLine = LineAt(end);
+        extent = new PrintedExtent(
+            startLine,
+            start - starts[startLine],
+            endLine,
+            end - starts[endLine]);
+        return true;
+    }
+
+    /// <summary>
+    /// Where <paramref name="node"/>'s characters sit on one line: the 0-based
+    /// <paramref name="line"/>, the 0-based <paramref name="column"/> within it,
+    /// and the <paramref name="length"/> in characters.
     /// </summary>
     /// <remarks>
     /// This is the projection that lets a range leave the process. A
@@ -259,29 +324,13 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     public bool TryGetLineColumn(IrNode node, out int line, out int column, out int length)
     {
         line = column = length = 0;
-        if (!TryGetRange(node, out var range))
+        if (!TryGetExtent(node, out var extent)
+            || extent.StartLine != extent.EndLine)
             return false;
 
-        int start = range.Start.GetOffset(Output.Length);
-        int end = range.End.GetOffset(Output.Length);
-
-        // A statement's range runs to the end of the line it printed, newline
-        // included, so without this every statement would look like it crossed a
-        // line break and no statement-anchored fact could ever be positioned. The
-        // trailing break is not part of what the node printed on the line.
-        while (end > start && (Output[end - 1] == '\n' || Output[end - 1] == '\r'))
-            end--;
-        if (end == start)
-            return false;
-
-        int startLine = LineAt(start);
-        if (LineAt(end) != startLine)
-            return false;
-
-        var starts = _lineStarts ??= BuildLineStarts(Output);
-        line = startLine;
-        column = start - starts[startLine];
-        length = end - start;
+        line = extent.StartLine;
+        column = extent.StartColumn;
+        length = extent.EndColumn - extent.StartColumn;
         return true;
     }
 

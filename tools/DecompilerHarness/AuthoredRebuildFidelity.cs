@@ -90,12 +90,12 @@ static class AuthoredRebuildFidelity
             using var source = SourceLinkService.Open(assemblyPath);
             await AcquirePdbAsync(source, httpClient);
             var buildContext = AssessBuildContext(
-                AssemblyInspector.InspectDll(assemblyPath).IsDeterministic,
+                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
                 MetadataFindings.InspectCompilationOptions(
-                    source,
+                    source.Context,
                     new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
                 MetadataFindings.InspectCompilationReferences(
-                    source,
+                    source.Context,
                     new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
                 ReturnToSender.CompilationReferences(assemblyPath));
 

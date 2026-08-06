@@ -196,6 +196,9 @@ public static partial class SamplePInvokeClass
 
     [DllImport("kernel32.dll")]
     internal static extern int GetCurrentThreadId();
+
+    public static int CallGetCurrentProcessId() =>
+        GetCurrentProcessId();
 }
 
 /// <summary>

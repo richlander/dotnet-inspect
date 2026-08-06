@@ -119,7 +119,7 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberSources"/>
+    /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberDocuments"/>
     /// supplies the same anchor, line range, and finalizer flag that
     /// <c>AuthoredSourceAcquisition</c> passes to the slicer, so nothing here reconstructs a
     /// range the product would compute differently.
@@ -143,10 +143,10 @@ public class AuthoredSourceValidityTests
 
             using (context)
             {
-                List<MemberSourceInfo> members;
+                List<PdbMemberDocumentInfo> members;
                 try
                 {
-                    members = context.EnumerateMemberSources().ToList();
+                    members = context.EnumerateMemberDocuments().ToList();
                 }
                 catch (BadImageFormatException)
                 {
@@ -301,7 +301,7 @@ public class AuthoredSourceValidityTests
             leaked.Count == 0,
             $"{leaked.Count} slice(s) rendered a type header as member source:\n\n{Report(leaked)}");
 
-        Assert.NotEmpty(slices.Where(s => s.Outcome == SliceOutcome.NotSliceable));
+        Assert.Contains(slices, static s => s.Outcome == SliceOutcome.NotSliceable);
     }
 
     /// <summary>

@@ -119,6 +119,21 @@ public class LibraryInspection
     public bool? IsFacadeAssembly { get; set; }
 
     /// <summary>
+    /// Typed classification evidence for platform assemblies. Presentation
+    /// continues to project the compatible nullable facade field.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    /// <summary>
+    /// Finding projection of <see cref="SurfaceClassification"/> for composed
+    /// inspection and failure reporting.
+    /// </summary>
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
+
+    /// <summary>
     /// File last modified timestamp.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

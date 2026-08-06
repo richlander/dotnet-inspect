@@ -6,15 +6,16 @@
 
 ## Status
 
-Design and staged implementation plan for replacing the current collection of
+Design and staged implementation plan for replacing the former collection of
 type-forwarder helpers and spelling-based caller matching with one structured
 reference-to-definition system.
 
-The first implementation slice provides the structured lookup name, validated
-row tokens, closed declaration outcomes, and bounded single-image metadata
-probe. It migrates no production caller. That boundary follows the
-primitive-first approach used by `InertString` in
-[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish the
+Slices 1 through 4 are implemented: declaration, acquisition, resolution,
+definition consumers, source/API consumers, platform lookup, and facade
+classification now use structured contracts. Direct caller correspondence and
+graph cleanup remain. The delivery continues to follow the primitive-first
+approach used by `InertString` in
+[#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
 ## The problem
@@ -111,10 +112,11 @@ comparison projection.
 
 ### Degradation is data
 
-`PrintedBodyMap` uses an explicit degraded position instead of dropping a fact.
-Forwarder resolution similarly distinguishes absence, unavailable evidence,
-ambiguity, and rejection. None is represented as an ordinary null or an empty
-alias set.
+`PrintedBodyMap` keeps an unplaceable fact and makes its `Extent` explicitly
+nullable instead of dropping the fact or inventing coordinates. Forwarder
+resolution similarly preserves absence, unavailable evidence, ambiguity, and
+rejection as typed outcomes rather than collapsing them to an empty alias set
+or a missing result.
 
 ## Vocabulary
 
@@ -619,6 +621,15 @@ without synthesizing an assembly identity. Policy derives the answer from that
 candidate's acquisition domain. The core-library target remains a distinct
 binding/cache arm even when policy selects the same candidate that an explicit
 `AssemblyRef` would select.
+
+The temporary `IAssemblyReferenceResolver` adapter cannot derive that intrinsic
+answer from its identity-only API and reports `UnsupportedScope`. Decompiler's
+legacy `TypeRef` canonicalization erased which of several explicit core-library
+facade references supplied a type, so its migration seam probes those known
+facade identities as ordered structured reference requests and continues when
+an earlier facade binds but does not declare the requested type. New acquisition
+owners implement the intrinsic policy directly rather than copying that
+compatibility search.
 
 `Module` preserves a decoded `ModuleRef` name and requesting candidate. The
 first engine has no module acquisition policy, so it returns the typed
@@ -1425,6 +1436,7 @@ public abstract class DefinitionCorrespondence
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
     }
+
 }
 
 public sealed class DuplicateArtifactCandidateEvidence
@@ -1483,11 +1495,11 @@ cryptographic identity; two adversarial modules can share an MVID, so the
 address alone must not establish cross-artifact correspondence. The exact
 catalog-local key remains separate.
 
-The address exposes no handle. Metadata owns an internal dereference operation
-that first verifies the MVID, validates that the token denotes a `TypeDef`, and
-checks its row against the target reader's `TypeDef` table before constructing
-a transient handle. No consumer may cast `TypeDefinitionToken.Value` directly
-to a handle.
+The address stores no handle. Its Metadata-owned `TryResolve` operation first
+verifies the MVID, validates that the token denotes a `TypeDef`, and checks its
+row against the target reader's `TypeDef` table before returning a transient
+handle tied to that reader. No consumer may cast `TypeDefinitionToken.Value`
+directly to a handle.
 
 The assembly descriptor and type name are materialized provenance. Stable
 projections may render or persist the descriptor's identity and provenance;
@@ -1946,7 +1958,9 @@ under the inspection catalog:
    indeterminate seed.
 3. Bind assembly references to catalog candidates and build reverse adjacency.
    Every pair is contributed as a binding-only discovery root and frozen before
-   reverse closure begins.
+   reverse closure begins. The command-selected target descriptor is
+   authoritative for an exact reference to its identity; competing non-target
+   scope roots remain ambiguous.
 4. Expand assembly-level forwarding adjacency. For every candidate selected by
    an adjacency edge or resolution root, read its `ExportedType` inventory and
    collect only the `AssemblyRef` targets that terminate valid forwarder
@@ -2077,6 +2091,11 @@ public abstract class TypeCorrespondenceFailure
         public AssemblyCatalogGenerationId Left { get; }
         public AssemblyCatalogGenerationId Right { get; }
     }
+
+    public sealed class IncompleteMetadata : TypeCorrespondenceFailure
+    {
+        internal IncompleteMetadata() { }
+    }
 }
 
 public abstract class CandidateTypeRelation
@@ -2102,6 +2121,11 @@ public abstract class CandidateTypeRelation
     }
 }
 ```
+
+`IncompleteMetadata` retains a candidate whose name inventory could not be
+completed even though the image remained openable. It is separate from
+`Resolution` because no decoder-produced origin exists for a malformed row
+from which to construct a resolution request.
 
 All remaining gates consume projections of this relation:
 
@@ -2134,20 +2158,36 @@ permissiveness rule to keep synchronized with the matcher.
 - a catalog-issued `DefinitionJoinToken` projects an opaque definition key into
   either `Exact` or `IndeterminateDuplicateArtifact`. Tokens are stable only for
   that catalog and are the only hashable definition correspondence values;
-- an optional `CatalogMemberJoinKey` exists when the declaring type
-  and every identity-bearing named type in the open parameter and return
-  signature have a catalog-issued join token;
-- a `DegradedMemberCorrespondenceKey` substitutes a
-  catalog-owned `UnresolvedBindingKey` plus structured type name only for an
-  unavailable named type. The binding key represents the exact cached
+- an optional `CatalogMemberJoinKey` exists when the declaring type and every
+  identity-bearing named type in the open parameter and return signature have
+  either a catalog-issued definition token or an eligible degraded component;
+- a degraded `CatalogTypeShape` leaf substitutes a catalog-owned
+  `UnresolvedBindingKey` plus structured type name only for an unavailable
+  named type. The binding key represents the exact cached
   `(AssemblyBindingDomainKey, AssemblyBindingTarget,
   AssemblyResolutionScope)` request, preserving the complete
   assembly/module/current origin instead of collapsing failures into one
   bucket.
 
+`TypeResolutionOutcome.UnboundBinding` and
+`TypeResolutionOutcome.Unavailable` carry an opaque, non-hashable
+`UnresolvedBindingReference` minted beside the terminal cached binding answer.
+Candidate-open failures remain `Rejected` and never receive that reference.
+`TypeResolutionCatalog.ProjectUnresolvedBindingKey` projects a current
+reference into `UnresolvedBindingKey`; its closed result distinguishes
+`Issued`, `IncomparableCatalogs`, and `StaleGeneration`.
+
 `UnresolvedBindingKey` has the same internal-constructor and generation scope
 as `DefinitionJoinToken`; it cannot survive or compare across a generation
-advance.
+advance. The catalog issues one key for one complete binding request in one
+generation, whether policy authoritatively found no candidate
+(`UnboundBinding`) or could not provide one (`Unavailable`).
+
+`TypeResolutionCatalog.ProjectDefinitionJoinToken` returns a closed
+`DefinitionJoinTokenProjection` result. `Issued` carries the token;
+`IncomparableCatalogs` and `StaleGeneration` preserve why no token can be
+issued. Projection is neither nullable nor exception-shaped for those expected
+catalog-lifetime states.
 
 ```csharp
 public enum DefinitionJoinKind
@@ -2243,17 +2283,63 @@ public sealed class UnresolvedBindingKey : IEquatable<UnresolvedBindingKey>
 }
 ```
 
-The constructor and `(catalog, generation, value)` fields are internal. Equality
-and hashing use that triple plus `Kind`; class-scoped `Evidence` is excluded.
-The catalog returns one token class for every definition correspondence class
-in a frozen generation. Duplicate-artifact tokens deliberately join but retain
-an indeterminate kind; consumers cannot construct an exact token or change an
-issued token's kind.
+The constructors and `(catalog, generation, value)` fields are internal.
+Definition-token equality and hashing use that triple plus `Kind`;
+class-scoped `Evidence` is excluded. Unresolved-binding-key equality and
+hashing use the triple. The catalog returns one token class for every definition
+correspondence class and one unresolved key for every eligible complete binding
+request in a frozen generation. Duplicate-artifact tokens deliberately join but
+retain an indeterminate kind; consumers cannot construct an exact token or
+change an issued token's kind.
 
 Named types nested under generic instances, arrays, byrefs, and pointers use the
 same recursive correspondence projection. Replacing only the declaring
 assembly fragment would leave forwarded parameter and return types stringly and
 is not a migration.
+
+Analysis materializes that recursive work once as a
+`CatalogMemberCorrespondencePlan`. The plan stores the open declaring type,
+method name, member kind, canonical signature header, method generic arity,
+instance/static shape, ordered open parameter shapes, and open return shape. The
+source descriptor supplied to the plan is the descriptor for the image that
+produced the decoded member; a simple-name
+mismatch is rejected as a sanity check, while correct source/member pairing
+remains the caller's acquisition invariant. The plan exposes the distinct
+`TypeResolutionRequest` values needed by those shapes so a graph builder can
+union many plans into one frozen context before projecting any key.
+`TypeResolutionRequestComparer` uses the same structural manifest key as
+`TypeResolutionContext`; plan deduplication and frozen-manifest lookup therefore
+cannot drift.
+
+For a vararg signature, the plan also retains the decoded required-parameter
+count and treats only that open parameter prefix as member identity. Optional
+arguments encoded after the call-site sentinel are invocation data, not part of
+the target member signature. A missing or out-of-range required count produces
+typed incomplete evidence rather than a join key.
+
+An embedded vararg function-pointer shape is different: it is itself a type, so
+its complete parameter list and sentinel position remain identity-bearing. The
+plan retains every embedded parameter as a named leaf or resolution request and
+makes the whole member incomplete when the required-parameter count is out of
+range.
+
+`CatalogMemberCorrespondencePlan.Project` accepts the frozen context, not a
+separately supplied catalog. Resolved named leaves become
+`DefinitionJoinToken` values. `UnboundBinding` and genuine policy
+`Unavailable` leaves become `UnresolvedBindingKey` plus their exact
+`MetadataTypeDefinitionName`. Other resolution outcomes, absent open generic
+signatures, missing decoder provenance, unsupported shapes, malformed or
+over-depth shapes, stale generations, and plan expansion remain closed typed
+failures. A plan-expansion failure carries its `ResolutionPlanRequest` so the
+coordinator can advance the catalog rather than treating the member as absent.
+
+The resulting `CatalogMemberJoinKey` exposes its catalog, generation, and
+`Exact` or `Indeterminate` kind. Its recursive `CatalogTypeShape` can be
+constructed only by Analysis from catalog-issued definition or unresolved
+binding currency. Custom-modifier and function-pointer payloads are retained by
+the decoder for this projection without changing the existing structural
+equality or display of Analysis's `Unsupported` `TypeRef` arm. An ordinary
+unsupported shape still produces typed incomplete evidence.
 
 Graph joins hash only catalog-issued join tokens, never
 `ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
@@ -2264,9 +2350,11 @@ Graph joins hash only catalog-issued join tokens, never
 When both sides have the same degraded key under one catalog and binding scope,
 the graph likewise retains an `IndeterminateCorrespondence` edge and emits
 incomplete-graph evidence; it does not report exact definition correspondence.
-`NotFound`, ambiguous, rejected, or cross-catalog uses do not degraded-join.
-Every non-success remains attached to its storage node, never enters a shared
-unresolved bucket, and never becomes an ordinary "no edge."
+Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
+complete terminal binding request. `NotFound`, ambiguous, rejected, or
+cross-catalog uses do not degraded-join. Every non-success remains attached to
+its storage node, never enters a shared unresolved bucket, and never becomes an
+ordinary "no edge."
 
 Today's graph joins on canonical simple assembly names and therefore merges
 version, culture, token, and several core-library facade spellings. The
@@ -2303,11 +2391,12 @@ Source and API consumers receive `ResolvedAssemblyReference` or
 - `SourceEnricher` and `SourceFileCollector` do not construct sibling paths.
 - `ApiServices.ResolveForwardedTypes` resolves each structured type through the
   engine and opens the returned descriptor.
-- `PlatformResolver.FindLibraryContainingType` becomes a typed platform-catalog
+- The former `PlatformResolver.FindLibraryContainingType` is replaced by a
+  typed platform-catalog
   query. Its trusted ref-pack index returns all defining and forwarding
   candidates deterministically; explicit platform source policy selects one or
   reports ambiguity. It never returns a first-enumerated simple-name string.
-- `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
+- The former `PlatformResolver.IsFacadeOnlyAssembly` moves to a Metadata-owned surface
   classification that consumes typed declaration inventory. Classification is
   not cross-assembly resolution, but Services may not interpret raw forwarder
   rows after the architecture gate lands.
@@ -2492,12 +2581,24 @@ changing their successful results.
 
 ### Slice 4: source and API consumers
 
-- Migrate `PdbContext`, `SourceLinkService`, `SourceEnricher`,
-  `SourceFileCollector`, `ApiServices`, `SourceResolver`,
-  `LibraryMetadataService`, and `RouterCommandDefinition`.
-- Migrate `PlatformResolver.FindLibraryContainingType` to the typed platform
-  catalog and `IsFacadeOnlyAssembly` to Metadata-owned classification.
-- Delete forwarder-target sibling-path construction.
+This slice lands as two independently complete consumer migrations:
+
+- **4a -- descriptor opening and path-sink deletion:** teach `PdbContext` and
+  `SourceLinkService` to open acquisition descriptors through `OpenRead`;
+  migrate `SourceEnricher` and `ApiServices` to exact structured names and
+  resolved descriptors; delete `SourceFileCollector`'s unreachable forwarded
+  fallback and every forwarder-target sibling-path construction.
+- **4b -- platform lookup and classification:** migrate `SourceResolver`,
+  `LibraryMetadataService`, and `RouterCommandDefinition`; replace
+  `PlatformResolver.FindLibraryContainingType` with the typed platform catalog
+  and move `IsFacadeOnlyAssembly` to Metadata-owned classification.
+
+Both 4a and 4b are delivered. The platform catalog retains structured names,
+declaration kind, assembly identity, provenance, and descriptors; its explicit
+policy prefers definitions and reports multiple preferred candidates as
+ambiguity. Surface classification is derived from the same Metadata-produced
+declaration inventory and projects rejection as a failed Finding rather than a
+non-facade answer.
 
 Claim: forwarded source and API resolution consume descriptors and cannot turn
 an inspected assembly name into a path.
@@ -2512,6 +2613,13 @@ an inspected assembly name into a path.
 - Port #3476's real framework fixture and close negative controls.
 - Do not port `ForwardedTypeAliases`.
 
+Slice 5 is delivered. Analysis retains exact decoder-produced origins, one
+reachability plan supplies both caller projections, Metadata owns
+generation-scoped definition correspondence, and final call-site matching
+consumes the plan's per-origin relation. The spelling-based scope filters and
+`MatchesCrossAssembly` have been removed rather than retained as compatibility
+paths.
+
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
@@ -2524,6 +2632,18 @@ definition keys, with no spelling alias model.
 - Remove legacy path, alias, and compatibility helpers.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
+
+Slice 6 is in progress under
+[#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
+currently issues generation-scoped `DefinitionJoinToken` values for exact and
+duplicate-indeterminate TypeDef correspondence classes and
+`UnresolvedBindingKey` values for complete unbound or unavailable binding
+requests. Analysis now materializes one reusable open-signature correspondence
+plan and projects it through one frozen context into a generation-scoped
+`CatalogMemberJoinKey` or typed incomplete evidence. Total graph storage
+identity, `ScopeGraph` migration, unresolved-edge presentation, and
+cache-lifetime binding remain to be delivered together so the storage shape is
+validated by its first consumer rather than added as an unused parallel key.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 
@@ -2546,6 +2666,32 @@ Claim: direct callers and transitive call graphs share one definition identity.
   declaration/resolution cache entry; `!=` returns false.
 - Independently minted equal `DefinitionJoinToken` and
   `UnresolvedBindingKey` values agree across `Equals`, `==`, `!=`, and hashing.
+- Every `DefinitionJoinTokenProjection` arm is produced by a focused gate;
+  cross-catalog and stale keys never receive an `Issued` result.
+- Every `UnresolvedBindingKeyProjection` arm is produced by a focused gate;
+  only `UnboundBinding` and genuine policy `Unavailable` outcomes expose its
+  opaque projection input, and cross-catalog or stale references never receive
+  an `Issued` result.
+- `TypeResolutionRequestComparer` equates exactly the assembly, reference,
+  intrinsic-core-library, and module starts that occupy one frozen manifest
+  entry; requesting registrations and scopes remain identity-bearing.
+- Reusing one `CatalogMemberCorrespondencePlan` does not repeat signature
+  traversal, and repeated named leaves produce one manifest request.
+- `CatalogMemberJoinKey` includes member kind, canonical signature header,
+  vararg required-parameter count, method generic arity, and every named leaf in
+  the open declaring, required parameter, return, modifier, and function-pointer
+  shapes; optional vararg arguments do not enter member identity, and instance
+  and static members remain distinct.
+- A compiler-produced cross-assembly vararg call with optional arguments joins
+  its required-parameter definition and not a lookalike definition whose
+  required parameter list happens to match the expanded call-site list.
+- Embedded vararg function pointers preserve their complete type identity,
+  including post-sentinel parameters, and reject out-of-range required counts.
+- A generic `MemberRef` without a retained open signature cannot fall back to
+  its instantiated signature and receive an exact key; partially retained open
+  signatures are likewise incomplete.
+- `CatalogMemberJoinKey`, `CatalogTypeShape`, correspondence evidence,
+  failures, and projection arms cannot be externally forged or extended.
 - Independently constructed equal reference and intrinsic-core-library
   `AssemblyBindingTarget` values compare and hash equally and hit one binding
   cache entry per source domain.

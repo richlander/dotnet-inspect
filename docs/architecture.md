@@ -244,11 +244,13 @@ producers or preserve producer-native structural evidence. Failed censuses stay
 distinct from empty results and render as inspection diagnostics without
 suppressing unaffected sections.
 
-Portable-PDB observations use four Metadata Finding families: source documents,
-member-to-document mappings, compilation options, and compilation references.
-Source audit and integrity consume the document census; member source-location
-enrichment consumes the mapping census by metadata token. Network acquisition
-and checksum agreement remain operation outcomes rather than Metadata Findings.
+Portable-PDB observations split by ownership. `SourceLinkFindings` produces
+SourceLink-decorated source-document and member-to-document censuses;
+`MetadataFindings` produces compilation-option and compilation-reference
+censuses from raw PDB data. Source audit and integrity consume the document
+census; member source-location enrichment consumes the mapping census by
+metadata token. Network acquisition and checksum agreement remain operation
+outcomes rather than Findings.
 See [Source Finding Producers](design/source-finding-producers.md).
 
 Extension discovery follows the same rule for both `library` and `extensions`:
@@ -270,8 +272,9 @@ Key inspectors:
 | Inspector | Purpose |
 | --------- | ------- |
 | `ApiSurfaceExtractor` | Extracts public types, methods, properties, fields, events |
-| `AssemblyAuditor` | Reads PE headers, attributes, SourceLink, determinism |
-| `SourceLinkResolver` | Maps source files to URLs via embedded SourceLink JSON |
+| `AssemblyInspector` | Reads PE headers, attributes, and assembly metadata |
+| `PdbContext` | Opens PE/PDB images and exposes typed raw PDB records and CDI blobs |
+| `SourceLinkResolver` | In ILInspector.SourceLink, decorates raw PDB correlations with SourceLink paths and URLs |
 
 ### Tool package resolution
 
@@ -437,7 +440,9 @@ extra scanning cost.
 
 ### SourceLink resolution
 
-SourceLink information is embedded in PDBs (portable or embedded) as custom debug information with GUID `CC110556-A091-4D38-9FEC-25AB9A351A6A`.
+SourceLink information is embedded in PDBs (portable or embedded) as custom
+debug information. Metadata exposes the raw module CDI blob by GUID;
+ILInspector.SourceLink owns the SourceLink GUID and interprets the payload.
 
 The JSON contains document mappings:
 
@@ -449,13 +454,15 @@ The JSON contains document mappings:
 }
 ```
 
-The resolver:
+The layers cooperate as follows:
 
-1. Extracts SourceLink JSON from PDB
-2. Parses document mappings
-3. For each type/method, finds the source document via `MethodDebugInformation`
-4. Applies URL pattern to generate raw source URL
-5. Converts to GitHub browse URL with line number
+1. `PdbContext` extracts named documents, checksums, sequence-point ranges,
+   type/member/token relationships, and raw CDI blobs.
+2. `ILInspector.SourceLink` extracts and parses the SourceLink map.
+3. The high-level resolver combines raw PDB correlation with document-name
+   fallback and canonical path selection.
+4. SourceLinkFetch applies the winning map entry and establishes provenance.
+5. ILInspector.SourceLink decorates raw and browse URLs.
 
 ### Determinism audit
 
@@ -616,9 +623,22 @@ Research overlay bridge, and the application layer:
 │  CSharpFormatter declaration spelling                       │
 │  CSharpTypePrinter typed request and body composition        │
 ├─────────────────────────────────────────────────────────────┤
+│  CSharpText (C# textual grammar)                            │
+│                                                             │
+│  Lexer, conservative declaration index and source ranges    │
+├─────────────────────────────────────────────────────────────┤
+│  ILInspector.SourceLink (source decoration)                 │
+│                                                             │
+│  SourceLinkService, SourceLinkResolver, SourceLinkFindings  │
+│  Canonical paths, URLs, provenance, source debug audit      │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Metadata (Domain provider — PE/Assembly)       │
 │                                                             │
-│  AssemblyReader, ApiSurface models, PdbReader                │
+│  AssemblyReader, ApiSurface models, PdbContext raw PDB data │
+├─────────────────────────────────────────────────────────────┤
+│  SourceLinkFetch (map/provenance grammar)                   │
+│                                                             │
+│  SourceLinkResolver matcher, SourceLinkProvenance           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -627,6 +647,9 @@ Research overlay bridge, and the application layer:
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
+- **CSharpText** owns dependency-free C# lexing and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+- **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
+- **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.
 - **Analysis** owns R1 whole-assembly evidence and must not depend on the decompiler IR, Roslyn, or inspected-assembly loading. `LibraryBodyIndex` runs selected producers in one metadata-ordered assembly acquisition; the app unions the features required by selected sections and owns one lazy `MethodBodyInspectionSession` per command. Library body commands consume immutable content from the prefetched `PdbContext` image already opened for metadata/PDB inspection rather than reopening the target file or receiving Metadata's raw reader. Producers may still perform their own instruction interpretation over the acquired bodies.
 - **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
@@ -688,7 +711,7 @@ src/ILInspector.Research/       # Registered fact overlay and annotated views
 
 8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
 
-9. **Deliberate metadata duplication — `ILInspector.Analysis` is a standalone product** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) keeps **zero project references** and re-derives its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the codebase's other type-identity layers (`ILInspector.Metadata`, `ILInspector.MetadataPrimitives`, and the decompiler's `Pipeline/TypeRef`). This is a committed product boundary, not drift: the three `TypeRef` models answer different questions (display string, evidence matching, codegen IR), and `Analysis`'s SRM-direct independence lets it ship and evolve as an independent memory-safety deliverable. The full rationale, the rejected consolidation path, and the single trip-wire that would reopen it are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
+9. **Deliberate local structural identity in `ILInspector.Analysis`** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) retains its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the decompiler's `Pipeline.TypeRef` or Metadata's display/API models. This is a committed capability boundary, not dependency isolation: Analysis references `ILInspector.Metadata` for acquisition, structured binding, and definition correspondence, while its SRM-direct `TypeRef` continues to answer the distinct evidence-matching question. The type models remain separate because they carry different shapes and erasure policies, not because Analysis has zero project references. The full rationale, rejected unification path, and trip-wire are in [docs/metadata-primitives.md](metadata-primitives.md) ("Decision (2026-06): stop after step 3").
 
 10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
 

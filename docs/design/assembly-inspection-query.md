@@ -63,8 +63,10 @@ var (selectedPath, _)      = TfmSelector.SelectHighestTfmAssembly(...);        /
 ```
 
 The bare `path` is handed to inspection, which then **re-opens the file and re-derives** some
-of what was just discarded (for example `InspectAsync` re-probes
-`PlatformResolver.IsFacadeOnlyAssembly(path)` and re-reads name/version from metadata).
+of what was just discarded. Facade classification no longer interprets raw
+forwarder rows in Services -- it consumes a Metadata-owned declaration
+inventory and retains a typed outcome and Finding -- but the path handoff still
+causes that inventory and name/version facts to be read again.
 
 Where provenance *is* needed downstream, it is smuggled as loose extra parameters rather
 than bundled:

@@ -1225,4 +1225,33 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("void M()\n{\n    if (x)\n    {", body);
     }
+
+    /// <summary>
+    /// <c>LexState.LoseDepth</c> sets both <c>literalDepthLost</c>, which the declaration index
+    /// reads, and <c>Untracked</c>, which only this legacy backward scan reads. The second
+    /// assignment is not redundant: a constructor spelled as a bare <c>C()</c> is not recognized
+    /// as a declaration on sight, so recovery scans backward past an unterminated line-bound
+    /// literal, and it is <c>Untracked</c> that tells that scan its brace depth is meaningless.
+    /// Disabling the assignment returns null here instead of the captured text.
+    ///
+    /// This test is that gate. It exists because the assignment survived a mutation battery
+    /// otherwise, so nothing distinguished it from a dead store (adversarial review, GPT-5.6 Sol,
+    /// which supplied this reproduction).
+    /// </summary>
+    [Fact]
+    public void AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText()
+    {
+        var source = string.Join('\n',
+            "class C",
+            "{",
+            "    string s = \"",
+            "    C()",
+            "    {",
+            "    }",
+            "}");
+
+        var body = BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor");
+
+        Assert.Equal("class C\n{\n    string s = \"\n    C()\n    {\n    }", body);
+    }
 }

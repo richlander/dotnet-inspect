@@ -88,6 +88,8 @@ public class EvilPoolPinTests
                 pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = null),
             ("a pinned entry whose sha256 is not 64 lowercase hex", "sha",
                 pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = "NOTAHASH"),
+            ("a pinned entry whose sha256 is 64 non-hex characters", "sha",
+                pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = new string('z', 64)),
             ("a no-library entry carrying an assembly hash", "no-library-hash",
                 pin => pin["packages"]![FirstIndexOf(pin, "no-library")]!["sha256"] = new string('0', 64)),
             ("a status the sweep does not know", "status",

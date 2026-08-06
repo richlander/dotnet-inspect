@@ -49,6 +49,9 @@
   contained keep the same meaning but change spelling, from `\u001B` to caret
   notation `\^[`; the quote is no longer escaped, because cells are not quote
   wrapped in any rendered format.
+- Leaves literal backslashes unchanged when they cannot introduce a visual
+  spelling, while keeping complete escape-like text disambiguated and
+  invertible.
 - **Breaking:** `mdi` now refuses, rather than renders, when an assembly carries
   text that a terminal would act on — bidi overrides, separators, and other
   non-graphic scalars. It exits non-zero and reports the heap coordinate, the
@@ -61,6 +64,16 @@
   differing only in how it is written. Ordinary assemblies are unaffected: the
   modes differ only in whether they can fail, so output is unchanged wherever no
   such text exists.
+
+### Package manifest hardening
+
+- Rejects malformed nuspec XML with a one-line diagnostic naming only the parse
+  location, rather than emitting the parser stack or quoting package-authored
+  text.
+- Carries nuspec descriptions as `InertString` through the service and
+  inspection models. Markdown renders the description as a quotation so its
+  headings and tables cannot impersonate tool sections; JSON retains the prose
+  shape and applies its own structural escaping.
 
 ### Output and projections
 

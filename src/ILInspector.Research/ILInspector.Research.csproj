@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="ILInspector.SourceLink" />
     <InternalsVisibleTo Include="ILInspector.Research.Tests" />
   </ItemGroup>
 
@@ -23,6 +24,7 @@
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.Instructions\ILInspector.Instructions.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
   </ItemGroup>
 

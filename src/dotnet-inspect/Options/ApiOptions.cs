@@ -161,6 +161,22 @@ public partial record ApiOptions : IProjectionOptions
     /// spellable as a selector value. See #3547.
     /// </summary>
     public bool SelectDefault { get; init; }
+
+    /// <summary>
+    /// Set when the preamble rejected <see cref="Select"/> against the single-type pipeline but the
+    /// same values resolve against the type listing, so the decision has to wait until the command
+    /// knows which of the two it renders.
+    /// </summary>
+    /// <remarks>
+    /// A dotted name that does not resolve to a type renders a listing, and the preamble cannot
+    /// know that: it picks its pipeline from the argument shape, long before the assembly is read.
+    /// Carrying the deferral means <see cref="IncludeSections"/> stays unset and
+    /// <see cref="Select"/> stays raw, so each render path resolves it against the pipeline that
+    /// will actually render it. Every site that can receive a deferred select either re-resolves
+    /// (the listing fallbacks) or rejects it (the single-type view); leaving it unhandled would
+    /// silently ignore the selector. See #3547.
+    /// </remarks>
+    public bool SelectDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }

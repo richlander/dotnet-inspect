@@ -58,6 +58,13 @@ public static class ApiSurfaceExtractor
                 Namespace = typeNamespace,
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDefHandle),
+                DefinitionName =
+                    MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        typeDefHandle)
+                    is MetadataTypeDefinitionNameReadResult.Read read
+                        ? read.Name
+                        : null,
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -618,6 +625,13 @@ public static class ApiSurfaceExtractor
 
                 surface.TypeForwarders.Add(new TypeForwarder
                 {
+                    DefinitionName =
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            exportedTypeHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read read
+                            ? read.Name
+                            : null,
                     TypeName = fullName,
                     TargetAssembly = targetAssembly
                 });
@@ -662,6 +676,11 @@ public static class ApiSurfaceExtractor
         bool includeVariance)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list because `where T : U` chains run through it: answering
+        // each parameter from scratch would rewalk the chain's whole tail, which is
+        // quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var paramHandle in handles)
         {
             var param = reader.GetGenericParameter(paramHandle);
@@ -711,6 +730,12 @@ public static class ApiSurfaceExtractor
             }
 
             typeParam.StructuredConstraints = structured;
+            typeParam.TypeKind = TypeParameterKindClassifier.Classify(
+                reader,
+                paramHandle,
+                hasValueTypeConstraint: (attrs & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0,
+                hasReferenceTypeConstraint: (attrs & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                chain);
             parameters.Add(typeParam);
         }
 
@@ -1116,7 +1141,7 @@ public static class ApiSurfaceExtractor
     /// impersonates a core-library name but lacks (or forges) a matching
     /// public-key token is rejected.
     /// </summary>
-    private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+    internal static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;

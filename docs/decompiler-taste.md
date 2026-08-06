@@ -751,6 +751,21 @@ delegates that read and drive that value's backing state without reflection. The
 descriptor reads and single-selects the whole axis through
 `GetValue`/`WithValue`.
 
+The tier itself is described by the catalog too, one level above the knobs:
+`StyleOptionCatalog.Tiers` lists a `StyleOptionTierDescriptor` per
+`StyleOptionTier`, carrying the tier as its stable `Id`, a display `Title` and
+`Summary` (the fidelity contract its knobs honor), an explicit `Order`
+(ascending, most conservative contract first), and the tier-level
+`ByteDivergent` flag — with `GetTier` resolving one by id. A host renders a
+grouped picker by walking `Tiers` and filtering `Options` on `Tier`, holding no
+label, blurb, or ordering of its own, so a knob in a newly added tier surfaces
+without a consumer edit
+([#3486](https://github.com/richlander/dotnet-inspect/issues/3486)). The
+registry is exhaustive against the enum and agrees with its knobs' own
+`ByteDivergent` by gate (`StyleOptionCatalogTests`), so neither a missing tier
+nor a misfiled knob is silent. `Order` is deliberately not the enum ordinal, so
+presentation order and declaration order can move independently.
+
 `OracleEndorsed` records **declared**-oracle endorsement specifically — the value
 has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
 endorsement — the runtime's own source corpus reveals a dominant practice for the

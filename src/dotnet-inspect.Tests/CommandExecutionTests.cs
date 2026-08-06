@@ -1143,6 +1143,88 @@ public partial class CommandExecutionTests
         Assert.Contains("Performance: Other", output);
     }
 
+    /// <summary>
+    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
+    /// curated route carries that selection as a flag rather than as an include set, so this also
+    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+
+        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
+        foreach (var section in expected)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/>: the map has to
+    /// describe the render bare <c>-S</c> produces, not some adjacent set. Every section of that
+    /// pipeline renders rows for this assembly, so the two sets must match exactly - comparing the
+    /// map against the pipeline property instead would assert nothing, because that property is
+    /// what a wrong answer here would come from. The requested-but-empty case, where the map
+    /// legitimately carries a row the render does not, is covered by
+    /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..].Trim())
+            .ToList();
+        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
+
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+        Assert.Equal(0, countExit);
+
+        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+            .Select(line => line.Split('|')[1].Trim())
+            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
+            .ToList();
+
+        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
+        Assert.Equal(rendered.Order(), mapped.Order());
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/> excluding
+    /// <c>ExplicitOnly</c> sections on a curated pipeline. The distinction is live, not defensive:
+    /// <c>Metadata: Image</c> and <c>Metadata: Heap</c> are <c>ExplicitOnly</c> and also
+    /// <c>Fixed</c>/<c>NetworkFree</c>, so they are fixed-overview members that bare <c>-S</c>
+    /// never renders. Reading <see cref="SectionPipeline{TModel}.FixedOverviewSectionNames"/>
+    /// instead would put both in the count map, each reporting zero for a section the user cannot
+    /// get this way.
+    /// </summary>
+    [Fact]
+    public void BareSelect_ExcludesExplicitOnlySections_OnCuratedPipelines()
+    {
+        var library = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            [MetadataSectionNames.Image, MetadataSectionNames.Heap],
+            library.FixedOverviewSectionNames.Except(library.BareSelectSectionNames));
+        Assert.Empty(library.BareSelectSectionNames.Except(library.FixedOverviewSectionNames));
+
+        // The package pipeline marks none of its fixed sections ExplicitOnly, so the two agree
+        // there. Pinning both shapes keeps the exclusion honest in either direction.
+        var package = PackageSectionDescriptors.CreatePipeline();
+        Assert.Equal(package.FixedOverviewSectionNames, package.BareSelectSectionNames);
+    }
+
     [Fact]
     public async Task PerformanceLegacyName_RedirectsToGroup()
     {
@@ -2984,7 +3066,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -3005,7 +3087,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "type", "--platform", "System.Text.Json", "--tips", "q");
@@ -3014,6 +3096,22 @@ public partial class CommandExecutionTests
         Assert.Empty(runError);
         Assert.DoesNotContain("This is a type-forwarding library", output);
     }
+
+    [Fact]
+    public async Task BareQualifiedPlatformType_WithLeafCollision_RoutesExactly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.IO.File", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("System.IO.File", output);
+    }
+
+    private static bool IsFacadeAssembly(string assemblyPath) =>
+        PlatformResolver.ClassifyAssemblySurface(assemblyPath)
+            is AssemblySurfaceClassificationOutcome.Classified classified
+        && classified.Classification.Kind == AssemblySurfaceKind.Facade;
 
     [Fact]
     public async Task Type_SingleType_SelectSection_RendersSectionNotShape()
@@ -3321,6 +3419,238 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// A dotted name that does not resolve to a type renders a listing, so a listing section name
+    /// has to be selectable on it. The preamble picks its pipeline from the argument shape, long
+    /// before the assembly is read, so it was answering for the single-type view: <c>-D</c>
+    /// advertised <c>Classes</c> and <c>-S Classes</c> was rejected on the same command line,
+    /// against a section list the user was never shown.
+    /// </summary>
+    [Theory]
+    [InlineData("Classes")]
+    [InlineData(SectionNames.ApiInfo)]
+    public async Task Type_PrefixBrowse_ListingSectionName_IsSelectable(string section)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", section, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("best-effort prefix matches", error, StringComparison.Ordinal);
+
+        // Renders the named section and only it -- a fall-through to the verbosity ladder would
+        // also pass a bare "contains Classes" check.
+        Assert.Equal([section], SectionHeadings(output));
+    }
+
+    /// <summary>
+    /// The deferral must not leak into the view it was deferred for. A type that resolves renders a
+    /// single type, where a listing section name is exactly as wrong as it was before -- reported
+    /// against the single-type pipeline, with that pipeline's sections offered.
+    /// </summary>
+    [Fact]
+    public async Task Type_SingleType_ListingSectionName_IsStillRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
+            "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
+
+        // Names the pipeline that rejected it, so the message is actionable rather than merely
+        // negative -- and proves the single-type list is what was consulted.
+        Assert.Contains(SectionNames.Baseclass, error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With no prefix matches there is no listing for a deferred select to belong to, so it is
+    /// reported exactly as the preamble would have reported it. Holding the rejection must not turn
+    /// into dropping it.
+    /// </summary>
+    [Fact]
+    public async Task Type_UnresolvedTypeWithoutPrefixMatches_StillReportsTheDeferredSelect()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Zqqxnomatch", "--library", TestAssemblyPath, "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Classes' not found", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A name that is valid for neither pipeline is a plain typo and still fails in the preamble,
+    /// keeping the fast rejection -- and the single-type suggestions -- for the case that cannot be
+    /// a listing.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for that claim, and for the guard that carries it: dropping the
+    /// "resolves against the listing" test from <c>ShouldDeferSelectToListing</c> would defer every
+    /// total failure, so a typo would announce a prefix browse it never performs and then offer the
+    /// listing's sections. Asserting only the exit code and the "not found" text cannot see that --
+    /// both survive the deferral, because a landing site rejects the typo either way. The two
+    /// negative assertions below are what make the difference observable.
+    /// </remarks>
+    [Theory]
+    [InlineData("Command")]
+    [InlineData("DotnetInspector.Tests.CommandExecutionTests")]
+    public async Task Type_SelectValidForNeitherPipeline_FailsRegardlessOfWhatTheNameResolvesTo(string target)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", target, "--library", TestAssemblyPath, "-S", "Zzznosuchsection", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Select value 'Zzznosuchsection' not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("best-effort prefix matches", error, StringComparison.Ordinal);
+        Assert.Contains("Baseclass", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every consumer of a deferred select has to resolve it, not just the one that renders the
+    /// table. <c>--count</c> checks section arity in the preamble and discovery filters by the
+    /// selected sections, so both would otherwise read the deferral's empty include set as "no
+    /// sections" and answer about the wrong thing.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_ListingSectionName_ReachesCountAndDiscovery()
+    {
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+
+        // Agrees with the rows the same selection renders, so this cannot pass by counting a
+        // different section or an unfiltered surface.
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+        Assert.Equal(0, rowsExit);
+        var rowCount = rowsOutput.Split('\n').Count(l => l.Trim().Length > 0) - 1;
+        Assert.Equal(rowCount, int.Parse(countOutput.Trim()));
+
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "-D", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        Assert.Contains("Classes", discoverOutput, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enums", discoverOutput, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Section arity for <c>--count</c> is still judged against what the listing will actually
+    /// render, so a deferred select naming two sections fails the same way a direct one does.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_MultiSectionSelect_StillFailsCountArity()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("exactly one section", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The preamble runs four selection checks -- --count arity, shape-projection arity, --print
+    /// selection, and tabular arity -- and every one of them reads the include set. A deferred
+    /// select leaves that set empty, so each check has to ask the listing pipeline what the select
+    /// resolves to or it silently judges nothing. Only --count was made deferral-aware at first;
+    /// the tabular check then let a two-section select through and rendered just the first table at
+    /// exit 0, which the direct listing rejects. Pinned per flag so a regression names its own site.
+    /// </summary>
+    [Theory]
+    [InlineData("--tsv")]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    public async Task Type_PrefixBrowse_MultiSectionSelect_FailsTabularArityLikeTheDirectListing(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,API Info", format, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Selection matches 2 sections", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("kind\ttype", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A single-section select must still reach the renderer once the tabular check consults the
+    /// listing pipeline, or the fix for the multi-section case would simply reject everything.
+    /// </summary>
+    [Fact]
+    public async Task Type_PrefixBrowse_SingleSectionSelect_StillRendersTabular()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("kind\ttype", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The payload projections are not supported by the listing at all, so the deferred path must
+    /// reach that diagnostic rather than the arity one. Judging the deferral's empty include set
+    /// reported "requires -S/--select to match exactly one section" for a select that resolves to
+    /// exactly one -- telling the user to narrow a selector that was never the problem.
+    /// </summary>
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task Type_PrefixBrowse_PayloadProjection_ReportsTheListingReasonNotArity(string flag)
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes", flag, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("is not supported when listing types", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("exactly one section", error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The deferred select must actually narrow the rendered listing, not merely stop failing.
+    /// A prefix whose matches are all one kind cannot show the difference -- selecting Classes and
+    /// selecting nothing render the same single table -- so this uses a prefix that matches four
+    /// kinds, where a dropped selector is visible as the other three sections surviving.
+    /// </summary>
+    [Theory]
+    [InlineData("--all")]
+    [InlineData("--shape")]
+    public async Task Type_PrefixBrowse_DeferredSelect_NarrowsAMultiKindListing(string flag)
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "Json", "--platform", "System.Text.Json", "-S", "Classes", flag, "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        var headings = SectionHeadings(output);
+        Assert.Equal(["Classes"], headings);
+    }
+
+    /// <summary>
+    /// The platform prefix browse renders a listing for what entered as a single-type request, so
+    /// it needs the same re-resolution the local prefix browse does. It is reached by a different
+    /// route -- the wide fallback, after the local lookup finds neither the type nor a prefix match
+    /// -- so covering only the local browse would leave this one dropping the selector silently.
+    /// </summary>
+    [Fact]
+    public async Task Type_PlatformPrefixBrowse_ListingSectionName_IsSelectable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Collections.Immutabl", "-S", "Classes", "--tips", "q");
+
+        Assert.Equal(0, exit);
+
+        // Names the route, so that this silently becoming the local browse -- which has its own
+        // coverage -- shows up as a failure rather than as duplicate coverage of one path.
+        Assert.Contains("platform prefix matches", error, StringComparison.Ordinal);
+        Assert.Equal(["Classes"], SectionHeadings(output));
+
+        // A name valid for neither pipeline still fails on this route.
+        var (bogusExit, _, bogusError) = await RunAppAsync(
+            "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
+        Assert.Equal(1, bogusExit);
+        Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The compact fields list is the whole of the <c>-v:q</c> view and appears nowhere else. Every
     /// other view can reach the same facts through the bounded API Info section, so carrying them
     /// as a document scalar as well printed identity twice on any view that showed both.
@@ -3363,7 +3693,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
-        Assert.Contains("Types: 89", fieldsOutput, StringComparison.Ordinal);
+        // Structured resolution reaches ParamCollectionAttribute through the
+        // platform policy instead of dropping it with the sibling-only probe.
+        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
@@ -3380,7 +3712,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 89 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -3660,13 +3992,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Library:", output, StringComparison.Ordinal);
 
-        var inline = quietOutput.Split('\n').First(l => l.StartsWith("Library:", StringComparison.Ordinal));
+        var inline = SplitOutputLines(quietOutput)
+            .First(l => l.StartsWith("Library:", StringComparison.Ordinal));
         var inlineFields = inline
             .Split('|')
             .Select(part => part.Trim().Split(':', 2))
             .ToDictionary(kv => kv[0].Trim(), kv => kv[1].Trim(), StringComparer.Ordinal);
 
-        var rows = output.Split('\n')
+        var rows = SplitOutputLines(output)
             .SkipWhile(l => !l.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
             .Where(l => l.StartsWith("| ", StringComparison.Ordinal))
             .Select(l => l.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()).ToArray())
@@ -3683,7 +4016,7 @@ public partial class CommandExecutionTests
     public async Task Type_Listing_ApiInfo_DoesNotGrowWithTheAssembly()
     {
         // Bounded means the row set does not depend on the target. CoreLib lists 1353 types and
-        // System.Text.Json lists 89; the three counts are counts rather than enumerations, so each
+        // System.Text.Json lists 90; the three counts are counts rather than enumerations, so each
         // contributes exactly one row at either size. A future field that enumerated anything would
         // fail here rather than quietly making the overview unbounded.
         var (bigExit, big, _) = await RunAppAsync(
@@ -5150,6 +5483,49 @@ public partial class CommandExecutionTests
         Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// The package half of #3547 gap 6. The map reports a requested section that has no rows as
+    /// zero rather than omitting it, which is what makes it a cheap probe of the whole overview -
+    /// the same contract a category map already has.
+    /// </summary>
+    [Fact]
+    public async Task Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        // This package ships no README, so the section is requested but renders nothing. Without
+        // such a section the zero-row half of the claim would be untested.
+        Assert.DoesNotContain("## Package README file", renderOutput);
+
+        var (exit, output, error) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+        Assert.Contains("| Package README file | 0 |", output);
+
+        foreach (var section in PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The negative case for the widened <c>--count</c> requirement: it accepts bare <c>-S</c>
+    /// because that is a selection, not because the requirement was dropped.
+    /// </summary>
+    [Fact]
+    public async Task Package_CountWithoutSelect_StillRequiresASelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(CountOutput.SectionRequiredMessage, error);
+    }
+
     [Fact]
     public async Task Content_Count_CountsMatchesNotAbsentPlaceholders()
     {
@@ -5259,7 +5635,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.True(File.Exists(path), "--out was ignored: the requested file was never written.");
-            Assert.Equal(8, int.Parse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture));
+            Assert.Equal("8\n", File.ReadAllText(path));
             Assert.Empty(output.Trim());
         }
         finally
@@ -5360,7 +5736,13 @@ public partial class CommandExecutionTests
         Assert.True(
             renderedLines > count,
             $"expected the tree to render more lines ({renderedLines}) than the {count} files it counts");
-        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.Ordinal);
+
+        // The manifest is a reachable package file, which is the claim; its filename casing is
+        // not. A package restored into the NuGet global packages folder carries the manifest under
+        // the normalized (lowercased) id, while one expanded from the .nupkg keeps the authored
+        // casing, so pinning "Newtonsoft.Json.nuspec" ordinally asserts which source resolved the
+        // package rather than that the nuspec is listed.
+        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -8785,7 +9167,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -8806,7 +9188,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "Library Info", "--tips", "q");
@@ -8876,7 +9258,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime is not facade-only in this runtime.");
 
         var (selectExit, selectOutput, selectError) = await RunAppAsync(
@@ -8974,7 +9356,7 @@ public partial class CommandExecutionTests
                         || IsSourceIntegrityStatusResult(command, section, selectExit, selectOutput);
                     Assert.True(selectionSucceeded,
                         $"{command[0]} -S '{section}' failed after being listed by -D. Discovery stderr: {discoverError}. Selection stderr: {selectError}");
-                    if (RequiresRealDataDiscoveryGuard(command))
+                    if (RequiresNonEmptyDiscoveryResult(command, section))
                     {
                         Assert.False(string.IsNullOrWhiteSpace(selectOutput),
                             $"{command[0]} -S '{section}' produced no data after being listed by -D.");
@@ -9009,10 +9391,24 @@ public partial class CommandExecutionTests
         return [.. args];
     }
 
-    private static bool RequiresRealDataDiscoveryGuard(string[] command)
-        => IsNoMemberTypeDiscoveryCommand(command)
-           || command is ["member", _, var memberName, ..]
-                && memberName == nameof(MemberCallsFixture.Overloaded);
+    private static readonly HashSet<string> TypeUnprobedDiscoverySections =
+        ApiMemberSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static readonly HashSet<string> MemberOverloadUnprobedDiscoverySections =
+        ApiMemberOverloadSectionDescriptors.CreatePipeline().GetUnprobedSections();
+
+    private static bool RequiresNonEmptyDiscoveryResult(string[] command, string section)
+    {
+        // ProbeEffectiveness=false deliberately allows -D to list a structurally applicable
+        // section whose -S result is empty. Derive that exemption from the same pipeline
+        // declaration while preserving the non-empty guard for probed sections.
+        if (IsNoMemberTypeDiscoveryCommand(command))
+            return !TypeUnprobedDiscoverySections.Contains(section);
+
+        return command is ["member", _, var memberName, ..]
+               && memberName == nameof(MemberCallsFixture.Overloaded)
+               && !MemberOverloadUnprobedDiscoverySections.Contains(section);
+    }
 
     private static bool IsNoMemberTypeDiscoveryCommand(string[] command)
         => command is ["type", var typeName, ..]
@@ -11497,7 +11893,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.SkipUnless(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath),
+        Assert.SkipUnless(IsFacadeAssembly(assemblyPath),
             "System.Runtime.CompilerServices.Unsafe is not facade-only in this runtime.");
 
         var (exit, output, runError) = await RunAppAsync(
@@ -11520,7 +11916,7 @@ public partial class CommandExecutionTests
             return;
         }
 
-        Assert.False(PlatformResolver.IsFacadeOnlyAssembly(assemblyPath));
+        Assert.False(IsFacadeAssembly(assemblyPath));
 
         var (exit, output, runError) = await RunAppAsync(
             "System.Text.Json", "--markdown", "-v:q", "--tips", "q");
@@ -12481,7 +12877,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("package docs\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("package docs\n", output);
         }
         finally
         {
@@ -12499,7 +12895,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -12519,7 +12915,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("readme\n", output);
         }
         finally
         {
@@ -12976,6 +13372,16 @@ public partial class CommandExecutionTests
         // something else. The role answers a document's kind only where the name is silent;
         // letting a declaration override a stated kind would run the link rewriter over a PNG
         // and hand back a corrupted file, which is the outcome this command prevents.
+
+        // Win32 strips trailing dots from a path before it reaches the filesystem, so a package
+        // entry named "logo.png." lands on disk as "logo.png" no matter who expands it -- both
+        // this fixture and the product's own extraction. The declared path then names nothing the
+        // package lists, and the case cannot be staged on Windows at all rather than behaving
+        // differently there. It stays covered on every other platform.
+        Assert.SkipWhen(
+            OperatingSystem.IsWindows() && readmePath.EndsWith('.'),
+            "Windows cannot hold a file whose name ends in a dot: the name is normalized away before it reaches the filesystem.");
+
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         var declared = Path.Combine(packageRoot, readmePath.Replace('/', Path.DirectorySeparatorChar));
@@ -13517,6 +13923,8 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(line);
 
             // Which document was selected is part of the payload rather than a side channel, so
@@ -14188,7 +14596,7 @@ public partial class CommandExecutionTests
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Equal("2\n", output.ReplaceLineEndings("\n"));
+            Assert.Equal("2\n", output);
         }
         finally
         {
@@ -14233,6 +14641,97 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_Readme_JsonlUsesLfFraming()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Readme.Jsonl", "2.0.0", "README.md", "# README body"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "--readme", "Test.Project.Readme.Jsonl", "--jsonl");
+
+            Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
+            Assert.Empty(error);
+            Assert.DoesNotContain('\r', output);
+            Assert.EndsWith("\n", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("# README body", document.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// This extends <see cref="OutputFormatterTests.ArtifactNewlineGate_ProductOwnedFramingUsesLf"/>
+    /// through the command-only JSONL builders whose output cannot be exercised at the formatter
+    /// seam. Each artifact must keep LF framing when <c>--out</c> writes it to a file.
+    /// </summary>
+    [Fact]
+    public async Task ArtifactNewlineGate_CommandJsonlFilesUseLf()
+    {
+        const string agents = """
+            ---
+            name: newline gate
+            ---
+            agents body
+            """;
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.NewlineGate",
+                "1.0.0",
+                "README.md",
+                "readme",
+                agents,
+                [new ProjectSkillDoc("skills/newline/SKILL.md", "skill body")]));
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Package.NewlineGate",
+            "README.md",
+            "readme",
+            "agents body");
+
+        try
+        {
+            var agentsOutput = Path.Combine(projectTempDir, "agents.jsonl");
+            var skillsOutput = Path.Combine(projectTempDir, "skills.jsonl");
+            var contentOutput = Path.Combine(packageTempDir, "content.jsonl");
+
+            var (agentsExit, agentsStdout, agentsError) = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl", "--out", agentsOutput);
+            var (skillsExit, skillsStdout, skillsError) = await RunAppAsync(
+                "project", projectPath, "-S", "Skills", "--jsonl", "--out", skillsOutput);
+            var (contentExit, contentStdout, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "@agents", "--content", "--jsonl", "--out", contentOutput);
+
+            Assert.Equal(0, agentsExit);
+            Assert.Equal(0, skillsExit);
+            Assert.Equal(0, contentExit);
+            Assert.Empty(agentsStdout);
+            Assert.Empty(skillsStdout);
+            Assert.Empty(contentStdout);
+            Assert.Empty(agentsError);
+            Assert.Empty(skillsError);
+            Assert.Empty(contentError);
+
+            foreach (var path in new[] { agentsOutput, skillsOutput, contentOutput })
+            {
+                var artifact = File.ReadAllText(path);
+                Assert.DoesNotContain('\r', artifact);
+                Assert.EndsWith("\n", artifact, StringComparison.Ordinal);
+                using var _ = JsonDocument.Parse(
+                    Assert.Single(artifact.Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(projectTempDir, recursive: true);
+            Directory.Delete(packageTempDir, recursive: true);
         }
     }
 

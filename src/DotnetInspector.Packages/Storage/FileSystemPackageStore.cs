@@ -13,7 +13,11 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageStore : IPackageStore
 {
     /// <inheritdoc />
-    public IPackageContent? TryGetCached(string packageName, string version, Action<string>? log = null)
+    public IPackageContent? TryGetCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -21,7 +25,10 @@ public sealed class FileSystemPackageStore : IPackageStore
         string? cachedPath;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
         {
-            cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+            cachedPath = NuGetCache.TryGetCachedPackage(
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
         }
 
         if (cachedPath == null || !NuGetCache.IsCachedPackageValid(cachedPath))
@@ -36,6 +43,7 @@ public sealed class FileSystemPackageStore : IPackageStore
     public async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
+        string sourceKey,
         Stream nupkg,
         CancellationToken cancellationToken = default)
     {
@@ -65,7 +73,8 @@ public sealed class FileSystemPackageStore : IPackageStore
                 extractPath,
                 nupkgPath,
                 packageName,
-                version);
+                version,
+                sourceKey);
 
             return new FileSystemPackageContent(
                 committed.ExtractPath,
@@ -92,8 +101,10 @@ public sealed class FileSystemPackageStore : IPackageStore
     }
 
     /// <inheritdoc />
-    public string? TryGetLatestCachedVersion(string packageName)
-        => NuGetCache.TryGetLatestCachedVersion(packageName);
+    public string? TryGetLatestCachedVersion(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys)
+        => NuGetCache.TryGetLatestCachedVersion(packageName, allowedSourceKeys);
 
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {

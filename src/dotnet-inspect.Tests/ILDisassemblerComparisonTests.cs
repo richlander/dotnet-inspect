@@ -27,7 +27,7 @@ public class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_ProducesValidAssembly(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);
@@ -45,7 +45,7 @@ public class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmAssemblyCases))]
     public void ILAsm_Roundtrip_MethodCountPreserved(string assembly)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
 
         var assemblyPath = ResolveAssembly(assembly);
         int originalCount = CountMethods(assemblyPath);
@@ -59,7 +59,7 @@ public class ILDisassemblerComparisonTests
     [MemberData(nameof(ILAsmMethodCases))]
     public void ILAsm_Roundtrip_OpcodesPreserved(string assembly, string typeName, string methodName)
     {
-        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install via runtime.{rid}.Microsoft.NETCore.ILAsm/ILDAsm NuGet packages");
+        Assert.SkipUnless(HasILAsm, "ildasm/ilasm not found — install them with `source eng/activate-iltools.sh`");
 
         var assemblyPath = ResolveAssembly(assembly);
         var outputDll = RoundtripWithILAsm(assemblyPath);

@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="ILInspector.SourceLink" />
     <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <ProjectReference Include="../../src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
@@ -24,6 +25,7 @@
     <ProjectReference Include="../RoundTripCompilation/RoundTripCompilation.csproj" />
     <!-- ILReader: the byte-match-validated IL reader the fidelity and annotation checks read the witness IL with. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <!-- Validity check: parse and bind the decompiled C# to measure validity. -->
     <PackageReference Include="Markout" />
     <PackageReference Include="Markout.Templates" />

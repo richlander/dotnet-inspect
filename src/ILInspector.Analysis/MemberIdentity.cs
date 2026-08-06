@@ -90,6 +90,9 @@ public sealed record MethodIdentity(
         init => _genericParameterNames = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(GenericParameterNames));
     }
 
+    internal byte SignatureHeader { get; init; }
+    internal int RequiredParameterCount { get; init; } = -1;
+
     public bool Equals(MethodIdentity? other)
         => other is not null
             && AssemblyName == other.AssemblyName
@@ -103,6 +106,11 @@ public sealed record MethodIdentity(
             && IsExtension == other.IsExtension
             && CallerUnsafeMode == other.CallerUnsafeMode
             && GenericArity == other.GenericArity
+            && (SignatureHeader & 0x4F)
+                == (other.SignatureHeader & 0x4F)
+            && ((SignatureHeader & 0x0F) != 0x05
+                || RequiredParameterCount
+                    == other.RequiredParameterCount)
             && ImmutableArrayValueEquality.SequenceEqual(
                 GenericParameterNames,
                 other.GenericParameterNames);
@@ -121,6 +129,9 @@ public sealed record MethodIdentity(
         hash.Add(IsExtension);
         hash.Add(CallerUnsafeMode);
         hash.Add(GenericArity);
+        hash.Add(SignatureHeader & 0x4F);
+        if ((SignatureHeader & 0x0F) == 0x05)
+            hash.Add(RequiredParameterCount);
         ImmutableArrayValueEquality.AddToHash(ref hash, GenericParameterNames);
         return hash.ToHashCode();
     }
@@ -162,6 +173,8 @@ public sealed record MemberRef(
     /// <c>explicitthis</c>/<c>generic</c> flags that parameter and return types do not encode.
     /// </summary>
     public byte SignatureHeader { get; init; }
+
+    internal int RequiredParameterCount { get; init; } = -1;
 
     /// <summary>The method-signature generic parameter count.</summary>
     public int GenericArity { get; init; }
@@ -207,6 +220,9 @@ public sealed record MemberRef(
             && ImmutableArrayValueEquality.SequenceEqual(TypeArguments, other.TypeArguments)
             && HasThis == other.HasThis
             && SignatureHeader == other.SignatureHeader
+            && ((SignatureHeader & 0x0F) != 0x05
+                || RequiredParameterCount
+                    == other.RequiredParameterCount)
             && GenericArity == other.GenericArity
             && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
             && Equals(OpenReturnType, other.OpenReturnType);
@@ -222,6 +238,8 @@ public sealed record MemberRef(
         ImmutableArrayValueEquality.AddToHash(ref hash, TypeArguments);
         hash.Add(HasThis);
         hash.Add(SignatureHeader);
+        if ((SignatureHeader & 0x0F) == 0x05)
+            hash.Add(RequiredParameterCount);
         hash.Add(GenericArity);
         ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
         hash.Add(OpenReturnType);
@@ -308,14 +326,12 @@ public sealed record UnsafeEvidence(
 public sealed class MemberPattern
 {
     readonly TypeRef? _declaringType;
-    readonly TypeRef? _openDeclaringType;
     readonly string? _declaringTypeName;
     readonly bool _eraseGenericSignature;
 
     MemberPattern(TypeRef? declaringType, string? declaringTypeName, string name, ImmutableArray<TypeRef> parameterTypes, bool matchParameterTypes)
     {
         _declaringType = declaringType;
-        _openDeclaringType = declaringType is null ? null : GenericMemberIdentity.OpenDeclaringType(declaringType);
         _declaringTypeName = declaringTypeName;
         Name = name;
         ParameterTypes = parameterTypes;
@@ -358,27 +374,15 @@ public sealed class MemberPattern
     }
 
     /// <summary>
-    /// Structural match for <em>cross-assembly</em> callers, where a constructed call
-    /// site and the open-definition target disagree on generic spelling. The candidate
-    /// declaring type is reduced to its open definition so a constructed generic type
-    /// matches its open definition, and a generic target is compared on parameter arity
-    /// rather than exact instantiated signature (#1339). Non-generic members fall back
-    /// to the same exact comparison as <see cref="Matches"/>.
+    /// Matches the member portion of a cross-assembly call after another
+    /// component has established declaring-type correspondence.
     /// </summary>
-    public bool MatchesCrossAssembly(MemberRef member)
+    public bool MatchesResolvedCrossAssembly(MemberRef member)
     {
-        var candidateDeclaring = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType);
-        bool declaringMatches = _openDeclaringType is not null
-            ? candidateDeclaring.Equals(_openDeclaringType)
-            : string.Equals(candidateDeclaring.ToQualifiedDisplayString(), _declaringTypeName, StringComparison.Ordinal);
-        if (!declaringMatches || !string.Equals(member.Name, Name, StringComparison.Ordinal))
-        {
+        if (!string.Equals(member.Name, Name, StringComparison.Ordinal))
             return false;
-        }
         if (!MatchParameterTypes)
-        {
             return true;
-        }
         return _eraseGenericSignature
             ? member.ParameterTypes.Length == ParameterTypes.Length
             : member.ParameterTypes.SequenceEqual(ParameterTypes);

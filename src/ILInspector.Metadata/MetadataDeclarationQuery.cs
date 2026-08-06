@@ -614,9 +614,10 @@ public static class MetadataDeclarationQuery
             var attributes = parameterInfo.Attributes.ToList();
             string? defaultValueText = null;
             var hasDefault = false;
-            if (TryFormatAttributedParameterDefault(
+            if (parameterInfo.CustomAttributes is { } customAttributes
+                && TryFormatAttributedParameterDefault(
                     reader,
-                    parameterInfo.CustomAttributes,
+                    customAttributes,
                     out var attributedDefaultValue,
                     out var attributedDefaultAttributes))
             {
@@ -670,7 +671,7 @@ public static class MetadataDeclarationQuery
         string? RefKind,
         IReadOnlyList<string> Attributes,
         Parameter? DefaultParameter,
-        CustomAttributeHandleCollection CustomAttributes);
+        CustomAttributeHandleCollection? CustomAttributes);
 
     static ParameterInfo GetParameterInfo(MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
@@ -702,7 +703,7 @@ public static class MetadataDeclarationQuery
                 attributes);
         }
 
-        return new ParameterInfo(null, false, null, [], null, default);
+        return new ParameterInfo(null, false, null, [], null, null);
     }
 
     static IReadOnlyList<string> ReturnAttributes(MetadataReader reader, ParameterHandleCollection handles)
@@ -752,6 +753,11 @@ public static class MetadataDeclarationQuery
         GenericContext context)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list for the same reason `ApiSurfaceExtractor` shares one:
+        // `where T : U` chains run through it, and answering each parameter from scratch
+        // rewalks the chain's whole tail, which is quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
@@ -789,6 +795,12 @@ public static class MetadataDeclarationQuery
                 Constraints = constraints,
                 StructuredConstraints = structured,
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
+                TypeKind = TypeParameterKindClassifier.Classify(
+                    reader,
+                    handle,
+                    hasValueTypeConstraint: isStruct,
+                    hasReferenceTypeConstraint: (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                    chain),
             });
         }
 

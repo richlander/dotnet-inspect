@@ -26,6 +26,43 @@ public record NuGetSourceOptions
 /// </summary>
 public static class NuGetSourceResolver
 {
+    /// <summary>
+    /// Resolves sources and reduces them to the identities the package content
+    /// cache records, so a caller can ask the cache for content this
+    /// configuration is actually entitled to. Configured order is preserved.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveSourceKeys(
+        NuGetSourceOptions? options,
+        string? workingDirectory = null)
+        => SourceKeys(ResolveSources(options, workingDirectory));
+
+    /// <summary>
+    /// Reduces already-resolved sources to their cache identities, preserving
+    /// configured order.
+    /// </summary>
+    /// <remarks>
+    /// Order is part of the contract. Sources are consulted in configured order
+    /// on a miss, so a cache read that consults slots in some other order could
+    /// answer from a lower-precedence feed than the one a cold run would have
+    /// used. Returning a set rather than an ordered list would leave that
+    /// precedence undefined.
+    /// </remarks>
+    public static IReadOnlyList<string> SourceKeys(IEnumerable<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var keys = new List<string>();
+        foreach (var source in sources)
+        {
+            var key = NuGetCache.GetSourceKey(source.Url);
+            if (seen.Add(key))
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
     public static List<NuGetSource> ResolveSources(NuGetSourceOptions? options, string? workingDirectory = null)
     {
         options ??= NuGetSourceOptions.Default;
@@ -276,6 +313,7 @@ public static class NuGetSearchService
 
         foreach (NuGetSource source in sources)
         {
+            using var failureScope = FeedFailureTelemetry.Scope();
             string? searchUrl;
             try
             {
@@ -289,12 +327,12 @@ public static class NuGetSearchService
 
             if (searchUrl is null)
             {
-                // Distinguishing "index unreachable" from "index has no search resource" needs
-                // typed HTTP failures, which HttpRetryHelper does not yet surface (issue #3417,
-                // bug 1). Until then the message stays honest about covering both.
-                failures.Add(
-                    $"{source.Name}: no searchable endpoint for '{source.Url}' "
-                    + "(service index unavailable, or advertises no SearchQueryService)");
+                IReadOnlyList<FeedFailure> sourceFailures =
+                    FeedFailureTelemetry.Current!.Failures;
+                failures.Add(sourceFailures.Count > 0
+                    ? DescribeServiceIndexFailure(source, sourceFailures)
+                    : $"{source.Name}: no searchable endpoint for '{source.Url}' "
+                        + "(service index unavailable, or advertises no SearchQueryService)");
                 continue;
             }
 
@@ -334,6 +372,22 @@ public static class NuGetSearchService
         }
 
         return new NuGetSearchOutcome(results.Take(take).ToList(), failures);
+    }
+
+    private static string DescribeServiceIndexFailure(
+        NuGetSource source,
+        IReadOnlyList<FeedFailure> failures)
+    {
+        string reason = failures.Any(f => f.Kind == FeedFailureKind.Authentication)
+            ? "source requires credentials"
+            : failures.Any(f => f.Kind == FeedFailureKind.Authorization)
+                ? "source denied access"
+                : "service index unavailable";
+        string observations = string.Join(
+            "; ",
+            failures.Select(f => $"{f.Url} — {f.StatusText} while {f.PhaseText}"));
+
+        return $"{source.Name}: {reason} ({observations})";
     }
 
     public static async Task<List<NuGetSearchResult>> SearchByPrefixAsync(

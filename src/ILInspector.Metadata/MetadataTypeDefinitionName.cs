@@ -62,6 +62,19 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     public string Namespace { get; }
     public ImmutableArray<string> Segments { get; }
 
+    /// <summary>
+    /// Projects this lookup name to the dotted spelling used by metadata
+    /// search surfaces. The structured value remains authoritative for exact
+    /// declaration lookup.
+    /// </summary>
+    public string ToMetadataFullName()
+    {
+        string typeName = string.Join('.', Segments);
+        return Namespace.Length == 0
+            ? typeName
+            : $"{Namespace}.{typeName}";
+    }
+
     public static MetadataTypeDefinitionNameResult Create(
         string? @namespace,
         ImmutableArray<string> segments)

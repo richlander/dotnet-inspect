@@ -1,7 +1,7 @@
 {
   "schemaVersion": 5,
   "description": "#2818 classic async/iterator state-machine corpus: pinned classic async, iterator, async-iterator, and switch fixtures, raised with the cross-method import seam wired.",
-  "generatedUtc": "2026-07-19T07:34:29.8525688+00:00",
+  "generatedUtc": "2026-08-03T22:23:53.6326893+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 0,
   "methodCap": null,
@@ -2513,7 +2513,7 @@
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
       "passBug": null,
-      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
@@ -2535,7 +2535,7 @@
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
       "passBug": null,
-      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
@@ -2557,7 +2557,7 @@
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
       "passBug": null,
-      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
@@ -2579,7 +2579,7 @@
       "fullyRaised": false,
       "residual": "fidelity: DEC0009",
       "passBug": null,
-      "validity": "partial-malformed:CS1003,CS1013,CS1525",
+      "validity": "syntax-valid",
       "fidelityCheck": "not-sampled",
       "fidelityCauses": [
         {
@@ -2908,7 +2908,7 @@
       }
     },
     "fidelity": {
-      "contractVersion": 1,
+      "contractVersion": 3,
       "checkedMethods": 0,
       "exactMethods": 0,
       "opcodeDiffMethods": 0,

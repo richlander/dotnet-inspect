@@ -287,7 +287,7 @@ public class TopLeverageSectionTests
         string path = typeof(LeverageSampleType).Assembly.Location;
         var logger = new VerboseLogger(false);
         using var service =
-            ILInspector.Metadata.SourceLinkService.OpenPrefetched(path);
+            ILInspector.SourceLink.SourceLinkService.OpenPrefetched(path);
         var context = service.Context;
         var drillMap =
             LibraryMetadataService.BuildLibraryDrillMap(context, logger);

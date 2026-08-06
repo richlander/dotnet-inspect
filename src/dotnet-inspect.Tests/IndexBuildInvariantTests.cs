@@ -107,12 +107,12 @@ public class IndexBuildInvariantTests
     public void PdbContext_RequiresPrefetchForSharedParallelBodyAnalysis()
     {
         using var lazy =
-            ILInspector.Metadata.SourceLinkService.Open(FixtureAssembly);
+            ILInspector.SourceLink.SourceLinkService.Open(FixtureAssembly);
         Assert.Throws<InvalidOperationException>(
             () => lazy.Context.GetPrefetchedImage());
 
         using var prefetched =
-            ILInspector.Metadata.SourceLinkService.OpenPrefetched(FixtureAssembly);
+            ILInspector.SourceLink.SourceLinkService.OpenPrefetched(FixtureAssembly);
         var image = prefetched.Context.GetPrefetchedImage();
         Assert.False(image.IsDefaultOrEmpty);
         using var reader =

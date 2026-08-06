@@ -415,7 +415,7 @@ public class AnnotationAnchorTests
     [InlineData("    new object();", 4, 13, 4, 13)]
     // Overhanging the end of the line. ComputeCaretExtents cannot deliver this
     // today -- TryGetLineColumn rejects every range that crosses a line break,
-    // so 0 of the 33,657 extents the caller delivers overhang -- but the clamp
+    // so 0 of the 35,498 extents the caller delivers overhang -- but the clamp
     // is the reason an overhang is survivable at all, and an internal helper is
     // not entitled to assume it keeps only its current caller.
     [InlineData("    x", 4, 99, 4, 1)]

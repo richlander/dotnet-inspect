@@ -2,22 +2,58 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// Shared effect-order-preserving argument-run fold, extracted verbatim from
-/// <see cref="ConstructorChainArgumentPass"/> so its two consumers — the
-/// constructor-chain lift and <see cref="FluentChainRecompositionPass"/> — reason
+/// <see cref="ConstructorChainArgumentPass"/> so the constructor-chain lift and
+/// <see cref="FluentChainRecompositionPass"/> reason
 /// about the same soundness condition rather than maintaining parallel copies.
 ///
 /// The shape both passes fold is identical: a sink <see cref="Call"/> preceded in
 /// its block by a contiguous run of single-use spill stores whose one load each
-/// sits inside the call. Folding collapses each spill back into the call. The
+/// sits inside the call. <see cref="ExpressionInliningPass"/> additionally uses
+/// the fold for a stack-slot-only run of direct returned-call arguments. Folding
+/// collapses each spill back into the call. The
 /// move is only performed when it provably reorders no effect —
 /// <see cref="RunPreservesEffectOrder"/> is the gate, all-or-nothing per run.
 ///
-/// What differs between the two consumers is only which call is the sink and how
-/// it is found; the fold arithmetic and its safety proof are the same, and live
-/// here.
+/// Callers differ only in which call is the sink, how it is found, and whether
+/// user locals are eligible; the fold arithmetic and its safety proof are the
+/// same, and live here.
 /// </summary>
 static class SpilledReceiverFold
 {
+    /// <summary>
+    /// Argument slots whose value may change while an effectful spill is moved:
+    /// direct stores, raised increments/decrements, address escapes, and
+    /// deconstruction targets. Keep this inventory aligned with
+    /// <c>ExpressionInliningPass.WritesNode</c>'s argument cases.
+    /// </summary>
+    public static HashSet<int> OrderSensitiveArguments(IrFunction function)
+    {
+        var arguments = new HashSet<int>();
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case StoreArgument store:
+                    arguments.Add(store.Index);
+                    break;
+                case IncrementDecrement { Target: LoadArgument argument }:
+                    arguments.Add(argument.Index);
+                    break;
+                case LoadArgumentAddress address:
+                    arguments.Add(address.Index);
+                    break;
+                case DeconstructionAssignment deconstruction:
+                    foreach (var target in deconstruction.Targets)
+                    {
+                        if (target.Kind == DeconstructionTargetKind.Argument)
+                            arguments.Add(target.ArgumentIndex);
+                    }
+                    break;
+            }
+        }
+        return arguments;
+    }
+
     /// <summary>
     /// Folds the maximal contiguous run of single-use spill stores immediately
     /// preceding <paramref name="statement"/> whose one load sits inside
@@ -25,13 +61,19 @@ static class SpilledReceiverFold
     /// when a non-empty run was folded. <paramref name="usage"/> is the caller's
     /// current <see cref="CountPlaces"/> snapshot — a consumer that folds to a
     /// fixpoint must recompute it between folds because a fold moves loads.
+    /// <paramref name="stackSlotsOnly"/> prevents the run from consuming an
+    /// adjacent user local. <paramref name="orderSensitiveArguments"/> names
+    /// parameter slots whose address escapes or whose value is reassigned, so a
+    /// moved effect cannot cross a read that it may change.
     /// </summary>
     public static bool TryFold(
         IrNode statement,
         Call sink,
         IReadOnlyDictionary<(bool IsSlot, int Index), Place> usage,
         PassContext context,
-        string stepLabel)
+        string stepLabel,
+        bool stackSlotsOnly = false,
+        IReadOnlySet<int>? orderSensitiveArguments = null)
     {
         if (statement.Parent is not Block block)
             return false;
@@ -41,6 +83,8 @@ static class SpilledReceiverFold
         var run = new List<(IrNode Store, IrNode Load, IrExpression Value)>();
         for (int i = statement.ChildIndex - 1; i >= 0; i--)
         {
+            if (stackSlotsOnly && block.Children[i] is not StoreStackSlot)
+                break;
             if (SpillLoadInside(block.Children[i], sink, usage) is not { } load)
                 break;
             run.Add((block.Children[i], load, (IrExpression)block.Children[i].Children[0]));
@@ -55,7 +99,7 @@ static class SpilledReceiverFold
         // already-folded effect is dropped downstream. If the run is not
         // order-safe, leave every spill in place — an un-folded chain degrades
         // honestly rather than emit reordered C#.
-        if (!RunPreservesEffectOrder(run, sink))
+        if (!RunPreservesEffectOrder(run, sink, orderSensitiveArguments))
             return false;
 
         foreach (var (store, load, _) in run)
@@ -77,9 +121,14 @@ static class SpilledReceiverFold
     /// arm, which would make an always-run store conditional), and (2) reached, in
     /// the call's evaluation order, in store order and before any inline argument's
     /// own order-sensitive read or effect. Effect-free, place-free spills
-    /// (constants) reorder invisibly and constrain nothing.
+    /// (constants) reorder invisibly and constrain nothing. Argument loads are
+    /// likewise barriers when <paramref name="orderSensitiveArguments"/> says
+    /// their storage is mutable or escaped.
     /// </summary>
-    public static bool RunPreservesEffectOrder(List<(IrNode Store, IrNode Load, IrExpression Value)> run, Call call)
+    public static bool RunPreservesEffectOrder(
+        List<(IrNode Store, IrNode Load, IrExpression Value)> run,
+        Call call,
+        IReadOnlySet<int>? orderSensitiveArguments = null)
     {
         var storeRank = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
         var spillLoads = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
@@ -121,7 +170,7 @@ static class SpilledReceiverFold
                 return;  // a trivial spill load folds to a constant: no barrier
             foreach (var child in node.Children)
                 Visit(child);
-            if (IsOrderSensitive(node))
+            if (IsOrderSensitive(node, orderSensitiveArguments))
                 sawBarrier = true;
         }
 
@@ -211,14 +260,21 @@ static class SpilledReceiverFold
 
     /// <summary>
     /// True unless <paramref name="node"/> is provably reorder-pure — i.e. anything
-    /// other than a constant, <c>sizeof</c>, <c>ldtoken</c>, or an argument/receiver
-    /// load. Everything else (place reads, calls, stores, allocations, casts and
-    /// other potentially-throwing or order-sensitive operations) is treated as a
-    /// barrier, so a moved value can never cross it. Deny-list by design: an
-    /// unrecognized node is conservatively a barrier rather than silently reorderable.
+    /// other than a constant, <c>sizeof</c>, <c>ldtoken</c>, or a stable
+    /// argument/receiver load. An argument whose storage is mutable or escaped
+    /// remains a barrier. Everything else (place reads, calls, stores, allocations,
+    /// casts and other potentially-throwing or order-sensitive operations) is
+    /// treated as a barrier, so a moved value can never cross it. Deny-list by
+    /// design: an unrecognized node is conservatively a barrier rather than
+    /// silently reorderable.
     /// </summary>
-    static bool IsOrderSensitive(IrNode node)
-        => node is not (Constant or SizeOf or LoadToken or LoadArgument);
+    static bool IsOrderSensitive(IrNode node, IReadOnlySet<int>? orderSensitiveArguments)
+        => node switch
+        {
+            Constant or SizeOf or LoadToken => false,
+            LoadArgument argument => orderSensitiveArguments?.Contains(argument.Index) == true,
+            _ => true,
+        };
 
     public static Dictionary<(bool IsSlot, int Index), Place> CountPlaces(IrFunction function)
     {

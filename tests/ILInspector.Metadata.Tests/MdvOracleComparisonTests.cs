@@ -273,7 +273,7 @@ public class MdvOracleComparisonTests
         Assert.SkipUnless(
             MdvOutput.Value is not null,
             "mdv (Roslyn metadata viewer) is not installed or did not run; " +
-            "install it with `dotnet tool install --global Microsoft.Metadata.Visualizer`.");
+            "install it with `source eng/activate-iltools.sh --mdv`.");
         return MdvOutput.Value!;
     }
 

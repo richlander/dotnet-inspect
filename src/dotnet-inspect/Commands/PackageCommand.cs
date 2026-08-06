@@ -117,7 +117,8 @@ public class PackageCommand
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+            if (!rendersOwnPayload && options.Count
+                && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -293,7 +294,10 @@ public class PackageCommand
                 && !options.ForceLatest)
             {
                 if (!options.IncludeUnlisted
-                    && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                    && NuGetCache.TryGetCachedPackage(
+                        normalizedName,
+                        versionQueryPinned,
+                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -343,7 +347,9 @@ public class PackageCommand
             if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
                 && !options.IncludeUnlisted)
             {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
+                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
+                    normalizedName,
+                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
                 if (cachedVersion != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
@@ -1817,7 +1823,9 @@ public class PackageCommand
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
-            builder.AppendLine(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent));
+            builder
+                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent))
+                .Append('\n');
         return builder.ToString();
     }
 
@@ -2012,7 +2020,7 @@ public class PackageCommand
 
     private static int WriteBarePackageText(string content, string? outputPath)
     {
-        var output = content.EndsWith('\n') ? content : content + Environment.NewLine;
+        var output = content.EndsWith('\n') ? content : content + '\n';
         if (!string.IsNullOrEmpty(outputPath))
             File.WriteAllText(outputPath, output);
         else

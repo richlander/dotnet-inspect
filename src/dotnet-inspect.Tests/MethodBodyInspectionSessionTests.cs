@@ -85,10 +85,22 @@ public class MethodBodyInspectionSessionTests
         var target = MethodBodyInspectionSession.Open(ProductPath);
         var openMethod = target.BodyIndex.Methods.Single(method =>
             method.DeclaringType.Name == nameof(MethodBodyInspectionSession)
-            && method.Name == nameof(MethodBodyInspectionSession.Open));
+            && method.Name == nameof(MethodBodyInspectionSession.Open)
+            && method.ParameterTypes.Length > 0
+            && method.ParameterTypes[0].Name == "String");
         var scope = MethodBodyInspectionSession.Open(TestPath);
+        var plan = Analysis.CallerScopeReachabilityPlan.Create(
+            new ILInspector.Metadata.AssemblyReferenceBindingPolicy(
+                ApiAnalysisInspection.CreateReferenceResolver(ProductPath)),
+            target.Assembly,
+            Analysis.GenericMemberIdentity.OpenDeclaringType(
+                openMethod.DeclaringType),
+            [scope.Assembly]);
 
-        var actual = target.CallerEdges(openMethod.MetadataToken, [scope]);
+        var actual = target.CallerEdges(
+            openMethod.MetadataToken,
+            [scope],
+            plan.Resolution);
 
         Assert.Contains(actual, edge => edge.Source == scope.SourceName);
     }

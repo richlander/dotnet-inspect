@@ -37,8 +37,8 @@ switching from tester to implementer.
 ## Review
 
 Ladder PRs that add or change fixture/corpus coverage, guards, success bars, or
-rung-completion claims need cross-model adversarial review before merge (two
-reviewers from the AGENTS.md "Adversarial Review" roster, never your own model).
+rung-completion claims are non-trivial for review-policy purposes and need the
+AGENTS.md "Adversarial review" tier table's standard round before merge.
 The review should try to falsify the rung bar and guard: missing constructs,
 too-weak success criteria, unguarded regression paths, and over-broad completion
 claims.

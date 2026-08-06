@@ -10,12 +10,8 @@ namespace ILInspector.Metadata.Tests;
 /// binding one of its readings.
 /// </summary>
 /// <remarks>
-/// This is fail-visible hardening, not a fix for a reader divergence. Both product readers happen
-/// to select the first entry for a duplicated key — <c>AssemblyInspector</c> stops at the first
-/// <c>documents</c> entry, and <see cref="SourceDocumentPathResolver"/>'s descending pattern-length
-/// sort is stable, so equal-length duplicates keep document order. They diverge only on maps with
-/// <em>distinct</em> keys, which stay well-formed and accepted; see the SourceLink open-work entry
-/// in <c>docs/design/untrusted-data-threat-model.md</c>.
+/// This is fail-visible hardening at the single SourceLinkFetch parser used by
+/// <see cref="SourceDocumentPathResolver"/> and provenance processing.
 /// </remarks>
 public class SourceLinkDuplicateDocumentTests
 {

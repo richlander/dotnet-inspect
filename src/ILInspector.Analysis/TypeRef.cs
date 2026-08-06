@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Reflection.Metadata;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -48,6 +49,20 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public string UnsupportedReason { get; private init; } = "";
     public MetadataTypeNameFailure? MetadataNameFailure { get; private init; }
 
+    // Preserve identity-bearing signature payload for catalog correspondence
+    // without changing existing Unsupported structural equality or display.
+    internal TypeRef? UnmodifiedType { get; private init; }
+    internal TypeRef? ModifierType { get; private init; }
+    internal bool IsRequiredModifier { get; private init; }
+    internal MethodSignature<TypeRef>? FunctionPointerSignature
+        { get; private init; }
+
+    /// <summary>
+    /// Decoder-retained origin and exact metadata name. It is excluded from
+    /// structural equality, hashing, and display.
+    /// </summary>
+    public ResolvableTypeReference? Resolution { get; private init; }
+
     // Whether this type's declaring assembly carries a known Microsoft framework
     // public-key-token (#1708 Row A). Advisory classification used by the framework
     // signal predicates to reject simple-name spoofs (a user assembly named
@@ -66,11 +81,27 @@ public sealed class TypeRef : IEquatable<TypeRef>
     public bool TrustedProtobufAssembly { get; private init; } = true;
 
     public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true, bool trustedProtobufAssembly = true)
+        => Definition(
+            assembly,
+            ns,
+            name,
+            resolution: null,
+            trustedFrameworkAssembly,
+            trustedProtobufAssembly);
+
+    internal static TypeRef Definition(
+        string assembly,
+        string ns,
+        string name,
+        ResolvableTypeReference? resolution,
+        bool trustedFrameworkAssembly = true,
+        bool trustedProtobufAssembly = true)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
             Namespace = ns,
             Name = name,
+            Resolution = resolution,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,
             TrustedProtobufAssembly = trustedProtobufAssembly,
         };
@@ -96,6 +127,32 @@ public sealed class TypeRef : IEquatable<TypeRef>
         {
             UnsupportedReason = reason,
             MetadataNameFailure = metadataNameFailure,
+        };
+
+    internal static TypeRef UnsupportedModified(
+        TypeRef modifier,
+        TypeRef unmodifiedType,
+        bool isRequired)
+    {
+        ArgumentNullException.ThrowIfNull(modifier);
+        ArgumentNullException.ThrowIfNull(unmodifiedType);
+        return new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason =
+                $"custom modifier ({(isRequired ? "modreq" : "modopt")} "
+                + $"{modifier.ToDisplayString()})",
+            ModifierType = modifier,
+            UnmodifiedType = unmodifiedType,
+            IsRequiredModifier = isRequired,
+        };
+    }
+
+    internal static TypeRef UnsupportedFunctionPointer(
+        MethodSignature<TypeRef> signature) =>
+        new(TypeRefKind.Unsupported)
+        {
+            UnsupportedReason = "function pointer",
+            FunctionPointerSignature = signature,
         };
 
     public TypeRef Instantiate(ImmutableArray<TypeRef> typeArguments, ImmutableArray<TypeRef> methodArguments)

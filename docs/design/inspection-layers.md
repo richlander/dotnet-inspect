@@ -138,8 +138,8 @@ dotnet-inspect-specific or a candidate to move.
 
 **Query** has a typed precedent and two senses to keep clear of. The typed
 precedent is small but exact:
-[`SourceDocumentQuery`](../../src/ILInspector.Metadata/MetadataFindings.Source.cs)
-and `MemberSourceQuery` are records in `ILInspector.Metadata` that carry a typed
+[`SourceDocumentQuery`](../../src/ILInspector.SourceLink/SourceLinkFindings.cs)
+and `MemberSourceQuery` are records in `ILInspector.SourceLink` that carry a typed
 request a producer runs — precisely the L1 shape. `MetadataDeclarationQuery` is
 the same concept in utility form. The browser prototype independently named its
 entire exported surface `Query*`.

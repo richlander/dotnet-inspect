@@ -143,6 +143,40 @@ sitting next to any of them. To keep it somewhere else entirely, point at it exp
 dotnet-inspect package MyCompany.Widgets --nugetconfig ~/private-feeds/nuget.config
 ```
 
+## Cached packages stay with their source
+
+Downloaded content is cached against the source it came from. A later run is served that content
+only if its configuration still lists that source; otherwise the package is fetched again, or
+reported as not found.
+
+This matters when a package id and version exist on more than one feed. Removing a private feed
+from your configuration does not leave its packages readable from cache, and adding a public feed
+does not let public content stand in for a package you previously read from a private one. Each
+source's copy is kept separately, so switching between configurations gives you what that
+configuration's sources actually serve.
+
+Two practical consequences:
+
+- Inspecting one package from two feeds stores it twice. This is deliberate — the two feeds may
+  not be publishing identical bytes.
+- `--source` and `--add-source` take part in this. A run that replaces your sources will not read
+  content cached under the sources it replaced.
+
+The NuGet global folder (`~/.nuget/packages`) is the exception, and it is read eagerly: a package
+found there is used whatever your sources say. That folder is not a feed dotnet-inspect fetched
+from — it is a local store you populated, mostly by `dotnet restore`. Its content is treated as
+yours, and reading it is what makes inspecting a package you have already restored both fast and
+faithful to the bytes your build actually used.
+
+The consequence is worth stating plainly: if a private package is in your global folder, a run
+configured only for nuget.org will still inspect it. `--source` chooses which feeds are consulted
+for a download; it does not hide content already in the global folder. To inspect strictly what
+your configured sources serve, add `--no-nuget-cache`:
+
+```bash
+dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache
+```
+
 ## Checking a source without changing your config
 
 `--add-source` adds one feed for a single run, and `--source` replaces the configured sources
