@@ -378,56 +378,96 @@ public static class NuGetCache
         string packageName,
         IReadOnlyList<string>? allowedSourceKeys)
     {
-        var normalizedName = packageName.ToLowerInvariant();
+        return GetCachedVersions(
+            packageName,
+            allowedSourceKeys,
+            includePrerelease: false,
+            limit: 1).FirstOrDefault();
+    }
 
-        // Newest non-prerelease, structurally-valid version across both caches.
-        bool IsNuGetCacheValid(string dir) =>
-            IsCachedPackageValid(dir, normalizedName);
-        bool IsAppCacheValid(string dir)
+    /// <summary>
+    /// Returns cached package versions, newest first, without touching the network.
+    /// App-cache entries are included only when they were committed by a source the
+    /// caller is currently configured to read.
+    /// </summary>
+    public static IReadOnlyList<string> GetCachedVersions(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys,
+        bool includePrerelease = true,
+        int? limit = null)
+    {
+        var normalizedName = packageName.ToLowerInvariant();
+        var versions = new Dictionary<NuGetVersion, string>();
+
+        void AddVersions(string root, Func<string, string, bool> isValid)
         {
-            // A version directory now holds one slot per source. The version
-            // counts as cached only if a source this caller reads from
-            // committed it.
-            string version = Path.GetFileName(dir);
-            foreach (var sourceKey in allowedSourceKeys ?? [])
+            if (!Directory.Exists(root))
+                return;
+
+            try
             {
-                if (IsCommittedPackageValid(
-                        Path.Combine(dir, sourceKey),
-                        normalizedName,
-                        version,
-                        sourceKey))
+                foreach (var dir in Directory.GetDirectories(root))
                 {
-                    return true;
+                    string version = Path.GetFileName(dir);
+                    if (!NuGetVersion.TryParse(version, out var parsed)
+                        || (!includePrerelease && parsed.IsPrerelease)
+                        || !isValid(dir, version))
+                    {
+                        continue;
+                    }
+
+                    versions.TryAdd(parsed, version);
                 }
             }
-
-            return false;
+            catch (IOException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
         }
-        VersionDir? best = null;
 
-        // Check NuGet global cache — skip in isolated mode
         if (!_skipNuGetCache)
         {
-            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
+            AddVersions(
                 Path.Combine(GetNuGetCachePath(), normalizedName),
-                includePrerelease: false,
-                IsNuGetCacheValid));
+                (dir, _) => IsCachedPackageValid(dir, normalizedName));
         }
 
-        // Check app cache
         try
         {
-            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
+            AddVersions(
                 Path.Combine(GetPackageContentCachePath(), normalizedName),
-                includePrerelease: false,
-                IsAppCacheValid));
+                (dir, version) =>
+                {
+                    foreach (var sourceKey in allowedSourceKeys ?? [])
+                    {
+                        if (IsCommittedPackageValid(
+                                Path.Combine(dir, sourceKey),
+                                normalizedName,
+                                version,
+                                sourceKey))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
         }
         catch (InvalidOperationException)
         {
-            // App cache not initialized
+            // App cache not initialized.
         }
 
-        return best?.DirName;
+        IEnumerable<string> ordered = versions
+            .OrderByDescending(pair => pair.Key)
+            .Select(pair => pair.Value);
+        if (limit is { } count)
+            ordered = ordered.Take(count);
+        return ordered.ToArray();
     }
 
     /// <summary>
