@@ -8,10 +8,8 @@ namespace InertText.Tests;
 /// <remarks>
 /// Truncation is where this library is easiest to break, because a spelling is several
 /// characters wide and a budget is not aware of that. Cutting <c>\u202E</c> anywhere but at its
-/// ends leaves text the decoder rejects, and <see cref="InertString.EnsurePermitted"/> treats
-/// text it cannot decode as raw — so the repair path re-encodes the surviving backslash and
-/// turns <c>\u2</c> into <c>\\u2</c>, which is also what an unrelated literal encodes to. Two
-/// inputs converge on one output, and the transform stops being invertible.
+/// ends can leave <c>\u2</c>, which the grammar correctly reads as literal text and therefore
+/// cannot decode to the scalar whose spelling was cut. The original evidence is lost.
 ///
 /// So the property these tests hold is not "the result is short enough". It is that the result
 /// is a fixpoint of <see cref="InertString.EnsurePermitted"/> — the same statement the encoder's
@@ -202,15 +200,18 @@ public class BoundaryTests
     }
 
     [Fact]
-    public void MidSpellingCutsAreWhyTheBoundaryIsChecked()
+    public void IncompleteSpellingPrefixIsLiteralText()
     {
-        // The failure this exists to prevent, stated as a fact about the library rather than
-        // left implied: a raw mid-spelling cut is not a fixpoint of the repair path, so two
-        // unrelated inputs would converge on one encoded form.
-        InertString reencoded = new InertString(TextPolicy.Field, @"a\u2");
+        // Only a complete canonical spelling invokes the decoder. That lets ordinary text keep
+        // an unrelated backslash, while the boundary walker remains responsible for never
+        // producing this text by cutting an actual spelling.
+        const string Literal = @"a\u2";
+        InertString inert = new InertString(TextPolicy.Field, Literal);
 
-        Assert.Equal(@"a\\u2", reencoded.ToString());
-        Assert.NotEqual(@"a\u2", reencoded.ToString());
+        Assert.Same(Literal, inert.ToString());
+        Assert.Equal(VisualForm.None, inert.Forms);
+        Assert.True(VisualEncoder.TryDecode(inert.ToString(), out string? decoded));
+        Assert.Same(Literal, decoded);
     }
 
     [Theory]
@@ -305,9 +306,12 @@ public class BoundaryTests
         // would not break a boundary -- it would make DescribeLegend name a spelling the text
         // does not contain, which no length assertion can see.
         //
-        // Ground truth has to come from outside the walker, so it is taken by decoding the
+        // Ground truth for non-backslash forms comes from outside the walker, by decoding the
         // window and encoding it again from scratch: that path runs AppendSpelling and never
-        // consults NextToken.
+        // consults ReadToken. Backslash is different now: a larger value containing a hazard
+        // canonicalizes all its backslashes, while the isolated decoded window may retain one
+        // that cannot introduce a spelling. Its independent witness is therefore the doubled
+        // spelling in the window text rather than a fresh encoding.
         //
         // That oracle is only sound for DIRECTLY-ENCODED values, which is why this sweep does
         // not run over BoundaryCorpus like the others. Re-encoding asks what a fresh encode of
@@ -325,7 +329,12 @@ public class BoundaryTests
                 InertString window = full.Truncate(start..end);
 
                 Assert.True(VisualEncoder.TryDecode(window.ToString(), out string? original));
-                Assert.Equal(VisualEncoder.Encode(TextPolicy.Field, original).Forms, window.Forms);
+                VisualForm expected = VisualEncoder.Encode(TextPolicy.Field, original).Forms;
+                Assert.Equal(
+                    expected & ~VisualForm.Backslash,
+                    window.Forms & ~VisualForm.Backslash);
+                if (window.Forms.HasFlag(VisualForm.Backslash))
+                    Assert.Contains(@"\\", window.ToString(), StringComparison.Ordinal);
             }
         }
     }

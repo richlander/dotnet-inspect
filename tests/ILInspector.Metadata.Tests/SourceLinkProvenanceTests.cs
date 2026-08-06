@@ -1639,13 +1639,13 @@ public class SourceLinkProvenanceTests
     {
         Type type = typeof(SLF.SourceLinkOrigin);
 
-        Assert.Empty(type
-            .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-            .Where(static c => c.GetParameters().Length != 0));
+        Assert.DoesNotContain(
+            type.GetConstructors(BindingFlags.Public | BindingFlags.Instance),
+            static c => c.GetParameters().Length != 0);
 
-        Assert.Empty(type
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(static p => p.SetMethod is { } setter && setter.IsPublic));
+        Assert.DoesNotContain(
+            type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
+            static p => p.SetMethod is { } setter && setter.IsPublic);
     }
 
     /// <summary>

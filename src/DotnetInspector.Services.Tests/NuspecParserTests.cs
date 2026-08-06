@@ -47,8 +47,62 @@ public class NuspecParserTests : IDisposable
 
         Assert.Equal("MyPackage", result.PackageName);
         Assert.Equal("1.2.3", result.Version);
-        Assert.Equal("A test package", result.Description);
+        Assert.Equal("A test package", result.Description?.ToString());
         Assert.Equal("Test Author", result.Authors);
+    }
+
+    [Fact]
+    public void Parse_ContainsDescriptionAtTheNuspecBoundary()
+    {
+        var nuspec = WriteNuspec("""
+            <package>
+              <metadata>
+                <id>Hostile.Description</id>
+                <version>1.0.0</version>
+                <description>first
+            ## package heading
+            value&#x202E;tail</description>
+              </metadata>
+            </package>
+            """);
+
+        var result = NuspecParser.Parse(nuspec);
+
+        Assert.NotNull(result.Description);
+        Assert.Equal(
+            "first\n## package heading\nvalue\\u202Etail",
+            result.Description.Value.ToString().ReplaceLineEndings("\n"));
+    }
+
+    [Fact]
+    public void Parse_MalformedXml_RejectsWithoutQuotingArtifactText()
+    {
+        var nuspec = WriteNuspec("""
+            <package>
+              <metadata>
+                <id>SHOULD-NOT-REACH-THE-DIAGNOSTIC</metadata>
+              </metadata>
+            </package>
+            """);
+
+        var exception = Assert.Throws<NuspecParseException>(() => NuspecParser.Parse(nuspec));
+
+        Assert.True(exception.LineNumber > 0);
+        Assert.True(exception.LinePosition > 0);
+        Assert.Contains("Package manifest is not well-formed XML", exception.Message);
+        Assert.DoesNotContain("SHOULD-NOT-REACH-THE-DIAGNOSTIC", exception.Message);
+        Assert.Null(exception.InnerException);
+    }
+
+    [Fact]
+    public void ParseContent_MalformedXml_UsesTheSameTypedRejection()
+    {
+        var exception = Assert.Throws<NuspecParseException>(
+            () => NuspecParser.ParseContent("<package><metadata></package>"));
+
+        Assert.True(exception.LineNumber > 0);
+        Assert.True(exception.LinePosition > 0);
+        Assert.DoesNotContain("metadata", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
