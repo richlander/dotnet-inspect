@@ -890,14 +890,51 @@ public sealed class CatalogMemberCorrespondencePlan
 
                 case TypeRefKind.Unsupported
                     when type.FunctionPointerSignature is { } signature:
+                    if (signature.ParameterTypes.IsDefault)
+                    {
+                        return Malformed(
+                            type,
+                            "function-pointer parameters are uninitialized");
+                    }
+                    if (signature.GenericParameterCount < 0)
+                    {
+                        return Malformed(
+                            type,
+                            "function-pointer generic arity is negative");
+                    }
+                    bool isVararg =
+                        (signature.Header.RawValue
+                            & CallingConventionMask)
+                        == VarargCallingConvention;
+                    int identityParameterCount =
+                        signature.ParameterTypes.Length;
+                    int requiredParameterCount =
+                        signature.ParameterTypes.Length;
+                    if (isVararg)
+                    {
+                        requiredParameterCount =
+                            signature.RequiredParameterCount;
+                        if (requiredParameterCount < 0
+                            || requiredParameterCount
+                                > signature.ParameterTypes.Length)
+                        {
+                            return Malformed(
+                                type,
+                                "function-pointer required parameter count "
+                                + "is out of range");
+                        }
+                        identityParameterCount =
+                            requiredParameterCount;
+                    }
                     return PlannedType.FunctionPointer(
                         signature.Header.RawValue,
                         signature.GenericParameterCount,
-                        signature.RequiredParameterCount,
+                        requiredParameterCount,
                         Plan(signature.ReturnType, depth + 1),
                         PlanMany(
                             signature.ParameterTypes,
-                            depth + 1));
+                            depth + 1,
+                            identityParameterCount));
 
                 case TypeRefKind.Unsupported
                     when type.ModifierType is not null
@@ -920,14 +957,16 @@ public sealed class CatalogMemberCorrespondencePlan
 
         ImmutableArray<PlannedType> PlanMany(
             ImmutableArray<TypeRef> types,
-            int depth)
+            int depth,
+            int? count = null)
         {
             if (types.IsDefault)
                 return [];
+            int plannedCount = count ?? types.Length;
             var builder =
-                ImmutableArray.CreateBuilder<PlannedType>(types.Length);
-            foreach (TypeRef type in types)
-                builder.Add(Plan(type, depth));
+                ImmutableArray.CreateBuilder<PlannedType>(plannedCount);
+            for (int i = 0; i < plannedCount; i++)
+                builder.Add(Plan(types[i], depth));
             return builder.MoveToImmutable();
         }
 

@@ -735,6 +735,110 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void FunctionPointerVararg_KeysOnlyRequiredPrefix()
+    {
+        byte[] image = BuildAssembly(
+            "Owner",
+            ["Owner", "Optional", "Other"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef optional = ReadDefinition(image, "Optional");
+        TypeRef other = ReadDefinition(image, "Other");
+        MethodSignature<TypeRef> FirstSignature(
+            int requiredParameterCount,
+            TypeRef optionalType) =>
+            new(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.VarArgs,
+                    SignatureAttributes.None),
+                owner,
+                requiredParameterCount,
+                genericParameterCount: 0,
+                [owner, optionalType]);
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(
+                    source,
+                    image,
+                    owner,
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            FirstSignature(1, optional)),
+                    ],
+                    owner));
+        CatalogMemberCorrespondencePlan equivalent =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(
+                    source,
+                    image,
+                    owner,
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            FirstSignature(1, other)),
+                    ],
+                    owner));
+        CatalogMemberCorrespondencePlan twoRequired =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(
+                    source,
+                    image,
+                    owner,
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            FirstSignature(2, optional)),
+                    ],
+                    owner));
+        CatalogMemberCorrespondencePlan invalid =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(
+                    source,
+                    image,
+                    owner,
+                    [
+                        TypeRef.UnsupportedFunctionPointer(
+                            FirstSignature(3, optional)),
+                    ],
+                    owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests
+                .Concat(equivalent.Requests)
+                .Concat(twoRequired.Requests)
+                .Distinct(TypeResolutionRequestComparer.Instance));
+
+        CatalogMemberJoinKey firstKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                first.Project(context)).Key;
+        CatalogMemberJoinKey equivalentKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                equivalent.Project(context)).Key;
+        CatalogMemberJoinKey twoRequiredKey = Assert.IsType<
+            CatalogMemberJoinProjection.Issued>(
+                twoRequired.Project(context)).Key;
+
+        Assert.Single(first.Requests);
+        Assert.Equal(
+            CatalogTypeShapeKind.FunctionPointer,
+            firstKey.ParameterTypes[0].Kind);
+        Assert.Equal(
+            1,
+            firstKey.ParameterTypes[0].RequiredParameterCount);
+        Assert.Single(firstKey.ParameterTypes[0].Components);
+        Assert.Equal(firstKey, equivalentKey);
+        Assert.NotEqual(firstKey, twoRequiredKey);
+        AssertFailure<MemberCorrespondenceFailure.MalformedTypeShape>(
+            invalid,
+            context);
+    }
+
+    [Fact]
     public void MissingManifestRequest_IsActionableExpansionFailure()
     {
         byte[] image = BuildAssembly("Owner", ["Owner"]);
