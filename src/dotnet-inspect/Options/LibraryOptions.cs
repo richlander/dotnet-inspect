@@ -25,7 +25,7 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeReferences { get; init; }
 
     /// <summary>
-    /// Show assembly dependencies as a clean deduplicated tree.
+    /// Legacy CLI request for the References tree projection.
     /// </summary>
     public bool IncludeDependencies { get; init; }
 
@@ -36,10 +36,15 @@ public record LibraryOptions : IProjectionOptions
     internal bool CollectReferences { get; init; }
 
     /// <summary>
-    /// Internal execution demand for the resolved transitive dependency tree. Unlike
-    /// <see cref="IncludeDependencies"/>, this does not select the legacy dependency view.
+    /// Internal execution demand for the resolved transitive reference tree.
     /// </summary>
-    internal bool CollectDependencies { get; init; }
+    internal bool CollectReferenceTree { get; init; }
+
+    /// <summary>
+    /// Maximum reference-tree depth, where 1 includes direct references only.
+    /// Null traverses the complete resolvable graph.
+    /// </summary>
+    public int? ReferenceTreeDepth { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.

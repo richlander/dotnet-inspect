@@ -278,10 +278,11 @@ public sealed class SectionPipeline<TModel>
     public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
 
     /// <summary>
-    /// Fixed-overview membership, in registration order: sections whose row set does not grow with
-    /// the target and that touch no network. This is the membership question, not "what does bare
-    /// <c>-S</c> render" - a curated pipeline can mark a member <c>ExplicitOnly</c>, which keeps
-    /// it out of the render. Use <see cref="BareSelectSectionNames"/> for the latter.
+    /// Fixed-overview membership, in registration order: base-scope sections whose row set does
+    /// not grow with the target and that touch no network. This is the membership question, not
+    /// "what does bare <c>-S</c> render" - a curated pipeline can mark a member
+    /// <c>ExplicitOnly</c>, which keeps it out of the render. Use
+    /// <see cref="BareSelectSectionNames"/> for the latter.
     /// </summary>
     /// <remarks>
     /// Curated pipelines reach this membership through the <c>fixedOverview</c> flag, which
@@ -303,17 +304,13 @@ public sealed class SectionPipeline<TModel>
     /// reports zero, exactly as a category member does.
     /// </summary>
     /// <remarks>
-    /// This differs from <see cref="FixedOverviewSectionNames"/> for a curated pipeline, because
-    /// that property answers "is this section in the fixed overview" while the curated route
-    /// reaches the overview through <see cref="IsRequested"/> - which rejects an
-    /// <see cref="ISectionDescriptor{TModel}.ExplicitOnly"/> section before it considers the
-    /// overview at all. The two genuinely disagree today: <c>Metadata: Image</c> and
-    /// <c>Metadata: Heap</c> are <c>ExplicitOnly</c> and also Fixed/NetworkFree, so they are
-    /// fixed-overview members that bare <c>-S</c> never renders. Asking <see cref="IsRequested"/>
-    /// rather than restating its precedence is what keeps the answer correct without a second
-    /// copy of the rule to maintain. Non-curated pipelines install
+    /// This can differ from <see cref="FixedOverviewSectionNames"/> for a curated pipeline,
+    /// because <see cref="IsRequested"/> rejects an
+    /// <see cref="ISectionDescriptor{TModel}.ExplicitOnly"/> base member before it considers the
+    /// overview. Asking <see cref="IsRequested"/> rather than restating its precedence keeps the
+    /// answer correct if such a section is added. Non-curated pipelines install
     /// <see cref="FixedOverviewSectionNames"/> as an explicit include set, so for them the request
-    /// is that set. Gated by <c>BareSelect_ExcludesExplicitOnlySections_OnCuratedPipelines</c>.
+    /// is that set. Gated by <c>BareSelect_MatchesAuthoredBaseFixedOverview</c>.
     /// </remarks>
     public string[] BareSelectSectionNames => _curatedCatalog
         ? [.. _entries

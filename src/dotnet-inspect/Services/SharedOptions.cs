@@ -61,7 +61,7 @@ public class SharedOptions
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
     public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
-    public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
+    public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
     public Option<bool> Effective { get; } = new("--effective")
     {
         Description = "With -D: run the producers needed to identify sections with data"

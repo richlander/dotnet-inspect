@@ -50,6 +50,7 @@ wildcard:
 dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Async*"
 dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect library System.Text.Json -S References --tree --depth 2
 ```
 
 Selection controls both rendering and data collection. Only producers needed
@@ -58,6 +59,11 @@ by the requested sections should run.
 Focused output renders the selected section without a compact identity row.
 Compact fields belong to `-v:q`; select the command's info section when identity,
 version, TFM, or source information is part of the question.
+
+`References` is a single evidence section with alternate projections. Its
+default projection is the flat direct-reference table. `--tree` requests the
+resolved transitive graph, and `--depth N` bounds it (`1` means direct
+references only). Omitting `--depth` traverses the complete resolvable graph.
 
 ### Bare `-S`
 

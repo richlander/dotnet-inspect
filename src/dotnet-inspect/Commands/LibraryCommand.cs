@@ -98,6 +98,7 @@ public class LibraryCommand
             return 1;
         }
         options = aliasNormalized.Options;
+        options = NormalizeReferenceProjection(options);
 
         if (options.Effective && options.Discover == null)
         {
@@ -234,6 +235,45 @@ public class LibraryCommand
             }
 
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        if (options.ReferenceTreeDepth is < 1)
+        {
+            CommandError.Write("--depth must be at least 1.");
+            return 1;
+        }
+
+        if (options.ReferenceTreeDepth is not null
+            && (options.Discover != null || !options.Tree))
+        {
+            CommandError.Write("--depth requires -S References --tree.");
+            return 1;
+        }
+
+        if (options.Tree && options.Discover == null)
+        {
+            if (options.IncludeSections is not { Count: 1 }
+                || !options.IncludeSections.Contains(SectionNames.References))
+            {
+                CommandError.Write("--tree requires exactly -S References.");
+                return 1;
+            }
+
+            if (options.Count
+                || options.Print
+                || options.Value
+                || options.Urls
+                || options.Paths
+                || options.Columns is { Length: > 0 }
+                || options.Fields is { Length: > 0 }
+                || options.Rows is not null
+                || options.JsonOutput
+                || options.PlainText
+                || options.TabularExplicitlySet)
+            {
+                CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+                return 1;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(options.HeapParameter)
@@ -373,12 +413,10 @@ public class LibraryCommand
         {
             inspectionOptions = inspectionOptions with
             {
-                // Assembly references are a cheap metadata fact and drive both base dependency
-                // doors. Full discovery additionally builds the transitive dependency view when
-                // that section is in scope.
+                // Assembly references are a cheap metadata fact. Discovery never needs the
+                // transitive projection because References effectiveness is established directly.
                 CollectReferences = true,
-                CollectDependencies = fullEffectiveDiscovery
-                    && discoveryExecutionScope?.Contains(SectionNames.Dependencies) == true,
+                CollectReferenceTree = false,
             };
         }
         else
@@ -387,9 +425,9 @@ public class LibraryCommand
                 options.Verbosity, options.IncludeSections, options.FixedOverview);
             inspectionOptions = inspectionOptions with
             {
-                CollectReferences = candidates.Contains(SectionNames.References)
-                    || candidates.Contains(SectionNames.Dependencies),
-                CollectDependencies = candidates.Contains(SectionNames.Dependencies),
+                CollectReferences = candidates.Contains(SectionNames.References),
+                CollectReferenceTree = options.Tree
+                    && candidates.Contains(SectionNames.References),
             };
         }
 
@@ -1039,6 +1077,39 @@ public class LibraryCommand
         }
 
         return false;
+    }
+
+    private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
+    {
+        if (options.Discover != null)
+            return options;
+
+        var select = options.Select?.ToList() ?? [];
+        var tree = options.Tree || options.IncludeDependencies;
+
+        for (var i = 0; i < select.Count; i++)
+        {
+            if (!select[i].Equals("Dependencies", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            select[i] = SectionNames.References;
+            tree = true;
+        }
+
+        if ((options.IncludeReferences || options.IncludeDependencies)
+            && !select.Contains(SectionNames.References, StringComparer.OrdinalIgnoreCase))
+        {
+            select.Add(SectionNames.References);
+        }
+
+        return options with
+        {
+            IncludeReferences = false,
+            IncludeDependencies = false,
+            Select = select.Count > 0 ? [.. select] : null,
+            SelectDefault = select.Count > 0 ? false : options.SelectDefault,
+            Tree = tree,
+        };
     }
 
     /// <summary>
@@ -1753,14 +1824,6 @@ public class LibraryCommand
         {
             var selected = pipeline.GetAvailableSections(inspection, effectivenessScope)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var section in pipeline.GetExplicitlyApplicableSections(
-                         inspection, effectivenessScope))
-            {
-                // These two projections are mutually selected by the normal renderer, but the
-                // same reference fact proves that either focused section can produce data.
-                if (section is SectionNames.References or SectionNames.Dependencies)
-                    selected.Add(section);
-            }
 
             if (options.Discover is { Length: 0 })
             {
@@ -1815,9 +1878,9 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v20: bare effective discovery is now the full-effectiveness base catalog with
-    // structural domain-door evidence, rather than the old all-section applicability catalog.
-    private const string EffectiveCategory = "effective-v20";
+    // Bumped to v21: References now owns both the flat and tree projections, so the effective
+    // catalog no longer contains a separate Dependencies section.
+    private const string EffectiveCategory = "effective-v21";
 
     static LibraryCommand()
     {

@@ -54,6 +54,7 @@ public static class SelectResolver
         ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
         ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
         ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Dependencies"] = SectionNames.References,
         ["Source Files"] = SectionNames.SourceLinkFiles,
         ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
         ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,

@@ -61,6 +61,16 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void ResolveSelect_DependencyAlias_ResolvesToReferences()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Dependencies"], ["References"]);
+
+        Assert.Equal("References", Assert.Single(result.Sections!));
+        Assert.Empty(result.Unresolved);
+    }
+
+    [Fact]
     public void ResolveSelect_AllSelector_ReturnsAllSections()
     {
         var result = SelectResolver.ResolveSelectAsSections(["@All"], TestSections);

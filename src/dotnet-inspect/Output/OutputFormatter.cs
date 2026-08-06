@@ -374,11 +374,9 @@ public static class OutputFormatter
             return;
         }
 
-        if (inspection.UseDependenciesView)
+        if (options.Tree && options.Discover == null)
         {
-            CommandError.WriteLine("Tip: use 'depends --library' for dependency trees.");
-            var view = AssemblyDependenciesView.FromInspection(inspection);
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            WriteReferenceTree(inspection);
             return;
         }
 
@@ -423,6 +421,17 @@ public static class OutputFormatter
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    private static void WriteReferenceTree(LibraryInspection inspection)
+    {
+        var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
+        var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
+        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
+        writer.WriteHeading(2, SectionNames.References);
+        writer.WriteTree([.. tree]);
+        writer.Flush();
     }
 
     /// <summary>

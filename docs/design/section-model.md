@@ -69,7 +69,7 @@ The library command has two base categories:
 
 | Category | Purpose |
 | --- | --- |
-| `@Library` | Identity, dependencies, symbols, and library-level findings |
+| `@Library` | Identity, references, symbols, and library-level findings |
 | `@Surface` | Public API and contract shape |
 
 The base-category union intentionally excludes separate domains such as
@@ -123,7 +123,7 @@ Names communicate ownership but do not determine behavior.
 Base sections use concise noun phrases:
 
 - `Library Info`
-- `Dependencies`
+- `References`
 - `Extension Methods`
 - `Signals`
 - `Symbols`
@@ -159,6 +159,13 @@ duplicate every matching path.
 
 Renamed sections keep their prior spellings in
 `SelectResolver.LegacySectionAliases` when compatibility is practical.
+
+Alternate projections do not create synonymous sections. `References` renders
+direct references as a flat table by default. `-S References --tree` renders
+the resolved transitive reference graph; `--depth N` limits that graph, with
+depth 1 containing direct references only. Omitting `--depth` traverses the
+complete resolvable graph. The former `Dependencies` spelling remains a
+compatibility alias for the tree projection.
 
 ## Section axes
 
@@ -340,7 +347,7 @@ The library command's current authored ownership is:
 
 | Category | Members |
 | --- | --- |
-| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Dependencies`, `Signals`, `Symbols` |
+| `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
 | `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `Signals`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |

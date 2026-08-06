@@ -133,14 +133,6 @@ public class LibraryInspectionView
             .ToList() is { Count: > 0 } rows ? rows : null;
 
     [MarkoutIgnore]
-    public bool UseDependenciesView => _data.UseDependenciesView;
-
-    [MarkoutSection(Name = "Dependencies")]
-    public List<TreeNode>? DependenciesSection =>
-        _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
-        BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
-
-    [MarkoutIgnore]
     public bool HasExtensionMethods => _data.ExtensionMethods is { Count: > 0 };
 
     [MarkoutSection(Name = "Extension Methods", ShowWhenProperty = nameof(HasExtensionMethods))]
@@ -191,7 +183,6 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
-        _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
         _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
             .ToList() is { Count: > 0 } list ? list : null;
@@ -975,7 +966,7 @@ public class LibraryInspectionView
     public static bool AllocationContextChurnedTypeIsEmpty(List<ILOffsetAllocationContextRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.ChurnedType));
 
-    private static List<TreeNode> BuildNestedDependencyTree(List<AssemblyReferenceNode> nodes)
+    internal static List<TreeNode> BuildNestedReferenceTree(List<AssemblyReferenceNode> nodes)
     {
         List<TreeNode> result = [];
         int i = 0;

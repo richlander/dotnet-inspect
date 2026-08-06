@@ -1203,26 +1203,19 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/> excluding
-    /// <c>ExplicitOnly</c> sections on a curated pipeline. The distinction is live, not defensive:
-    /// <c>Metadata: Image</c> and <c>Metadata: Heap</c> are <c>ExplicitOnly</c> and also
-    /// <c>Fixed</c>/<c>NetworkFree</c>, so they are fixed-overview members that bare <c>-S</c>
-    /// never renders. Reading <see cref="SectionPipeline{TModel}.FixedOverviewSectionNames"/>
-    /// instead would put both in the count map, each reporting zero for a section the user cannot
-    /// get this way.
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/> matching the
+    /// authored base fixed overview. Fixed, network-free metadata sections are domain-owned, so
+    /// they do not enter either set merely because they are cheap.
     /// </summary>
     [Fact]
-    public void BareSelect_ExcludesExplicitOnlySections_OnCuratedPipelines()
+    public void BareSelect_MatchesAuthoredBaseFixedOverview()
     {
         var library = LibrarySections.CreatePipeline();
 
-        Assert.Equal(
-            [MetadataSectionNames.Image, MetadataSectionNames.Heap],
-            library.FixedOverviewSectionNames.Except(library.BareSelectSectionNames));
-        Assert.Empty(library.BareSelectSectionNames.Except(library.FixedOverviewSectionNames));
+        Assert.Equal(library.FixedOverviewSectionNames, library.BareSelectSectionNames);
+        Assert.DoesNotContain(MetadataSectionNames.Image, library.FixedOverviewSectionNames);
+        Assert.DoesNotContain(MetadataSectionNames.Heap, library.FixedOverviewSectionNames);
 
-        // The package pipeline marks none of its fixed sections ExplicitOnly, so the two agree
-        // there. Pinning both shapes keeps the exclusion honest in either direction.
         var package = PackageSectionDescriptors.CreatePipeline();
         Assert.Equal(package.FixedOverviewSectionNames, package.BareSelectSectionNames);
     }
@@ -9106,16 +9099,55 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_SelectedDependencies_CollectsResolvedTransitiveTree()
+    public async Task LibraryCommand_SelectedReferences_TreeCollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json", "-S", SectionNames.Dependencies, "--tips", "q");
+            "System.Text.Json", "-S", SectionNames.References, "--tree", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Dependencies", output);
+        Assert.Contains("## References", output);
         Assert.Contains("System.Runtime", output);
+        Assert.Contains("System.Private.CoreLib", output);
+        Assert.DoesNotContain("## Dependencies", output);
         Assert.DoesNotContain("Name: System.Text.Json", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectedReferences_TreeDepthOneStopsAtDirectReferences()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", SectionNames.References,
+            "--tree", "--depth", "1", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("System.Collections", output);
+        Assert.DoesNotContain("System.Private.CoreLib", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DependencySectionAlias_RendersReferenceTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", "Dependencies", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## References", output);
+        Assert.Contains("System.Private.CoreLib", output);
+        Assert.DoesNotContain("## Dependencies", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TreeRequiresReferencesSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "--tree", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tree requires exactly -S References", error);
     }
 
     [Fact]
@@ -9743,7 +9775,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error);
         Assert.Contains("| References | section |", output);
-        Assert.Contains("| Dependencies | section |", output);
+        Assert.DoesNotContain("| Dependencies | section |", output);
         Assert.Contains("| @Performance | category |", output);
         Assert.DoesNotContain("| Performance: Boxing | section |", output);
     }

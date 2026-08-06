@@ -69,7 +69,6 @@ public static class LibrarySections
             .Add<HealthChecks>()
             .Add<HttpClient>()
             .Add<References>(HasReferenceData)
-            .Add<Dependencies>(HasReferenceData)
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>()
             .Add<TopLeverage>(HasMethodBodies)
@@ -94,7 +93,6 @@ public static class LibrarySections
                 SectionNames.LibraryInfo,
                 SectionNames.InspectionFailures,
                 SectionNames.References,
-                SectionNames.Dependencies,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddBaseCategory(SectionCategoryNames.Surface,
@@ -537,19 +535,7 @@ public static class LibrarySections
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyReferenceInspection.HasFindings()
-               && model.AssemblyInfo?.TransitiveReferences is not { Count: > 0 };
-    }
-
-    public sealed class Dependencies : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => SectionNames.Dependencies;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        // Built inline by LibraryMetadataService when the execution plan requires this section,
-        // before the scanner phase — not by a scanner.
-        public static string? ScannerKey => null;
-        public static bool CanRender(LibraryInspection model)
-            => model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+               || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>

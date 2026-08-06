@@ -99,13 +99,12 @@ internal static class LibraryMetadataService
                     : MetadataFindings.InspectAssemblySurface(
                         surfaceClassification,
                         FindingSubjectFor(path)),
-                UseDependenciesView = options.IncludeDependencies,
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            var collectDependencies = options.IncludeDependencies || options.CollectDependencies;
-            var collectReferences = options.IncludeReferences || options.CollectReferences
-                || collectDependencies || needsAuditSignals;
+            var collectReferenceTree = options.CollectReferenceTree;
+            var collectReferences = options.CollectReferences
+                || collectReferenceTree || needsAuditSignals;
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(collectReferences);
             if (inspection.AssemblyInfo?.References is { } references)
             {
@@ -157,7 +156,7 @@ internal static class LibraryMetadataService
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if (collectDependencies && inspection.AssemblyInfo?.References != null)
+            if (collectReferenceTree && inspection.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -168,7 +167,8 @@ internal static class LibraryMetadataService
                     sourceDir,
                     visited,
                     logger,
-                    deduplicate: true);
+                    deduplicate: true,
+                    maxDepth: options.ReferenceTreeDepth);
             }
 
             // Run registered scanners for the requested sections
@@ -524,7 +524,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
+        Dictionary<string, int>? globalSeen = null,
+        int? maxDepth = null)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -594,10 +595,19 @@ internal static class LibraryMetadataService
                 {
                     var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
                     node.Company = company;
-                    if (childRefs.Count > 0)
+                    if (childRefs.Count > 0
+                        && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
+                        var childNodes = BuildTransitiveReferences(
+                            childRefs,
+                            Path.GetDirectoryName(resolvedPath),
+                            branchVisited,
+                            logger,
+                            depth + 1,
+                            deduplicate,
+                            globalSeen,
+                            maxDepth);
                         nodes.AddRange(childNodes);
                     }
                 }
