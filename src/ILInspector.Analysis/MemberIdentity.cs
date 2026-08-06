@@ -90,6 +90,9 @@ public sealed record MethodIdentity(
         init => _genericParameterNames = ImmutableArrayValueEquality.EmptyIfDefault(value, nameof(GenericParameterNames));
     }
 
+    internal byte SignatureHeader { get; init; }
+    internal int RequiredParameterCount { get; init; } = -1;
+
     public bool Equals(MethodIdentity? other)
         => other is not null
             && AssemblyName == other.AssemblyName
@@ -103,6 +106,11 @@ public sealed record MethodIdentity(
             && IsExtension == other.IsExtension
             && CallerUnsafeMode == other.CallerUnsafeMode
             && GenericArity == other.GenericArity
+            && (SignatureHeader & 0x4F)
+                == (other.SignatureHeader & 0x4F)
+            && ((SignatureHeader & 0x0F) != 0x05
+                || RequiredParameterCount
+                    == other.RequiredParameterCount)
             && ImmutableArrayValueEquality.SequenceEqual(
                 GenericParameterNames,
                 other.GenericParameterNames);
@@ -121,6 +129,9 @@ public sealed record MethodIdentity(
         hash.Add(IsExtension);
         hash.Add(CallerUnsafeMode);
         hash.Add(GenericArity);
+        hash.Add(SignatureHeader & 0x4F);
+        if ((SignatureHeader & 0x0F) == 0x05)
+            hash.Add(RequiredParameterCount);
         ImmutableArrayValueEquality.AddToHash(ref hash, GenericParameterNames);
         return hash.ToHashCode();
     }
@@ -162,6 +173,8 @@ public sealed record MemberRef(
     /// <c>explicitthis</c>/<c>generic</c> flags that parameter and return types do not encode.
     /// </summary>
     public byte SignatureHeader { get; init; }
+
+    internal int RequiredParameterCount { get; init; } = -1;
 
     /// <summary>The method-signature generic parameter count.</summary>
     public int GenericArity { get; init; }
@@ -207,6 +220,9 @@ public sealed record MemberRef(
             && ImmutableArrayValueEquality.SequenceEqual(TypeArguments, other.TypeArguments)
             && HasThis == other.HasThis
             && SignatureHeader == other.SignatureHeader
+            && ((SignatureHeader & 0x0F) != 0x05
+                || RequiredParameterCount
+                    == other.RequiredParameterCount)
             && GenericArity == other.GenericArity
             && ImmutableArrayValueEquality.SequenceEqual(OpenParameterTypes, other.OpenParameterTypes)
             && Equals(OpenReturnType, other.OpenReturnType);
@@ -222,6 +238,8 @@ public sealed record MemberRef(
         ImmutableArrayValueEquality.AddToHash(ref hash, TypeArguments);
         hash.Add(HasThis);
         hash.Add(SignatureHeader);
+        if ((SignatureHeader & 0x0F) == 0x05)
+            hash.Add(RequiredParameterCount);
         hash.Add(GenericArity);
         ImmutableArrayValueEquality.AddToHash(ref hash, OpenParameterTypes);
         hash.Add(OpenReturnType);

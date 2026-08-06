@@ -551,7 +551,7 @@ public sealed class TypeResolutionContext : IDisposable
         ResolvedAssemblyReference> _descriptors;
     readonly ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
     readonly ImmutableDictionary<
-        ManifestRequestKey,
+        TypeResolutionManifestKey,
         TypeResolutionOutcome> _projectionFailures;
     readonly ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
     readonly ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
@@ -573,7 +573,7 @@ public sealed class TypeResolutionContext : IDisposable
             ResolvedAssemblyReference> descriptors,
         ImmutableDictionary<RequestKey, TypeResolutionOutcome> outcomes,
         ImmutableDictionary<
-            ManifestRequestKey,
+            TypeResolutionManifestKey,
             TypeResolutionOutcome> projectionFailures,
         ImmutableDictionary<BindingKey, AssemblyBindingOutcome> bindings,
         ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
@@ -596,6 +596,42 @@ public sealed class TypeResolutionContext : IDisposable
 
     /// <summary>Gets this frozen manifest generation's identity.</summary>
     public AssemblyCatalogGenerationId Generation { get; }
+
+    /// <summary>
+    /// Projects a definition resolved by this context into the owning
+    /// catalog's current join currency.
+    /// </summary>
+    public DefinitionJoinTokenProjection ProjectDefinitionJoinToken(
+        ResolvedTypeDefinitionKey definition)
+    {
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                return _catalog.ProjectDefinitionJoinToken(definition);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Projects an unresolved binding observed by this context into the owning
+    /// catalog's current join currency.
+    /// </summary>
+    public UnresolvedBindingKeyProjection ProjectUnresolvedBindingKey(
+        UnresolvedBindingReference binding)
+    {
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                return _catalog.ProjectUnresolvedBindingKey(binding);
+            }
+        }
+    }
 
     /// <summary>
     /// Gets the frozen adjacency inventory for a candidate selected in this
@@ -727,7 +763,7 @@ public sealed class TypeResolutionContext : IDisposable
                         out var failure))
                 {
                     return _projectionFailures.TryGetValue(
-                            ManifestRequestKey.From(request),
+                            TypeResolutionManifestKey.From(request),
                             out TypeResolutionOutcome? projectionOutcome)
                         ? projectionOutcome
                         : new TypeResolutionOutcome.Rejected(
@@ -1015,58 +1051,6 @@ public sealed class TypeResolutionContext : IDisposable
             MetadataTypeDefinitionName Name) : RequestKey(Name);
     }
 
-    abstract record ManifestRequestKey(MetadataTypeDefinitionName Type)
-    {
-        internal static ManifestRequestKey From(TypeResolutionRequest request) =>
-            request.Start switch
-            {
-                TypeResolutionStart.Assembly assembly =>
-                    new Assembly(
-                        assembly.Value.Registration,
-                        assembly.Scope,
-                        request.Type),
-                TypeResolutionStart.Reference reference =>
-                    new Binding(
-                        reference.Value,
-                        OriginKey.From(reference.Origin),
-                        reference.Scope,
-                        request.Type),
-                TypeResolutionStart.CoreLibrary coreLibrary =>
-                    new CoreLibrary(
-                        coreLibrary.Origin.Registration,
-                        coreLibrary.Scope,
-                        request.Type),
-                TypeResolutionStart.Module module =>
-                    new Module(
-                        module.Origin.Registration,
-                        module.Name,
-                        request.Type),
-                _ => throw new InvalidOperationException(
-                    "Unknown type-resolution start."),
-            };
-
-        internal sealed record Assembly(
-            AssemblyAcquisitionRegistration Registration,
-            AssemblyResolutionScope Scope,
-            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
-
-        internal sealed record Binding(
-            AssemblyReferenceIdentity Reference,
-            OriginKey Origin,
-            AssemblyResolutionScope Scope,
-            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
-
-        internal sealed record CoreLibrary(
-            AssemblyAcquisitionRegistration Registration,
-            AssemblyResolutionScope Scope,
-            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
-
-        internal sealed record Module(
-            AssemblyAcquisitionRegistration Registration,
-            string ModuleName,
-            MetadataTypeDefinitionName Name) : ManifestRequestKey(Name);
-    }
-
     readonly record struct OriginKey(
         bool IsGlobal,
         AssemblyAcquisitionRegistration? Registration)
@@ -1109,7 +1093,7 @@ public sealed class TypeResolutionContext : IDisposable
         readonly Dictionary<BindingKey, CachedBindingEvaluation> _bindings = [];
         readonly Dictionary<RequestKey, TypeResolutionOutcome> _outcomes = [];
         readonly Dictionary<
-            ManifestRequestKey,
+            TypeResolutionManifestKey,
             TypeResolutionOutcome> _projectionFailures = [];
         readonly AssemblyCatalogGenerationId _generation =
             new();
@@ -1173,8 +1157,8 @@ public sealed class TypeResolutionContext : IDisposable
                     out RequestKey key,
                     out TypeResolutionOutcome? projectionFailure))
             {
-                ManifestRequestKey manifestKey =
-                    ManifestRequestKey.From(request);
+                TypeResolutionManifestKey manifestKey =
+                    TypeResolutionManifestKey.From(request);
                 _projectionFailures.TryAdd(
                     manifestKey,
                     projectionFailure!);

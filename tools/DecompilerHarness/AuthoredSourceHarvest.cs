@@ -50,6 +50,9 @@ static class AuthoredSourceHarvest
         string? ChecksumAlgorithm,
         string? Checksum,
         string AuthoredBody,
+        [property: System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        Guid? ModuleVersionId = null,
         // Omitted for the CIVIL (identity) corpus so its rows stay
         // schema-identical to the vendored corpus; populated only for EVIL.
         [property: System.Text.Json.Serialization.JsonIgnore(
@@ -61,6 +64,7 @@ static class AuthoredSourceHarvest
         public required string AssemblyPath { get; init; }
         public required string AssemblyName { get; init; }
         public required string AssemblyVersion { get; init; }
+        public required Guid ModuleVersionId { get; init; }
         public required string Tfm { get; init; }
         public required SourceLinkService Source { get; init; }
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
@@ -206,6 +210,7 @@ static class AuthoredSourceHarvest
                 AssemblyPath = assemblyPath,
                 AssemblyName = name,
                 AssemblyVersion = version,
+                ModuleVersionId = ReadModuleVersionId(assemblyPath),
                 Tfm = InferTfm(assemblyPath),
                 Source = source,
                 Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
@@ -294,7 +299,15 @@ static class AuthoredSourceHarvest
             ChecksumAlgorithm: authored.Document?.ChecksumAlgorithm,
             Checksum: authored.Document?.Checksum,
             AuthoredBody: body,
+            ModuleVersionId: library.ModuleVersionId,
             Difficulty: evil ? candidate.Difficulty : null);
+    }
+
+    internal static Guid ReadModuleVersionId(string assemblyPath)
+    {
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var reader = pe.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
     }
 
     // Round-robin across declaring types so no single type dominates a library's
