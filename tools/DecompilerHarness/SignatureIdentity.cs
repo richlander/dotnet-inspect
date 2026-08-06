@@ -20,8 +20,10 @@ namespace ILInspector.DecompilerHarness;
 /// conversion operators (which overload on return type). Named types are reduced to
 /// their simple (arity-stripped) name, generic parameters to their declared name, and
 /// primitives to C# keywords, so both sides agree for the common overload-set cases.
-/// Cases the normalization cannot reconcile fall back to ordinal matching at the call
-/// site, so a lossy token never mis-selects a member.
+/// Normal source-probe correspondence may fall back to ordinal matching when this
+/// identity is absent or ambiguous. Because both normalization and raw-source parsing
+/// are lossy, this identity is not proof that a source body belongs to a metadata
+/// method; fault attribution instead requires an exact module ID and MethodDef token.
 /// </summary>
 static class SignatureIdentity
 {

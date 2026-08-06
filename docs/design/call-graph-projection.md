@@ -78,6 +78,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   types or by return type (C# conversion operators) and same-namespace/same-name
   types from *different assemblies* all stay separate. Shared callees, cycles, and
   the target-as-both-caller-and-callee collapse to one node.
+- **Correspondence migration boundary.** The additive
+  `CatalogMemberCorrespondencePlan` traverses an open signature once, exposes
+  its distinct frozen-context requests, and can project a generation-scoped
+  `CatalogMemberJoinKey` that includes member kind, canonical signature header,
+  vararg required-parameter count, method generic arity, instance/static shape,
+  and recursively resolved named types. Optional vararg call-site arguments are
+  excluded from member identity. The current builders and this projection do
+  not consume that key yet; `CallerGraphKey`/`IdentityKey` remain the active
+  behavior until graph storage, cache lifetime, and incomplete-edge evidence
+  migrate together.
 - **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are emitted in id order and edges in first-seen order, so the same input

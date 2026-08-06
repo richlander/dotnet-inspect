@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -659,7 +660,15 @@ static partial class ReturnToSenderSourceProbe
 
 }
 
-internal sealed record ReturnToSenderSourceMember(string Type, string Method, int Overload, string Signature, string SourcePath, string? Body);
+internal sealed record ReturnToSenderSourceMember(
+    string Type,
+    string Method,
+    int Overload,
+    string Signature,
+    string SourcePath,
+    string? Body,
+    int? MetadataToken = null,
+    Guid? ModuleVersionId = null);
 
 internal sealed class ReturnToSenderSourceIndex
 {
@@ -667,17 +676,20 @@ internal sealed class ReturnToSenderSourceIndex
     readonly Dictionary<string, ReturnToSenderSourceMember> _membersBySignature;
     readonly HashSet<string> _ambiguousSignatures;
     readonly Dictionary<string, RecordSourceInfo> _recordSources;
+    readonly Dictionary<int, ReturnToSenderSourceMember> _correlatedMembersByToken;
 
     ReturnToSenderSourceIndex(
         Dictionary<string, ReturnToSenderSourceMember> members,
         Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
         HashSet<string> ambiguousSignatures,
-        Dictionary<string, RecordSourceInfo> recordSources)
+        Dictionary<string, RecordSourceInfo> recordSources,
+        Dictionary<int, ReturnToSenderSourceMember>? correlatedMembersByToken = null)
     {
         _members = members;
         _membersBySignature = membersBySignature;
         _ambiguousSignatures = ambiguousSignatures;
         _recordSources = recordSources;
+        _correlatedMembersByToken = correlatedMembersByToken ?? [];
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
@@ -727,20 +739,48 @@ internal sealed class ReturnToSenderSourceIndex
     }
 
     /// <summary>
-    /// Builds an index directly from pre-snapshotted authored members (the vendored
-    /// authored-source corpus). Keys are derived exactly as <see cref="AddSourceFile"/>
-    /// does, so lookups from a <see cref="ReturnToSender.RequestedTarget"/> resolve
-    /// by signature when unambiguous and otherwise by (type, method, overload).
-    /// Members with no signature are indexed by overload key only.
+    /// Builds an index from authored members already correlated to exact metadata
+    /// method definitions, as in the vendored authored-source corpus.
     /// </summary>
-    public static ReturnToSenderSourceIndex FromMembers(IEnumerable<ReturnToSenderSourceMember> sourceMembers)
+    /// <remarks>
+    /// <para>
+    /// Each member's module version ID and metadata token must identify the same
+    /// logical module and exact method whose checksum-verified body was snapshotted.
+    /// This typed identity is the only source correspondence strong enough for
+    /// fault attribution. The module version ID is a non-hostile corpus identity,
+    /// not a cryptographic byte digest.
+    /// </para>
+    /// <para>
+    /// Raw syntax indexes created by <see cref="TryCreate(IReadOnlyList{string})"/>
+    /// retain normal source-probe lookup behavior, but cannot support attribution:
+    /// they lack the original build configuration and semantic identity. Fault
+    /// isolation is not attempted for those indexes; #3835 tracks restoring it
+    /// through exact PDB method spans.
+    /// </para>
+    /// </remarks>
+    public static ReturnToSenderSourceIndex FromCorrelatedMembers(
+        IEnumerable<ReturnToSenderSourceMember> sourceMembers,
+        MetadataReader reader)
     {
         var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
         var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
         var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var correlatedMembersByToken = new Dictionary<int, ReturnToSenderSourceMember>();
+        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+            throw new InvalidDataException("The benchmark module has an empty module version ID.");
+
         foreach (var member in sourceMembers)
         {
-            members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+            ValidateCorrelatedMember(reader, moduleVersionId, member);
+            if (!members.TryAdd(Key(member.Type, member.Method, member.Overload), member))
+            {
+                throw new InvalidDataException(
+                    $"Duplicate correlated target {member.Type}::{member.Method}#{member.Overload}.");
+            }
+            int metadataToken = member.MetadataToken!.Value;
+            if (!correlatedMembersByToken.TryAdd(metadataToken, member))
+                throw new InvalidDataException($"Duplicate correlated MethodDef token 0x{metadataToken:x8}.");
 
             if (string.IsNullOrEmpty(member.Signature))
                 continue;
@@ -759,7 +799,60 @@ internal sealed class ReturnToSenderSourceIndex
             members,
             membersBySignature,
             ambiguousSignatures,
-            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal));
+            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal),
+            correlatedMembersByToken);
+    }
+
+    static void ValidateCorrelatedMember(
+        MetadataReader reader,
+        Guid moduleVersionId,
+        ReturnToSenderSourceMember member)
+    {
+        if (member.ModuleVersionId is not { } memberModuleVersionId
+            || memberModuleVersionId == Guid.Empty
+            || memberModuleVersionId != moduleVersionId)
+        {
+            throw new InvalidDataException(
+                $"Correlated member {member.Type}::{member.Method}#{member.Overload} "
+                + "does not identify the benchmark module.");
+        }
+
+        if (member.MetadataToken is not { } metadataToken
+            || (metadataToken & unchecked((int)0xff000000)) != 0x06000000)
+        {
+            throw new InvalidDataException(
+                $"Correlated member {member.Type}::{member.Method}#{member.Overload} "
+                + "does not carry a MethodDef token.");
+        }
+
+        int rowNumber = metadataToken & 0x00ffffff;
+        if (rowNumber == 0 || rowNumber > reader.MethodDefinitions.Count)
+            throw new InvalidDataException($"Correlated MethodDef token 0x{metadataToken:x8} is out of range.");
+
+        var methodHandle = MetadataTokens.MethodDefinitionHandle(rowNumber);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var type = reader.GetTypeDefinition(method.GetDeclaringType());
+        string methodName = reader.GetString(method.Name);
+        string fullType = reader.GetFullTypeName(type);
+        int overload = ReturnToSenderSourceProbe.OverloadIndex(
+            reader,
+            type,
+            methodHandle,
+            methodName);
+        string? signature = ReturnToSenderSourceProbe.UniqueTargetSignature(
+            reader,
+            type,
+            methodName,
+            methodHandle);
+        if (!string.Equals(member.Type, fullType, StringComparison.Ordinal)
+            || !string.Equals(member.Method, methodName, StringComparison.Ordinal)
+            || member.Overload != overload
+            || !string.Equals(member.Signature, signature ?? "", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Correlated MethodDef token 0x{metadataToken:x8} does not match "
+                + $"{member.Type}::{member.Method}#{member.Overload}.");
+        }
     }
 
     static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
@@ -803,6 +896,32 @@ internal sealed class ReturnToSenderSourceIndex
         }
 
         return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+    }
+
+    /// <summary>
+    /// Resolves a source member for fault attribution by its exact metadata token.
+    /// </summary>
+    /// <remarks>
+    /// The redundant type, method, and overload check catches a malformed correlated
+    /// record rather than trusting a token from the wrong target. Raw syntax indexes
+    /// have no token map and therefore fail closed.
+    /// </remarks>
+    public bool TryFindForAttribution(
+        ReturnToSender.RequestedTarget target,
+        int metadataToken,
+        out ReturnToSenderSourceMember member)
+    {
+        member = null!;
+        if (!_correlatedMembersByToken.TryGetValue(metadataToken, out var correlated)
+            || !string.Equals(correlated.Type, target.Type, StringComparison.Ordinal)
+            || !string.Equals(correlated.Method, target.Method, StringComparison.Ordinal)
+            || correlated.Overload != target.Overload)
+        {
+            return false;
+        }
+
+        member = correlated;
+        return true;
     }
 
     public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
@@ -1072,7 +1191,7 @@ static partial class ReturnToSenderSourceProbe
         }
     }
 
-    static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)
+    internal static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)
     {
         int overload = 0;
         foreach (var handle in typeDef.GetMethods())
@@ -1092,7 +1211,7 @@ static partial class ReturnToSenderSourceProbe
     // Only carry a signature identity that unambiguously round-trips to this exact
     // metadata member. A lossy or ambiguous normalized signature is dropped so both
     // metadata resolution and source correlation fall back to the ordinal.
-    static string? UniqueTargetSignature(
+    internal static string? UniqueTargetSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
         string methodName,
