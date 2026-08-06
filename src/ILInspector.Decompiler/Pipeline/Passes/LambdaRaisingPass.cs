@@ -366,6 +366,7 @@ public sealed class LambdaRaisingPass : IIrPass
             && body.Body.Blocks is [{ Children: [.., Return { Value: null } trailingReturn] }])
             trailingReturn.Detach();
 
+        bool returnsVoid = IsVoid(body.Signature.ReturnType);
         var container = body.Body;
         container.Detach();
 
@@ -386,7 +387,10 @@ public sealed class LambdaRaisingPass : IIrPass
             body.LocalNames,
             body.UsesUpdatedMemorySafetyRules,
             body.SkipLocalsInit,
-            container);
+            container)
+        {
+            ReturnsVoid = returnsVoid,
+        };
         lambda.InheritSourceOffset(provenance);
         return lambda;
     }

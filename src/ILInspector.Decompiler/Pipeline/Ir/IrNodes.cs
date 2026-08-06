@@ -2991,6 +2991,14 @@ public sealed class Lambda : IrExpression
     /// unaffected.
     /// </summary>
     public bool IsExpressionTree { get; init; }
+
+    /// <summary>
+    /// The synthesized method this lambda was recovered from returns
+    /// <c>System.Void</c>. This is explicit because custom delegate types do not
+    /// expose their Invoke signature through <see cref="DelegateType"/> alone.
+    /// </summary>
+    public bool ReturnsVoid { get; init; }
+
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
 
@@ -3010,7 +3018,7 @@ public sealed class Lambda : IrExpression
         => Body.Blocks switch
         {
             [{ Children: [Return { Value: { } value }] }] => value,
-            [{ Children: [ExpressionStatement { Expression: var expression }] }] => expression,
+            [{ Children: [ExpressionStatement { Expression: var expression }] }] when ReturnsVoid => expression,
             _ => null,
         };
 
