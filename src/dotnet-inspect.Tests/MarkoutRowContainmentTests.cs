@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using InertText;
 
 namespace DotnetInspector.Tests;
 
@@ -713,7 +714,17 @@ public class MarkoutRowContainmentTests
             return Hostile;
         }
 
+        if (type == typeof(InertString))
+        {
+            return new InertString(TextPolicy.Field, Hostile);
+        }
+
         var underlying = Nullable.GetUnderlyingType(type);
+        if (underlying == typeof(InertString))
+        {
+            return new InertString(TextPolicy.Field, Hostile);
+        }
+
         if (underlying is not null)
         {
             return null;

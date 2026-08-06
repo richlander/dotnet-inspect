@@ -1,4 +1,3 @@
-using ILInspector.CSharp;
 using DotnetInspector.Models;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -13,6 +12,7 @@ using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 using System.Globalization;
 using System.Text;
@@ -1770,9 +1770,10 @@ public class PackageCommand
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
+        var textRows = rows.Select(PackageFileContentText.Create).ToList();
         var output = options.Jsonl
-            ? RenderPackageFileContentJsonl(rows)
-            : RenderPackageFileContentBlocks(rows);
+            ? RenderPackageFileContentJsonl(textRows)
+            : RenderPackageFileContentBlocks(textRows);
 
         if (!string.IsNullOrEmpty(options.OutputPath))
             File.WriteAllText(options.OutputPath, output);
@@ -1820,17 +1821,17 @@ public class PackageCommand
         }
     }
 
-    private static string RenderPackageFileContentJsonl(IReadOnlyList<PackageFileContent> rows)
+    private static string RenderPackageFileContentJsonl(IReadOnlyList<PackageFileContentText> rows)
     {
         var builder = new StringBuilder();
         foreach (var row in rows)
             builder
-                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContent))
+                .Append(JsonSerializer.Serialize(row, PackageFileContentJsonContext.Default.PackageFileContentText))
                 .Append('\n');
         return builder.ToString();
     }
 
-    private static string RenderPackageFileContentBlocks(IReadOnlyList<PackageFileContent> rows)
+    private static string RenderPackageFileContentBlocks(IReadOnlyList<PackageFileContentText> rows)
     {
         var builder = new StringBuilder();
         for (var i = 0; i < rows.Count; i++)
@@ -1839,12 +1840,15 @@ public class PackageCommand
                 builder.AppendLine();
 
             var row = rows[i];
-            var path = row.Found ? row.Path : "<absent>";
+            var path = row.Found
+                ? row.PathText
+                : new InertString(TextPolicy.Field, "<absent>");
             // The separator is tool-owned framing, so its untrusted parts are
             // contained even though the file content below it is deliberately
             // raw -- otherwise a ZIP entry path forges a second separator.
-            builder.AppendLine(CSharpIdentifier.ContainRenderedText(
-                $"------------ {row.Package} :: {path} ------------"));
+            builder.AppendLine(InertString.Format(
+                TextPolicy.Field,
+                $"------------ {row.PackageText} :: {path} ------------").ToString());
             if (!row.Found)
             {
                 builder.AppendLine("(absent)");
@@ -1886,18 +1890,22 @@ public class PackageCommand
         var rows = results
             .SelectMany(result =>
             {
-                var files = GetPackageFileRows(result, section);
+                var text = new PackageInspectionText(result);
+                var files = GetPackageFileTextRows(result, text, section);
                 if (files.Count == 0)
-                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", ""]];
+                {
+                    return options.SkipEmpty
+                        ? []
+                        : [[text.PackageName.ToString(), text.Version.ToString(), "", ""]];
+                }
 
-                return files
-                    .Select(file => new[]
-                    {
-                        result.PackageName,
-                        result.Version,
-                        file.Path,
-                        file.Size.ToString(CultureInfo.InvariantCulture),
-                    });
+                return files.Select(file => new[]
+                {
+                    text.PackageName.ToString(),
+                    text.Version.ToString(),
+                    file.Path.ToString(),
+                    file.Size.ToString(CultureInfo.InvariantCulture),
+                });
             })
             .ToArray();
 
@@ -1915,7 +1923,8 @@ public class PackageCommand
 
     private static void WritePackageFilesJsonl(InspectionResult result, string section)
     {
-        var files = GetPackageFileRows(result, section);
+        var text = new PackageInspectionText(result);
+        var files = GetPackageFileTextRows(result, text, section);
         if (files.Count == 0)
             return;
 
@@ -1930,12 +1939,17 @@ public class PackageCommand
     {
         foreach (var result in results)
         {
-            var files = GetPackageFileRows(result, section);
+            var text = new PackageInspectionText(result);
+            var files = GetPackageFileTextRows(result, text, section);
             if (files.Count == 0)
             {
                 if (!options.SkipEmpty)
                 {
-                    var empty = new PackageFileMultiJsonRow(result.PackageName, result.Version, "", null);
+                    var empty = new PackageFileMultiJsonRow(
+                        text.PackageName,
+                        text.Version,
+                        new InertString(TextPolicy.Field, ""),
+                        null);
                     Console.WriteLine(JsonSerializer.Serialize(empty, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
                 }
                 continue;
@@ -1943,7 +1957,11 @@ public class PackageCommand
 
             foreach (var file in files)
             {
-                var row = new PackageFileMultiJsonRow(result.PackageName, result.Version, file.Path, file.Size);
+                var row = new PackageFileMultiJsonRow(
+                    text.PackageName,
+                    text.Version,
+                    file.Path,
+                    file.Size);
                 Console.WriteLine(JsonSerializer.Serialize(row, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
             }
         }
@@ -2054,16 +2072,47 @@ public class PackageCommand
         return [];
     }
 
+    private static List<PackageFileText> GetPackageFileTextRows(
+        InspectionResult result,
+        PackageInspectionText text,
+        string section)
+    {
+        if (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase))
+            return text.Files ?? [];
+
+        if (section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(result.PackageReadmeFile))
+                return [];
+
+            return text.SelectPackageFiles(file =>
+                    string.Equals(
+                        file.Path,
+                        result.PackageReadmeFile,
+                        StringComparison.OrdinalIgnoreCase))?
+                .Take(1)
+                .ToList() ?? [];
+        }
+
+        if (PackageFileFamily.PredicateFor(section) is { } predicate)
+            return text.SelectPackageFiles(predicate) ?? [];
+
+        return [];
+    }
+
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
         var rows = results
-            .SelectMany(result => new InspectionResultView(result).Metadata
-                .Select(field => new[]
+            .SelectMany(result =>
+            {
+                var view = new InspectionResultView(result);
+                return view.Metadata.Select(field => new[]
                 {
-                    result.PackageName,
+                    view.PackageName,
                     field.Key,
                     field.Value?.ToString() ?? "",
-                }))
+                });
+            })
             .ToArray();
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
@@ -2967,13 +3016,19 @@ public class PackageCommand
 
         var group = selection.Group!;
         var tfm = selection.TargetFramework ?? group.TargetFramework;
+        var packageText = new PackageInspectionText(result);
+        var tfmText = new InertString(TextPolicy.Field, tfm);
 
         if (group.Dependencies.Count == 0)
         {
             var emptyView = new EmptyDepsView
             {
-                Title = $"{result.PackageName} ({result.Version})",
-                Description = $"No additional dependencies for {tfm}."
+                Title = InertString.Format(
+                    TextPolicy.Field,
+                    $"{packageText.PackageName} ({packageText.Version})").ToString(),
+                Description = InertString.Format(
+                    TextPolicy.Field,
+                    $"No additional dependencies for {tfmText}.").ToString()
             };
             Console.WriteLine(MarkoutSerializer.Serialize(emptyView, InspectionContext.Default));
             return 0;
@@ -2986,7 +3041,9 @@ public class PackageCommand
 
         var view = new PackageDependenciesView
         {
-            Title = CSharpIdentifier.ContainRenderedText($"{result.PackageName} {result.Version}"),
+            Title = InertString.Format(
+                TextPolicy.Field,
+                $"{packageText.PackageName} {packageText.Version}").ToString(),
             Dependencies = ToTreeNodes(depNodes)
         };
 
@@ -3008,13 +3065,16 @@ public class PackageCommand
     {
         return nodes.Select(n =>
         {
-            var label = CSharpIdentifier.ContainRenderedText(
-                !string.IsNullOrEmpty(n.Author)
-                    ? $"{n.PackageId} {n.Version} [{n.Author}]"
-                    : $"{n.PackageId} {n.Version}");
+            var packageId = new InertString(TextPolicy.Field, n.PackageId);
+            var version = new InertString(TextPolicy.Field, n.Version);
+            var label = !string.IsNullOrEmpty(n.Author)
+                ? InertString.Format(
+                    TextPolicy.Field,
+                    $"{packageId} {version} [{new InertString(TextPolicy.Field, n.Author)}]")
+                : InertString.Format(TextPolicy.Field, $"{packageId} {version}");
             return n.Children.Count > 0
-                ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
-                : new TreeNode(label);
+                ? new TreeNode(label.ToString()) { Children = ToTreeNodes(n.Children) }
+                : new TreeNode(label.ToString());
         }).ToList();
     }
 }

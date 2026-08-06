@@ -362,13 +362,16 @@ The other package fields stay exact while they participate in identity,
 parsing, matching, path selection, and dependency resolution. Encoding a
 package ID or readme path at acquisition would change those answers. At the
 last shared boundary after that work, `PackageInspectionText` projects every
-output-bound string to `InertString`. `InspectionResultView` and
-`PackageInspectionJson` consume that same projection, so Markdown and direct
-JSON cannot disagree about which package fields crossed containment. Markdown
-takes strings apart only in its sink properties; JSON does so only in its
-serializer-facing getters. The package file collection is projected lazily, so
-an ordinary summary does not allocate one wrapper per archive entry; asking for
-its section or for the exhaustive aggregate materializes it.
+output-bound string to `InertString`. `InspectionResultView`,
+`PackageInspectionJson`, and the focused package table, JSONL, and content
+metadata rows consume that currency, so package renderers cannot disagree about
+which metadata crossed containment. Markdown takes strings apart only in its
+sink properties; structured rows do so only in serializer-facing getters.
+Document bodies remain raw payload values under the explicit contract described
+in `output-shapes.md`; structured modes apply JSON escaping. The package file
+collection is projected lazily, so an ordinary summary does not allocate one
+wrapper per archive entry; asking for its section or for the exhaustive
+aggregate materializes it.
 
 `PackageInspectionText.RequiredContainment` ORs the typed values before either
 sink unwraps them. It is complete for package inspection, not for every
@@ -381,7 +384,9 @@ non-vacuity gate, and
 structured schema and benign values.
 `PackageFileText_IsLazyUntilTheAggregateRequiresIt` and
 `PackageFileFamily_ProjectsOnlySelectedRows` gate the large-collection
-allocation boundary. The description-specific gates remain
+allocation boundary. `PayloadLensContainmentTests` gates the focused table,
+JSONL, content-metadata, and dependency-tree sinks while preserving raw
+document payloads. The description-specific gates remain
 `NuspecHardeningTests.PresentationBoundDescription_IsCarriedAsInertString` and
 `HostileDescription_RemainsQuotedInMarkdownAndContainedInJson`.
 

@@ -86,7 +86,7 @@ internal partial class PackageFileMultiJsonRowContext : JsonSerializerContext
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(PackageFileContent))]
+[JsonSerializable(typeof(PackageFileContentText))]
 internal partial class PackageFileContentJsonContext : JsonSerializerContext
 {
 }

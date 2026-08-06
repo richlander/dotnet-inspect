@@ -168,6 +168,64 @@ public class PackageInspectionTextTests
         Assert.Null(projectedFiles.GetValue(text));
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    public void DeprecationSummary_EmptyOptionalTextPreservesNoDetailsBehavior(
+        string? message,
+        string? alternatePackageId)
+    {
+        var result = new InspectionResult
+        {
+            Deprecation = new PackageDeprecation
+            {
+                Message = message,
+                AlternatePackageId = alternatePackageId,
+            },
+        };
+
+        var text = new PackageInspectionText(result);
+
+        Assert.Equal("Deprecated", text.Deprecation?.Summary.ToString());
+    }
+
+    [Fact]
+    public void DeprecationSummary_EmptyMessageDoesNotAddASeparator()
+    {
+        var result = new InspectionResult
+        {
+            Deprecation = new PackageDeprecation
+            {
+                Reasons = ["Legacy"],
+                Message = "",
+            },
+        };
+
+        var text = new PackageInspectionText(result);
+
+        Assert.Equal("Legacy", text.Deprecation?.Summary.ToString());
+    }
+
+    [Fact]
+    public void SigningSection_EmptyPublisherRemainsAbsent()
+    {
+        var result = new InspectionResult
+        {
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = true,
+                Publisher = "",
+            },
+        };
+
+        var signing = new InspectionResultView(result).SigningSectionData;
+
+        Assert.NotNull(signing);
+        Assert.Null(signing.Publisher);
+    }
+
     private static Type? CurrencyType(Type modelType, IReadOnlyDictionary<Type, Type> mappings)
     {
         if (modelType == typeof(string))

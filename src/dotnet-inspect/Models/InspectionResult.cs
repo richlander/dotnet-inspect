@@ -241,16 +241,6 @@ public sealed record PackageFile(
     [property: JsonIgnore] bool IsReadme = false,
     [property: JsonIgnore] bool IsAgents = false);
 
-public sealed record PackageFileJsonRow(
-    string Path,
-    long Size);
-
-public sealed record PackageFileMultiJsonRow(
-    string Package,
-    string Version,
-    string Path,
-    long? Size);
-
 /// <summary>
 /// Content for one selected package file. Empty rows preserve package input
 /// cardinality for surveys when a selector has no match.

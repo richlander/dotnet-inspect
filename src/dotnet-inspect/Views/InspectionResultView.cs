@@ -122,7 +122,7 @@ public class InspectionResultView
     public SigningSection? SigningSectionData => Text.SignatureResult is { } signature
         ? new SigningSection(
             signature.AuthorVerified ? "Yes" : signature.IsUnsigned ? "No" : null,
-            signature.Publisher is { } publisher
+            signature.Publisher is { IsEmpty: false } publisher
                 ? InertString.Format(
                     TextPolicy.Field,
                     $"{publisher}{(signature.AuthorVerified ? " (Verified)" : "")}")

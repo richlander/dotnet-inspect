@@ -206,9 +206,9 @@ internal sealed class PackageInspectionText
 
         if (reasons is { Count: > 0 })
             parts.Add(collector.Compose(InertString.Join(", ", TextPolicy.Field, reasons)));
-        if (alternatePackageId is { } alternate)
+        if (alternatePackageId is { IsEmpty: false } alternate)
             parts.Add(collector.Compose(InertString.Format(TextPolicy.Field, $"use {alternate}")));
-        if (message is { } deprecationMessage)
+        if (message is { IsEmpty: false } deprecationMessage)
             parts.Add(deprecationMessage);
 
         InertString summary = parts.Count > 0
@@ -317,3 +317,53 @@ internal readonly record struct PackageAuditSignalText(
     InertString Signal,
     InertString Value,
     InertString Evidence);
+
+internal sealed class PackageFileJsonRow(InertString path, long size)
+{
+    private InertString PathText { get; } = path;
+
+    public string Path => PathText.ToString();
+    public long Size { get; } = size;
+}
+
+internal sealed class PackageFileMultiJsonRow(
+    InertString package,
+    InertString version,
+    InertString path,
+    long? size)
+{
+    private InertString PackageText { get; } = package;
+    private InertString VersionText { get; } = version;
+    private InertString PathText { get; } = path;
+
+    public string Package => PackageText.ToString();
+    public string Version => VersionText.ToString();
+    public string Path => PathText.ToString();
+    public long? Size { get; } = size;
+}
+
+internal sealed class PackageFileContentText
+{
+    private PackageFileContentText(PackageFileContent value)
+    {
+        PackageText = new InertString(TextPolicy.Field, value.Package);
+        VersionText = new InertString(TextPolicy.Field, value.Version);
+        PathText = new InertString(TextPolicy.Field, value.Path);
+        Size = value.Size;
+        Found = value.Found;
+        Content = value.Content;
+    }
+
+    public static PackageFileContentText Create(PackageFileContent value) => new(value);
+
+    internal InertString PackageText { get; }
+    internal InertString VersionText { get; }
+    internal InertString PathText { get; }
+
+    public string Package => PackageText.ToString();
+    public string Version => VersionText.ToString();
+    public string Path => PathText.ToString();
+    public long Size { get; }
+    public bool Found { get; }
+    public string Content { get; }
+}
