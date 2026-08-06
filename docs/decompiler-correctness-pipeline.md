@@ -206,7 +206,7 @@ Areas and their member classes:
 | Area | Member test classes |
 | --- | --- |
 | `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
-| `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
+| `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `ByteNeutralityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `AnnotatedCompileBackFailureTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
 | `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests` |
 | `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
 | `Pass` | the per-pass unit tests (`*PassTests`) |
@@ -255,7 +255,7 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 | `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
 | `slow` | `-trait "Speed=Slow"` | only the slow gates |
 | `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
-| `pre-merge` | three `-class` filters | the docket + byte-neutrality gates the PR CI `decompiler-gates` job runs |
+| `pre-merge` | six `-class` filters | the docket, byte-neutrality and printer/cluster fidelity gates the PR CI `decompiler-gates` job runs |
 | `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
 | `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
 | `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
@@ -370,11 +370,15 @@ The display name is a presentation string: it carries theory arguments, honors
 outright, so a row whose name claims to be a pinned test cannot pass a new
 failure off as a known one.
 
-That comparison is **method-granular**, and deliberately so: no `-list` mode
-enumerates individual cases. A method that expands to five cases is listed
-once, so a run that lost four of them would still satisfy the check. Method
-granularity is sufficient only while every gate test is exactly one case, and
-that is enforced rather than assumed —
+That comparison is **method-granular**, because discovery runs
+`-list methods/json`. A method that expands to five cases is listed once, so a
+run that lost four of them would still satisfy the check.
+`-preEnumerateTheories -list full/json` lists one entry per case with a stable
+unique ID and is the natural basis for a case-level expectation, but it expands
+only theories whose data is serializable — see the caveat below. Until the
+checker carries a validated case-level expectation, method granularity is
+sufficient only while every gate test is exactly one case, and that is enforced
+rather than assumed —
 `GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` requires
 every test in a gate class to carry exactly `FactAttribute`.
 
@@ -443,11 +447,87 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects three classes rather than the whole `Fidelity`
-area. The area is ~31 minutes; these three are ~8. The exclusions are cost, not
-principle — `ClusterCaptureTests` and `PrinterPrecedenceTests` alone are ~21
-minutes for *two* tests and want the #3495 type-filter treatment before they can
-be gated. Widen the preset as classes get cheap enough.
+`pre-merge` deliberately selects five gate classes rather than the whole
+`Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
+along in the preset it guards. Two different reasons keep the rest out, and only
+one of them is cost.
+
+**Excluded on cost.** `SkeletonEmitTests` is the most expensive class in the
+suite (~630s on CI, #3495) and wants the emit-bound residual addressed first.
+Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
+simply adopt a narrower build. It also carries theories, so the second reason
+below applies to it too; making it cheap is necessary but not sufficient.
+
+**Excluded on a checker limitation.** `DiffFixtureFidelityTests`,
+`NestedTargetLookupTests`, `AuthoredRebuildFidelityTests` and
+`AnnotatedCompileBackFailureTests` are nearly free — run together they are
+42 cases in 2.4 seconds — and still cannot be gated today, because every one of
+them carries a `[Theory]`.
+
+The problem is not the runtime, it is what the completeness check compares
+against. Run those four classes and the runner reports:
+
+```text
+Discovered:  ILInspector.Decompiler.Tests (28 test cases to be run)
+...
+Total: 42, Errors: 0, Failed: 0, Skipped: 0, Time: 2.373s
+```
+
+Discovery is method-granular (28) while execution is case-granular (42). A
+checker built on that discovery would confirm all 28 methods executed while 14
+cases silently vanished — the same undetected-loss shape the gate exists to
+prevent.
+
+That is a limitation of *this checker* rather than an absolute one. Passing
+`-preEnumerateTheories -list full/json` emits one entry per case for these four,
+each with a stable unique `ID`:
+
+```text
+...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v1")
+...DiffFocusedFixtures_StayCompileBackCheckable(fixtureId: "diff.v2")
+```
+
+So gating these four is a tractable prerequisite rather than a standing
+principle: switch the discovery step to pre-enumerated full JSON and compare
+case IDs rather than method names.
+
+That upgrade is not free in general, though, and the trap is worth knowing
+before anyone reaches for it. `-preEnumerateTheories` only expands theories
+whose data is **serializable**. A `[MemberData]` source typed
+`TheoryData<IrExpression, Precedence>` is not, so xUnit falls back to a single
+delayed-enumeration entry per method. `CSharpPrecedenceTests` in this assembly
+demonstrates it:
+
+```text
+$ ... -class ...CSharpPrecedenceTests -preEnumerateTheories -list full/json
+2 entries
+$ ... -class ...CSharpPrecedenceTests
+Discovered: 2 test cases to be run
+Total: 19
+```
+
+Two entries, nineteen tests — under the very flag meant to prevent that. A
+case-ID checker adopted without checking would look stricter while reopening the
+same hole, and would do it on the classes least able to advertise the problem.
+So the prerequisite is not "switch the flag" but "switch the flag and verify
+discovery emitted every case the run produced". The four classes above happen to
+use primitive `[InlineData]` and do expand correctly, all 42 of them.
+
+Until that lands,
+`GateExpectedClassesTests.PreMergeGateClasses_ContainOnlyPlainFacts` fails
+closed on any non-`FactAttribute` test attribute, which is what makes method
+granularity sound here rather than merely assumed.
+
+Widen the preset as classes get cheap enough, and once the completeness check
+carries the case granularity a theory needs.
+
+> [!TIP]
+> When measuring a class by name, check the namespace. Several classes in this
+> assembly live in `ILInspector.DecompilerHarness`, not
+> `ILInspector.Decompiler.Tests`, and a `-class` filter that matches nothing is
+> silently dropped rather than reported as an error — an ad-hoc measurement can
+> quietly omit a class. `eng/decompiler-gate-expected-classes.txt` and the CI
+> checker exist to stop exactly that from happening to the gate itself.
 
 ## Vocabulary
 
