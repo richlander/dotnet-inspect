@@ -159,6 +159,11 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         // would otherwise decide the result of the cases that pass none.
         psi.Environment["DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS"] = environmentValue ?? "";
 
+        // Same reasoning, different variable. An ambient DOTNET_INSPECT_OFFLINE=1 makes every
+        // request throw before it can reach the stub feed, so all four cases fail somewhere
+        // that has nothing to do with timeouts.
+        psi.Environment["DOTNET_INSPECT_OFFLINE"] = "";
+
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Could not start {executable}.");
 

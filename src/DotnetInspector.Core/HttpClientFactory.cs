@@ -42,6 +42,14 @@ public static class HttpClientFactory
     /// the flag wins over the variable and the variable still works for callers that never parse
     /// a command line.
     /// </param>
+    /// <remarks>
+    /// "Before first use" is a real precondition for <paramref name="defaultTimeout"/>, not
+    /// advice. <see cref="HttpClient.Timeout"/> is assigned once, when <see cref="Shared"/> is
+    /// constructed, so a call made after that point does not retune the existing client.
+    /// <see cref="_offline"/> is read per request and does not share the limitation. The CLI is
+    /// unaffected because <c>Program.cs</c> calls this in top-level code before any command
+    /// runs; a test that needs to reconfigure calls <see cref="ResetSharedForTesting"/> first.
+    /// </remarks>
     public static void Initialize(bool offline = false, TimeSpan? defaultTimeout = null)
     {
         _offline = offline;

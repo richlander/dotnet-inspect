@@ -56,6 +56,32 @@ public class HttpTimeoutOptionTests
     }
 
     /// <summary>
+    /// Stripping the flag before parsing means scanning the whole array, so the scan has to
+    /// stop at a bare <c>--</c> or the end-of-options separator would not mean what it says.
+    /// Without the stop, <c>-- --http-timeout</c> was consumed as the flag with an empty value
+    /// and the run died on a parse error the operator never asked for.
+    /// </summary>
+    [Theory]
+    [InlineData("--http-timeout 120")]
+    [InlineData("--http-timeout")]
+    [InlineData("--http-timeout=120")]
+    public void HttpTimeout_AfterAnEndOfOptionsSeparator_IsLeftForTheCommand(string trailing)
+    {
+        string[] trailingTokens = trailing.Split(' ');
+        var (exitCode, _, error) = RunCli([.. new[] { "skill", "list", "--" }, .. trailingTokens]);
+
+        // The flag is not a valid argument to `skill list`, so the parser rejecting it is the
+        // proof that the token survived the strip. What must not appear is this class's own
+        // parse error, which would mean the separator was ignored.
+        Assert.Equal(1, exitCode);
+        Assert.DoesNotContain("expects a whole number of seconds", error, StringComparison.Ordinal);
+        foreach (string token in trailingTokens)
+        {
+            Assert.Contains($"Unrecognized command or argument '{token}'", error, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// Stripping the flag before parsing hides it from help, so it is registered at the root
     /// purely to be discoverable. Someone hitting a 30 second timeout reads help, not source.
     /// </summary>

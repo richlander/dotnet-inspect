@@ -69,11 +69,21 @@ try
     // default has to be settled before any client exists. Both spellings are handled, because
     // stripping only the spaced form would let --http-timeout=120 reach the parser as a
     // root-level option and be silently discarded.
+    //
+    // The scan stops at a literal "--" so an end-of-options separator still means what it
+    // says and a positional argument spelled --http-timeout reaches the subcommand. The
+    // global flags stripped above do not yet honour "--"; see the pull request for why that
+    // is left alone here.
     const string HttpTimeoutFlag = "--http-timeout";
     string? httpTimeoutValue = null;
     var timeoutArgs = new List<string>(args);
     for (int i = 0; i < timeoutArgs.Count; i++)
     {
+        if (timeoutArgs[i] == "--")
+        {
+            break;
+        }
+
         if (timeoutArgs[i] == HttpTimeoutFlag)
         {
             httpTimeoutValue = string.Empty;
