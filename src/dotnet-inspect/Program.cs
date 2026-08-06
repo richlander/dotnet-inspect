@@ -96,8 +96,6 @@ try
     if (showInfo)
     {
         InfoTracker.Start();
-        // Suppress tips when --info is active (show info instead)
-        args = [.. args, "-T:q"];
     }
 
     #if DEBUG

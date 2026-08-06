@@ -148,6 +148,33 @@ public class CommandLineTests
     }
 
     [Fact]
+    public async Task WriteTips_WhenInfoIsActive_WritesNothing()
+    {
+        // --info shows the info block instead of tips. Suppression used to be
+        // arranged by appending "-T:q" to the argument array, which every
+        // subcommand that does not declare --tips rejected as an unrecognized
+        // argument. Reading the tracker keeps the suppression and drops the token.
+        // The mutation this catches: delete "InfoTracker.Enabled" from the guard
+        // in Hints.WriteTips and this reddens while the two cases above stay green.
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            try
+            {
+                DotnetInspector.Core.InfoTracker.Start();
+                Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
+            }
+            finally
+            {
+                // Process-global, so it is reset inside the action that owns the
+                // console lock rather than after it, per ConsoleCapture's contract.
+                DotnetInspector.Core.InfoTracker.ResetForTests();
+            }
+        });
+
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public void PackageCommand_WithPackageName_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["package", "System.Text.Json"]);
