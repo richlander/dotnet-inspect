@@ -69,14 +69,6 @@ jobs:
           # expression", taking the whole run with it.
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-
-      - name: Self-test change detection
-        shell: bash
-        run: dotnet run eng/test-ci-change-detection.cs
-
       - name: Detect changes
         id: filter
         shell: bash
@@ -112,7 +104,7 @@ jobs:
                 RECORDS=$(
                   gh api --paginate \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-                    --jq '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
+                    --jq '.[] | select((.filename | type) == "string" and (.filename | length) > 0 and (.status == "added" or .status == "removed" or .status == "modified" or .status == "copied" or .status == "changed" or .status == "unchanged" or (.status == "renamed" and (.previous_filename | type) == "string" and (.previous_filename | length) > 0))) | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)'
                 ) || exit 1
                 ACTUAL_FILES=0
                 while IFS= read -r encoded; do
@@ -392,7 +384,20 @@ jobs:
           echo "Changed files were decoded and classified without logging raw path bytes."
           echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED"
         env:
+          # The runner honors BASH_ENV even with --noprofile and --norc.
+          # Clear inherited workflow/job values before executing this gate.
+          BASH_ENV: ""
           GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Self-test change detection
+        shell: bash
+        run: dotnet run eng/test-ci-change-detection.cs
+        env:
+          BASH_ENV: ""
 
   # Lint markdown files
   markdownlint:
@@ -1317,11 +1322,14 @@ jobs:
               if self_test.get("shell") != "bash":
                   self_test_errors.append(
                       "Self-test change detection must use shell: bash")
+              expected_env = {"BASH_ENV": ""}
+              if self_test.get("env") != expected_env:
+                  self_test_errors.append(
+                      "Self-test change detection must clear only BASH_ENV")
               forbidden_step = sorted(
                   key for key in (
                       "if",
                       "continue-on-error",
-                      "env",
                       "working-directory")
                   if key in self_test)
               if forbidden_step:

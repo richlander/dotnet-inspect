@@ -46,6 +46,15 @@ AssertAll(
         outputs,
         resolutionSucceeds: false),
     "true");
+AssertAll(
+    RunDetection(
+        repository,
+        body,
+        "pull_request",
+        "README.md",
+        outputs,
+        malformedFileRecord: true),
+    "true");
 
 Dictionary<string, string> readme =
     RunDetection(repository, body, "pull_request", "README.md", outputs);
@@ -147,10 +156,21 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
     YamlMappingNode root = RequireMapping(
         yaml.Documents[0].RootNode,
         "workflow root");
+    RequireExactScalarValues(
+        GetRequiredMapping(root, "env", "workflow"),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["DOTNET_NOLOGO"] = "true",
+            ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "true",
+        },
+        "workflow.env");
+    RequireAbsent(root, "defaults", "workflow");
     YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "workflow");
     YamlMappingNode changes = GetRequiredMapping(jobs, "changes", "jobs");
     RequireAbsent(changes, "if", "jobs.changes");
     RequireAbsent(changes, "continue-on-error", "jobs.changes");
+    RequireAbsent(changes, "defaults", "jobs.changes");
+    RequireAbsent(changes, "env", "jobs.changes");
 
     YamlMappingNode outputMappings =
         GetRequiredMapping(changes, "outputs", "jobs.changes");
@@ -182,15 +202,43 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
         changes,
         "steps",
         "jobs.changes");
-    List<YamlMappingNode> detectionSteps = [];
-    foreach (YamlNode stepNode in steps.Children)
+    if (steps.Children.Count < 2)
+    {
+        throw new InvalidOperationException(
+            "jobs.changes must check out the repository before detection.");
+    }
+
+    YamlMappingNode checkoutStep = RequireMapping(
+        steps.Children[0],
+        "jobs.changes checkout step");
+    RequireScalarValue(
+        checkoutStep,
+        "uses",
+        "actions/checkout@v6",
+        "jobs.changes checkout step");
+    RequireScalarValue(
+        GetRequiredMapping(
+            checkoutStep,
+            "with",
+            "jobs.changes checkout step"),
+        "fetch-depth",
+        "0",
+        "jobs.changes checkout step.with");
+
+    List<(int Index, YamlMappingNode Step)> detectionSteps = [];
+    List<(int Index, YamlMappingNode Step)> selfTestSteps = [];
+    for (int index = 0; index < steps.Children.Count; index++)
     {
         YamlMappingNode step = RequireMapping(
-            stepNode,
+            steps.Children[index],
             "jobs.changes step");
         if (GetOptionalScalar(step, "name") == "Detect changes")
         {
-            detectionSteps.Add(step);
+            detectionSteps.Add((index, step));
+        }
+        else if (GetOptionalScalar(step, "name") == "Self-test change detection")
+        {
+            selfTestSteps.Add((index, step));
         }
     }
 
@@ -201,22 +249,64 @@ static (string Body, string[] Outputs) LoadDetectionBody(string repository)
             $"found {detectionSteps.Count}.");
     }
 
-    YamlMappingNode detectionStep = detectionSteps[0];
+    if (detectionSteps[0].Index != 1)
+    {
+        throw new InvalidOperationException(
+            "Detect changes must run immediately after checkout.");
+    }
+
+    if (selfTestSteps.Count != 1 ||
+        selfTestSteps[0].Index <= detectionSteps[0].Index)
+    {
+        throw new InvalidOperationException(
+            "Self-test change detection must run once after Detect changes.");
+    }
+
+    YamlMappingNode selfTestStep = selfTestSteps[0].Step;
+    RequireScalarValue(
+        selfTestStep,
+        "run",
+        "dotnet run eng/test-ci-change-detection.cs",
+        "Self-test change detection");
+    RequireScalarValue(
+        selfTestStep,
+        "shell",
+        "bash",
+        "Self-test change detection");
+    RequireExactScalarValues(
+        GetRequiredMapping(
+            selfTestStep,
+            "env",
+            "Self-test change detection"),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["BASH_ENV"] = "",
+        },
+        "Self-test change detection.env");
+    RequireAbsent(selfTestStep, "if", "Self-test change detection");
+    RequireAbsent(
+        selfTestStep,
+        "continue-on-error",
+        "Self-test change detection");
+    RequireAbsent(
+        selfTestStep,
+        "working-directory",
+        "Self-test change detection");
+
+    YamlMappingNode detectionStep = detectionSteps[0].Step;
     RequireScalarValue(detectionStep, "id", "filter", "Detect changes");
     RequireScalarValue(detectionStep, "shell", "bash", "Detect changes");
     RequireAbsent(detectionStep, "if", "Detect changes");
     RequireAbsent(detectionStep, "continue-on-error", "Detect changes");
     YamlMappingNode detectionEnvironment =
         GetRequiredMapping(detectionStep, "env", "Detect changes");
-    if (detectionEnvironment.Children.Count != 1)
-    {
-        throw new InvalidOperationException(
-            "Detect changes.env must declare only GH_TOKEN.");
-    }
-    RequireScalarValue(
+    RequireExactScalarValues(
         detectionEnvironment,
-        "GH_TOKEN",
-        "${{ github.token }}",
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["BASH_ENV"] = "",
+            ["GH_TOKEN"] = "${{ github.token }}",
+        },
         "Detect changes.env");
     string body = GetRequiredScalar(detectionStep, "run", "Detect changes");
     if (body.Length == 0)
@@ -301,6 +391,23 @@ static void RequireScalarValue(
     }
 }
 
+static void RequireExactScalarValues(
+    YamlMappingNode mapping,
+    IReadOnlyDictionary<string, string> expected,
+    string context)
+{
+    if (mapping.Children.Count != expected.Count)
+    {
+        throw new InvalidOperationException(
+            $"{context} must declare exactly: {string.Join(", ", expected.Keys)}.");
+    }
+
+    foreach ((string key, string value) in expected)
+    {
+        RequireScalarValue(mapping, key, value, context);
+    }
+}
+
 static void RequireAbsent(
     YamlMappingNode mapping,
     string key,
@@ -320,7 +427,8 @@ static Dictionary<string, string> RunDetection(
     IReadOnlyCollection<string> expectedOutputs,
     string previousFiles = "",
     string? reportedChangedFileCount = null,
-    bool resolutionSucceeds = true)
+    bool resolutionSucceeds = true,
+    bool malformedFileRecord = false)
 {
     const string Before = "1111111111111111111111111111111111111111";
     const string Sha = "2222222222222222222222222222222222222222";
@@ -357,7 +465,9 @@ static Dictionary<string, string> RunDetection(
             if [ "$#" -eq 4 ] && [ "$1" = "api" ] \
                && [ "$2" = "repos/richlander/dotnet-inspect/pulls/3704" ] \
                && [ "$3" = "--jq" ] && [ "$4" = ".changed_files" ]; then
-              if [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
+              if [ "$MALFORMED_FILE_RECORD" = "true" ]; then
+              printf '2\n'
+              elif [ -n "$REPORTED_CHANGED_FILE_COUNT" ]; then
               printf '%s\n' "$REPORTED_CHANGED_FILE_COUNT"
               elif [ -n "$PREVIOUS_FILES" ]; then
               printf '1\n'
@@ -377,7 +487,7 @@ static Dictionary<string, string> RunDetection(
             if [ "$#" -eq 5 ] && [ "$1" = "api" ] && [ "$2" = "--paginate" ] \
                && [ "$3" = "repos/richlander/dotnet-inspect/pulls/3704/files" ] \
                && [ "$4" = "--jq" ] \
-               && [ "$5" = '.[] | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)' ]; then
+               && [ "$5" = '.[] | select((.filename | type) == "string" and (.filename | length) > 0 and (.status == "added" or .status == "removed" or .status == "modified" or .status == "copied" or .status == "changed" or .status == "unchanged" or (.status == "renamed" and (.previous_filename | type) == "string" and (.previous_filename | length) > 0))) | ":file", ([.previous_filename?, .filename][] | select(. != null) | @base64)' ]; then
               if [ -n "$PREVIOUS_FILES" ]; then
               printf ':file\n'
               printf '%s' "$PREVIOUS_FILES" | base64 -w0
@@ -444,6 +554,8 @@ static Dictionary<string, string> RunDetection(
         startInfo.Environment["EXPECTED_BEFORE"] = Before;
         startInfo.Environment["EXPECTED_SHA"] = Sha;
         startInfo.Environment["GITHUB_OUTPUT"] = output;
+        startInfo.Environment["MALFORMED_FILE_RECORD"] =
+            malformedFileRecord.ToString().ToLowerInvariant();
         startInfo.Environment["PATH"] =
             $"{binaries}{Path.PathSeparator}{startInfo.Environment["PATH"]}";
         startInfo.Environment["PREVIOUS_FILES"] = previousFiles;
