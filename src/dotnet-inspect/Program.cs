@@ -286,12 +286,7 @@ try
         #pragma warning restore RS0030
     }
 
-    var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
-    if (cacheMaintenance.BytesFreed > 0)
-    {
-        CommandError.WriteBlankLine();
-        CommandError.WriteLine($"Removed {CacheOutputFormatter.FormatSize(cacheMaintenance.BytesFreed)} from obsolete cache entries.");
-    }
+    _ = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));
 
     return exitCode;
 }

@@ -3,6 +3,7 @@ using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 using System.Text.Json;
@@ -113,26 +114,122 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task CacheMiss_CleansObsoleteVersionedCategories()
+    public void ClearCache_CoordinatesWithVersionedMaintenance()
     {
-        var oldDir = Path.Combine(_cacheBasePath, "pkg-index-v9");
-        var currentDir = Path.Combine(_cacheBasePath, PackageIndexCache.Category);
+        string prefix = $"clear-race-{Guid.NewGuid():N}-v";
+        string current = prefix + "2";
+        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
+        var currentDir = Path.Combine(_cacheBasePath, current);
         Directory.CreateDirectory(oldDir);
         Directory.CreateDirectory(currentDir);
+        for (int i = 0; i < 256; i++)
+        {
+            File.WriteAllText(
+                Path.Combine(oldDir, $"{i}.txt"),
+                new string('x', 1024));
+        }
+        File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
+
+        CoreCache.RegisterVersionedCategory(prefix, current);
+        long freed = PackageCacheService.ClearCache();
+
+        Assert.False(Directory.Exists(_cacheBasePath));
+        Assert.True(freed >= 256 * 1024);
+        Assert.Equal(0, PackageCacheService.ClearCache());
+    }
+
+    [Fact]
+    public async Task CategoryClear_DoesNotConsumeMaintenanceAccounting()
+    {
+        string prefix = $"category-clear-accounting-{Guid.NewGuid():N}-v";
+        string current = prefix + "2";
+        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
+
+        CoreCache.RegisterVersionedCategory(prefix, current);
+        await CoreCache.RequestVersionedCategoryCleanupAsync();
+
+        Assert.Equal(0, CoreCache.Clear("metadata"));
+        Assert.True(CoreCache.Clear() >= 4096);
+    }
+
+    [Fact]
+    public async Task RegisteringVersionedCategory_CleansOnlyOlderContracts()
+    {
+        string prefix = $"registration-clean-{Guid.NewGuid():N}-v";
+        string current = prefix + "3";
+        var oldDir = Path.Combine(_cacheBasePath, prefix + "2");
+        var currentDir = Path.Combine(_cacheBasePath, current);
+        var futureDir = Path.Combine(_cacheBasePath, prefix + "4");
+        var malformedDir = Path.Combine(_cacheBasePath, prefix + "preview");
+        Directory.CreateDirectory(oldDir);
+        Directory.CreateDirectory(currentDir);
+        Directory.CreateDirectory(futureDir);
+        Directory.CreateDirectory(malformedDir);
         File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
         File.WriteAllText(Path.Combine(currentDir, "current.txt"), "keep");
 
-        CoreCache.RegisterVersionedCategory("pkg-index-v", PackageIndexCache.Category);
+        CoreCache.RegisterVersionedCategory(prefix, current);
+        await WaitForDeletionAsync(oldDir);
 
-        Assert.Null(CoreCache.TryGet("versions", $"missing-{Guid.NewGuid():N}", extension: "txt"));
         var cleanup = CoreCache.RequestVersionedCategoryCleanupAsync();
         Assert.Same(cleanup, CoreCache.RequestVersionedCategoryCleanupAsync());
         var result = await cleanup;
 
         Assert.False(Directory.Exists(oldDir));
         Assert.True(Directory.Exists(currentDir));
+        Assert.True(Directory.Exists(futureDir));
+        Assert.True(Directory.Exists(malformedDir));
         Assert.True(result.BytesFreed > 0);
         Assert.True(result.DirectoriesDeleted >= 1);
+    }
+
+    [Fact]
+    public async Task Initialize_RechecksContractsRecreatedByAnOlderTool()
+    {
+        string prefix = $"recreated-contract-{Guid.NewGuid():N}-v";
+        string current = prefix + "2";
+        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
+        Directory.CreateDirectory(oldDir);
+
+        CoreCache.RegisterVersionedCategory(prefix, current);
+        await CoreCache.RequestVersionedCategoryCleanupAsync();
+        Assert.False(Directory.Exists(oldDir));
+
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllText(Path.Combine(oldDir, "recreated.txt"), "stale");
+
+        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
+        await WaitForDeletionAsync(oldDir);
+        await CoreCache.RequestVersionedCategoryCleanupAsync();
+
+        Assert.False(Directory.Exists(oldDir));
+    }
+
+    [Fact]
+    public async Task Initialize_CleansPriorPackageContentContract()
+    {
+        var oldDir = Path.Combine(_cacheBasePath, "package-content-v4");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllText(Path.Combine(oldDir, "stale.txt"), "stale");
+
+        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
+        await WaitForDeletionAsync(oldDir);
+        await CoreCache.RequestVersionedCategoryCleanupAsync();
+
+        Assert.False(Directory.Exists(oldDir));
+    }
+
+    [Fact]
+    public void RegisterVersionedCategory_RequiresNumericContract()
+    {
+        string prefix = $"invalid-contract-{Guid.NewGuid():N}-v";
+
+        var error = Assert.Throws<ArgumentException>(
+            () => CoreCache.RegisterVersionedCategory(prefix, prefix + "preview"));
+
+        Assert.Contains("non-negative integer contract version", error.Message);
     }
 
     [Fact]
@@ -150,6 +247,18 @@ public class CacheCommandTests : IDisposable
         });
 
         Assert.Empty(error);
+    }
+
+    private static async Task WaitForDeletionAsync(string path)
+    {
+        for (int attempt = 0; attempt < 100 && Directory.Exists(path); attempt++)
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(10),
+                TestContext.Current.CancellationToken);
+        }
+
+        Assert.False(Directory.Exists(path), $"Expected cache cleanup to delete '{path}'.");
     }
 
     [Fact]
