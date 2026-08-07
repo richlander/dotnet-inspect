@@ -326,9 +326,11 @@ The `Decompiled Source` view renders readable local names by default when a PDB
 does not supply the source name, deriving conservative names such as `text`,
 `items`, or `stringBuilder` from the local's type and role. This is
 byte-preserving; fidelity and corpus tooling retain stable `V_index` slot names.
-Set `dotnet_inspect_style_readable_local_names = false` in the tool-owned
+Set `dotnet_inspect_style_slot_local_names = true` in the tool-owned
 `.dotnet-inspectconfig` file to restore slot names, or use `--readable-names` to
-override that configuration for one invocation. The same config file
+override that configuration for one invocation. The original
+`dotnet_inspect_style_readable_local_names = false` spelling remains accepted
+for compatibility. The same config file
 (discovered by walking up from the working directory) selects other class-3
 spellings using `.editorconfig` key names. `--taste` requests the whole
 oracle-endorsed set for one invocation without a config file. `Annotated Source`

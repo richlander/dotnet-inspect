@@ -629,18 +629,18 @@ show the shape beneath that sugar.
 
 ## Names
 
-Without a PDB, user-facing Decompiled and Annotated Source views synthesize
-readable local names (`text`, `items`, `stringBuilder`) from evidence already in
-the IR (a local's type and whether it is a loop counter), falling back to
-`V_index` when no honest name applies. The decompiler library, fidelity/corpus
-gates, and `--skip-pdb` harness path retain slot names by default, so stable
-evidence does not churn. Set
-`dotnet_inspect_style_readable_local_names = false` to restore slot names in CLI
+Without a PDB, user-facing C# body views synthesize readable local names
+(`text`, `items`, `stringBuilder`) from evidence already in the IR (a local's
+type and whether it is a loop counter), falling back to `V_index` when no honest
+name applies. The decompiler library, fidelity/corpus gates, and `--skip-pdb`
+harness path retain slot names by default, so stable evidence does not churn.
+Set `dotnet_inspect_style_slot_local_names = true` to restore slot names in CLI
 source views; `--readable-names` overrides that configuration for one run. The
-registry presents the inverse `Use IL slot local names` choice, off by default.
-The setting is byte-preserving (names do not affect IL), so it is not part of the
-oracle-endorsed [taste](#style-configuration) aggregate and carries its own
-tool-owned key.
+original `dotnet_inspect_style_readable_local_names = false` spelling remains
+accepted for compatibility. The registry presents the inverse `Use IL slot
+local names` choice, off by default. The setting is byte-preserving (names do
+not affect IL), so it is not part of the oracle-endorsed
+[taste](#style-configuration) aggregate and carries its own tool-owned key.
 
 ## Style configuration
 
