@@ -5059,6 +5059,7 @@ function buildStateUrl(base = location.href) {
 // back/forward buttons authoritative and avoids flooding browser history on every render.
 function syncUrl() {
   if (!state.package || state.loading) return;
+  document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
   try {
     history.replaceState(null, "", buildStateUrl().toString());
   } catch {
@@ -5164,6 +5165,7 @@ async function copyText(value, confirmation) {
 // (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
 // chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
 function renderHomeView() {
+  document.title = "dotnet-inspect -- Inspect any .NET package, right in the browser.";
   const results = spotlightResults();
   state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
   app.innerHTML = `
