@@ -580,8 +580,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>(
-                HasSingleBodyBackedMember,
-                HasSingleExecutableBodyMember)
+                isViewApplicable: HasExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.Operators>()
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
@@ -658,6 +657,9 @@ public static class ApiMemberOverloadSectionDescriptors
     private static bool HasSingleExecutableBodyMember(ApiType model)
         => model.Members.Count == 1
            && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+
+    private static bool HasExecutableBodyMember(ApiType model)
+        => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
