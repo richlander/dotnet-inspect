@@ -48,7 +48,7 @@ of the ladder families contributes in one of three ways:
   `--count`, `-n 1`).
 - **Presentation modifiers** change how a selected payload is rendered without
   changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
-  `--jsonl`, `--plaintext`, `--no-headers`).
+  `--jsonl`, `--plaintext`, `--no-headers`, and section-supported `--tree`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
 
