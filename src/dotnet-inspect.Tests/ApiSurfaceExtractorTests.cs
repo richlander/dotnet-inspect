@@ -606,35 +606,15 @@ public class ApiSurfaceExtractorTests
     }
 
     /// <summary>
-    /// Nullable context bytes do not annotate a parameter carrying the metadata value-type
-    /// constraint flag, whether it belongs to a method or type. Unconstrained parameters
-    /// remain eligible. This is the extraction gate for issue #3729: removing the flag
-    /// from <c>GenericContext</c> produces <c>Nullable&lt;T?&gt;</c>, <c>Handler&lt;T?&gt;</c>,
-    /// and a spurious bare <c>T?</c>.
+    /// Compiler-produced value-constrained signatures retain their structural
+    /// <see cref="Nullable{T}"/> and bare generic parameter spelling. Unconstrained
+    /// parameters remain eligible for nullable annotation.
     /// </summary>
     [Fact]
     public void Extract_DoesNotApplyNullableAnnotationsToValueConstrainedParameters()
     {
         using var stream = File.OpenRead(typeof(ValueTypeNullabilityFixture).Assembly.Location);
         using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
-        var fixtureType = reader.TypeDefinitions
-            .Select(reader.GetTypeDefinition)
-            .Single(candidate =>
-                reader.GetString(candidate.Name) == nameof(ValueTypeNullabilityFixture));
-        var inheritedNullableMethod = fixtureType.GetMethods()
-            .Select(reader.GetMethodDefinition)
-            .Single(candidate =>
-                reader.GetString(candidate.Name)
-                    == nameof(ValueTypeNullabilityFixture.InheritedNullableValue));
-
-        Assert.Equal(
-            (byte)2,
-            NullabilityReader.GetNullableContext(reader, fixtureType.GetCustomAttributes()));
-        Assert.Null(
-            NullabilityReader.GetNullableContext(
-                reader,
-                inheritedNullableMethod.GetCustomAttributes()));
 
         var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
         var type = Assert.Single(
@@ -643,9 +623,6 @@ public class ApiSurfaceExtractorTests
         var nullable = Assert.Single(
             type.Members,
             candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.NullableValue));
-        var inheritedNullable = Assert.Single(
-            type.Members,
-            candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.InheritedNullableValue));
         var plain = Assert.Single(
             type.Members,
             candidate => candidate.Name == nameof(ValueTypeNullabilityFixture.PlainValue));
@@ -656,9 +633,6 @@ public class ApiSurfaceExtractorTests
         Assert.Contains("System.Nullable<T> value", nullable.Signature, StringComparison.Ordinal);
         Assert.Contains("Handler<T> message", nullable.Signature, StringComparison.Ordinal);
         Assert.DoesNotContain("T?>", nullable.Signature, StringComparison.Ordinal);
-
-        Assert.Contains("System.Nullable<T> value", inheritedNullable.Signature, StringComparison.Ordinal);
-        Assert.DoesNotContain("T?>", inheritedNullable.Signature, StringComparison.Ordinal);
 
         Assert.Contains("(T value,", plain.Signature, StringComparison.Ordinal);
         Assert.Contains("Handler<T> message", plain.Signature, StringComparison.Ordinal);
@@ -687,19 +661,49 @@ public class ApiSurfaceExtractorTests
     }
 
     /// <summary>
-    /// The same rule applies to a declaring type's parameter. The compiler fixture above
-    /// gates real method metadata; this synthesized seam case isolates a type-level
-    /// <c>NullableContextAttribute(2)</c>, which causes <c>T?</c> and
-    /// <c>Nullable&lt;T?&gt;</c> if <c>GenericContext.ForType</c> drops the constraint flag.
+    /// An inherited <c>NullableContextAttribute(2)</c> does not annotate a value-constrained
+    /// generic parameter on either a type or method. This synthesized seam is the #3729
+    /// enforcement gate because Roslyn emits explicit byte zero on compiler-produced
+    /// value-constrained positions instead of allowing context byte two to reach them.
     /// </summary>
     [Fact]
-    public void Extract_DoesNotApplyNullableContextToValueConstrainedTypeParameter()
+    public void Extract_DoesNotApplyInheritedNullableContextToValueConstrainedParameters()
     {
         string path = EmitValueConstrainedTypeNullableContextSample();
         try
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeDefinition = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == "ValueConstrainedType");
+            var methodDefinition = typeDefinition.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == "InheritedMethod");
+
+            Assert.Equal(
+                (byte)2,
+                NullabilityReader.GetNullableContext(
+                    reader,
+                    typeDefinition.GetCustomAttributes()));
+            Assert.Null(
+                NullabilityReader.GetNullableContext(
+                    reader,
+                    methodDefinition.GetCustomAttributes()));
+            Assert.Null(
+                NullabilityReader.GetParameterNullableBytes(
+                    reader,
+                    methodDefinition.GetParameters(),
+                    sequenceNumber: 1));
+            Assert.Null(
+                NullabilityReader.GetParameterNullableBytes(
+                    reader,
+                    methodDefinition.GetParameters(),
+                    sequenceNumber: 2));
+
             var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
             var type = Assert.Single(
                 surface.Types,
@@ -708,9 +712,17 @@ public class ApiSurfaceExtractorTests
                     StringComparison.Ordinal));
             var value = Assert.Single(type.Members, candidate => candidate.Name == "Value");
             var maybe = Assert.Single(type.Members, candidate => candidate.Name == "Maybe");
+            var method = Assert.Single(
+                type.Members,
+                candidate => candidate.Name == "InheritedMethod");
 
             Assert.Equal("T", value.ReturnType);
             Assert.Equal("System.Nullable<T>", maybe.ReturnType);
+            Assert.Contains(
+                "InheritedMethod<M>(M value, System.Nullable<M> maybe)",
+                method.Signature,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("M?", method.Signature, StringComparison.Ordinal);
         }
         finally
         {
@@ -766,6 +778,30 @@ public class ApiSurfaceExtractorTests
             "Maybe",
             typeof(Nullable<>).MakeGenericType(parameter),
             System.Reflection.FieldAttributes.Public);
+
+        var methodBuilder = typeBuilder.DefineMethod(
+            "InheritedMethod",
+            System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.Static);
+        var methodParameter = Assert.Single(methodBuilder.DefineGenericParameters("M"));
+        methodParameter.SetGenericParameterAttributes(
+            System.Reflection.GenericParameterAttributes.NotNullableValueTypeConstraint
+                | System.Reflection.GenericParameterAttributes.DefaultConstructorConstraint);
+        methodParameter.SetBaseTypeConstraint(typeof(ValueType));
+        methodBuilder.SetReturnType(typeof(void));
+        methodBuilder.SetParameters(
+            methodParameter,
+            typeof(Nullable<>).MakeGenericType(methodParameter));
+        methodBuilder.DefineParameter(
+            position: 1,
+            System.Reflection.ParameterAttributes.None,
+            "value");
+        methodBuilder.DefineParameter(
+            position: 2,
+            System.Reflection.ParameterAttributes.None,
+            "maybe");
+        methodBuilder.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+
         typeBuilder.CreateType();
 
         string path = Path.Combine(
