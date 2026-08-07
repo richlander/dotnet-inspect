@@ -211,7 +211,7 @@ public static class IlProjection
     // escape in a metadata name adds no line to the string but still moves or
     // rewrites the terminal cursor once this comment is rendered. Shared with the
     // identifier and taste channels so the three cannot disagree (issue #3319).
-    static string FoldLine(string text) => ILInspector.CSharp.CSharpIdentifier.ContainRenderedText(text);
+    static string FoldLine(string text) => CSharpText.CSharpIdentifier.ContainRenderedText(text);
 
     /// <summary>Resolves a metadata-token operand to its display form, falling back to raw token hex if resolution fails.</summary>
     static string ResolveToken(MetadataReader reader, GenericScope scope, ILOpCode op, int token)

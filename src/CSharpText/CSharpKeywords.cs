@@ -1,4 +1,4 @@
-namespace ILInspector.CSharp;
+namespace CSharpText;
 
 /// <summary>
 /// Authoritative C# keyword classification for metadata-backed identifiers.
