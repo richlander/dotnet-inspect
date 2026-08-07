@@ -358,7 +358,9 @@ Its `Lines` are the portable interleaved `AnnotatedSourceLine` stream; `Nodes`
 and `Regions` are the C# extents rebased into that stream; and
 `UnplacedAnnotations` retains only facts for which neither medium emitted a
 placement. A fact with a C# extent and an exact-offset IL instruction appears on
-both lines, with medium-specific extents. The portable merge preserves C# line
+both lines, with medium-specific extents. Member-header facts have no body
+placement by definition and remain explicit there with `Kind = "MemberHeader"`.
+The portable merge preserves C# line
 order and strictly increasing IL offsets simultaneously: when reconstructed C#
 orders statements differently from the instruction stream, an IL instruction is
 deferred until its target C# line has appeared rather than emitted out of method
@@ -371,7 +373,9 @@ section. Markdown renders the source-generated JSON in a fenced block, while
 snake-case JSON convention. Wildcard and category selections retain the ordinary
 document JSON shape, even when they resolve only to this section. A member whose
 printer emits no C# body still carries its IL plane and facts; printer failure is
-an error rather than a successful empty envelope. Production is opt-in and uses
+an error rather than a successful empty envelope. IL string operands escape
+unpaired UTF-16 surrogates so JSON replay preserves every code unit rather than
+silently substituting U+FFFD. Production is opt-in and uses
 an isolated import: printing and style lenses mutate IR, so sharing that graph
 would let selecting the payload alter sibling projections.
 

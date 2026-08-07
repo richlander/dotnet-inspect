@@ -255,6 +255,28 @@ public class AnnotatedSourceMapProjectionTests
     }
 
     [Fact]
+    public void MemberHeaderFactsRemainExplicitlyUnplaced()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.HighLoopLeverageCallee),
+            SourceMap: true));
+        var map = Assert.IsType<AnnotatedSourceMap>(projection.SourceMap);
+
+        var fact = Assert.Single(
+            map.UnplacedAnnotations,
+            annotation => annotation.Descriptor == "cost.method");
+        Assert.Equal("MemberHeader", fact.Kind);
+        Assert.Equal(-1, fact.SourceOffset);
+        Assert.Null(fact.Extent);
+        Assert.DoesNotContain(
+            map.Lines.SelectMany(line => line.Annotations),
+            annotation => annotation.Descriptor == "cost.method");
+    }
+
+    [Fact]
     public void EmptyPrintedBodyStillCarriesItsIl()
     {
         var map = Map(nameof(AnnotatedTasteFixture.Noop), options: null);

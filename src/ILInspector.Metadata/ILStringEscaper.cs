@@ -36,8 +36,17 @@ public static class ILStringEscaper
     public static string ForDisplay(string value)
     {
         var sb = new System.Text.StringBuilder(value.Length);
-        foreach (char c in value)
+        for (int i = 0; i < value.Length; i++)
         {
+            char c = value[i];
+            if (char.IsHighSurrogate(c)
+                && i + 1 < value.Length
+                && char.IsLowSurrogate(value[i + 1]))
+            {
+                sb.Append(c).Append(value[++i]);
+                continue;
+            }
+
             switch (c)
             {
                 case '\\': sb.Append("\\\\"); break;
@@ -46,6 +55,9 @@ public static class ILStringEscaper
                 case '\r': sb.Append("\\r"); break;
                 case '\t': sb.Append("\\t"); break;
                 case '\f': sb.Append("\\f"); break;
+                case var _ when char.IsSurrogate(c):
+                    sb.Append("\\u").Append(((int)c).ToString("X4"));
+                    break;
                 // Every remaining rendering hazard - ESC, vertical tab, bidi
                 // override, line/paragraph separator - shares one definition
                 // with the C# literal escapers. Restating the set here is how

@@ -86,7 +86,7 @@ public static partial class ResearchViews
             var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
             var context = new ResearchFactContext(request.Source, imported, assembly);
             var facts = effectiveRegistry.Collect(context);
-            var headerFacts = request.CostOverlay || request.FactRows
+            var headerFacts = request.CostOverlay || request.FactRows || request.SourceMap
                 ? effectiveRegistry.CollectHeaderFacts(context)
                 : [];
 
@@ -104,6 +104,7 @@ public static partial class ResearchViews
                     request.Method,
                     mapFunction,
                     facts,
+                    headerFacts,
                     request.AnnotatedStage,
                     request.OverloadIndex,
                     request.PublicOnly,
@@ -331,6 +332,7 @@ public static partial class ResearchViews
         string method,
         IrFunction imported,
         IReadOnlyList<IAnnotation> annotations,
+        IReadOnlyList<ResearchHeaderFact> headerFacts,
         AnnotationStage stage,
         int overloadIndex,
         bool publicOnly,
@@ -362,7 +364,7 @@ public static partial class ResearchViews
 
         var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
         var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
-        return MakePortable(stream, csharpMap);
+        return MakePortable(stream, csharpMap, headerFacts);
     }
 
     internal static string RequireSuccessfulMapOutput(DecompilerResult result)
@@ -455,7 +457,8 @@ public static partial class ResearchViews
 
     static AnnotatedSourceMap MakePortable(
         IReadOnlyList<BoundSourceLine> stream,
-        PrintedBodyMap csharpMap)
+        PrintedBodyMap csharpMap,
+        IReadOnlyList<ResearchHeaderFact> headerFacts)
     {
         var csharpToStream = new List<int>(csharpMap.Lines.Count);
         for (int streamLine = 0; streamLine < stream.Count; streamLine++)
@@ -520,6 +523,18 @@ public static partial class ResearchViews
             else
                 unplaced.Add(annotation);
         }
+        foreach (var fact in headerFacts)
+        {
+            unplaced.Add(new PrintedAnnotationSpan(
+                fact.Descriptor.Id,
+                fact.Descriptor.Category.ToString(),
+                AnnotationConditionality.Always,
+                "MemberHeader",
+                Extent: null,
+                fact.Detail,
+                SourceOffset: -1));
+        }
+        unplaced.Sort(CompareAnnotations);
 
         var lines = new AnnotatedSourceLine[stream.Count];
         for (int i = 0; i < stream.Count; i++)
