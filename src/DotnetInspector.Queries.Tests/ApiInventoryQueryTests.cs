@@ -1,5 +1,8 @@
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Queries.Tests;
@@ -379,6 +382,30 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
+    public void Members_PrivateScopeMetadataFlowsToPrivateFacet()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildPrivateScopeImage()));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = Assert.Single(surface.Types, candidate => candidate.Name == "PrivateScopeHost");
+        ApiMemberInventoryResult catalog = ApiInventoryQuery.Members(type);
+        ApiFacetDescriptor privateFacet = Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "private");
+
+        ApiMemberInventoryResult result = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest(AccessibilityFacetIds: [privateFacet.Id]));
+
+        Assert.Equal(2, result.Members.Count);
+        Assert.Contains(result.Members, member => member.Name == "HiddenField");
+        Assert.Contains(result.Members, member => member.Name == "HiddenMethod");
+        Assert.All(result.Members, member => Assert.Equal("private", member.Accessibility));
+        Assert.DoesNotContain(
+            result.Members,
+            member => string.IsNullOrEmpty(member.Accessibility));
+    }
+
+    [Fact]
     public void Selection_RejectsUnknownFacetIds()
     {
         var surface = new ApiSurface
@@ -441,6 +468,67 @@ public class ApiInventoryQueryTests
         };
         Assert.Throws<InvalidOperationException>(
             () => ApiInventoryQuery.Types(unknownAccessibility));
+    }
+
+    private static byte[] BuildPrivateScopeImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("PrivateScope.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PrivateScope"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("PrivateScopeHost"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // FIELD
+        fieldSignature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        metadata.AddFieldDefinition(
+            FieldAttributes.PrivateScope,
+            metadata.GetOrAddString("HiddenField"),
+            metadata.GetOrAddBlob(fieldSignature));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00); // DEFAULT
+        methodSignature.WriteByte(0x00); // parameter count
+        methodSignature.WriteByte(0x01); // ELEMENT_TYPE_VOID
+        metadata.AddMethodDefinition(
+            MethodAttributes.PrivateScope | MethodAttributes.Static,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("HiddenMethod"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 }
 

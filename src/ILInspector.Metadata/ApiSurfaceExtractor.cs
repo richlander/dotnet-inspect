@@ -4997,7 +4997,11 @@ public static class ApiSurfaceExtractor
         FieldAttributes.Assembly => "internal",
         FieldAttributes.Family => "protected",
         FieldAttributes.FamORAssem => "protected internal",
-        _ => null // Public
+        FieldAttributes.Public => null,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(access),
+            access,
+            "Unknown field accessibility.")
     };
 
     sealed class TypeParameterConstraintResolution
