@@ -65,6 +65,10 @@ public sealed record CallTreePerf(
 
 static class CallTreeMember
 {
+    internal static string ToQualifiedDisplayString(
+        MethodIdentity method) =>
+        $"{method.DeclaringType.ToQualifiedDisplayString()}::{method.Name}";
+
     internal static MemberRef FromDefinition(MethodIdentity method) =>
         new(
             method.DeclaringType,
@@ -82,4 +86,23 @@ static class CallTreeMember
             OpenParameterTypes = method.ParameterTypes,
             OpenReturnType = method.ReturnType,
         };
+}
+
+static class CallTreeOrdering
+{
+    internal static IOrderedEnumerable<T> OrderCallers<T>(
+        IEnumerable<T> edges,
+        Func<T, string> assemblyName,
+        Func<T, string> qualifiedDisplayName,
+        Func<T, int> parameterCount,
+        Func<T, Guid> moduleVersionId,
+        Func<T, int> methodToken,
+        Func<T, int> ilOffset) =>
+        edges
+            .OrderBy(assemblyName, StringComparer.Ordinal)
+            .ThenBy(qualifiedDisplayName, StringComparer.Ordinal)
+            .ThenBy(parameterCount)
+            .ThenBy(moduleVersionId)
+            .ThenBy(methodToken)
+            .ThenBy(ilOffset);
 }
