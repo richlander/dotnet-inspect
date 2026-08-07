@@ -9928,6 +9928,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectNarrowsEffectiveCategoryDiscovery()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "@Performance",
+            "--effective",
+            "-S", "References",
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("category '@Performance' has no data for this query", error);
+        Assert.Contains("scanners requested   Metadata", error);
+        Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
+        Assert.DoesNotContain("body index", error);
+        Assert.DoesNotContain("drill map", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverFullEffectiveness_IsBaseScoped()
     {
         var (exit, output, error) = await RunAppAsync(
