@@ -9941,7 +9941,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(output);
         Assert.Contains("category '@Performance' has no data for this query", error);
-        Assert.Contains("scanners requested   Metadata", error);
+        Assert.Contains("queries requested    Metadata image", error);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
@@ -11734,7 +11734,7 @@ public partial class CommandExecutionTests
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
         // exits non-zero with 'requires --heap <heap>:<address>', the same way
         // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // scanner-bound, so ScannerBoundSections lists it, but supplying a coordinate is
+        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
         // orthogonal to prerequisite sufficiency. The per-heap listing sections
         // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
         string[] coordinateScoped = [MetadataSectionNames.Heap];
@@ -11744,16 +11744,20 @@ public partial class CommandExecutionTests
 
         var bound = pipeline.ScannerBoundSections
             .Select(b => b.Name)
+            .Concat(pipeline.QueryBoundSections.Select(b => b.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
-        // exclusion must still name a real scanner-bound section.
+        // exclusion must still name a real data-bound section.
         foreach (var name in coordinateScoped)
             Assert.Contains(name, bound);
 
-        var names = pipeline.ScannerBoundSections
+        var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
-            .Select(b => b.Name)
+            .Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var names = scannerNames
+            .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
