@@ -1,10 +1,10 @@
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// The single authoritative full-name member canonical-signature grammar (issue #2440).
 ///
 /// Member identity is <c>System.Int32</c>, not <c>int</c>: the canonical signature that
-/// backs a <see cref="ILInspector.MetadataPrimitives.MemberAnchor"/> fingerprint uses ECMA
+/// backs a <c>MemberAnchor</c> fingerprint uses ECMA
 /// full type names, because this is a metadata/IL inspector and C# keyword spelling is a
 /// display projection, not identity.
 ///

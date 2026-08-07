@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
