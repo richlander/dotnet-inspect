@@ -19,6 +19,7 @@ public class AuthoredCorpusHistoryCardTests
     /// predate the commit field.
     /// </summary>
     static readonly string[] GrandfatheredIncompleteRows = ["2026-07-20"];
+    static readonly string[] GrandfatheredCommitlessRows = ["2026-07-20"];
 
     static IReadOnlyList<HistoryRun> Parse()
         => AuthoredCorpusHistoryCard.ParseHistory(SampleHistory.Split('\n'));
@@ -291,6 +292,32 @@ public class AuthoredCorpusHistoryCardTests
             GrandfatheredIncompleteRows.OrderBy(date => date, StringComparer.Ordinal),
             incomplete.OrderBy(date => date, StringComparer.Ordinal));
     }
+
+    /// <summary>
+    /// The original run alone predates commit recording. New rows must carry an
+    /// immutable hexadecimal commit ID; the named CI ancestry gate then proves that
+    /// ID landed on <c>origin/main</c>.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_OnlyTheOriginalRowOmitsACommit()
+    {
+        var runs = TrackedHistory();
+        var commitless = runs
+            .Where(run => run.Commit is null)
+            .Select(run => run.Date!)
+            .ToArray();
+
+        Assert.Equal(
+            GrandfatheredCommitlessRows.OrderBy(date => date, StringComparer.Ordinal),
+            commitless.OrderBy(date => date, StringComparer.Ordinal));
+        Assert.All(
+            runs.Where(run => run.Commit is not null),
+            run => Assert.True(IsBareCommitId(run.Commit!), run.Commit));
+    }
+
+    static bool IsBareCommitId(string commit)
+        => commit.Length is >= 8 and <= 40
+            && commit.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     /// <summary>
     /// The tracked trend store, parsed. Internal so the ratchet gate

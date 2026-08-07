@@ -82,7 +82,18 @@ jobs:
         run: |
           set -euo pipefail
           history=tools/DecompilerHarness/corpus/evil-runs/history.jsonl
-          jq -e . "$history" > /dev/null
+          jq -s -e '
+            ([.[] | select(.commit == null)] | length) == 1
+            and (.[0].commit == null)
+            and (.[0].date == "2026-07-20")
+            and (.[0].methodologyVersion == null)
+            and (.[0].invalidBreakdown == null)
+            and all(
+              .[] | select(.commit != null);
+              ((.commit | type) == "string")
+              and (.commit | test("^[0-9a-f]{8,40}$"))
+            )
+          ' "$history" > /dev/null
           while IFS= read -r commit; do
             if ! git merge-base --is-ancestor "$commit" origin/main; then
               echo "::error file=$history::Recorded commit '$commit' is not an ancestor of origin/main."

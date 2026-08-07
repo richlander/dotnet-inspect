@@ -13,8 +13,8 @@ attachment, or CI artifact. Do not commit full per-row run payloads here.
 Each row contains these fields:
 
 - `date`: UTC run date, formatted as `yyyy-mm-dd`.
-- `commit`: short source commit SHA for the harness under test, or `null` when
-  the original run did not record it.
+- `commit`: bare hexadecimal source commit ID for the harness under test. Only
+  the original `2026-07-20` run is grandfathered as `null`.
 - `poolMatched` and `poolTotal`: corpus assembly coverage for the supplied
   assembly pool.
 - `evaluated`: target methods evaluated by the benchmark.
@@ -155,8 +155,9 @@ Each row contains these fields:
    whatever product state the branch happened to be based on. Measuring a
    methodology or product change against its own base is a valid experiment —
    it belongs in that PR's evidence, not in this series.
-   The `Check EVIL history commits are on main` CI step enforces ancestry for
-   every recorded commit against the full `origin/main` history.
+   The `Check EVIL history commits are on main` CI step permits only the one
+   grandfathered commit-less row, rejects symbolic revisions, and enforces
+   ancestry for every recorded commit against the full `origin/main` history.
    A methodology-bump PR therefore leaves the newest stored methodology one
    version behind while it is under review. After the change lands, append its
    first row from the resulting `main` commit in a follow-up.
