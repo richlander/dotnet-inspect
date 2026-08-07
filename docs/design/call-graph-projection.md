@@ -90,7 +90,12 @@ The projection owns everything a host must not re-invent in JavaScript:
 - **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are emitted in id order and edges in first-seen order, so the same input
-  always yields an identical projection.
+  always yields an identical projection. Both the cheap assembly-local caller
+  tree and the catalog caller tree order inbound edges by assembly name,
+  qualified member identity, physical definition identity, and call-site
+  offset. Requesting an otherwise noncontributing catalog scope therefore does
+  not change sibling order, revisit placement, or which nodes fit in a bounded
+  traversal.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
