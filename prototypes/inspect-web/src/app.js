@@ -232,19 +232,12 @@ function applyView(view) {
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
   state.selectedOverloadIndex = null;
-  state.memberSection = view.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.accessibilityFilter = new Set(view.accessibilityFilter ?? ["public"]);
   state.memberAccessibilityFilter = new Set(view.memberAccessibilityFilter ?? ["public"]);
-  state.memberSource = null;
-  state.memberSourceError = "";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberFacts = null;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
+  resetMemberSectionState();
+  state.memberSection = view.memberSection;
   const type = selectedType();
   if (type) revealType(type);
   const fullGroup = memberGroups(type, true).find(group => group.key === state.selectedMemberKey);
@@ -555,6 +548,10 @@ function typeMatchesFilterText(item, needle) {
 function libraryKey(item) {
   const asm = (item && item.assembly) || (state.package && state.package.assembly) || "";
   return asm.replace(/\.dll$/i, "");
+}
+
+function assemblyKey(value) {
+  return String(value || "").replace(/\.dll$/i, "").toLowerCase();
 }
 
 // Libraries present among the loaded types, each with its type count, sorted by
@@ -3573,6 +3570,7 @@ function bindEvents() {
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.libraryScope = null;
     state.selectedTypeId = filteredTypes()[0]?.id || "";
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
@@ -5886,7 +5884,8 @@ async function renderTypeGraph() {
 function findTypeByMetadataIdentity(fullName, preferredAssembly = selectedType()?.assembly) {
   if (!state.package) return null;
   const matches = state.package.types.filter(candidate => typeEngineName(candidate) === fullName);
-  return matches.find(candidate => candidate.assembly === preferredAssembly)
+  const preferredKey = assemblyKey(preferredAssembly);
+  return matches.find(candidate => assemblyKey(candidate.assembly) === preferredKey)
     ?? (matches.length === 1 ? matches[0] : null);
 }
 
@@ -6489,7 +6488,7 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
         });
         return;
       }
-      const target = resolveNodeLabel(label);
+      const target = resolveWorkspaceNode(label, node) ?? resolveNodeLabel(label);
       const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
       // A node with no workspace target and no source is a platform (BCL / cross-library)
       // callee: resolvable identity lives on the active graph's tree, so we can descend
@@ -6501,7 +6500,7 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
         if (moved) return;
-        if (target) navigateToMember(target.pkg, target.type, target.group);
+        if (target) navigateToMember(target.pkg, target.type, target.group, target.overloadIndex);
         else if (source) openGraphSource(source.request, source.title);
         else navigateOrDrillPlatform(platform);
       });
@@ -7159,23 +7158,106 @@ function renderGraphSource() {
     </div>`;
 }
 
-function navigateToMember(pkg, type, group) {
+function splitParameterSignature(signature) {
+  if (!signature) return [];
+  const parts = [];
+  let start = 0;
+  let angle = 0;
+  let square = 0;
+  let paren = 0;
+  for (let i = 0; i < signature.length; i++) {
+    switch (signature[i]) {
+      case "<": angle++; break;
+      case ">": angle = Math.max(0, angle - 1); break;
+      case "[": square++; break;
+      case "]": square = Math.max(0, square - 1); break;
+      case "(": paren++; break;
+      case ")": paren = Math.max(0, paren - 1); break;
+      case ",":
+        if (angle === 0 && square === 0 && paren === 0) {
+          parts.push(signature.slice(start, i).trim());
+          start = i + 1;
+        }
+        break;
+    }
+  }
+  parts.push(signature.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function parameterTypeKey(typeName) {
+  const aliases = {
+    Boolean: "bool", Byte: "byte", SByte: "sbyte", Char: "char", Decimal: "decimal",
+    Double: "double", Single: "float", Int16: "short", UInt16: "ushort", Int32: "int",
+    UInt32: "uint", Int64: "long", UInt64: "ulong", Object: "object", String: "string",
+  };
+  return String(typeName || "")
+    .replace(/global::/g, "")
+    .replace(/(?:[A-Za-z_]\w*\.)+([A-Za-z_]\w*)/g, "$1")
+    .replace(/\b(Boolean|Byte|SByte|Char|Decimal|Double|Single|Int16|UInt16|Int32|UInt32|Int64|UInt64|Object|String)\b/g,
+      name => aliases[name])
+    .replace(/&/g, "")
+    .replace(/\s+/g, "");
+}
+
+function findWorkspaceMemberSelection(node) {
+  const wantedAssembly = assemblyKey(node.assembly);
+  for (const pkg of state.packages) {
+    const type = pkg.types.find(candidate =>
+      assemblyKey(candidate.assembly) === wantedAssembly
+      && typeEngineName(candidate) === node.typeFullName);
+    if (!type) continue;
+    const group = findMemberGroup(memberGroups(type, true), node.memberName);
+    if (!group) continue;
+
+    const wantedParameters = splitParameterSignature(node.paramSig);
+    const sameArity = group.overloads
+      .map((overload, index) => ({ overload, index }))
+      .filter(candidate => (candidate.overload.parameters || []).length === wantedParameters.length);
+    const exact = sameArity.find(candidate =>
+      candidate.overload.parameters.every((parameter, index) =>
+        parameterTypeKey(parameter.type) === parameterTypeKey(wantedParameters[index])));
+    const match = exact ?? (sameArity.length === 1 ? sameArity[0] : null);
+    if (match) return { pkg, type, group, overloadIndex: match.index };
+  }
+  return null;
+}
+
+function resolveWorkspaceNode(label, element = null) {
+  const mermaidId = element?.id?.match(/(?:^|-)n(\d+)(?:-|$)/);
+  if (mermaidId) {
+    const identity = currentCallGraph()?.nodes?.find(node => node.id === Number(mermaidId[1]));
+    const selection = identity && findWorkspaceMemberSelection(identity);
+    if (selection) return selection;
+  }
+
+  const dot = label.lastIndexOf(".");
+  if (dot < 0) return null;
+  let typeName = label.slice(0, dot);
+  const memberName = label.slice(dot + 1);
+  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
+  const wantedType = stripArity(typeName);
+  for (const node of flattenGraphNodes(currentCallGraph())) {
+    if (!node.assembly || !node.typeFullName || node.memberName !== memberName) continue;
+    const simpleType = stripArity(node.typeFullName.split(".").pop() ?? "");
+    if (simpleType !== wantedType) continue;
+    const selection = findWorkspaceMemberSelection(node);
+    if (selection) return selection;
+  }
+  return null;
+}
+
+function navigateToMember(pkg, type, group, overloadIndex = null) {
   state.package = pkg;
   state.lens = "api";
   state.selectedTypeId = type.id;
   revealType(type);
-  revealMemberGroup(group);
+  const overload = overloadIndex == null ? null : group.overloads[overloadIndex];
+  if (overload) revealMember(overload); else revealMemberGroup(group);
   state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = null;
+  state.selectedOverloadIndex = overload && group.overloads.length > 1 ? overloadIndex : null;
+  resetMemberSectionState();
   state.memberSection = "overview";
-  state.memberSource = null;
-  state.memberSourceError = "";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberFacts = null;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
   loadSelectedMemberDocumentation();
 }
 

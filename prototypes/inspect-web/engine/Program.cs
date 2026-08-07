@@ -111,7 +111,15 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callers,
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
-    bool NoBody = false);
+    bool NoBody = false,
+    BrowserCallGraphIdentity[]? Nodes = null);
+
+public sealed record BrowserCallGraphIdentity(
+    int Id,
+    string Assembly,
+    string TypeFullName,
+    string MemberName,
+    string ParamSig);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -2536,6 +2544,7 @@ public static partial class BrowserInspectionEngine
             if (callerScopes.Length > 0)
                 callers = index.BuildCallerTree(token, callerScopes, maxDepth: 2, maxNodes: 30);
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
+            var projection = CallGraphProjection.Create(callers, callees);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
                     callers,
@@ -2547,7 +2556,8 @@ public static partial class BrowserInspectionEngine
                     workspace.Length,
                     workspaceAssemblies.Count,
                     callerScopes.Length + 1,
-                    assemblyName));
+                    assemblyName),
+                Nodes: projection.Nodes.Select(ToBrowserCallIdentity).ToArray());
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
@@ -2722,6 +2732,20 @@ public static partial class BrowserInspectionEngine
             node.Perf?.InLoop ?? false,
             node.Perf?.Source,
             node.Children.Select(ToBrowserCallNode).ToArray(),
+            definition.Assembly,
+            typeFullName,
+            node.Member.Name,
+            string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+    }
+
+    static BrowserCallGraphIdentity ToBrowserCallIdentity(CallGraphNode node)
+    {
+        var definition = RootDefinition(node.Member.DeclaringType);
+        var typeFullName = definition.Namespace.Length == 0
+            ? definition.Name
+            : $"{definition.Namespace}.{definition.Name}";
+        return new(
+            node.Id,
             definition.Assembly,
             typeFullName,
             node.Member.Name,
@@ -3142,6 +3166,7 @@ public static partial class BrowserInspectionEngine
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
             var callees = index.BuildCallTree(methodToken, maxDepth: 2, maxNodes: 30);
             var calleeNode = ToBrowserCallNode(callees);
+            var projection = CallGraphProjection.FromCallees(callees);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
                     null,
@@ -3149,7 +3174,8 @@ public static partial class BrowserInspectionEngine
                     new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 calleeNode with { Children = [] },
                 calleeNode,
-                new BrowserCallGraphScope(0, 1, 0, acquired.FileName));
+                new BrowserCallGraphScope(0, 1, 0, acquired.FileName),
+                Nodes: projection.Nodes.Select(ToBrowserCallIdentity).ToArray());
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
