@@ -1257,7 +1257,8 @@ public sealed class SwitchRaisingPass : IIrPass
     /// arithmetic remains intact because removing it can change exceptions or
     /// reinterpret a non-enum operation. Enum identity uses imported shape
     /// evidence when available and the printer's conservative unresolved named
-    /// switch-value rule for cross-assembly enums.
+    /// switch-value rule for cross-assembly enums; known backing width is still
+    /// required so shifted labels cannot truncate to different enum values.
     /// </summary>
     static IrExpression DetachSwitchValue(
         SwitchBranch sw,
@@ -1272,18 +1273,39 @@ public sealed class SwitchRaisingPass : IIrPass
                 Left: var left,
                 Right: Constant { Value: int constant },
             } binary
-            || left.ResultType is not { } leftType
             || OwningFunction(sw) is not { } function
-            || !IsEnumSwitchType(leftType, function.TypeShapes))
+            || SwitchEnumType(left, function.TypeShapes) is not { } enumType
+            || !function.EnumUnderlyingTypes.TryGetValue(enumType, out var underlyingType))
         {
             return (IrExpression)sw.DetachChildren()[0];
         }
 
-        labelOffset = binary.Kind == BinaryKind.Subtract
+        int candidateOffset = binary.Kind == BinaryKind.Subtract
             ? constant
             : unchecked(-constant);
+        if (!LabelsFitBackingType(sw.TargetOffsets.Length, candidateOffset, underlyingType))
+            return (IrExpression)sw.DetachChildren()[0];
+
+        labelOffset = candidateOffset;
         sw.DetachChildren();
         return (IrExpression)binary.DetachChildren()[0];
+    }
+
+    static TypeRef? SwitchEnumType(
+        IrExpression value,
+        IReadOnlyDictionary<TypeRef, TypeShape> typeShapes)
+    {
+        var type = value is LoadIndirect
+        {
+            Address.ResultType:
+            {
+                Kind: TypeRefKind.ByRef or TypeRefKind.Pointer,
+                ElementType: { } pointee,
+            },
+        }
+            ? pointee
+            : value.ResultType;
+        return type is not null && IsEnumSwitchType(type, typeShapes) ? type : null;
     }
 
     static bool IsEnumSwitchType(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> typeShapes)
@@ -1293,6 +1315,41 @@ public sealed class SwitchRaisingPass : IIrPass
         return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
             && typeShapes.GetValueOrDefault(type) == TypeShape.Unknown
             && !TypeFamilies.IsNumericPrimitive(type);
+    }
+
+    static bool LabelsFitBackingType(int labelCount, int labelOffset, TypeRef backingType)
+    {
+        if (backingType is
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "Int32" or "UInt32",
+            })
+        {
+            return true;
+        }
+
+        for (int index = 0; index < labelCount; index++)
+        {
+            int label = OffsetLabel(index, labelOffset);
+            bool fits = backingType is
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+            } ? backingType.Name switch
+            {
+                "SByte" => label is >= sbyte.MinValue and <= sbyte.MaxValue,
+                "Byte" => label is >= byte.MinValue and <= byte.MaxValue,
+                "Int16" => label is >= short.MinValue and <= short.MaxValue,
+                "UInt16" => label is >= ushort.MinValue and <= ushort.MaxValue,
+                _ => false,
+            } : false;
+            if (!fits)
+                return false;
+        }
+        return true;
     }
 
     static IrFunction? OwningFunction(IrNode node)

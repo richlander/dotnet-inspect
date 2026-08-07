@@ -61,6 +61,18 @@ static class SharedGuardSwitchFixture
             _ => -1,
         };
 
+    public static int ClassifyRef(ref SharedGuardAlgorithm algorithm)
+        => algorithm switch
+        {
+            SharedGuardAlgorithm.Dense24 => 0,
+            SharedGuardAlgorithm.Dense25 => 1,
+            SharedGuardAlgorithm.Dense26 => 2,
+            SharedGuardAlgorithm.Dense27 => 3,
+            SharedGuardAlgorithm.Dense28 => 4,
+            SharedGuardAlgorithm.Dense29 => 5,
+            _ => -1,
+        };
+
     public static int ExitLoopFromDefault(int value, bool skip)
     {
         int result = 0;
@@ -206,6 +218,30 @@ public class SwitchRaisingSharedGuardTests
         Assert.Contains("SharedGuardAlgorithm.Dense29 => 5", output);
         Assert.Contains("_ => -1", output);
         Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("algorithm - 24", output);
+    }
+
+    [Fact]
+    public void CompilerProducedRefEnumSwitchExpression_ReconstructsOffsetIntoMemberLabels()
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            nameof(SharedGuardSwitchFixture.ClassifyRef));
+        Assert.NotNull(function);
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        Assert.IsType<LoadLocal>(node.Value);
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("return V_1 switch", output);
+        Assert.Contains("SharedGuardAlgorithm.Dense24 => 0", output);
+        Assert.Contains("SharedGuardAlgorithm.Dense29 => 5", output);
         Assert.DoesNotContain("algorithm - 24", output);
     }
 
