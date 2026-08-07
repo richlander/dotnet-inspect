@@ -104,4 +104,3 @@ dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \
   --nugetconfig ./NuGet.Config --offline
 ```
-
