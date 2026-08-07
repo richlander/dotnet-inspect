@@ -350,8 +350,7 @@ public static partial class ResearchViews
                 importMethodBody: ImportMethodBody,
                 typesProvablyDisjoint: source.AreProvablyDisjoint,
                 options: printerOptions);
-        if (csResult.Output is not { Length: > 0 } csText)
-            return AnnotatedSourceMap.Empty;
+        string csText = RequireSuccessfulMapOutput(csResult);
 
         bool lensApplied = csResult.Metadata.Decisions
             .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
@@ -366,6 +365,17 @@ public static partial class ResearchViews
         return MakePortable(stream, csharpMap);
     }
 
+    internal static string RequireSuccessfulMapOutput(DecompilerResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Annotated source map C# projection failed: {string.Join("; ", result.Diagnostics)}");
+        }
+        return result.Output!;
+    }
+
     static IReadOnlyList<BoundSourceLine> CorrelatePortableSource(
         IrFunction imported,
         string csText,
@@ -374,7 +384,9 @@ public static partial class ResearchViews
         IReadOnlyList<SourceLine> ilLines)
     {
         var spans = AnnotationAnchor.ComputeSpans(imported);
-        var csharpLines = RenderCSharpBodyLines(csText, printedRanges);
+        IReadOnlyList<SourceLine> csharpLines = csText.Length == 0
+            ? []
+            : RenderCSharpBodyLines(csText, printedRanges);
         var factsByOffset = FactsByOffset(annotations);
         var positionedIl = new List<(int TargetLine, bool BeforeLine, SourceLine Line)>(ilLines.Count);
         foreach (var line in ilLines.OrderBy(line => line.Offset))

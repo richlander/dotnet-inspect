@@ -284,6 +284,29 @@ public class PrintedBodyMapTests
             [],
             []));
 
+        var placed = misplaced with
+        {
+            Kind = "NewObject",
+            Extent = new PrintedExtent(0, 0, 0, 1),
+        };
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceMap(
+            [new AnnotatedSourceLine("x", 0, SourceLineKind.CSharp, [placed])],
+            [new PrintedNodeSpan("NewObject", new PrintedExtent(0, 0, 0, 1))],
+            [],
+            [placed with { Extent = null }]));
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceMap(
+            [new AnnotatedSourceLine("IL_0002", 2, SourceLineKind.Il, [])],
+            [new PrintedNodeSpan("Bad", new PrintedExtent(0, 0, 0, 7))],
+            [],
+            []));
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceMap(
+            [new AnnotatedSourceLine("IL_0002", 2, SourceLineKind.Il, [])],
+            [],
+            [new PrintedRegion(PrintedRegionRole.Construct, new PrintedExtent(0, 0, 0, 7))],
+            []));
+
         Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceMap(
             [new AnnotatedSourceLine("x", 0, SourceLineKind.CSharp, [])],
             [new PrintedNodeSpan("Bad", new PrintedExtent(0, -1, 0, 1))],

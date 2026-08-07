@@ -255,14 +255,53 @@ public class AnnotatedSourceMapProjectionTests
     }
 
     [Fact]
-    public void EmptyBodyProducesAnEmptyMap()
+    public void EmptyPrintedBodyStillCarriesItsIl()
     {
         var map = Map(nameof(AnnotatedTasteFixture.Noop), options: null);
 
-        Assert.Empty(map.Lines);
+        var line = Assert.Single(map.Lines);
+        Assert.Equal(SourceLineKind.Il, line.Kind);
+        Assert.Contains("ret", line.Text, StringComparison.Ordinal);
         Assert.Empty(map.Nodes);
         Assert.Empty(map.Regions);
         Assert.Empty(map.UnplacedAnnotations);
+    }
+
+    [Fact]
+    public void ConstructorChainOnlyBodyKeepsIlAndFacts()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchAllocatingConstructorFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchAllocatingConstructorFixture).FullName!,
+            ".ctor",
+            OverloadIndex: 0,
+            SourceMap: true));
+        var map = Assert.IsType<AnnotatedSourceMap>(projection.SourceMap);
+
+        Assert.DoesNotContain(map.Lines, line => line.Kind == SourceLineKind.CSharp);
+        Assert.NotEmpty(map.Lines);
+        var allocation = Assert.Single(
+            map.Lines.SelectMany(line => line.Annotations),
+            annotation => annotation.Descriptor == "alloc.new");
+        Assert.Contains(
+            map.Lines,
+            line => line.Kind == SourceLineKind.Il
+                && line.Offset == allocation.SourceOffset
+                && line.Annotations.Contains(allocation));
+        Assert.Empty(map.UnplacedAnnotations);
+    }
+
+    [Fact]
+    public void PrinterFailureCannotBecomeAnEmptySuccessfulMap()
+    {
+        var failure = DecompilerResult.Failure("test.failure", "printer failed");
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => ResearchViews.RequireSuccessfulMapOutput(failure));
+
+        Assert.Contains("test.failure: printer failed", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("", ResearchViews.RequireSuccessfulMapOutput(DecompilerResult.Success("")));
     }
 
     [Fact]

@@ -2155,7 +2155,11 @@ public class ApiCommand
            && !options.Count
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceMap);
+           && sections.Contains(SectionNames.AnnotatedSourceMap)
+           && options.Select is [var selected]
+           && selected.Equals(
+               SectionNames.AnnotatedSourceMap,
+               StringComparison.OrdinalIgnoreCase);
 
     private static bool IsInvalidAnnotatedSourceMapJsonSelection(ApiOptions options)
         => options.JsonOutput

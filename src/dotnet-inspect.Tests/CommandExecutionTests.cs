@@ -6752,6 +6752,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("@all")]
     [InlineData("Annotated*")]
+    [InlineData("Annotated Source M*")]
     public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6762,6 +6763,8 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.True(document.RootElement.TryGetProperty("namespace", out _));
+        Assert.False(document.RootElement.TryGetProperty("lines", out _));
     }
 
     [Fact]

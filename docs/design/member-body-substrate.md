@@ -368,9 +368,12 @@ layout; this stronger ordering is the machine payload's contract.
 The CLI exposes the envelope as the explicit-only `Annotated Source Map` member
 section. Markdown renders the source-generated JSON in a fenced block, while
 `-S "Annotated Source Map" --json` emits the envelope directly using the normal
-snake-case JSON convention. Production is opt-in and uses an isolated import:
-printing and style lenses mutate IR, so sharing that graph would let selecting
-the payload alter sibling projections.
+snake-case JSON convention. Wildcard and category selections retain the ordinary
+document JSON shape, even when they resolve only to this section. A member whose
+printer emits no C# body still carries its IL plane and facts; printer failure is
+an error rather than a successful empty envelope. Production is opt-in and uses
+an isolated import: printing and style lenses mutate IR, so sharing that graph
+would let selecting the payload alter sibling projections.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case

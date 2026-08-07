@@ -466,9 +466,19 @@ public sealed record AnnotatedSourceMap
 
             string[] text = [.. lines.Select(line => line.Text)];
             var structure = new PrintedBodyMap(text, Nodes, Regions, []);
+            foreach (var node in structure.Nodes)
+                ValidateCSharpExtent(node.Extent, lines, nameof(Nodes));
+            foreach (var region in structure.Regions)
+                ValidateCSharpExtent(region.Extent, lines, nameof(Regions));
             var nodeSet = structure.Nodes
                 .Select(node => (node.Kind, node.Extent))
                 .ToHashSet();
+            var placedFacts = new HashSet<(
+                string Descriptor,
+                string Category,
+                AnnotationConditionality Conditionality,
+                string? Detail,
+                int SourceOffset)>();
             int previousIlOffset = -1;
             for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
             {
@@ -508,6 +518,7 @@ public sealed record AnnotatedSourceMap
                             $"Placed annotation {annotation.Descriptor} has no matching {annotation.Kind} node extent.",
                             nameof(Lines));
                     }
+                    placedFacts.Add(Identity(annotation));
                 }
             }
 
@@ -517,6 +528,12 @@ public sealed record AnnotatedSourceMap
                 ValidateAnnotation(annotation, nameof(UnplacedAnnotations));
                 if (annotation.Extent is not null)
                     throw new ArgumentException("An unplaced annotation cannot have an extent.", nameof(UnplacedAnnotations));
+                if (placedFacts.Contains(Identity(annotation)))
+                {
+                    throw new ArgumentException(
+                        $"Annotation {annotation.Descriptor} cannot be both placed and unplaced.",
+                        nameof(UnplacedAnnotations));
+                }
             }
 
             this.Lines = Array.AsReadOnly(lines);
@@ -539,6 +556,33 @@ public sealed record AnnotatedSourceMap
 
         /// <summary>An empty annotated source map.</summary>
         public static AnnotatedSourceMap Empty { get; } = new([], [], [], []);
+
+        static void ValidateCSharpExtent(
+            PrintedExtent extent,
+            IReadOnlyList<AnnotatedSourceLine> lines,
+            string parameterName)
+        {
+            if (lines[extent.StartLine].Kind != SourceLineKind.CSharp
+                || lines[extent.EndLine].Kind != SourceLineKind.CSharp)
+            {
+                throw new ArgumentException(
+                    "C# structural extents must start and end on C# lines.",
+                    parameterName);
+            }
+        }
+
+        static (
+            string Descriptor,
+            string Category,
+            AnnotationConditionality Conditionality,
+            string? Detail,
+            int SourceOffset) Identity(PrintedAnnotationSpan annotation)
+            => (
+                annotation.Descriptor,
+                annotation.Category,
+                annotation.Conditionality,
+                annotation.Detail,
+                annotation.SourceOffset);
 
         static void ValidateAnnotation(PrintedAnnotationSpan annotation, string parameterName)
         {
