@@ -112,11 +112,8 @@ public static class PackageMetadataService
         NuGetSourceOptions? sourceOptions,
         Action<string>? log = null)
     {
-        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions).Any(source =>
-            Uri.TryCreate(source.Url, UriKind.Absolute, out var uri)
-            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase));
+        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions)
+            .Any(source => source.IsNuGetOrg);
         if (!supported)
         {
             log?.Invoke(

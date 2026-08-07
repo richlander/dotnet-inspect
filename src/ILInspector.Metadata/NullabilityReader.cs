@@ -11,9 +11,9 @@ public static class NullabilityReader
 
     /// <summary>
     /// Gets the NullableContextAttribute default byte from custom attributes.
-    /// Returns 0 (oblivious) if not found.
+    /// Returns null if the attribute is not present.
     /// </summary>
-    public static byte GetNullableContext(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte? GetNullableContext(MetadataReader reader, CustomAttributeHandleCollection attributes)
     {
         foreach (var attrHandle in attributes)
         {
@@ -26,6 +26,37 @@ public static class NullabilityReader
             blob.ReadUInt16(); // prolog
             return blob.ReadByte();
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the nearest nullable context on a type or one of its declaring types.
+    /// Returns 0 (oblivious) when the chain contains no context attribute.
+    /// </summary>
+    public static byte GetTypeNullableContext(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                chain,
+                out int count,
+                out _,
+                out _))
+        {
+            throw new BadImageFormatException("The type declaring chain is invalid.");
+        }
+
+        for (int index = count - 1; index >= 0; index--)
+        {
+            var type = reader.GetTypeDefinition(chain[index]);
+            if (GetNullableContext(reader, type.GetCustomAttributes()) is { } context)
+                return context;
+        }
+
         return 0;
     }
 
