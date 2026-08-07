@@ -118,7 +118,7 @@ public static class ApiSurfaceExtractor
             bool isExtensionClass = apiType.IsStatic && AttributeReader.HasExtensionAttribute(reader, typeDef.GetCustomAttributes());
 
             // Nullability context for annotated signatures
-            byte typeNullableContext = NullabilityReader.GetNullableContext(reader, typeDef.GetCustomAttributes());
+            byte typeNullableContext = NullabilityReader.GetTypeNullableContext(reader, typeDefHandle);
 
             // Get type's generic context for resolving interface type parameters
             var typeContext = GenericContext.ForType(reader, typeDef);
@@ -1568,8 +1568,9 @@ public static class ApiSurfaceExtractor
             (TypeNode)new DegradedTypeNode());
 
         // Determine the effective nullable default: method overrides type
-        byte methodContext = NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes());
-        byte nullableDefault = methodContext != 0 ? methodContext : typeNullableContext;
+        byte nullableDefault =
+            NullabilityReader.GetNullableContext(reader, method.GetCustomAttributes())
+            ?? typeNullableContext;
 
         // Apply nullability to return type
         var paramHandles = method.GetParameters();
@@ -2361,11 +2362,21 @@ public static class ApiSurfaceExtractor
             : "";
         var isRequired = requiredPrefix.Length > 0;
 
-        var paramHandles = hasGetter
-            ? reader.GetMethodDefinition(accessors.Getter).GetParameters()
-            : hasSetter
-                ? reader.GetMethodDefinition(accessors.Setter).GetParameters()
-                : default;
+        MethodDefinitionHandle parameterAccessor = hasGetter
+            ? accessors.Getter
+            : accessors.Setter;
+        var parameterAccessorMethod = parameterAccessor.IsNil
+            ? default
+            : reader.GetMethodDefinition(parameterAccessor);
+        var paramHandles = parameterAccessor.IsNil
+            ? default
+            : parameterAccessorMethod.GetParameters();
+        byte parameterNullableContext = parameterAccessor.IsNil
+            ? typeNullableContext
+            : NullabilityReader.GetNullableContext(
+                    reader,
+                    parameterAccessorMethod.GetCustomAttributes())
+                ?? typeNullableContext;
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
         List<ApiParameter> parameterModels = [];
@@ -2373,7 +2384,7 @@ public static class ApiSurfaceExtractor
         {
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
-            paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
+            paramTypes[i].ApplyNullability(paramBytes, ref pos, parameterNullableContext);
             var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);

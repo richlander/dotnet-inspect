@@ -17,6 +17,8 @@
     <ProjectReference Include="..\DotnetInspector.Core\DotnetInspector.Core.csproj" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
     <PackageReference Include="NuGet.Versioning" />
+    <InternalsVisibleTo Include="DotnetInspector.Services.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
   </ItemGroup>
 
   <ItemGroup>
