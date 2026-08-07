@@ -71,6 +71,22 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void TryResolveCategory_AliasDoesNotOverrideExactSection()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Performance"] = ["Performance: Boxing"]
+        };
+
+        Assert.False(SelectResolver.TryResolveCategory(
+            "Performance", categories, ["Performance"], out _, out _));
+        Assert.True(SelectResolver.TryResolveCategory(
+            "Performance", categories, [], out var category, out var sections));
+        Assert.Equal("@Performance", category);
+        Assert.Equal("Performance: Boxing", Assert.Single(sections));
+    }
+
+    [Fact]
     public void ResolveSelect_AllSelector_ReturnsAllSections()
     {
         var result = SelectResolver.ResolveSelectAsSections(["@All"], TestSections);

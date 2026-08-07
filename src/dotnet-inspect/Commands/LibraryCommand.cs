@@ -2075,6 +2075,9 @@ public class LibraryCommand
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        if (options.Count)
+            return;
+
         var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
         var failures = inspection.InspectionFailures;
         List<LibraryInspectionFailureJson> relevantFailures = failures?
@@ -2101,7 +2104,7 @@ public class LibraryCommand
     private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        if (options.IncludeSections is not { Count: 1 })
+        if (options.Count || options.IncludeSections is not { Count: 1 })
             return false;
 
         var (empty, requested) = pipeline.GetEmptySections(

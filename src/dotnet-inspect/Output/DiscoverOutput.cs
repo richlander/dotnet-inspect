@@ -45,7 +45,8 @@ public static class DiscoverOutput
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
             && discover is { Length: > 0 }
-            && !discover.Any(value => value.StartsWith("@", StringComparison.Ordinal))
+            && !discover.Any(value => SelectResolver.TryResolveCategory(
+                value, sectionCategories, schema.SectionNames, out _, out _))
             && ResolvedSectionCount(discover, schema, sectionCategories) > 1)
             tree = true;
 
@@ -150,12 +151,14 @@ public static class DiscoverOutput
         bool emittedNote = false;
         foreach (var name in discover)
         {
-            if (name.StartsWith("@", StringComparison.Ordinal))
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    fullSchema.SectionNames,
+                    out var categoryName,
+                    out var categorySections))
             {
-                var categoryName = sectionCategories?.Keys.FirstOrDefault(
-                    candidate => candidate.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (categoryName is not null
-                    && !sectionCategories![categoryName].Any(member =>
+                if (!categorySections.Any(member =>
                         effective.SectionNames.Contains(member, StringComparer.OrdinalIgnoreCase)))
                 {
                     CommandError.WriteNote(
@@ -164,6 +167,12 @@ public static class DiscoverOutput
                     continue;
                 }
 
+                remaining.Add(categoryName);
+                continue;
+            }
+
+            if (name.StartsWith("@", StringComparison.Ordinal))
+            {
                 remaining.Add(name);
                 continue;
             }
@@ -428,7 +437,12 @@ public static class DiscoverOutput
         var rows = new List<DiscoveryRow>();
         foreach (var name in discover)
         {
-            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    schema.SectionNames,
+                    out _,
+                    out var categorySections))
             {
                 foreach (var sectionName in categorySections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
                     rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
@@ -488,7 +502,12 @@ public static class DiscoverOutput
         int count = 0;
         foreach (var name in discover)
         {
-            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    schema.SectionNames,
+                    out _,
+                    out var categorySections))
             {
                 count += categorySections.Length;
                 continue;
@@ -569,9 +588,14 @@ public static class DiscoverOutput
             // Resolve each section and build grouped tree
             foreach (var name in discover)
             {
-                if (TryResolveCategory(name, sectionCategories, out var categorySections))
+                if (SelectResolver.TryResolveCategory(
+                        name,
+                        sectionCategories,
+                        schema.SectionNames,
+                        out var categoryName,
+                        out var categorySections))
                 {
-                    nodes.Add(new TreeNode(name)
+                    nodes.Add(new TreeNode(categoryName)
                     {
                         Children = categorySections
                             .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
@@ -718,22 +742,6 @@ public static class DiscoverOutput
         }
 
         return filtered;
-    }
-
-    private static bool TryResolveCategory(
-        string name,
-        IReadOnlyDictionary<string, string[]>? categories,
-        out string[] sections)
-    {
-        sections = [];
-        if (categories == null)
-            return false;
-
-        if (!categories.TryGetValue(name, out var value))
-            return false;
-
-        sections = value;
-        return true;
     }
 
     private static void WriteCategoryNotFound(string name, IReadOnlyDictionary<string, string[]>? categories)

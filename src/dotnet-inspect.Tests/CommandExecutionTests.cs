@@ -9099,6 +9099,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_EmptySelectedSection_CountsZero()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Runtime", "-S", SectionNames.PInvokeMethods, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_SelectedReferences_TreeCollectsResolvedTransitiveReferences()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -9810,6 +9821,36 @@ public partial class CommandExecutionTests
         Assert.Contains("| Boundary | column |", output);
         Assert.Contains("| Acquire IL | column |", output);
         Assert.Contains("| Boundary IL | column |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverCategoryAlias_ListsCategoryMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Performance", "--tips", "q");
+        var (treeExit, treeOutput, treeError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Performance", "--tree", "--tips", "q");
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Performance", "--count", "--tips", "q");
+        var (effectiveExit, effectiveOutput, effectiveError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Performance", "--effective", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Performance: Boxing | section", output);
+        Assert.Contains("| Performance: Async | section", output);
+
+        Assert.Equal(0, treeExit);
+        Assert.Empty(treeError);
+        Assert.Contains("└─ @Performance", treeOutput);
+
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+        Assert.Equal("10", countOutput.Trim());
+
+        Assert.Equal(0, effectiveExit);
+        Assert.Empty(effectiveError);
+        Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
     [Fact]

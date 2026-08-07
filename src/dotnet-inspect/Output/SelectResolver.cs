@@ -104,6 +104,44 @@ public static class SelectResolver
     public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
         => selectDefault && includeSections is { Count: > 0 };
 
+    internal static bool TryResolveCategory(
+        string value,
+        IReadOnlyDictionary<string, string[]>? categories,
+        IReadOnlyCollection<string> knownSections,
+        out string category,
+        out string[] sections)
+    {
+        category = "";
+        sections = [];
+        if (categories == null)
+            return false;
+
+        var exactCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (exactCategory != null)
+        {
+            category = exactCategory;
+            sections = categories[exactCategory];
+            return true;
+        }
+
+        if (knownSections.Any(section =>
+                section.Equals(value, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (!CategoryAliases.TryGetValue(value, out var alias))
+            return false;
+
+        var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(alias, StringComparison.OrdinalIgnoreCase));
+        if (aliasedCategory == null)
+            return false;
+
+        category = aliasedCategory;
+        sections = categories[aliasedCategory];
+        return true;
+    }
+
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
     /// When <paramref name="singleGlob"/> is true, a glob must match exactly one section
