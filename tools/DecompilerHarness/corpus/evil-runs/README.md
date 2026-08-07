@@ -155,9 +155,10 @@ Each row contains these fields:
    whatever product state the branch happened to be based on. Measuring a
    methodology or product change against its own base is a valid experiment —
    it belongs in that PR's evidence, not in this series.
-   The `Check EVIL history commits are on main` CI step permits only the one
-   grandfathered commit-less row, rejects symbolic revisions, and enforces
-   ancestry for every recorded commit against the full `origin/main` history.
+   The `Check EVIL history provenance` CI step permits only the one grandfathered
+   commit-less row, rejects symbolic revisions, enforces ancestry for every
+   recorded commit against the full `origin/main` history, and verifies that the
+   recorded methodology matches the implementation at that commit.
    A methodology-bump PR therefore leaves the newest stored methodology one
    version behind while it is under review. After the change lands, append its
    first row from the resulting `main` commit in a follow-up.

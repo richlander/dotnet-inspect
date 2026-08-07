@@ -74,10 +74,10 @@ jobs:
           dotnet-version: '11.0.x'
 
       # Trend rows are reproducible evidence only when their recorded commit
-      # landed on main. This job already has the full history needed to prove
-      # ancestry, so keep the gate here rather than making test jobs deepen
-      # otherwise-shallow checkouts.
-      - name: Check EVIL history commits are on main
+      # landed on main and its source declared the recorded methodology. This
+      # job already has the full history needed to prove both, so keep the gate
+      # here rather than making test jobs deepen otherwise-shallow checkouts.
+      - name: Check EVIL history provenance
         shell: bash
         run: |
           set -euo pipefail
@@ -94,12 +94,52 @@ jobs:
               and (.commit | test("^[0-9a-f]{8,40}$"))
             )
           ' "$history" > /dev/null
-          while IFS= read -r commit; do
+
+          methodology_at() {
+            local commit=$1
+            local content
+            local value
+
+            if content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusMethodology.cs" 2>/dev/null); then
+              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int Version = ([0-9]+);$/\1/p' | head -1)
+              test -n "$value" || return 1
+              printf '%s\n' "$value"
+              return
+            fi
+
+            if content=$(git show "$commit:tools/DecompilerHarness/SpanAttribution.cs" 2>/dev/null); then
+              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
+              if [ -n "$value" ]; then
+                printf '%s\n' "$value"
+                return
+              fi
+            fi
+
+            if content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusBenchmark.cs" 2>/dev/null); then
+              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
+              if [ -n "$value" ]; then
+                printf '%s\n' "$value"
+                return
+              fi
+            fi
+
+            printf '1\n'
+          }
+
+          while IFS=$'\t' read -r commit recorded_methodology; do
             if ! git merge-base --is-ancestor "$commit" origin/main; then
               echo "::error file=$history::Recorded commit '$commit' is not an ancestor of origin/main."
               exit 1
             fi
-          done < <(jq -r 'select(.commit != null) | .commit' "$history")
+            if ! source_methodology=$(methodology_at "$commit"); then
+              echo "::error file=$history::Could not read the methodology implemented by '$commit'."
+              exit 1
+            fi
+            if [ "$recorded_methodology" != "$source_methodology" ]; then
+              echo "::error file=$history::Recorded methodology $recorded_methodology was not produced by '$commit' (source implements $source_methodology)."
+              exit 1
+            fi
+          done < <(jq -r 'select(.commit != null) | [.commit, (.methodologyVersion // 1)] | @tsv' "$history")
 
       - name: Self-test change detection
         shell: bash

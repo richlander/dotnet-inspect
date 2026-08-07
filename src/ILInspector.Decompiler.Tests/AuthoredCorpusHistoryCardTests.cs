@@ -295,8 +295,8 @@ public class AuthoredCorpusHistoryCardTests
 
     /// <summary>
     /// The original run alone predates commit recording. New rows must carry an
-    /// immutable hexadecimal commit ID; the named CI ancestry gate then proves that
-    /// ID landed on <c>origin/main</c>.
+    /// immutable hexadecimal commit ID; the named CI provenance gate then proves that
+    /// ID landed on <c>origin/main</c> and implemented the recorded methodology.
     /// </summary>
     [Fact]
     public void TrackedHistory_OnlyTheOriginalRowOmitsACommit()
