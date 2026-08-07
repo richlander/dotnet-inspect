@@ -32,6 +32,9 @@ public sealed record CSharpFormatOptions
     public CSharpTypeNamePolicy TypeNamePolicy { get; init; } = CSharpTypeNamePolicy.Qualified;
     public string? ContainingNamespace { get; init; }
     public IReadOnlyCollection<string> Usings { get; init; } = [];
+    internal IReadOnlyCollection<string> AdditionalShadowingNames { get; init; } = [];
+    internal IReadOnlyCollection<string> AdditionalRootShadowingNames { get; init; } = [];
+    internal IReadOnlyCollection<string> AdditionalKnownNamespaces { get; init; } = [];
     public CSharpNamespacePolicy NamespacePolicy { get; init; } = CSharpNamespacePolicy.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -121,24 +124,10 @@ public sealed class CSharpFormatter
         IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
-        string declaration = CSharpDeclarationWriter.RenderTypeDeclaration(type, _declarationOptions);
-        if (primaryConstructorParameters is not { Count: > 0 })
-            return declaration;
-
-        string declarationWithoutAttributes = CSharpDeclarationWriter.RenderTypeDeclaration(
+        return CSharpDeclarationWriter.RenderTypeDeclaration(
             type,
-            _declarationOptions with { IncludeCustomAttributes = false });
-        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
-        }
-
-        string attributePrefix = declaration[..^declarationWithoutAttributes.Length];
-        return attributePrefix
-            + AddPrimaryConstructorParameters(
-                declarationWithoutAttributes,
-                primaryConstructorParameters);
+            _declarationOptions,
+            primaryConstructorParameters);
     }
 
     public string FormatDelegate(ApiType type, ApiMember invoke)
@@ -172,18 +161,25 @@ public sealed class CSharpFormatter
             }
         }
 
-        return declaration + ";";
+        return CSharpDeclarationWriter.ApplyTypeNamePlan(
+            type,
+            [invoke],
+            declaration + ";",
+            _declarationOptions,
+            preserveReferenceQualification: true);
     }
 
     public CSharpFormattedDeclaration FormatTypeUnit(
         ApiType type,
-        IEnumerable<ApiMember>? members = null)
+        IEnumerable<ApiMember>? members = null,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         return ToFormattedDeclaration(CSharpDeclarationWriter.RenderTypeUnit(
             type,
             members,
-            _declarationOptions));
+            _declarationOptions,
+            primaryConstructorParameters));
     }
 
     public static string EscapeIdentifier(string identifier)
@@ -513,6 +509,9 @@ public sealed class CSharpFormatter
             },
             ContainingNamespace = options.ContainingNamespace,
             Usings = usings,
+            AdditionalShadowingNames = options.AdditionalShadowingNames,
+            AdditionalRootShadowingNames = options.AdditionalRootShadowingNames,
+            AdditionalKnownNamespaces = options.AdditionalKnownNamespaces,
             NamespaceMode = options.NamespacePolicy switch
             {
                 CSharpNamespacePolicy.Omit => CSharpNamespaceMode.Omit,
@@ -537,17 +536,4 @@ public sealed class CSharpFormatter
             ? $"{variance} {CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name)}"
             : CSharpIdentifier.ContainIdentifierForDeclaration(parameter.Name);
 
-    static string AddPrimaryConstructorParameters(
-        string declaration,
-        IReadOnlyList<ApiParameter> parameters)
-    {
-        string parameterList = FormatParameterList(parameters);
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
-        int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
-            ? head[..inheritance] + parameterList + head[inheritance..] + tail
-            : $"{head}{parameterList}{tail}";
-    }
 }

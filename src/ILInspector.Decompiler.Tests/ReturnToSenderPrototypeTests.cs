@@ -6255,6 +6255,46 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_LexicallyShadowedNamespaceRootUsesGlobalAlias()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Alpha.Beta
+            {
+                public class Thing
+                {
+                }
+            }
+
+            public class Worker<Alpha, Thing>
+            {
+                public global::Alpha.Beta.Thing GetThing()
+                {
+                    return null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Worker`2", "GetThing", 0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "public global::Alpha.Beta.Thing GetThing()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsAutoPropertySetter()
     {
         var assemblyPath = CompileFixture("""
