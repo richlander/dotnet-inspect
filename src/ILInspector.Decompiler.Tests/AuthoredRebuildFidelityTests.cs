@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.Decompiler.Tests;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -8,6 +9,7 @@ using Microsoft.CodeAnalysis;
 namespace ILInspector.DecompilerHarness;
 
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public sealed class AuthoredRebuildFidelityTests
 {
     static readonly FindingSubject Subject = new("test", "test");

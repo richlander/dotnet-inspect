@@ -9,7 +9,16 @@ namespace DotnetInspector.Packages;
 /// A package directory that became visible only after its complete contents
 /// were validated and atomically published.
 /// </summary>
-public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
+public sealed record CommittedPackage(
+    string ExtractPath,
+    string? NupkgPath,
+    string ProducerKey);
+
+/// <summary>
+/// An exact cached package payload and the canonical identity of the source
+/// that produced it.
+/// </summary>
+internal sealed record CachedPackage(string ExtractPath, string ProducerKey);
 
 /// <summary>
 /// Utilities for working with NuGet package caches.
@@ -20,7 +29,7 @@ public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
 /// </summary>
 public static class NuGetCache
 {
-    private const string PackageContentCategory = "package-content-v4";
+    private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
@@ -57,17 +66,20 @@ public static class NuGetCache
     /// </summary>
     internal static void ValidatePathComponent(string value, string name)
     {
-        if (string.IsNullOrWhiteSpace(value)
+        if (!IsValidPathComponent(value))
+        {
+            throw new ArgumentException($"Invalid {name}: '{value}'");
+        }
+    }
+
+    private static bool IsValidPathComponent(string value) =>
+        !(string.IsNullOrWhiteSpace(value)
             || value.Contains("..")
             || value.Contains('/')
             || value.Contains('\\')
             || value.Contains(':')
             || value.Contains('\0')
-            || Path.IsPathRooted(value))
-        {
-            throw new ArgumentException($"Invalid {name}: '{value}'");
-        }
-    }
+            || Path.IsPathRooted(value));
 
     /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
@@ -118,6 +130,8 @@ public static class NuGetCache
         return CoreCache.GetCategoryPath(PackageContentCategory);
     }
 
+    internal static bool UsesGlobalPackages => !_skipNuGetCache;
+
     /// <summary>
     /// Gets the path to the source content cache (read-write).
     /// </summary>
@@ -146,6 +160,19 @@ public static class NuGetCache
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys)
+        => TryGetCachedPackageContent(
+            packageName,
+            version,
+            allowedSourceKeys)?.ExtractPath;
+
+    /// <summary>
+    /// Tries to find an exact cached payload and returns its producer identity.
+    /// </summary>
+    internal static CachedPackage? TryGetCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -157,16 +184,17 @@ public static class NuGetCache
         // Check NuGet cache first (more likely to have packages) — skip in isolated mode
         if (!_skipNuGetCache)
         {
-            var nugetCachePath = GetNuGetCachePath();
-            if (Directory.Exists(nugetCachePath))
+            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
+            CachedPackage? global = TryGetGlobalPackageContent(
+                nugetCachePath,
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
+            if (global is not null)
             {
-                var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
-                if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
-                {
-                    InfoTracker.RecordCacheHit();
-                    CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
-                    return nugetPackageDir;
-                }
+                InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
+                return global;
             }
         }
 
@@ -193,7 +221,7 @@ public static class NuGetCache
                 {
                     InfoTracker.RecordCacheHit();
                     CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                    return appPackageDir;
+                    return new CachedPackage(appPackageDir, sourceKey);
                 }
             }
         }
@@ -201,6 +229,60 @@ public static class NuGetCache
         CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Miss);
         InfoTracker.RecordCacheMiss();
         return null;
+    }
+
+    internal static CachedPackage? TryGetGlobalPackageContent(
+        string globalPackagesPath,
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys)
+    {
+        string packageDirectory = Path.Combine(
+            globalPackagesPath,
+            packageName,
+            version);
+        if (!Directory.Exists(packageDirectory)
+            || !IsCachedPackageValid(packageDirectory, packageName)
+            || !TryReadGlobalPackageSourceKey(
+                packageDirectory,
+                out string? producerKey)
+            || !(allowedSourceKeys?.Contains(producerKey) ?? false))
+        {
+            return null;
+        }
+
+        return new CachedPackage(packageDirectory, producerKey);
+    }
+
+    private static bool TryReadGlobalPackageSourceKey(
+        string packageDirectory,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
+    {
+        string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
+        try
+        {
+            byte[] metadata = File.ReadAllBytes(metadataPath);
+            using var document = HardenedJson.Parse(metadata);
+            if (!document.RootElement.TryGetProperty("source", out var source)
+                || source.ValueKind != System.Text.Json.JsonValueKind.String
+                || string.IsNullOrWhiteSpace(source.GetString()))
+            {
+                sourceKey = null;
+                return false;
+            }
+
+            sourceKey = GetSourceKey(source.GetString());
+            return true;
+        }
+        catch (Exception ex) when (ex is
+            IOException
+            or UnauthorizedAccessException
+            or System.Text.Json.JsonException
+            or InvalidOperationException)
+        {
+            sourceKey = null;
+            return false;
+        }
     }
 
     /// <summary>
@@ -274,7 +356,8 @@ public static class NuGetCache
             return OpenCommittedPackage(
                 targetPath,
                 normalizedName,
-                normalizedVersion);
+                normalizedVersion,
+                sourceKey);
         }
 
         if (Directory.Exists(targetPath))
@@ -334,7 +417,8 @@ public static class NuGetCache
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
-                    normalizedVersion);
+                    normalizedVersion,
+                    sourceKey);
             }
 
             CacheTelemetry.Record(
@@ -346,7 +430,8 @@ public static class NuGetCache
                 targetPath,
                 committedNupkgPath is null
                     ? null
-                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)));
+                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
+                sourceKey);
         }
         finally
         {
@@ -387,8 +472,9 @@ public static class NuGetCache
 
     /// <summary>
     /// Returns cached package versions, newest first, without touching the network.
-    /// App-cache entries are included only when they were committed by a source the
-    /// caller is currently configured to read.
+    /// Entries are included only when their recorded producer is a source the
+    /// caller is currently configured to read. These versions are diagnostic
+    /// exact-pin suggestions; package payloads do not become discovery candidates.
     /// </summary>
     public static IReadOnlyList<string> GetCachedVersions(
         string packageName,
@@ -396,6 +482,9 @@ public static class NuGetCache
         bool includePrerelease = true,
         int? limit = null)
     {
+        if (!IsValidPathComponent(packageName))
+            return [];
+
         var normalizedName = packageName.ToLowerInvariant();
         var versions = new Dictionary<NuGetVersion, string>();
 
@@ -431,9 +520,14 @@ public static class NuGetCache
 
         if (!_skipNuGetCache)
         {
+            string globalPackagesPath = GetNuGetCachePath();
             AddVersions(
-                Path.Combine(GetNuGetCachePath(), normalizedName),
-                (dir, _) => IsCachedPackageValid(dir, normalizedName));
+                Path.Combine(globalPackagesPath, normalizedName),
+                (_, version) => TryGetGlobalPackageContent(
+                    globalPackagesPath,
+                    normalizedName,
+                    version,
+                    allowedSourceKeys) is not null);
         }
 
         try
@@ -538,14 +632,16 @@ public static class NuGetCache
     private static CommittedPackage OpenCommittedPackage(
         string targetPath,
         string packageName,
-        string version)
+        string version,
+        string sourceKey)
     {
         string nupkgPath = Path.Combine(
             targetPath,
             $"{packageName}.{version}.nupkg");
         return new CommittedPackage(
             targetPath,
-            File.Exists(nupkgPath) ? nupkgPath : null);
+            File.Exists(nupkgPath) ? nupkgPath : null,
+            sourceKey);
     }
 
     private static string GetCommitMarkerContent(

@@ -113,6 +113,56 @@ public class SearchServiceTests
             await service.SearchAsync("q", cancellationToken: TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task SearchByPrefixAsync_ContinuesAfterServerCappedPage()
+    {
+        var handler = new CappedPagingHandler();
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        IReadOnlyList<SearchResult> results = await service.SearchByPrefixAsync(
+            "Contoso.",
+            take: 1,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("Contoso.Match", Assert.Single(results).Id);
+        Assert.Equal([0, 50], handler.RequestedSkips);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_RejectsRepeatedFullPage()
+    {
+        var handler = new RepeatingPageHandler();
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SearchByPrefixAsync(
+                "Contoso.",
+                take: 1,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("without making progress", error.Message);
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_RejectsPageLimit()
+    {
+        var handler = new EndlessPagingHandler();
+        using var client = new HttpClient(handler);
+        var service = new SearchService(client, SearchUrl);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SearchByPrefixAsync(
+                "Contoso.",
+                take: 1,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("exceeded 32 pages", error.Message);
+        Assert.Equal(32, handler.RequestCount);
+    }
+
     private sealed class CapturingHandler(string body, HttpStatusCode status = HttpStatusCode.OK)
         : HttpMessageHandler
     {
@@ -129,4 +179,79 @@ public class SearchServiceTests
             });
         }
     }
+
+    private sealed class CappedPagingHandler : HttpMessageHandler
+    {
+        public List<int> RequestedSkips { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            int skip = GetQueryInt(request.RequestUri!, "skip");
+            RequestedSkips.Add(skip);
+            string body = skip == 0
+                ? $$"""{"data":[{{NonmatchingResults(50, 0)}}]}"""
+                : """{"data":[{"id":"Contoso.Match","version":"1.0.0"}]}""";
+            return Json(body, request);
+        }
+    }
+
+    private sealed class RepeatingPageHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Json(
+                $$"""{"data":[{{NonmatchingResults(100, 0)}}]}""",
+                request);
+        }
+    }
+
+    private sealed class EndlessPagingHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            int skip = GetQueryInt(request.RequestUri!, "skip");
+            return Json(
+                $$"""{"data":[{{NonmatchingResults(100, skip)}}]}""",
+                request);
+        }
+    }
+
+    private static int GetQueryInt(Uri uri, string name)
+    {
+        string prefix = name + "=";
+        string value = uri.Query
+            .TrimStart('?')
+            .Split('&')
+            .Single(part => part.StartsWith(prefix, StringComparison.Ordinal));
+        return int.Parse(
+            value[prefix.Length..],
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string NonmatchingResults(int count, int offset) =>
+        string.Join(
+            ',',
+            Enumerable.Range(offset, count).Select(index =>
+                $$"""{"id":"Other.Package.{{index}}","version":"1.0.0"}"""));
+
+    private static Task<HttpResponseMessage> Json(
+        string body,
+        HttpRequestMessage request) =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body),
+            RequestMessage = request
+        });
 }

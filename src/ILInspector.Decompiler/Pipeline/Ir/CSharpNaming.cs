@@ -1,3 +1,4 @@
+using CSharpText;
 using ILInspector.CSharp;
 
 namespace ILInspector.Decompiler.Pipeline;
@@ -8,7 +9,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// mangled names) back to their source spelling, and thin re-exports of the seam's
 /// identifier producer (<see cref="CSharpIdentifier"/>) so printer call sites keep a
 /// single spelling entry point. The identifier escaping/sanitization policy itself
-/// lives in <c>ILInspector.CSharp</c>; these are stateless functions of their string
+/// lives in <c>CSharpText</c>; these are stateless functions of their string
 /// inputs.
 /// </summary>
 internal static class CSharpNaming
