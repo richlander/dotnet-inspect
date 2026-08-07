@@ -73,6 +73,60 @@ static class SharedGuardSwitchFixture
     Done:
         return result;
     }
+
+    public static int ExitEnclosingLoopFromDenseDefault(int value)
+    {
+        int result = 0;
+        do
+        {
+            switch (value)
+            {
+                case 0:
+                    result += 1;
+                    break;
+                case 1:
+                    result += 2;
+                    break;
+                case 2:
+                    result += 3;
+                    break;
+                case 3:
+                    result += 4;
+                    break;
+                default:
+                    result += 100;
+                    goto Done;
+            }
+            result++;
+        }
+        while (result < 30);
+    Done:
+        return result;
+    }
+
+    public static int ExitEnclosingLoopFromStringDefault(string value)
+    {
+        int result = 0;
+        do
+        {
+            switch (value)
+            {
+                case "a":
+                    result += 1;
+                    break;
+                case "b":
+                    result += 2;
+                    break;
+                default:
+                    result += 100;
+                    goto Done;
+            }
+            result++;
+        }
+        while (result < 30);
+    Done:
+        return result;
+    }
 }
 
 [Trait("Area", "Pass")]
@@ -80,6 +134,7 @@ public class SwitchRaisingSharedGuardTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
     static readonly TypeRef s_void = TypeRef.CoreLib("System", "Void");
     static readonly TypeRef s_object = TypeRef.CoreLib("System", "Object");
 
@@ -240,6 +295,46 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    public void CompilerProducedDenseDefaultContainingEnclosingLoopBreak_RemainsFlat()
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            nameof(SharedGuardSwitchFixture.ExitEnclosingLoopFromDenseDefault));
+        Assert.NotNull(function);
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+    }
+
+    [Fact]
+    public void CompilerProducedStringDefaultContainingEnclosingLoopBreak_RemainsFlat()
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            nameof(SharedGuardSwitchFixture.ExitEnclosingLoopFromStringDefault));
+        Assert.NotNull(function);
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.NotEmpty(function.Descendants.OfType<ConditionalBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.NotEmpty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+    }
+
+    [Fact]
     public void SharedDefaultSiblingCaseContainingEnclosingLoopBreak_RemainsFlat()
     {
         var loopBody = new BlockContainer();
@@ -315,6 +410,175 @@ public class SwitchRaisingSharedGuardTests
         var nestedLoop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.Single(nestedLoop.Descendants.OfType<Break>());
     }
+
+    [Fact]
+    public void DenseDefaultContainingNestedLoopBreak_StillRaises()
+    {
+        var function = BuildDenseSwitchWithOwnedBreak(
+            "DenseLoop",
+            NestedBreakLoop());
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        var nestedLoop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(nestedLoop.Descendants.OfType<Break>());
+    }
+
+    [Fact]
+    public void DenseDefaultContainingNestedSwitchBreak_StillRaises()
+    {
+        var function = BuildDenseSwitchWithOwnedBreak(
+            "DenseSwitch",
+            NestedBreakSwitch());
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var switches = function.Descendants.OfType<Switch>().ToList();
+        Assert.Equal(2, switches.Count);
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        var nestedSwitch = Assert.Single(
+            switches,
+            node => node.Value is Constant);
+        Assert.Single(nestedSwitch.Descendants.OfType<Break>());
+    }
+
+    [Fact]
+    public void StringDefaultContainingNestedLoopBreak_StillRaises()
+    {
+        var function = BuildStringEqualitySwitchWithNestedLoopBreak();
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        var nestedLoop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(nestedLoop.Descendants.OfType<Break>());
+    }
+
+    static IrFunction BuildDenseSwitchWithOwnedBreak(
+        string name,
+        IrNode nestedOwner)
+    {
+        var body = new BlockContainer();
+
+        var dispatch = new Block(0);
+        dispatch.Add(new SwitchBranch(
+            new LoadArgument(0, "value", s_int),
+            [0x10, 0x20]));
+        body.Add(dispatch);
+
+        var defaultBlock = new Block(4);
+        defaultBlock.Add(nestedOwner);
+        defaultBlock.Add(new Branch(0x30));
+        body.Add(defaultBlock);
+
+        var case0 = new Block(0x10);
+        case0.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        case0.Add(new Branch(0x30));
+        body.Add(case0);
+
+        var case1 = new Block(0x20);
+        case1.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+        case1.Add(new Branch(0x30));
+        body.Add(case1);
+
+        var join = new Block(0x30);
+        join.Add(new Return(new LoadLocal(0, s_int)));
+        body.Add(join);
+
+        return Function(
+            name,
+            [new Parameter("value", s_int)],
+            body);
+    }
+
+    static IrFunction BuildStringEqualitySwitchWithNestedLoopBreak()
+    {
+        var body = new BlockContainer();
+        var equals = new MethodRef(
+            s_string,
+            "op_Equality",
+            s_bool,
+            [s_string, s_string],
+            HasThis: false);
+        IrExpression Is(string value) => new Call(
+            equals,
+            isVirtual: false,
+            [
+                new LoadArgument(0, "value", s_string),
+                new Constant(value, s_string),
+            ]);
+
+        var firstTest = new Block(0);
+        firstTest.Add(new ConditionalBranch(Is("a"), 0x20));
+        body.Add(firstTest);
+
+        var secondTest = new Block(8);
+        secondTest.Add(new ConditionalBranch(Is("b"), 0x30));
+        body.Add(secondTest);
+
+        var defaultBlock = new Block(0x10);
+        defaultBlock.Add(NestedBreakLoop());
+        defaultBlock.Add(new Branch(0x40));
+        body.Add(defaultBlock);
+
+        var caseA = new Block(0x20);
+        caseA.Add(new StoreLocal(0, s_int, new Constant(1, s_int)));
+        caseA.Add(new Branch(0x40));
+        body.Add(caseA);
+
+        var caseB = new Block(0x30);
+        caseB.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+        caseB.Add(new Branch(0x40));
+        body.Add(caseB);
+
+        var join = new Block(0x40);
+        join.Add(new Return(new LoadLocal(0, s_int)));
+        body.Add(join);
+
+        return Function(
+            "String",
+            [new Parameter("value", s_string)],
+            body);
+    }
+
+    static WhileLoop NestedBreakLoop()
+    {
+        var body = new Block();
+        body.Add(new Break());
+        return new WhileLoop(new Constant(true, s_bool), body);
+    }
+
+    static Switch NestedBreakSwitch()
+    {
+        var block = new Block();
+        block.Add(new Break());
+        var body = new BlockContainer();
+        body.Add(block);
+        return new Switch(
+            new Constant(0, s_int),
+            [new SwitchSection([], isDefault: true, body)]);
+    }
+
+    static IrFunction Function(
+        string name,
+        Parameter[] parameters,
+        BlockContainer body)
+        => new(
+            name,
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_int,
+                [.. parameters],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [s_int],
+            body);
 
     static IrFunction BuildSharedGuardSwitch(
         bool guardTargetsCaseBody = false,
