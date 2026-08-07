@@ -55,6 +55,7 @@ public sealed record BrowserPackageDocumentContent(
 
 public sealed record BrowserTypeSurface(
     string Id,
+    string FullName,
     string Name,
     string DisplayName,
     string Namespace,
@@ -330,6 +331,7 @@ public sealed record BrowserPerfMember(
     string TypeId,
     string MemberName,
     string MemberSignature,
+    string StableSelector,
     int MetadataToken,
     int OpportunityCount,
     int InLoopCount,
@@ -1627,19 +1629,25 @@ public static partial class BrowserInspectionEngine
         ref int totalOpportunities,
         ref int nonPublicOpportunities)
     {
-        var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
+        var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature, string StableSelector)>();
         using (var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(assemblyName, null, null, null),
             assemblyPath,
             () => File.OpenRead(assemblyPath),
             AssemblyResolutionProvenance.Local(provenance))))
         {
-            foreach (var type in inspection.ApiSurface(includeAll: true).Types)
+            foreach (var type in inspection.ApiSurface().Types)
             {
                 foreach (var member in type.Members)
                 {
                     if (member.MetadataToken is int memberToken)
-                        tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
+                    {
+                        tokenMap[memberToken] = (
+                            type.FullName,
+                            member.Name,
+                            member.Signature ?? "",
+                            ApiMemberIdentity.GetMemberAnchor(type, member).StableSelector);
+                    }
                 }
             }
         }
@@ -1673,6 +1681,7 @@ public static partial class BrowserInspectionEngine
                 target.TypeId,
                 target.Name,
                 target.Signature,
+                target.StableSelector,
                 group.Key,
                 count,
                 group.Count(opportunity => opportunity.InLoop),
@@ -3506,6 +3515,7 @@ public static partial class BrowserInspectionEngine
         }).ToArray();
 
         return new BrowserTypeSurface(
+            type.FullName,
             type.FullName,
             type.Name,
             displayName,

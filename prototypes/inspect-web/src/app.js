@@ -254,7 +254,7 @@ function applyView(view) {
     const selector = view.selectedOverloadSelector;
     if (selector && group) {
       const index = group.overloads.findIndex(overload => overload.stableSelector === selector);
-      state.selectedOverloadIndex = index >= 0 ? index : null;
+      state.selectedOverloadIndex = index >= 0 && group.overloads.length > 1 ? index : null;
     } else if (group && Number.isInteger(view.selectedOverloadIndex)
       && view.selectedOverloadIndex >= 0 && view.selectedOverloadIndex < group.overloads.length) {
       state.selectedOverloadIndex = view.selectedOverloadIndex;
@@ -516,7 +516,7 @@ function escapeHtml(value) {
 
 function selectedType() {
   if (!state.package) return null;
-  return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
+  return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || null;
 }
 
 function filteredTypes() {
@@ -841,6 +841,25 @@ function selectedOverloadSelector(type = selectedType()) {
   return index == null ? null : group.overloads[index]?.stableSelector ?? null;
 }
 
+function memberSelectionKey(type, overload) {
+  if (!state.package || !type || !overload) return "";
+  return [
+    state.package.id,
+    state.package.version,
+    state.package.activeFramework,
+    type.assembly,
+    typeEngineName(type),
+    overload.stableSelector
+  ].join("\u0000");
+}
+
+function currentMemberSelectionKey() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  return memberSelectionKey(type, overload);
+}
+
 // Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
 // type (one type), or member (a member + its overloads under the API lens). The
 // lens strip, detail pane, and arrow keys all react to the active scope.
@@ -885,17 +904,23 @@ function navMode() {
 
 function resetMemberSectionState() {
   state.memberSection = "overview";
+  state.memberDocumentationLoading = false;
+  state.memberDocumentationError = "";
   state.memberSource = null;
+  state.memberSourceLoading = false;
   state.memberSourceError = "";
   state.memberCallGraph = null;
+  state.memberCallGraphLoading = false;
   state.memberCallGraphError = "";
   state.memberCallGraphExpanding = false;
   // Invalidate any in-flight progressive call-graph load so a late cross-library
   // result can't repopulate the graph after the selection has moved on.
   state.memberCallGraphSeq++;
   state.memberFacts = null;
+  state.memberFactsLoading = false;
   state.memberFactsError = "";
   state.memberAnnotated = null;
+  state.memberAnnotatedLoading = false;
   state.memberAnnotatedError = "";
 }
 
@@ -1072,6 +1097,10 @@ function typeDisplayName(item) {
   return item?.displayName || item?.name || "";
 }
 
+function typeEngineName(item) {
+  return item?.fullName || item?.id || "";
+}
+
 function completions() {
   const input = state.command.trimStart();
   const tokens = input.split(/\s+/).filter(Boolean);
@@ -1174,6 +1203,11 @@ function render() {
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const suggestions = completions();
   state.completionIndex = Math.min(state.completionIndex, Math.max(suggestions.length - 1, 0));
+  const breadcrumbs = state.atPackageRoot
+    ? `<strong>${escapeHtml(packageDisplayName(state.package))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
+    : current
+      ? `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`
+      : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><strong>No public types</strong>`;
 
   app.innerHTML = `
     <div class="workbench">
@@ -1248,15 +1282,14 @@ function render() {
               <button id="nav-forward" ${nav.index < nav.stack.length - 1 ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
-              ${state.atPackageRoot
-                ? `<strong>${escapeHtml(packageDisplayName(state.package))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(typeDisplayName(current))}</strong>
-              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
+              ${breadcrumbs}
             </div>
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
           </header>
           <article class="detail-scroll">
-            ${renderLens(current)}
+            ${current
+              ? renderLens(current)
+              : '<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public types</h2><p>This package has no types in its public API surface. Enable a non-public accessibility filter in the type pane to browse its implementation types.</p></section>'}
           </article>
           <footer class="statusbar">
             <span class="ready-dot"></span><span>browser wasm ready</span>
@@ -1268,7 +1301,7 @@ function render() {
             ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
             <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache${state.packageCacheStats.packages > state.packageCacheStats.resident ? ` (${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the LRU limit of 12 packages / 128 MB)` : ""}">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache</span>` : ""}
           <span class="status-spacer"></span>
-          <span>${escapeHtml(current.assembly)}</span>
+          <span>${escapeHtml(current?.assembly || state.package.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
           <span>public API surface</span>
           </footer>
@@ -1402,7 +1435,7 @@ function renderTypeNav(current, visible) {
               <small>${types.length}</small>
             </button>
             ${types.map(item => {
-              const selected = item.id === current.id;
+              const selected = item.id === current?.id;
               return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
                 <span class="kind-icon">${kindIcon(item.kind)}</span>
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
@@ -2001,7 +2034,11 @@ function renderPackagePerformance() {
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row"
+        data-perf-assembly="${escapeHtml(member.assembly)}"
+        data-perf-type="${escapeHtml(member.typeId)}"
+        data-perf-selector="${escapeHtml(member.stableSelector)}"
+        title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -2878,12 +2915,11 @@ function ensureExplorerResizeListener() {
 
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token) {
-  const numeric = Number(token);
+function drillToPerfMember(target) {
   const targetType = state.package.types.find(type =>
-    (type.api || []).some(member => member.metadataToken === numeric));
+    type.assembly === target.assembly && typeEngineName(type) === target.type);
   if (!targetType) return;
-  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
+  const member = targetType.api.find(candidate => candidate.stableSelector === target.selector);
   if (!member) return;
 
   state.atPackageRoot = false;
@@ -2899,7 +2935,7 @@ function drillToPerfMember(token) {
   revealMemberGroup(fullGroup);
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
-    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    ? group.overloads.findIndex(overload => overload.stableSelector === target.selector)
     : -1;
   state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
   resetMemberSectionState();
@@ -3242,7 +3278,7 @@ function renderMemberFacts(type, member, overload, overloadIndex) {
         ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
         ["Kind", overload.kind],
         ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
-        ["Declaring type", type.id],
+        ["Declaring type", typeEngineName(type)],
         ["Allocations", String(signals.allocations), allocOffsets],
         ["Calls", String(facts.calls.length), callOffsets],
         ["Copies", String(signals.copies)],
@@ -3630,8 +3666,12 @@ function bindEvents() {
   document.querySelectorAll("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
     navigateToTypeByName(button.dataset.graphType);
   }));
-  document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
-    drillToPerfMember(button.dataset.perfToken);
+  document.querySelectorAll("[data-perf-selector]").forEach(button => button.addEventListener("click", () => {
+    drillToPerfMember({
+      assembly: button.dataset.perfAssembly,
+      type: button.dataset.perfType,
+      selector: button.dataset.perfSelector
+    });
   }));
   document.querySelectorAll("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.oppType;
@@ -5212,7 +5252,7 @@ function applyDeepLink(deep) {
   if (!pkg) return;
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   const defaultType = pkg.types.find(item => accessBucket(item.accessibility) === "public");
-  state.selectedTypeId = restoreType ? deep.type : (defaultType?.id || pkg.types[0]?.id || "");
+  state.selectedTypeId = restoreType ? deep.type : (defaultType?.id || "");
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
@@ -5547,6 +5587,7 @@ async function loadSelectedMemberDocumentation() {
     render();
     return;
   }
+  const requestKey = memberSelectionKey(type, overload);
 
   // The runtime pseudo-package has no companion XML-documentation nupkg on nuget.org, so a
   // doc fetch would 404. Skip it (rendering once) rather than firing a late async render()
@@ -5577,10 +5618,14 @@ async function loadSelectedMemberDocumentation() {
     }));
     overload.documentationLoaded = true;
   } catch (error) {
-    state.memberDocumentationError = String(error?.message || error);
+    if (currentMemberSelectionKey() === requestKey) {
+      state.memberDocumentationError = String(error?.message || error);
+    }
   } finally {
-    state.memberDocumentationLoading = false;
-    render();
+    if (currentMemberSelectionKey() === requestKey) {
+      state.memberDocumentationLoading = false;
+      render();
+    }
   }
 }
 
@@ -5597,26 +5642,34 @@ async function loadSelectedMemberSource() {
     render();
     return;
   }
+  const requestKey = `${memberSelectionKey(type, overload)}\u0000${JSON.stringify(state.taste)}`;
 
   state.memberSourceLoading = true;
   state.memberSourceError = "";
   render();
   try {
-    state.memberSource = await inspectMemberSource({
+    const source = await inspectMemberSource({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: typeEngineName(type),
       member: overload.name,
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
     });
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberSource = source;
+    }
   } catch (error) {
-    state.memberSourceError = String(error?.message || error);
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberSourceError = String(error?.message || error);
+    }
   } finally {
-    state.memberSourceLoading = false;
-    render();
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberSourceLoading = false;
+      render();
+    }
   }
 }
 
@@ -5633,26 +5686,34 @@ async function loadSelectedMemberAnnotatedSource() {
     render();
     return;
   }
+  const requestKey = `${memberSelectionKey(type, overload)}\u0000${JSON.stringify(state.taste)}`;
 
   state.memberAnnotatedLoading = true;
   state.memberAnnotatedError = "";
   render();
   try {
-    state.memberAnnotated = await inspectMemberAnnotatedSource({
+    const annotated = await inspectMemberAnnotatedSource({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: typeEngineName(type),
       member: overload.name,
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
     });
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberAnnotated = annotated;
+    }
   } catch (error) {
-    state.memberAnnotatedError = String(error?.message || error);
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberAnnotatedError = String(error?.message || error);
+    }
   } finally {
-    state.memberAnnotatedLoading = false;
-    render();
+    if (`${currentMemberSelectionKey()}\u0000${JSON.stringify(state.taste)}` === requestKey) {
+      state.memberAnnotatedLoading = false;
+      render();
+    }
   }
 }
 
@@ -5678,7 +5739,7 @@ async function loadSelectedTypeSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: typeEngineName(type),
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (state.typeSourceKey === signature) state.typeSource = result;
@@ -5712,7 +5773,7 @@ async function loadSelectedTypeMetadata() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id
+      type: typeEngineName(type)
     });
     if (state.typeMetadataKey === signature) state.typeMetadata = result;
   } catch (error) {
@@ -5811,7 +5872,7 @@ async function renderTypeGraph() {
 }
 
 function navigateToTypeByName(fullName) {
-  const target = state.package.types.find(candidate => candidate.id === fullName);
+  const target = state.package.types.find(candidate => typeEngineName(candidate) === fullName);
   if (!target) return;
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
@@ -5835,7 +5896,7 @@ function navigateToTypeByName(fullName) {
 // included (with an accessibility filter), so only types in OTHER assemblies
 // remain unbrowsable.
 function typeIsNavigable(fullName) {
-  return !!state.package && state.package.types.some(candidate => candidate.id === fullName);
+  return !!state.package && state.package.types.some(candidate => typeEngineName(candidate) === fullName);
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
@@ -6119,7 +6180,7 @@ async function loadSelectedMemberCallGraph() {
     version: state.package.version,
     framework: state.package.activeFramework,
     assembly: type.assembly,
-    type: type.id,
+    type: typeEngineName(type),
     member: overload.name,
     signature: overload.signature
   };
@@ -6191,7 +6252,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: typeEngineName(type),
       member: overload.name,
       paramSig
     });
@@ -6592,7 +6653,7 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
 // null when the type isn't resident so the caller can fall back to an in-place descent.
 function findRuntimeMemberSelection(pack, node) {
   if (!pack || !node?.typeFullName) return null;
-  const type = pack.types.find(item => item.id === node.typeFullName);
+  const type = pack.types.find(item => typeEngineName(item) === node.typeFullName);
   if (!type) return null;
   const named = memberGroups(type, true).filter(group => group.name === node.memberName);
   if (!named.length) return null;
@@ -6645,12 +6706,13 @@ function stripArity(name) {
 // arity-stripped forms of both the simple name and the full id so a generic node can
 // still find its declaring type.
 function typeMatchesName(type, typeName) {
+  const fullName = typeEngineName(type);
   return type.name === typeName
-    || type.id === typeName
-    || type.id.endsWith("." + typeName)
+    || fullName === typeName
+    || fullName.endsWith("." + typeName)
     || stripArity(type.name) === typeName
-    || stripArity(type.id) === typeName
-    || stripArity(type.id).endsWith("." + typeName);
+    || stripArity(fullName) === typeName
+    || stripArity(fullName).endsWith("." + typeName);
 }
 
 function resolveNodeLabel(label) {
@@ -7111,6 +7173,7 @@ async function loadSelectedMemberFacts() {
     render();
     return;
   }
+  const requestKey = memberSelectionKey(type, overload);
 
   state.memberFactsLoading = true;
   state.memberFactsError = "";
@@ -7118,20 +7181,25 @@ async function loadSelectedMemberFacts() {
   state.memberAnnotatedError = "";
   render();
   try {
-    state.memberFacts = await inspectMemberFacts({
+    const facts = await inspectMemberFacts({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: typeEngineName(type),
       member: overload.name,
       signature: overload.signature
     });
+    if (currentMemberSelectionKey() === requestKey) state.memberFacts = facts;
   } catch (error) {
-    state.memberFactsError = String(error?.message || error);
+    if (currentMemberSelectionKey() === requestKey) {
+      state.memberFactsError = String(error?.message || error);
+    }
   } finally {
-    state.memberFactsLoading = false;
-    render();
+    if (currentMemberSelectionKey() === requestKey) {
+      state.memberFactsLoading = false;
+      render();
+    }
   }
 }
 
@@ -7201,7 +7269,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       applyDeepLink(deep);
     } else {
       state.selectedTypeId = packageModel.types.find(type =>
-        accessBucket(type.accessibility) === "public")?.id || packageModel.types[0]?.id || "";
+        accessBucket(type.accessibility) === "public")?.id || "";
       state.selectedMemberKey = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
