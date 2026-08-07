@@ -706,6 +706,25 @@ public class RenderStyleConfigTests
         Assert.True(code.StyledProjectionProduced);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void OverlayOnlyRequest_MarksStyledProjectionProduced(
+        bool costOverlay,
+        bool semanticsOverlay)
+    {
+        var overlayOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false,
+            CostOverlay: costOverlay, SemanticsOverlay: semanticsOverlay,
+            IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false);
+
+        var code = CollectSpecimenCompute(
+            overlayOnly, StyleOptionCatalog.DefaultOptions);
+
+        Assert.True(code.StyledProjectionProduced);
+    }
+
     // MAI review finding (head a25e01d9): `member <Type> --directory <dir>
     // -S "Decompiled Source"` drives the callers-only aggregation path
     // (HasCallerScope true, no overload selector). Collect returns no styled

@@ -10,11 +10,8 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 public sealed class FormattingSynthesisSpecimen
 {
-    // Synthesis: a method with ordinary source-named locals. The test assembly carries
-    // an embedded PDB, so ProduceMember binds the real names (sum, i) even with
-    // pdbPath:null, so slot-local-names stays inert here. Synthesis only fires for a
-    // local the PDB does not name (a compiler temporary). The gate pins that inert state;
-    // see ByteNeutralityGateTests for the structural byte-neutrality rationale.
+    // Synthesis: the gate deliberately opens this assembly without symbols, so
+    // readable-name mode derives `num` while slot-name mode renders V_0.
     public static int ReadableLocal()
     {
         int sum = 0;

@@ -45,10 +45,11 @@ that point, ending with a `// fidelity:` footer. The IR stages open with a
 `reading guide` (right before the tree **after import**, so with `--il` the
 annotated-IL views precede it), then the tree **after import** (IL turned into
 typed nodes, nothing raised yet), then the tree again **after every pass that
-ran**, terminating on the raised C# — which is **byte-identical to the product's
-`Decompiled Source`**. The last stage you read is exactly the artifact the
-quality gates grade; there is no drift between what you inspect and what is
-measured.
+ran**, terminating on the stable low-level raised C#
+(`PrinterOptions.Default`) that the quality gates grade. The CLI's user-facing
+`Decompiled Source` applies registry defaults on top; it may synthesize
+readable local names where this dump keeps `V_index`, but the raised structure
+and IL-fidelity contract are the same.
 
 Every stage header carries an ordinal `[k/N]`; the terminal stage is tagged
 `[N/N · FINAL raised · fidelity …]`. Only that stage and the C# section are the

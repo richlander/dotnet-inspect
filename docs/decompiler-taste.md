@@ -684,9 +684,11 @@ dotnet_style_prefer_conditional_expression_over_return = true
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)),
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key), and
+  `dotnet_inspect_style_slot_local_names` (the registry's default-off opt-out
+  that keeps `V_index` names), plus
   `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name
-  synthesis for slot locals — see [Names](#names) — under a tool-owned key). The
-  set grows as more knobs ship.
+  synthesis for slot locals — see [Names](#names) — retained as the original
+  compatibility spelling). The set grows as more knobs ship.
 - `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
   enables the whole oracle-endorsed subset at once (the four `this`-qualifications
   and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
@@ -704,9 +706,11 @@ dotnet_style_prefer_conditional_expression_over_return = true
   outside the endorsed set — the branchless lens — keep whatever the file
   selected. Because the aggregate includes the ternary lens, the Annotated view
   drops its interleaved IL for any member that lens actually rewrites.
-- The recognized keys are not hand-maintained in the resolver: they come from the
-  library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
-  the CLI vocabulary and the option surface cannot drift.
+- Registry keys come from the library-owned `StyleOptionCatalog` (see
+  [Option catalog](#option-catalog)), so the normal CLI vocabulary and option
+  surface cannot drift. The resolver has two deliberate tool-owned exceptions:
+  the `dotnet_inspect_style_full_taste` aggregate and the original
+  `dotnet_inspect_style_readable_local_names` compatibility spelling.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
