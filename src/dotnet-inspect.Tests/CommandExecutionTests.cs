@@ -12720,6 +12720,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Count_WritesEmbeddedLibraryAndMultiPackageRoutesToOutputFiles()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        var libraryPath = Path.Combine(tempDir, "library-count.txt");
+        var allLibrariesPath = Path.Combine(tempDir, "all-libraries-count.txt");
+        var multiPackagePath = Path.Combine(tempDir, "multi-package-count.txt");
+        try
+        {
+            var (libraryBaselineExit, libraryBaseline, _) = await RunAppAsync(
+                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count");
+            var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
+                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count",
+                "--out", libraryPath);
+
+            Assert.Equal(0, libraryBaselineExit);
+            Assert.Equal(0, libraryExit);
+            Assert.Empty(libraryOutput);
+            Assert.Empty(libraryError);
+            Assert.Equal(libraryBaseline, File.ReadAllText(libraryPath));
+
+            var (allLibrariesBaselineExit, allLibrariesBaseline, allLibrariesBaselineError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count");
+            var (allLibrariesExit, allLibrariesOutput, allLibrariesError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count",
+                "--out", allLibrariesPath);
+
+            Assert.Equal(0, allLibrariesBaselineExit);
+            Assert.Equal(0, allLibrariesExit);
+            Assert.Empty(allLibrariesOutput);
+            Assert.Equal(allLibrariesBaselineError, allLibrariesError);
+            Assert.Equal(allLibrariesBaseline, File.ReadAllText(allLibrariesPath));
+
+            var (multiPackageBaselineExit, multiPackageBaseline, multiPackageBaselineError) = await RunAppAsync(
+                "package", packagePath, packagePath, "-S", "Package Info", "--tsv", "--count");
+            var (multiPackageExit, multiPackageOutput, multiPackageError) = await RunAppAsync(
+                "package", packagePath, packagePath, "-S", "Package Info", "--tsv", "--count",
+                "--out", multiPackagePath);
+
+            Assert.Equal(0, multiPackageBaselineExit);
+            Assert.Equal(0, multiPackageExit);
+            Assert.Empty(multiPackageOutput);
+            Assert.Equal(multiPackageBaselineError, multiPackageError);
+            Assert.Equal(multiPackageBaseline, File.ReadAllText(multiPackagePath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
