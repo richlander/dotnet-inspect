@@ -21,11 +21,6 @@ public class SectionPipelineTests
     // Simple test model
     private record TestModel(string? Name, int Count);
 
-    private sealed class ThrowingMessageException : Exception
-    {
-        public override string Message => throw new IOException("message projection failed");
-    }
-
     // Test descriptors
     private sealed class AlwaysSection : ISectionDescriptor<TestModel>
     {
@@ -1529,21 +1524,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void TypedQueryRegistry_RejectsNullPrerequisitesAndDemand()
-    {
-        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
-        var registry = new InspectionQueryRegistry<object?>();
-
-        var prerequisite = Assert.Throws<InspectionQueryException>(
-            () => registry.Add(query, _ => 1, [null!]));
-        Assert.Contains("null prerequisite", prerequisite.Message, StringComparison.Ordinal);
-
-        var demand = Assert.Throws<InspectionQueryException>(
-            () => registry.ExpandRequired([null!]));
-        Assert.Contains("cannot be null", demand.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void TypedQueryRegistry_RejectsPrerequisiteCycles()
     {
         var first = new InspectionQuery<int>("first", InspectionCost.NetworkFree);
@@ -1952,30 +1932,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public async Task ProductionQueryCatchBoundary_DoesNotSwallowResultApplicationFailure()
-    {
-        var registry = new InspectionQueryRegistry<ScannerContext>()
-            .Add(
-                MetadataImageQuery.Definition,
-                _ => new MetadataImageResult.Failed(new ThrowingMessageException()));
-        using var httpClient = new HttpClient();
-
-        var ex = await Assert.ThrowsAsync<InspectionQueryException>(() =>
-            LibraryMetadataService.InspectAsync(
-                typeof(SectionPipelineTests).Assembly.Location,
-                new LibraryOptions(),
-                new DotnetInspector.Output.VerboseLogger(false),
-                packageName: null,
-                packageVersion: null,
-                httpClient,
-                queries: [MetadataImageQuery.Definition],
-                queryRegistry: registry));
-
-        Assert.Contains("result application", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.IsType<IOException>(ex.InnerException);
-    }
-
-    [Fact]
     public async Task ProductionQueryCatchBoundary_PreservesCancellation()
     {
         var query = new InspectionQuery<int>("cancelled", InspectionCost.NetworkFree);
@@ -2013,19 +1969,6 @@ public class SectionPipelineTests
                 queryRegistry: LibrarySections.CreateQueryRegistry()));
 
         Assert.Contains("unregistered", ex.Message, StringComparison.Ordinal);
-
-        var malformed = await Assert.ThrowsAsync<InspectionQueryException>(() =>
-            LibraryMetadataService.InspectAsync(
-                typeof(SectionPipelineTests).Assembly.Location,
-                new LibraryOptions(),
-                new DotnetInspector.Output.VerboseLogger(false),
-                packageName: null,
-                packageVersion: null,
-                httpClient,
-                queries: [null!],
-                queryRegistry: LibrarySections.CreateQueryRegistry()));
-
-        Assert.Contains("cannot be null", malformed.Message, StringComparison.Ordinal);
     }
 
     [Fact]

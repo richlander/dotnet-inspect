@@ -160,12 +160,6 @@ public sealed class InspectionQueryRegistry<TContext>
         ArgumentNullException.ThrowIfNull(execute);
         ArgumentNullException.ThrowIfNull(requires);
 
-        if (requires.Any(static required => required is null))
-        {
-            throw new InspectionQueryException(
-                $"Query '{query.Name}' declares a null prerequisite.");
-        }
-
         if (_registrations.ContainsKey(query))
             throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
 
@@ -220,14 +214,8 @@ public sealed class InspectionQueryRegistry<TContext>
 
         HashSet<InspectionQueryDefinition> closure = [];
         HashSet<InspectionQueryDefinition> visiting = [];
-        foreach (InspectionQueryDefinition? query in requested)
-        {
-            if (query is null)
-                throw new InspectionQueryException("Requested query cannot be null.");
-
+        foreach (InspectionQueryDefinition query in requested)
             AddWithRequirements(query, closure, visiting);
-        }
-
         return closure;
     }
 

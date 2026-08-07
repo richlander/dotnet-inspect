@@ -1849,7 +1849,6 @@ internal static class LibraryMetadataService
                 requiredQueries,
                 scannerContext,
                 recordQuery);
-            ApplyQueryResults(path, inspection, logger, results);
         }
         catch (OperationCanceledException)
         {
@@ -1865,10 +1864,10 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            throw new InspectionQueryException(
-                "Typed query execution or result application failed.",
-                ex);
+            throw new InspectionQueryException("Typed query execution failed.", ex);
         }
+
+        ApplyQueryResults(path, inspection, logger, results);
     }
 
     static FindingInspection<T> FailedInspection<T>(
