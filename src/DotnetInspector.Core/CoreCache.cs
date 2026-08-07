@@ -28,16 +28,26 @@ public static class CoreCache
     public static void Initialize(string appName, string? basePath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
-        _appName = appName;
-        _basePathOverride = basePath;
         lock (s_maintenanceLock)
         {
+            string? previousRoot = _appName is null ? null : GetBasePath();
             s_maintenanceCts?.Cancel();
+            WaitForMaintenanceTasksBestEffort();
+            CacheMaintenanceResult previousProgress =
+                s_maintenanceProgress?.TakeSnapshot() ?? default;
             s_maintenanceCts?.Dispose();
+            _appName = appName;
+            _basePathOverride = basePath;
             s_maintenanceCts = new CancellationTokenSource();
             s_maintenanceTask = null;
             s_maintenanceProgress = new CacheMaintenanceProgress();
             s_maintenanceTasks = [];
+            if (previousRoot is not null
+                && IsSamePath(previousRoot, GetBasePath()))
+            {
+                s_maintenanceProgress.Record(previousProgress);
+            }
+
             foreach (VersionedCacheCategory category in s_versionedCategories.Values)
                 ScheduleVersionedCategoryCleanup(category);
         }
@@ -515,14 +525,7 @@ public static class CoreCache
         if (s_maintenanceCts is not { IsCancellationRequested: true })
             return;
 
-        try
-        {
-            Task.WaitAll([.. s_maintenanceTasks.Values]);
-        }
-        catch
-        {
-            // The replacement generation still needs to run after best-effort maintenance.
-        }
+        WaitForMaintenanceTasksBestEffort();
 
         CacheMaintenanceResult carriedProgress =
             s_maintenanceProgress?.TakeSnapshot() ?? default;
@@ -532,6 +535,18 @@ public static class CoreCache
         s_maintenanceProgress = new CacheMaintenanceProgress();
         s_maintenanceProgress.Record(carriedProgress);
         s_maintenanceTasks = [];
+    }
+
+    private static void WaitForMaintenanceTasksBestEffort()
+    {
+        try
+        {
+            Task.WaitAll([.. s_maintenanceTasks.Values]);
+        }
+        catch
+        {
+            // Replacement and shutdown still proceed after best-effort maintenance.
+        }
     }
 
     private static async Task<CacheMaintenanceResult> AwaitMaintenanceAsync(
@@ -588,6 +603,9 @@ public static class CoreCache
                     continue;
 
                 var size = GetDirectorySizeBestEffort(directory);
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
                 Directory.Delete(directory, recursive: true);
                 progress.RecordDeletion(size);
             }
@@ -649,6 +667,12 @@ public static class CoreCache
             || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
             || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsSamePath(string left, string right) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(left))
+            .Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                StringComparison.OrdinalIgnoreCase);
 }
 
 public readonly record struct CacheMaintenanceResult(long BytesFreed, int DirectoriesDeleted);

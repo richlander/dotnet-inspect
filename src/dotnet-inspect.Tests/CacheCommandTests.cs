@@ -208,6 +208,23 @@ public class CacheCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task InitializeSameRoot_PreservesMaintenanceAccounting()
+    {
+        string prefix = $"same-root-accounting-{Guid.NewGuid():N}-v";
+        string current = prefix + "2";
+        var oldDir = Path.Combine(_cacheBasePath, prefix + "1");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllText(Path.Combine(oldDir, "old.txt"), new string('x', 4096));
+
+        CoreCache.RegisterVersionedCategory(prefix, current);
+        await CoreCache.RequestVersionedCategoryCleanupAsync();
+
+        NuGetCache.Initialize(_appName, basePath: _cacheBasePath);
+
+        Assert.True(PackageCacheService.ClearCache() >= 4096);
+    }
+
+    [Fact]
     public async Task Initialize_CleansPriorPackageContentContract()
     {
         var oldDir = Path.Combine(_cacheBasePath, "package-content-v4");
