@@ -11972,6 +11972,54 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Name")]
+    [InlineData("Version")]
+    public async Task Package_DefaultColumns_AllMissReportsCleanError(string column)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.UnmatchedColumn",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--columns", column, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"No columns matched projection: {column}", error);
+            Assert.DoesNotContain("System.InvalidOperationException", error);
+            Assert.DoesNotContain("MarkoutProjection.ComputeColumnMap", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultFields_ValidProjectionStillRenders()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.ValidField",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--fields", "Authors", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Authors | tests |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
     {
