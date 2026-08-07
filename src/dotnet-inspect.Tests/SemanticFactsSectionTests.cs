@@ -157,8 +157,11 @@ public class SemanticFactsSectionTests
             FormatExplicitlySet = true,
         }));
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.DoesNotContain("## Context: Safety", result.Output);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            "This section (Context: Safety) produced no output.",
+            result.Error.Trim());
     }
 
     [Fact]
@@ -181,8 +184,11 @@ public class SemanticFactsSectionTests
             FormatExplicitlySet = true,
         }));
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.DoesNotContain("## Context: Safety", result.Output);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            "This section (Context: Safety) produced no output.",
+            result.Error.Trim());
     }
 
 

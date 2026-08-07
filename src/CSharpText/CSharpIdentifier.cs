@@ -1,4 +1,4 @@
-namespace ILInspector.CSharp;
+namespace CSharpText;
 
 /// <summary>
 /// The authoritative producer of spellable C# identifiers: reserved-keyword
@@ -16,7 +16,7 @@ namespace ILInspector.CSharp;
 /// which are legal bare identifiers in expression and body position where raised and
 /// compile-back identifiers live. Declaration-position escaping, which additionally
 /// covers those contextual keywords, is
-/// <see cref="CSharpDeclarationWriter.EscapeIdentifier"/>, and its containing
+/// <c>CSharpDeclarationWriter.EscapeIdentifier</c>, and its containing
 /// counterpart is <see cref="ContainIdentifierForDeclaration"/>.
 /// </remarks>
 public static class CSharpIdentifier

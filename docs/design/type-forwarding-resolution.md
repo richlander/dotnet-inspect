@@ -2345,25 +2345,28 @@ Graph joins hash only catalog-issued join tokens, never
 `ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
 `Exact` yields an exact edge. Matching keys containing any token whose kind is
 `IndeterminateDuplicateArtifact` yield an
-`IndeterminateCorrespondence` edge carrying the catalog's duplicate evidence.
+indeterminate logical node; `GraphNodeEvidence.Correspondence` retains the
+catalog's duplicate evidence on every physical definition or call site that
+supports it.
 
 When both sides have the same degraded key under one catalog and binding scope,
-the graph likewise retains an `IndeterminateCorrespondence` edge and emits
-incomplete-graph evidence; it does not report exact definition correspondence.
+the graph likewise joins them only as indeterminate correspondence; it does not
+report exact definition correspondence.
 Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
 complete terminal binding request. `NotFound`, ambiguous, rejected, or
-cross-catalog uses do not degraded-join. Every non-success remains attached to
-its storage node, never enters a shared unresolved bucket, and never becomes an
-ordinary "no edge."
+cross-catalog uses do not degraded-join. Those projections retain unique
+`GraphNodeStorageKey` identities and appear through
+`CatalogCallGraphScope.IncompleteNodes` / `IncompleteEdges`; every non-success
+remains attached to its physical evidence and never becomes an ordinary
+"no edge."
 
-Today's graph joins on canonical simple assembly names and therefore merges
-version, culture, token, and several core-library facade spellings. The
-degraded projection is intentionally narrower: it preserves an unavailable join
-only when the complete binding request agrees. Version-skewed or differently
-identified references remain separate storage nodes with incomplete evidence.
-Trusted platform policy resolves supported core-library facade differences
-before this fallback. This compatibility narrowing is explicit and gated; it is
-not described as preservation of the old graph.
+The catalog graph no longer joins on canonical simple assembly-name strings.
+Version, culture, token, and core-library facade differences are resolved
+through source-relative binding policy before member correspondence. The
+degraded projection is intentionally narrower: it preserves an unavailable
+join only when the complete binding request agrees. Version-skewed or
+differently identified references remain separate storage nodes with
+incomplete evidence.
 
 Every metadata-driven degraded component carries the source candidate through
 `AssemblyBindingDomainKey`. `CurrentAssembly` and `ModuleReference` additionally
@@ -2374,12 +2377,13 @@ complete identity and scope also agree. Cross-source fragmentation is the
 intentional soundness boundary: without resolved correspondence, the catalog
 has no proof that two private binding domains denote one type.
 
-This is a separate migration slice because it changes graph-key construction
-and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
-catalog that minted its keys; cache reuse checks both `AssemblyCatalogId` and
-`AssemblyCatalogGenerationId`, reporting a typed mismatch rather than returning
-misses from a dead key space. It neither serializes keys nor mixes keys from
-another catalog or generation. It is not a separate forwarding model.
+`CatalogCallGraphScope` owns the catalog and frozen context that minted its
+keys. It plans each distinct source signature once, unions requests before
+freezing, projects each plan once, and stores physical definitions, call sites,
+and edges once for both traversal directions. `ReleaseGraph` disposes that
+generation; a later query creates a new generation without reopening the
+already-owned body indexes. The scope neither serializes keys nor mixes keys
+from another catalog or generation. It is not a separate forwarding model.
 
 ### Source and API consumers
 

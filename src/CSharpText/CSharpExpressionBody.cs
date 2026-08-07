@@ -1,4 +1,4 @@
-namespace ILInspector.CSharp;
+namespace CSharpText;
 
 /// <summary>
 /// Converts a rendered single-statement body to the expression used by C#

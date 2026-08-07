@@ -92,12 +92,13 @@ A reported `401 Unauthorized` means the source was unreadable, not that the
 package is absent. Check provider discovery, URI matching, token scope, and
 expiration before changing the package id.
 
-dotnet-inspect's own package payload and candidate caches retain source
-provenance. The separate NuGet global folder is source-blind: it can contribute
-cached versions or fulfill an exact coordinate without checking the recorded
-producer. Use `--no-nuget-cache` when source isolation matters. `--offline`
-forbids network access and does not start credential plugins, but still reads
-the global folder unless that flag excludes it.
+dotnet-inspect's package payload and candidate caches retain source provenance.
+The NuGet global folder is payload-only: it can fulfill an exact resolved
+coordinate only when `.nupkg.metadata.source` names an authorized producer.
+Missing or mismatched provenance is a cache miss, and installed payloads do not
+introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
+`--offline` forbids network access and does not start credential plugins, so it
+succeeds only from eligible local feeds or producer-authorized caches.
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \

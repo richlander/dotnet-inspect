@@ -2991,6 +2991,14 @@ public sealed class Lambda : IrExpression
     /// unaffected.
     /// </summary>
     public bool IsExpressionTree { get; init; }
+
+    /// <summary>
+    /// The synthesized method this lambda was recovered from returns
+    /// <c>System.Void</c>. This is explicit because custom delegate types do not
+    /// expose their Invoke signature through <see cref="DelegateType"/> alone.
+    /// </summary>
+    public bool ReturnsVoid { get; init; }
+
     public override IEnumerable<TypeRef> DirectTypes
         => Parameters.Select(p => p.Type).Append(DelegateType);
 
@@ -3001,12 +3009,19 @@ public sealed class Lambda : IrExpression
     }
 
     /// <summary>
-    /// The single returned expression when the body is one block ending in a
-    /// bare <c>return expr;</c> — the expression-bodied form <c>p =&gt; expr</c>.
-    /// Null when the body needs the block form <c>p =&gt; { ... }</c>.
+    /// The single returned expression, or the single side-effect expression of
+    /// a void body after its implicit trailing return has been removed — the
+    /// expression-bodied form <c>p =&gt; expr</c>. Null when the body needs the
+    /// block form <c>p =&gt; { ... }</c>.
     /// </summary>
     public IrExpression? ExpressionBody
-        => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;
+        => Body.Blocks switch
+        {
+            [{ Children: [Return { Value: { } value }] }] => value,
+            [{ Children: [ExpressionStatement { Expression: var expression }] }]
+                when ReturnsVoid && expression.ResultType is { Namespace: "System", Name: "Void" } => expression,
+            _ => null,
+        };
 
     public override string Describe()
         => $"Lambda {DelegateType.ToDisplayString()} ({Parameters.Length} params)";

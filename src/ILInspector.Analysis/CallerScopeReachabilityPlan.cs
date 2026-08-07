@@ -578,6 +578,27 @@ public sealed class CallerScopeReachabilityPlan
             if (_target.Identity == reference.Identity)
                 return AssemblyBindingSelection.Found(_target);
 
+            if (string.Equals(
+                _target.Identity.Name,
+                reference.Identity.Name,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                // Keep a skewed caller as indeterminate unless the supplied
+                // policy explicitly rolls its reference to the selected target.
+                AssemblyBindingSelection fallback =
+                    _fallback.Select(request);
+                if (fallback
+                        is AssemblyBindingSelection.Selected selected
+                    && selected.Assembly.Identity == _target.Identity)
+                {
+                    return fallback;
+                }
+
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.IdentityPolicyRequired));
+            }
+
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
                 .Where(root => root.Identity == reference.Identity)
                 .ToImmutableArray();

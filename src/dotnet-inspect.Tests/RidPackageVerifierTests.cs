@@ -8,6 +8,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class RidPackageVerifierTests
 {
     [Fact]
