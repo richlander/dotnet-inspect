@@ -66,11 +66,26 @@ public sealed class CSharpTypePrinter
             .Where(type => emittedUsings.Contains(type.Namespace))
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
             .ToImmutableHashSet(StringComparer.Ordinal);
-
+        var globalDeclaredTypeNames = preparedTypes
+            .Where(type => type.Namespace.Length == 0)
+            .Select(type => CSharpFormatter.StripArity(type.Type.Name))
+            .ToImmutableHashSet(StringComparer.Ordinal);
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             var groupedTypes = group.ToList();
+            var declaredTypeFullNames = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+            var pendingTypes = new Stack<(PreparedType Type, string? Parent)>(
+                groupedTypes.Select(type => (type, (string?)null)));
+            while (pendingTypes.TryPop(out var pending))
+            {
+                string name = CSharpFormatter.StripArity(pending.Type.Type.Name);
+                string fullName = pending.Parent is null ? name : $"{pending.Parent}.{name}";
+                declaredTypeFullNames.Add(fullName);
+                foreach (var nested in pending.Type.NestedTypes)
+                    pendingTypes.Push((nested, fullName));
+            }
+            var declaredTypeFullNameSet = declaredTypeFullNames.ToImmutable();
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             var ancestorTypeNames = preparedTypes
                 .Where(candidate => IsAncestorNamespace(candidate.Namespace, group.Key))
@@ -90,6 +105,8 @@ public sealed class CSharpTypePrinter
                         .Concat(ancestorTypeNames)
                         .Concat(importedDeclaredTypeNames)
                         .ToImmutableHashSet(StringComparer.Ordinal),
+                    globalDeclaredTypeNames,
+                    declaredTypeFullNameSet,
                     typeNameContext.KnownNamespaces,
                     diagnostics)));
             if (containingNamespace is not null)
@@ -316,6 +333,8 @@ public sealed class CSharpTypePrinter
         IReadOnlyList<string> contextualUsings,
         IReadOnlySet<string> inheritedShadowingNames,
         IReadOnlySet<string> inheritedRootShadowingNames,
+        IReadOnlySet<string> unresolvableRootNames,
+        IReadOnlySet<string> declaredTypeFullNames,
         IReadOnlyCollection<string> knownNamespaces,
         ImmutableArray<CSharpTypePrintDiagnostic>.Builder diagnostics)
     {
@@ -330,7 +349,25 @@ public sealed class CSharpTypePrinter
             contextualUsings,
             inScopeShadowingNames,
             inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
             knownNamespaces);
+        var diagnosticPass = DeclarationFormatter(
+            prepared.Namespace,
+            options,
+            contextualUsings,
+            inScopeShadowingNames,
+            inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
+            knownNamespaces,
+            terminateMemberDeclaration: true)
+            .FormatTypeUnit(
+                prepared.Type,
+                prepared.Members.Select(member => member.Member),
+                prepared.PrimaryConstructorParameters);
+        diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
         if (prepared.Type.Kind == "delegate")
             return RenderDelegate(prepared, formatter, indent);
 
@@ -340,23 +377,10 @@ public sealed class CSharpTypePrinter
             contextualUsings,
             inScopeShadowingNames,
             inheritedRootShadowingNames,
+            unresolvableRootNames,
+            declaredTypeFullNames,
             knownNamespaces,
             omitPropertyAccessors: true);
-        var diagnosticPass = DeclarationFormatter(
-            prepared.Namespace,
-            options,
-            contextualUsings,
-            inScopeShadowingNames,
-            inheritedRootShadowingNames,
-            knownNamespaces,
-            terminateMemberDeclaration: true)
-            .FormatTypeUnit(
-                prepared.Type,
-                prepared.Members.Select(member => member.Member),
-                prepared.PrimaryConstructorParameters);
-        diagnostics.AddRange(diagnosticPass.Diagnostics.Select(
-            diagnostic => new CSharpTypePrintDiagnostic(prepared.Type.FullName, diagnostic)));
-
         string pad = new(' ', indent * 4);
         string declaration = formatter.FormatTypeDeclaration(
             prepared.Type,
@@ -388,6 +412,8 @@ public sealed class CSharpTypePrinter
                     contextualUsings,
                     nestedShadowingNames,
                     nestedRootShadowingNames,
+                    unresolvableRootNames,
+                    declaredTypeFullNames,
                     knownNamespaces,
                     diagnostics));
             }
@@ -622,6 +648,8 @@ public sealed class CSharpTypePrinter
         IReadOnlyList<string> contextualUsings,
         IReadOnlyCollection<string> additionalShadowingNames,
         IReadOnlyCollection<string> additionalRootShadowingNames,
+        IReadOnlyCollection<string> additionalUnresolvableRootNames,
+        IReadOnlyCollection<string> additionalDeclaredTypeFullNames,
         IReadOnlyCollection<string> additionalKnownNamespaces,
         bool omitPropertyAccessors = false,
         bool terminateMemberDeclaration = false)
@@ -634,6 +662,8 @@ public sealed class CSharpTypePrinter
             Usings = contextualUsings,
             AdditionalShadowingNames = additionalShadowingNames,
             AdditionalRootShadowingNames = additionalRootShadowingNames,
+            AdditionalUnresolvableRootNames = additionalUnresolvableRootNames,
+            AdditionalDeclaredTypeFullNames = additionalDeclaredTypeFullNames,
             AdditionalKnownNamespaces = additionalKnownNamespaces,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,

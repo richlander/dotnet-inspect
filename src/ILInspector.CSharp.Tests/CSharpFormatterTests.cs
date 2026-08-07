@@ -499,6 +499,35 @@ public sealed class CSharpFormatterTests
         Assert.DoesNotContain("@global::", declaration.Text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void QualifiedPolicyEscapesKeywordRootInsideExistingGlobalAlias()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetWidget",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "global::event.Models.Widget",
+                MemberName = "GetWidget"
+            }
+        };
+
+        var declaration = new CSharpFormatter().FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::@event.Models.Widget GetWidget()",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("global::global::", declaration.Text, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(CSharpTypeNamePolicy.Qualified, "public @event.Models.Widget GetWidget()", false)]
     [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Widget GetWidget()", true)]

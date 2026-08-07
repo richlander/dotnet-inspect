@@ -1208,14 +1208,15 @@ public sealed class CSharpTypePrinterTests
             "[MarshalAs(UnmanagedType.I4)]",
             result.Units[0].Source,
             StringComparison.Ordinal);
+        Assert.Contains("public UnmanagedType Encode(", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void DottedAttributeValueKeepsQualificationButStillEscapesAndRequalifies()
+    public void DottedAttributeValueSharingDeclaredTypeRootUsesGlobalNamespace()
     {
         var type = CreateEmptyType("App", "Samples");
         var member = CreateMethod("GetColor");
-        member.SignatureModel!.ReturnType = "Samples.Models.Color";
+        member.SignatureModel!.ReturnType = "int";
         member.Attributes =
         [
             "System.ComponentModel.DefaultValue(Samples.Models.Color.Red)",
@@ -1236,7 +1237,60 @@ public sealed class CSharpTypePrinterTests
             result.Source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "public global::Samples.Models.Color GetColor();",
+            "public int GetColor();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeclaredNestedPathInOtherNamespaceDoesNotCaptureAttributeValue()
+    {
+        var otherContainer = CreateEmptyType("Other", "Container");
+        var kind = CreateEmptyType("Other", "Kind");
+        var appContainer = CreateEmptyType("App", "Container");
+        appContainer.Attributes = ["Ext.Opt(Container.Kind.Fast)"];
+
+        var result = _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(
+                    otherContainer,
+                    nestedTypes: [new CSharpTypePrintRequest(kind)]),
+                new CSharpTypePrintRequest(appContainer)
+            ],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains(
+            "[Ext.Opt(global::Container.Kind.Fast)]",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeclaredNestedPathDoesNotCaptureKnownNamespaceReference()
+    {
+        var system = CreateEmptyType("App", "System");
+        var uri = CreateEmptyType("App", "Uri");
+        system.Attributes = ["Ext.Opt(System.Uri.SchemeDelimiter)"];
+        var member = CreateMethod("Create");
+        member.SignatureModel!.ReturnType = "System.Text.StringBuilder";
+        system.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                system,
+                nestedTypes: [new CSharpTypePrintRequest(uri)]),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains(
+            "[Ext.Opt(global::System.Uri.SchemeDelimiter)]",
             result.Source,
             StringComparison.Ordinal);
     }
@@ -1246,7 +1300,7 @@ public sealed class CSharpTypePrinterTests
     {
         var type = CreateEmptyType("Samples", "Worker");
         var member = CreateMethod("GetColor");
-        member.SignatureModel!.ReturnType = "event.Models.Color";
+        member.SignatureModel!.ReturnType = "int";
         member.Attributes =
         [
             "System.ComponentModel.DefaultValue(event.Models.Color.Red)"
@@ -1261,13 +1315,144 @@ public sealed class CSharpTypePrinterTests
                 IncludeCustomAttributes = true
             });
 
-        Assert.Contains("using @event.Models;", result.Source, StringComparison.Ordinal);
         Assert.Contains(
             "@event.Models.Color.Red",
             result.Source,
             StringComparison.Ordinal);
         Assert.DoesNotContain("DefaultValue(Color.Red)", result.Source, StringComparison.Ordinal);
-        Assert.Contains("public Color GetColor();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public int GetColor();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DottedAttributeValueRootedAtGlobalTypeDoesNotAbortBatch()
+    {
+        var host = CreateEmptyType("", "Host");
+        var worker = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "int";
+        member.Attributes = ["Ext.Opt(Host.Options.Fast)"];
+        worker.Members.Add(member);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(host), new CSharpTypePrintRequest(worker)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains("[Ext.Opt(global::Host.Options.Fast)]", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void TypeAndDelegateAttributeValuesKeepDeclaredTypeRoots()
+    {
+        var samples = CreateEmptyType("App", "Samples");
+        samples.Attributes = ["Ext.Opt(Samples.Options.Fast)"];
+        var options = CreateEmptyType("App", "Options");
+        var handler = CreateEmptyType("App", "Handler");
+        handler.Kind = "delegate";
+        handler.Attributes = ["Ext.Opt(Samples.Options.Fast)"];
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "void";
+        handler.Members.Add(invoke);
+
+        var result = _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(
+                    samples,
+                    nestedTypes: [new CSharpTypePrintRequest(options)]),
+                new CSharpTypePrintRequest(handler)
+            ],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Equal(
+            2,
+            result.Source.Split(
+                "[Ext.Opt(Samples.Options.Fast)]",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("global::Samples.Options.Fast", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DottedAttributeValueDoesNotInventShadowingNamespace()
+    {
+        var type = CreateEmptyType("Lib.Sub", "Widget");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "Foo.Deep";
+        member.Attributes = ["Ext.Opt(Lib.Sub.Deep.Const.Field)"];
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains("using Foo;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Deep Get();", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("shadowed by a namespace", string.Join('\n', result.Diagnostics), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SameNamespaceRootShadowRequalifiesDottedAttributeValue()
+    {
+        var widget = CreateEmptyType("Lib.Sub", "Widget");
+        var member = CreateMethod("GetThing");
+        member.SignatureModel!.ReturnType = "Lib.Sub.Thing";
+        member.Attributes = ["Ext.Opt(Lib.Sub.Thing.Value)"];
+        widget.Members.Add(member);
+        var lib = CreateEmptyType("Lib.Sub", "Lib");
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(widget), new CSharpTypePrintRequest(lib)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains("[Ext.Opt(global::Lib.Sub.Thing.Value)]", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Thing GetThing();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RawKeywordSegmentsArePlannedAcrossDeclarationSurfaces()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.BaseType = "Lib.event.Base";
+        type.Interfaces.Add("Lib.event.IThing");
+        type.Attributes = ["Lib.event.Marker"];
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "Lib.event.Color";
+        var handler = CreateEmptyType("Samples", "Handler");
+        handler.Kind = "delegate";
+        handler.Members.Add(invoke);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(type), new CSharpTypePrintRequest(handler)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains("[Lib.@event.Marker]", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public class Widget : Lib.@event.Base, Lib.@event.IThing",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public delegate Lib.@event.Color Handler();",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1608,7 +1793,7 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
-    public void GlobalNamespaceTypeNameTriggersGlobalAliasInNamespacedUnit()
+    public void GlobalNamespaceTypeConflictingWithNamespaceRootReportsDiagnostic()
     {
         var system = CreateEmptyType("", "System");
         var worker = CreateEmptyType("Samples", "Worker");
@@ -1623,8 +1808,83 @@ public sealed class CSharpTypePrinterTests
                 TypeNamePolicy = CSharpTypeNamePolicy.Qualified
             });
 
-        Assert.Contains("public class System", result.Source, StringComparison.Ordinal);
-        Assert.Contains("public global::System.Uri GetUri();", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public global::System.Uri GetUri();",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("conflicts with global type 'System'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GlobalNamespaceTypeConflictRecognizesNestedNamespaceRoot()
+    {
+        var system = CreateEmptyType("", "System");
+        var worker = CreateEmptyType("Samples", "Worker");
+        var method = CreateMethod("GetItems");
+        method.SignatureModel!.ReturnType = "System.Collections.Generic.List<int>";
+        worker.Members.Add(method);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(system), new CSharpTypePrintRequest(worker)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "global::System.Collections.Generic.List<int>",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("conflicts with global type 'System'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DelegateWithGlobalNamespaceRootConflictReportsDiagnostic()
+    {
+        var system = CreateEmptyType("", "System");
+        var handler = CreateEmptyType("Samples", "Handler");
+        handler.Kind = "delegate";
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "System.Uri";
+        handler.Members.Add(invoke);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(system), new CSharpTypePrintRequest(handler)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "public delegate global::System.Uri Handler();",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.TypeName == "Samples.Handler"
+                && diagnostic.Message.Contains("conflicts with global type 'System'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GlobalTypeCanReferenceItsDeclaredNestedType()
+    {
+        var host = CreateEmptyType("", "Host");
+        var classify = CreateMethod("Classify");
+        classify.SignatureModel!.ReturnType = "Host.Kind";
+        host.Members.Add(classify);
+        var kind = CreateEmptyType("", "Kind");
+        kind.Kind = "enum";
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            host,
+            nestedTypes: [new CSharpTypePrintRequest(kind)]));
+
+        Assert.Contains("public global::Host.Kind Classify();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public enum Kind", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]

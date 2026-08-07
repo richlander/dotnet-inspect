@@ -592,7 +592,7 @@ public static class CompileBackSourceComposer
             Diagnostics = diagnostics,
         };
         evidence = rows;
-        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+        return ComposeCompilationUnit(plan);
 
         CSharpTypePrintRequest Enrich(CSharpTypePrintRequest request)
         {
@@ -1178,7 +1178,7 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+        return ComposeCompilationUnit(plan);
     }
 
     static void AddRequiredMembers(
@@ -2397,7 +2397,7 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+        return ComposeCompilationUnit(plan);
     }
 
     public static CompileBackSourceResult ComposeEventAccessor(
@@ -2526,7 +2526,7 @@ public static class CompileBackSourceComposer
             production.Requirements,
             production.Requests,
             diagnostics);
-        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+        return ComposeCompilationUnit(plan);
     }
 
     public static CompileBackSourceResult ComposeMethod(
@@ -2809,11 +2809,13 @@ public static class CompileBackSourceComposer
             production.Requirements,
             declarations,
             diagnostics);
-        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+        return ComposeCompilationUnit(plan);
     }
 
-    static string ComposeCompilationUnit(CompileBackReconstructionPlan plan)
-        => new CSharpTypePrinter().PrintBatch(
+    static CompileBackSourceResult ComposeCompilationUnit(CompileBackReconstructionPlan plan)
+    {
+        const string typeNamePlanningLayer = "type name planning";
+        var rendered = new CSharpTypePrinter().PrintBatch(
             plan.PrintRequests,
             new CSharpTypePrintOptions
             {
@@ -2822,7 +2824,23 @@ public static class CompileBackSourceComposer
                 AssemblyAttributes = plan.Module.AssemblyAttributes.Select(attribute => attribute.Text).ToArray(),
                 ModuleAttributes = plan.Module.ModuleAttributes.Select(attribute => attribute.Text).ToArray(),
                 Usings = plan.Module.Usings,
-            }).Source;
+            });
+        var enrichedPlan = plan with
+        {
+            Diagnostics = plan.Diagnostics
+                .Where(diagnostic => diagnostic.Layer != typeNamePlanningLayer)
+                .Concat(rendered.Diagnostics
+                    .Where(diagnostic => diagnostic.Message.Contains(
+                        "conflicts with global type '",
+                        StringComparison.Ordinal))
+                    .Select(diagnostic => new CompileBackPlanningDiagnostic(
+                        typeNamePlanningLayer,
+                        "unresolvable namespace root",
+                        $"{diagnostic.TypeName}: {diagnostic.Message}")))
+                .ToArray()
+        };
+        return new CompileBackSourceResult(enrichedPlan, rendered.Source);
+    }
 
     static ApiMember ToApiMember(CompileBackMemberRequirement member)
     {
