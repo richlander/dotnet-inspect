@@ -57,7 +57,7 @@ internal static class HttpTimeoutConfiguration
     internal static TimeSpan ResolveEnvironmentDefault(string? value) =>
         TryParseSeconds(value, out TimeSpan timeout)
             ? timeout
-            : HttpClientFactoryOptions.BuiltInDefaultTimeout;
+            : HttpClientFactoryOptions.BaselineTimeout;
 
     internal static bool TryParseSeconds(string? value, out TimeSpan timeout)
     {

@@ -90,7 +90,7 @@ public class HttpClientFactoryTests : IDisposable
         var untrusted = DotnetInspector.Core.HttpClientFactory.CreateUntrustedFetchClient();
         var standard = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
-        Assert.Equal(HttpClientFactoryOptions.BuiltInDefaultTimeout, untrusted.Timeout);
+        Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, untrusted.Timeout);
         Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
     }
 
@@ -109,7 +109,7 @@ public class HttpClientFactoryTests : IDisposable
 
         var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
-        Assert.Equal(HttpClientFactoryOptions.BuiltInDefaultTimeout, client.Timeout);
+        Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, client.Timeout);
     }
 
     /// <summary>

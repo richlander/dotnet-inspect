@@ -9,11 +9,11 @@ namespace DotnetInspector.Core;
 /// </summary>
 public sealed record HttpClientFactoryOptions
 {
-    public static TimeSpan BuiltInDefaultTimeout { get; } = TimeSpan.FromSeconds(30);
+    public static TimeSpan BaselineTimeout { get; } = TimeSpan.FromSeconds(30);
 
     public bool Offline { get; init; }
 
-    public TimeSpan DefaultTimeout { get; init; } = BuiltInDefaultTimeout;
+    public TimeSpan DefaultTimeout { get; init; } = BaselineTimeout;
 }
 
 /// <summary>
@@ -213,7 +213,7 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = HttpClientFactoryOptions.BuiltInDefaultTimeout;
+        client.Timeout = HttpClientFactoryOptions.BaselineTimeout;
         return client;
     }
 
