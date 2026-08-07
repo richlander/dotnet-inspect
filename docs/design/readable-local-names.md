@@ -29,10 +29,12 @@ experience:
 Therefore `PrinterOptions.Default` remains off, preserving those paths.
 The shared taste registry exposes the inverse `slot-local-names` option, off by
 default, and derives user-facing defaults with `ReadableLocalNames = true`.
-`dotnet-inspect` consumes those defaults for ordinary Decompiled and Annotated
-Source rendering. An explicit
-`dotnet_inspect_style_readable_local_names = false` restores slot names; the
-`--readable-names` gesture overrides that configuration for one invocation.
+`dotnet-inspect` consumes those defaults for ordinary Decompiled Source,
+Annotated Source, Cost Overlay, and Semantics Overlay rendering. An explicit
+`dotnet_inspect_style_slot_local_names = true` restores slot names; the original
+`dotnet_inspect_style_readable_local_names = false` spelling remains accepted
+for compatibility. The `--readable-names` gesture overrides either
+configuration for one invocation.
 
 ## Approach
 
@@ -71,11 +73,11 @@ inverse, default-off `slot-local-names` knob, so every registry-driven host gets
 the readable product default. `ApiOptions.RequestReadableLocalNames` remains the explicit
 one-run override for a config that disabled synthesis. The setting is
 orthogonal to the style axes (a name synthesis, not a byte-divergent lens), so
-it leaves the Annotated view's interleaved IL intact. For a persistent form the
-catalog entry carries the tool-owned config key
-`dotnet_inspect_style_readable_local_names`. Because the mode is
-byte-preserving (names do not affect IL) it is **not** oracle-endorsed, so the
-`--taste` / `dotnet_inspect_style_full_taste` aggregate never changes it.
+it leaves the Annotated view's interleaved IL intact. For a persistent form the catalog entry carries the tool-owned config key
+`dotnet_inspect_style_slot_local_names`; the resolver alone retains the original
+`dotnet_inspect_style_readable_local_names` compatibility spelling. Because the
+mode is byte-preserving (names do not affect IL) it is **not** oracle-endorsed,
+so the `--taste` / `dotnet_inspect_style_full_taste` aggregate never changes it.
 
 ## Open fork (historical — resolved above)
 
