@@ -88,6 +88,16 @@ jobs:
             and (.[0].date == "2026-07-20")
             and (.[0].methodologyVersion == null)
             and (.[0].invalidBreakdown == null)
+            and any(.[]; .commit != null)
+            and all(
+              .[];
+              (.methodologyVersion == null)
+              or (
+                ((.methodologyVersion | type) == "number")
+                and (.methodologyVersion >= 1)
+                and (.methodologyVersion == (.methodologyVersion | floor))
+              )
+            )
             and all(
               .[] | select(.commit != null);
               ((.commit | type) == "string")
@@ -126,6 +136,11 @@ jobs:
             printf '1\n'
           }
 
+          provenance_rows=$(
+            jq -r \
+              'select(.commit != null) | [.commit, (.methodologyVersion // 1)] | @tsv' \
+              "$history"
+          )
           while IFS=$'\t' read -r commit recorded_methodology; do
             if ! git merge-base --is-ancestor "$commit" origin/main; then
               echo "::error file=$history::Recorded commit '$commit' is not an ancestor of origin/main."
@@ -139,7 +154,7 @@ jobs:
               echo "::error file=$history::Recorded methodology $recorded_methodology was not produced by '$commit' (source implements $source_methodology)."
               exit 1
             fi
-          done < <(jq -r 'select(.commit != null) | [.commit, (.methodologyVersion // 1)] | @tsv' "$history")
+          done <<< "$provenance_rows"
 
       - name: Self-test change detection
         shell: bash
