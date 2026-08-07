@@ -154,6 +154,8 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.NonRetryableStatus, "\t//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "\r//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "\n//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "\\/user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, " \\/user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     public async Task FailureLogsRedactTheUrlOnEveryBranch(
         RetryFailureMode mode,
         string url,

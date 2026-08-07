@@ -308,7 +308,7 @@ public sealed record NetworkRequestObservation(
             networkPathStart++;
 
         if (relative.Length >= networkPathStart + 2
-            && relative[networkPathStart] == '/'
+            && (relative[networkPathStart] == '/' || relative[networkPathStart] == '\\')
             && relative[networkPathStart + 1] == '/')
         {
             relative = RedactNetworkPathUserInfo(relative, networkPathStart);

@@ -190,6 +190,8 @@ public class FeedFailureTelemetryTests
     [InlineData("\t//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     [InlineData("\r//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     [InlineData("\n//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData(" \\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     public async Task ASecretInTheSourceUrlIsNeverStoredOrRendered(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
