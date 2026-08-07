@@ -123,7 +123,9 @@ public sealed record BrowserCallGraphIdentity(
     string ParamSig,
     string[] ParameterTypes,
     string ReturnType,
-    int GenericArity);
+    int GenericArity,
+    string? Package,
+    string? Version);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -545,27 +547,55 @@ public static partial class BrowserInspectionEngine
 
         var assemblies = new List<BrowserAssemblySurface>();
         var types = new List<BrowserTypeSurface>();
+        var implementationAssets = frameworkCandidates
+            .Where(candidate => candidate.Asset.Root == "lib")
+            .ToDictionary(candidate => candidate.Entry.Name, StringComparer.OrdinalIgnoreCase);
 
         foreach (var candidate in selectedAssets)
         {
             await using var entryStream = candidate.Entry.Open();
             using var assemblyStream = new MemoryStream();
             await entryStream.CopyToAsync(assemblyStream);
-            var image = assemblyStream.ToArray();
+            var publicImage = assemblyStream.ToArray();
+            var inventoryCandidate = preferredRoot == "ref"
+                && implementationAssets.TryGetValue(candidate.Entry.Name, out var implementation)
+                    ? implementation
+                    : candidate;
+            byte[] inventoryImage;
+            if (ReferenceEquals(inventoryCandidate.Entry, candidate.Entry))
+            {
+                inventoryImage = publicImage;
+            }
+            else
+            {
+                await using var inventoryEntryStream = inventoryCandidate.Entry.Open();
+                using var inventoryAssemblyStream = new MemoryStream();
+                await inventoryEntryStream.CopyToAsync(inventoryAssemblyStream);
+                inventoryImage = inventoryAssemblyStream.ToArray();
+            }
 
-            var reference = ResolvedAssemblyReference.Create(
+            var publicReference = ResolvedAssemblyReference.Create(
                 new AssemblyReferenceIdentity(candidate.Entry.Name, null, null, null),
                 null,
-                () => new MemoryStream(image, writable: false),
+                () => new MemoryStream(publicImage, writable: false),
                 AssemblyResolutionProvenance.Local(candidate.Entry.FullName));
+            var inventoryReference = ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(inventoryCandidate.Entry.Name, null, null, null),
+                null,
+                () => new MemoryStream(inventoryImage, writable: false),
+                AssemblyResolutionProvenance.Local(inventoryCandidate.Entry.FullName));
 
-            using var inspection = AssemblyInspectionSession.Open(reference);
-            if (!inspection.HasMetadata)
+            using var publicInspection = AssemblyInspectionSession.Open(publicReference);
+            if (!publicInspection.HasMetadata)
                 continue;
+            using var inventoryInspection = AssemblyInspectionSession.Open(inventoryReference);
+            if (!inventoryInspection.HasMetadata)
+                throw new InvalidOperationException(
+                    $"Implementation asset '{inventoryCandidate.Entry.FullName}' has no managed metadata.");
 
-            var publicSurface = inspection.ApiSurface();
+            var publicSurface = publicInspection.ApiSurface();
             var publicTypes = publicSurface.Types.ToDictionary(type => type.FullName, StringComparer.Ordinal);
-            var assemblyTypes = inspection.ApiSurface(includeAll: true).Types
+            var assemblyTypes = inventoryInspection.ApiSurface(includeAll: true).Types
                 .Where(type =>
                     !IsPublicAccessibility(type.Accessibility)
                     || publicTypes.ContainsKey(type.FullName))
@@ -2561,7 +2591,14 @@ public static partial class BrowserInspectionEngine
                     workspaceAssemblies.Count,
                     callerScopes.Length + 1,
                     assemblyName),
-                Nodes: projection.Nodes.Select(ToBrowserCallIdentity).ToArray());
+                Nodes: projection.Nodes.Select(node => ToBrowserCallIdentity(
+                    node,
+                    ResolveCallGraphOwner(
+                        node,
+                        workspaceAssemblies,
+                        packageId,
+                        version,
+                        assemblyName))).ToArray());
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
@@ -2742,7 +2779,9 @@ public static partial class BrowserInspectionEngine
             string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
     }
 
-    static BrowserCallGraphIdentity ToBrowserCallIdentity(CallGraphNode node)
+    static BrowserCallGraphIdentity ToBrowserCallIdentity(
+        CallGraphNode node,
+        (string Package, string Version)? owner = null)
     {
         var definition = RootDefinition(node.Member.DeclaringType);
         var typeFullName = definition.Namespace.Length == 0
@@ -2759,7 +2798,43 @@ public static partial class BrowserInspectionEngine
             string.Join(", ", parameterTypes),
             parameterTypes,
             node.Member.OpenSignatureReturn.ToQualifiedDisplayString(),
-            node.Member.GenericArity);
+            node.Member.GenericArity,
+            owner?.Package,
+            owner?.Version);
+    }
+
+    static (string Package, string Version)? ResolveCallGraphOwner(
+        CallGraphNode node,
+        IReadOnlyList<(string Package, string Version, string Path)> workspaceAssemblies,
+        string targetPackage,
+        string targetVersion,
+        string targetAssembly)
+    {
+        if (node.Id == 0
+            || node.Member.DeclaringType.Assembly.Equals(
+                Path.GetFileNameWithoutExtension(targetAssembly),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return (targetPackage, targetVersion);
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.Perf?.Source))
+        {
+            var source = Path.GetFullPath(node.Perf.Source);
+            var sourceOwner = workspaceAssemblies.FirstOrDefault(candidate =>
+                Path.GetFullPath(candidate.Path).Equals(source, StringComparison.OrdinalIgnoreCase));
+            if (sourceOwner != default)
+                return (sourceOwner.Package, sourceOwner.Version);
+        }
+
+        var assemblyOwners = workspaceAssemblies
+            .Where(candidate => Path.GetFileNameWithoutExtension(candidate.Path).Equals(
+                node.Member.DeclaringType.Assembly,
+                StringComparison.OrdinalIgnoreCase))
+            .Select(candidate => (candidate.Package, candidate.Version))
+            .Distinct()
+            .ToArray();
+        return assemblyOwners.Length == 1 ? assemblyOwners[0] : null;
     }
 
     // The declaring type of a callee may be a constructed generic instance or an array/
@@ -3185,7 +3260,7 @@ public static partial class BrowserInspectionEngine
                 calleeNode with { Children = [] },
                 calleeNode,
                 new BrowserCallGraphScope(0, 1, 0, acquired.FileName),
-                Nodes: projection.Nodes.Select(ToBrowserCallIdentity).ToArray());
+                Nodes: projection.Nodes.Select(node => ToBrowserCallIdentity(node)).ToArray());
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally

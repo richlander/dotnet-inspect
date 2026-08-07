@@ -6497,18 +6497,16 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
       }
       const resolved = resolveWorkspaceNode(node);
       const target = resolved.identity ? resolved.selection : resolveNodeLabel(label);
-      const source = target
+      const source = (target || resolved.identity)
         ? null
-        : (resolved.identity
-            ? resolveStructuredNodeSource(resolved.identity)
-            : resolveNodeForSource(label, node.classList.contains("differentAssembly")));
+        : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
       // A node with no workspace target and no source is a platform (BCL / cross-library)
       // callee: resolvable identity lives on the active graph's tree, so we can descend
       // into its implementation IL by range-fetching the owning assembly on demand.
       const platform = (target || source)
         ? null
-        : (resolved.identity && !workspacePackageForAssembly(resolved.identity.assembly)
-            ? resolved.identity
+        : (resolved.identity
+            ? (workspaceHasAssembly(resolved.identity.assembly) ? null : resolved.identity)
             : resolvePlatformNode(label));
       if (!target && !source && !platform) return;
       node.classList.add("nav-node");
@@ -6797,30 +6795,10 @@ function findMemberGroup(groups, memberName) {
   return null;
 }
 
-function workspacePackageForAssembly(assembly) {
+function workspaceHasAssembly(assembly) {
   const wanted = assemblyKey(assembly);
-  return state.packages.find(pkg =>
-    pkg.types.some(type => assemblyKey(type.assembly) === wanted)) ?? null;
-}
-
-function resolveStructuredNodeSource(identity) {
-  const pkg = workspacePackageForAssembly(identity.assembly);
-  if (!pkg || /^(get|set|add|remove)_/.test(identity.memberName)) return null;
-  const type = pkg.types.find(candidate =>
-    assemblyKey(candidate.assembly) === assemblyKey(identity.assembly)
-    && typeEngineName(candidate) === identity.typeFullName);
-  if (!type) return null;
-  return {
-    title: `${typeDisplayName(type)}.${identity.memberName}`,
-    request: {
-      packageId: pkg.id,
-      version: pkg.version,
-      framework: pkg.activeFramework,
-      assembly: type.assembly,
-      type: identity.typeFullName,
-      member: identity.memberName,
-    },
-  };
+  return state.packages.some(pkg =>
+    pkg.types.some(type => assemblyKey(type.assembly) === wanted));
 }
 
 function resolveNodeForSource(label, external = false) {
@@ -7237,10 +7215,14 @@ function parameterTypeKey(typeName) {
     UInt32: "uint", Int64: "long", UInt64: "ulong", Object: "object", String: "string",
   };
   return String(typeName || "")
+    .trim()
+    .replace(/^params\s+/, "")
+    .replace(/^(?:out|in|ref readonly|readonly ref|scoped ref|ref)\s+/, "ref ")
     .replace(/global::/g, "")
     .replace(/\+/g, ".")
     .replace(/\bSystem\.(Boolean|Byte|SByte|Char|Decimal|Double|Single|Int16|UInt16|Int32|UInt32|Int64|UInt64|Object|String)\b/g,
       (_, name) => aliases[name])
+    .replace(/\?(?=$|\s|,|\[|\]|\)|>)/g, "")
     .replace(/\s+/g, "");
 }
 
@@ -7251,7 +7233,11 @@ function browserParameterTypeKey(parameter) {
 
 function findWorkspaceMemberSelection(node) {
   const wantedAssembly = assemblyKey(node.assembly);
-  for (const pkg of state.packages) {
+  const selections = [];
+  const packages = state.packages.filter(pkg =>
+    (!node.package || pkg.id.toLowerCase() === node.package.toLowerCase())
+    && (!node.version || pkg.version.toLowerCase() === node.version.toLowerCase()));
+  for (const pkg of packages) {
     const type = pkg.types.find(candidate =>
       assemblyKey(candidate.assembly) === wantedAssembly
       && typeEngineName(candidate) === node.typeFullName);
@@ -7272,24 +7258,17 @@ function findWorkspaceMemberSelection(node) {
       candidate.parameters.every((parameter, index) =>
         browserParameterTypeKey(parameter) === parameterTypeKey(wantedParameters[index])));
     const match = exact ?? (parameterMatch.length === 1 ? parameterMatch[0] : null);
-    if (match) {
-      return {
-        pkg,
-        type,
-        group,
-        overloadSelector: match.stableSelector,
-      };
-    }
-    if (/^(get|set|add|remove)_/.test(node.memberName) && group.overloads.length === 1) {
-      return {
-        pkg,
-        type,
-        group,
-        overloadSelector: group.overloads[0].stableSelector,
-      };
-    }
+    const accessor = /^(get|set|add|remove)_/.test(node.memberName) && group.overloads.length === 1
+      ? group.overloads[0]
+      : null;
+    selections.push({
+      pkg,
+      type,
+      group,
+      overloadSelector: (match ?? accessor)?.stableSelector ?? null,
+    });
   }
-  return null;
+  return selections.length === 1 ? selections[0] : null;
 }
 
 function resolveWorkspaceNode(element) {
