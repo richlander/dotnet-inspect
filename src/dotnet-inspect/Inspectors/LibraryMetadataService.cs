@@ -300,6 +300,10 @@ internal static class LibraryMetadataService
 
             return inspection;
         }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
@@ -771,6 +775,10 @@ internal static class LibraryMetadataService
 
             return rows.Count > 0 ? rows : null;
         }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning unsafe members in {path}: {ex.Message}");
@@ -853,6 +861,10 @@ internal static class LibraryMetadataService
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning leverage in {path}: {ex.Message}");
@@ -881,10 +893,7 @@ internal static class LibraryMetadataService
             if (!context.HasMetadata)
                 return map;
 
-            // All-members first (covers non-public, numbered as `--all` drilling resolves them).
             AddSurface(context.ExtractApiSurface(includeAll: true), map);
-            // Default surface overwrites public members with their public-only Name:N, which is
-            // what `member Name:N` resolves without `--all`.
             AddSurface(context.ExtractApiSurface(includeAll: false), map);
         }
         catch (Exception ex)
@@ -894,7 +903,9 @@ internal static class LibraryMetadataService
         }
         return map;
 
-        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
+        static void AddSurface(
+            ApiSurface surface,
+            Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
         {
             foreach (var type in surface.Types)
             {
@@ -956,6 +967,10 @@ internal static class LibraryMetadataService
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
+        }
+        catch (ScannerCostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

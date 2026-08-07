@@ -176,9 +176,9 @@ view.
 ### Two orthogonal gates
 
 - **Cost is an execution gate, not a membership gate.** An `Unbounded` section
-  is `ExplicitOnly` and never auto-runs in the verbosity ladder — not even
-  `-v:d`. It may still be *rooted* in a topical category (so it is discoverable
-  by drilling `-D @Category`), and **discovery never runs it**: `-D` and
+  never auto-runs in the verbosity ladder — not even `-v:d` — whether or not it
+  is also `ExplicitOnly`. It may still be *rooted* in a topical category (so it
+  is discoverable by drilling `-D @Category`), and **discovery never runs it**: `-D` and
   `-D @Category` list members structurally and never execute them. It runs only
   via explicit render selection: an exact name (`-S "Unsafe Members"`) or a
   topical door that roots it (`-S @Category`), which expands to explicit
@@ -191,8 +191,8 @@ view.
     Members. `-D @SourceLink` / `-D @Audit` never
     execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
     expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
-    nuance) is a deferred follow-up; today `ExplicitOnly` only keeps them out of
-    the verbosity ladder, not out of door expansion.
+    nuance) is a deferred follow-up; today cost keeps them out of the verbosity
+    ladder, not out of door expansion.
 - **`-D` listing is the discovery gate.** The top-level `-D` catalog lists the
   topical category doors (alpha) followed by one flat group of effective
   standalone sections. `ListedInCatalog=false` keeps a section out of that flat
@@ -289,9 +289,10 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
   *render selection*, not discovery — they execute the selected members like
   exact names.
 - No **render-selectable** category roots an `Unbounded` member *for the
-  verbosity ladder* — `Unbounded` sections are `ExplicitOnly`, so no `-v` level
-  auto-runs them. They remain reachable by exact name and, as a known deferred
-  footgun, by `-S @SourceLink` / `-S @Audit` door expansion (see the cost gate).
+  verbosity ladder* — the cost itself keeps it off every `-v` level, independently
+  of `ExplicitOnly`. Discovery labels both cases as opt-in. They remain reachable
+  by exact name and, as a known deferred footgun, by `-S @SourceLink` /
+  `-S @Audit` door expansion (see the cost gate).
 - The `-v` ladder is cumulative and never auto-runs an `Unbounded` section.
 - Every visible section is reachable from at least one topical door or the flat
   `@All` set; internal-only sections fall into the computed `@Hidden` complement.

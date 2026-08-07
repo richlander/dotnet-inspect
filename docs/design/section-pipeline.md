@@ -53,14 +53,69 @@ The pipeline does not render anything. It computes a `HashSet<string>` of sectio
 
 ### Layer 3: Scanner Registry
 
-`ScannerRegistry` maps scanner keys to scan functions:
+`ScannerRegistry` maps scanner keys to a declared cost and a scan function:
 
 ```csharp
-registry.Add("ExtensionMethods", ctx =>
+registry.Add("ExtensionMethods", SectionCost.NetworkFree, ctx =>
     LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger));
 ```
 
 `RunScanners(requiredKeys, context)` executes only the scanners needed for the current request. When a user runs `dotnet-inspect library Foo.dll -S "Extension Methods"`, only the `ExtensionMethods` scanner runs — not the full set of Detailed-level scans.
+
+## Scanner Cost
+
+Cost is declared by the **scanner**, not by the section, and the pipeline raises each section to the cost of the scanner behind it (`UseScannerCosts`). A descriptor may declare a higher cost than its scanner — a cheap scan feeding an enormous rendering is real — but it can no longer declare a lower one.
+
+This inverts the previous arrangement, in which each section restated the cost of work it did not own. Eleven sections were backed by the four scanners that build the whole-assembly IL body index, and only two of them said so; the other nine declared `NetworkFree` while costing seconds. A section is one of many views onto a scan, so the scan is the only place the cost is known once.
+
+`CostOf(key)` is the maximum over the transitive prerequisite closure, so a cheap scanner that requires an expensive one costs what the run will actually do. `AddBundle` takes no cost for the same reason: a bundle does no work of its own, and letting it declare one would let it under-state what it pulls in.
+
+`CostOf` throws rather than guessing in the two cases where a guess would be silently wrong: an unregistered key (a stale or misspelled `ScannerKey` would otherwise resolve to the cheapest tier and keep an expensive section on the ladder), and a registered non-bundle scanner with no declared cost. The second throw is what makes `SectionPipelineTests.LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner` bite: without it, registering a scanner through a cost-less path leaves that gate green.
+
+### The declaration is enforced where the cost is incurred
+
+The registry cannot see that a scanner touches the body index. `ctx.BodyIndex` is handed to scan methods as a lazily-invoked method group bound to `Func<LibraryBodyIndex>`, which is exactly how those nine sections drifted. A declared-cost enum alone would let the next one drift the same way.
+
+For scanner code using the registry normally, one declaration does both jobs:
+**only a scanner registered as `Unbounded` may call `ctx.BodyIndex()` or
+`ctx.DrillMap()`**. Adding a body-index call to a scanner that still claims to
+be cheap throws instead of quietly restoring the defect. The check is scoped to
+scanner execution and cleared when the run ends, because the `Func` can outlive
+the scanner that supplied it and be invoked while rendering.
+
+This is a correctness aid for well-behaved product code, not an in-process
+security boundary. Scanner implementations are expected to acquire shared
+resources through `ScannerContext` and declare dependencies through the
+registry. Code review and this guidance enforce that convention; the registry
+does not attempt to prevent deliberate bypasses through direct helper calls,
+reflection, unsafe code, or nested registries.
+
+### What `Unbounded` means for selection
+
+`Unbounded` sections leave the `-v:n` and `-v:d` render ladders and the `@All` pole entirely — the tier means "never auto-run by any verbosity". They stay reachable by exact `-S` name and through any category door that lists them.
+
+Only the four scanners that build the whole-assembly IL body index are `Unbounded`: `UnsafeMembers`, `TopLeverage`, `OptimizationOpportunities`, and `ResourceTriage`. Every other library scanner is `NetworkFree`, including `Switches`, which is offline and never opens the body index (128.7 ms on `ILInspector.Decompiler.dll`). There is deliberately no tier meaning "locally expensive but offline"; adding one is future work, not a gap this change papers over.
+
+Measured on `library <assembly>`, NativeAOT publish, min of 3 warm runs, wall clock:
+
+| Assembly | `-v:n` before | `-v:n` after | `-v:d` before | `-v:d` after |
+| --- | --- | --- | --- | --- |
+| `ILInspector.Decompiler.dll` (1.7 MB) | 2,928.3 ms | 355.3 ms | 2,856.2 ms | 368.4 ms |
+| `System.Private.CoreLib.dll` (12.4 MB) | 7,146.7 ms | 730.9 ms | 7,374.6 ms | 797.3 ms |
+
+Roughly 300 ms of each figure is the NativeAOT process floor, so the scan work itself falls by more than the wall-clock ratio suggests. No section is *added* at any verbosity by this change.
+
+Note that `@Performance` is **not** a generic door. The tabular and JSONL group paths flatten it into a single kind-labeled table over exactly `PerformanceKinds.Sections`, so adding a differently-shaped section to it stops the group rendering as one table at all.
+
+### Two cost axes, and which one the ladder reads
+
+A section's effective cost has two inputs: the cost of its scanner, and any cost the descriptor declares itself. The raise is one-way, so **the descriptor axis can move a section off the ladder without the scanner axis changing at all**. A gate that reads `registry.CostOf(section.ScannerKey)` therefore checks only half the mechanism.
+
+`SectionPipeline.SectionCosts` exposes the effective per-entry cost — the value `IsCuratedAutoRendered` consults — so `LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily` can pin the decision input rather than one of its sources. It asserts the effective axis and the scanner axis separately, so a failure names which declaration moved.
+
+The effective axis subsumes the scanner axis because a scanner raise always raises the entry — but that holds only because a scanner key's cost is **immutable once declared**. `SectionPipeline.Add` snapshots the cost when the section is registered, so a registry that allowed re-registration could raise a key's cost after entries were already bound to it, leaving the pipeline auto-rendering at a stale cheap cost while `CostOf` reported the truth. `ScannerRegistry.Add` and `AddBundle` therefore reject a key that is already registered, which is what makes the subsumption unconditional rather than an accident of the order `LibrarySections` happens to build in.
+
+Pinning the effective axis is what makes the full non-cheap set visible: the generated `Metadata: <Table>` sections and the `SourceLink: *` family are `Unbounded` by their own descriptors, independently of any scanner.
 
 ## Data Flow
 
