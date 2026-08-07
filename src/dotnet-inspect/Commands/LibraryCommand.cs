@@ -77,8 +77,9 @@ public class LibraryCommand
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
-        var pipeline = LibrarySections.CreatePipeline();
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var scannerRegistry = catalog.ScannerRegistry;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -513,7 +514,7 @@ public class LibraryCommand
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
@@ -594,7 +595,7 @@ public class LibraryCommand
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
@@ -688,7 +689,7 @@ public class LibraryCommand
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
@@ -2010,7 +2011,7 @@ public class LibraryCommand
         }
     }
 
-    private static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
+    internal static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
     {
         // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
         // (which flips whether the SourceLink section family is effective) busts a stale -D
@@ -2039,15 +2040,16 @@ public class LibraryCommand
     }
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
-        Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
+        SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
+        string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
-            sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
-            sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
-            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors(),
+            sectionCostAnnotations: pipeline.GetCostAnnotations(),
+            sectionCategories: pipeline.GetCategoryMap(),
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
     }
 

@@ -3,6 +3,10 @@ using DotnetInspector.Models;
 
 namespace DotnetInspector.Sections;
 
+public sealed record LibrarySectionCatalog(
+    SectionPipeline<LibraryInspection> Pipeline,
+    ScannerRegistry ScannerRegistry);
+
 /// <summary>
 /// Section descriptors for the library command.
 /// Each descriptor declares its name, cost classification, scanner key, and a
@@ -30,11 +34,28 @@ public static class LibrarySections
     public const string ScannerResourceTriage = "ResourceTriage";
     public const string ScannerMetadata = "Metadata";
 
+    /// <summary>
+    /// Builds the library catalog from one scanner registry, so section costs and execution use
+    /// the same immutable declarations.
+    /// </summary>
+    public static LibrarySectionCatalog CreateCatalog()
+    {
+        var scannerRegistry = CreateScannerRegistry();
+        return new LibrarySectionCatalog(
+            CreatePipeline(scannerRegistry.CostOf),
+            scannerRegistry);
+    }
+
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
+        => CreatePipeline(CreateScannerRegistry().CostOf);
+
+    private static SectionPipeline<LibraryInspection> CreatePipeline(
+        Func<string, SectionCost> scannerCost)
     {
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
+            .UseScannerCosts(scannerCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>()
             .Add<InspectionFailures>()
@@ -70,7 +91,7 @@ public static class LibrarySections
             .Add<HttpClient>()
             .Add<References>(HasReferenceData)
             .Add<ExtensionMethods>()
-            .Add<UnsafeMembers>()
+            .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
             .Add<TopLeverage>(HasMethodBodies)
             .Add<PerformanceBoxing>(HasMethodBodies)
             .Add<PerformanceArrays>(HasMethodBodies)
@@ -134,25 +155,25 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerExtensionMethods, ctx =>
+            .Add(ScannerExtensionMethods, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanExtensionMembers(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerClassifiedMethods, ctx =>
+            .Add(ScannerClassifiedMethods, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerResources, ctx =>
+            .Add(ScannerResources, SectionCost.NetworkFree, ctx =>
                 ctx.Model.ResourceInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
-            .Add(ScannerCustomAttributes, ctx =>
+            .Add(ScannerCustomAttributes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanCustomAttributes(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerUnionTypes, ctx =>
+            .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerTypeForwarders, ctx =>
+            .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
                 ctx.Model.TypeForwarderInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger)))
@@ -163,40 +184,40 @@ public static class LibrarySections
                 ScannerResources,
                 ScannerCustomAttributes,
                 ScannerTypeForwarders)
-            .Add(ScannerAuditSignals, ctx =>
+            .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
-            .Add(ScannerSwitches, ctx =>
+            .Add(ScannerSwitches, SectionCost.NetworkFree, ctx =>
                 ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerUnsafeMembers, ctx =>
+            .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerTopLeverage, ctx =>
+            .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
                 ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(
                     ctx.BodyIndex,
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger))
-            .Add(ScannerOptimizationOpportunities, ctx =>
+            .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
-            .Add(ScannerResourceTriage, ctx =>
+            .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
                 ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
-            .Add(ScannerIntegrations, ctx =>
+            .Add(ScannerIntegrations, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => LibraryMetadataService.ScanIntegrations(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
-            .Add(ScannerIntegrationOpportunities, ctx =>
+            .Add(ScannerIntegrationOpportunities, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
                     session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
-            .Add(ScannerMetadata, ctx =>
+            .Add(ScannerMetadata, SectionCost.NetworkFree, ctx =>
                 LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
@@ -492,6 +513,9 @@ public static class LibrarySections
 
     private static bool HasMethodBodies(LibraryInspection model)
         => model.HasMethodBodies;
+
+    private static bool UnsafeMembersDiscoverable(LibraryInspection model)
+        => model.HasMethodBodies || UnsafeMembers.CanRender(model);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {

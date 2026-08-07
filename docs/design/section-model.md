@@ -111,6 +111,11 @@ Category applicability is evaluated within the active discovery budget:
 This preserves a route to expensive domains without forcing plain discovery to
 execute them.
 
+Cost is an execution gate, not a membership gate. An `Unbounded` member remains
+structurally discoverable through its authored category, but it never enters an
+automatic verbosity preset. Exact selection, category render selection, and
+effective category discovery are explicit gestures and may execute it.
+
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Automatic
 scope comes from base categories and verbosity, not computed category poles.
 
@@ -176,8 +181,9 @@ Candidate selection, effectiveness, and execution cost are independent axes.
 `SizeClass` describes output cardinality:
 
 - `Fixed`: bounded across targets
-- `Moderated`: content-dependent but suitable for ordinary output
-- `Unbounded`: potentially large
+- `Terse`: target-dependent and small
+- `Informative`: target-dependent and moderate
+- `Verbose`: potentially large
 
 `Fixed` does not mean fast. It describes row-set shape.
 
@@ -186,9 +192,16 @@ Candidate selection, effectiveness, and execution cost are independent axes.
 `Cost` describes the work required to produce section content:
 
 - `NetworkFree`
-- `NetworkBound`
+- `Moderated`
+- `Unbounded`
 
-Network-bound work must remain explicit or capability-gated.
+The scanner registry owns production cost. A section's effective cost is the
+maximum of its descriptor cost and the transitive cost of its scanner
+prerequisites. A descriptor may raise cost for section-specific work or output,
+but it may not understate scanner-owned work.
+
+`Unbounded` work never enters an automatic verbosity preset. Network, source
+content, and other capability-gated work must remain explicit.
 
 ### Execution policy
 
@@ -369,9 +382,10 @@ The section pipeline enforces these invariants:
 4. Every selectable library section has authored category ownership.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
-6. Unbounded sections are expensive or explicit-only.
-7. Categories preserve declaration order for deterministic rendering.
-8. Output-shape compatibility is validated before producers run.
+6. Every scanner key resolves, and a descriptor cannot understate scanner cost.
+7. Unbounded sections never enter automatic verbosity presets.
+8. Categories preserve declaration order for deterministic rendering.
+9. Output-shape compatibility is validated before producers run.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.

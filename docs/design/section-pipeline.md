@@ -1,156 +1,247 @@
 # Section pipeline
 
 The section pipeline is the runtime implementation of the
-[section model](section-model.md). It centralizes section registration,
-category ownership, automatic scope, producer demand, effectiveness, and
-render selection.
+[section model](section-model.md). It separates user intent from producer
+execution:
 
-## Responsibilities
+```text
+user gesture
+  -> candidate sections
+  -> direct scanner demand
+  -> prerequisite closure
+  -> scanner execution
+  -> effectiveness
+  -> rendering
+```
 
-The pipeline answers five independent questions:
-
-1. Which authored sections and categories exist?
-2. Which sections are candidates for this gesture?
-3. Which producers are required by those candidates?
-4. Which candidates are effective for this target?
-5. Which effective sections should the serializer render?
-
-Keeping these questions separate prevents verbosity, applicability, and cost
-from becoming aliases for one another.
+The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
+and category planning. `ScannerRegistry` owns producer cost, prerequisites,
+execution, and shared resource declarations.
 
 ## Section descriptors
 
-`ISectionDescriptor<TModel>` declares a section's typed metadata. Descriptors
-provide the section name, output size class, network cost, scanner key,
-execution policy, and model predicate.
-
-The pipeline reads static descriptor members during registration. Descriptors
-are never instantiated, preserving NativeAOT compatibility and avoiding
-reflection-based product behavior.
-
-Important descriptor concepts are:
+`ISectionDescriptor<TModel>` declares typed section metadata. Descriptors are
+read through static members and are never instantiated, preserving
+NativeAOT-friendly product behavior.
 
 | Concept | Purpose |
 | --- | --- |
 | `Name` | Stable selector and rendered heading |
-| `SizeClass` | Fixed, moderated, or unbounded row shape |
-| `Cost` | Network-free or network-bound production |
+| `SizeClass` | Output cardinality: fixed, terse, informative, or verbose |
+| `Cost` | Section-specific lower bound on production cost |
 | `ScannerKey` | Producer demand key; `null` means core inspection |
-| `ExplicitOnly` | Excluded from automatic verbosity |
+| `ExplicitOnly` | Excludes the section from automatic verbosity |
 | `CanRender` | Post-production effectiveness predicate |
 | Applicability predicate | Cheap structural gate supplied at registration |
 
-`ExplicitOnly` is an execution policy. Discovery must not expose it as an
-“opt-in” section kind.
+`SizeClass`, `Cost`, and `ExplicitOnly` are independent. A fixed-size section
+can require expensive work, and a cheap producer can feed verbose output.
+`ExplicitOnly` is execution policy, not user-facing section identity; discovery
+does not label sections as "opt-in".
 
-## Category registration
+## Categories and candidates
 
-Categories are authored through `AddBaseCategory` or `AddCategory`.
+Categories are authored through `AddBaseCategory` and `AddCategory`.
 
-- Base categories contribute to automatic verbosity and bare-`-S` scope.
-- Domain categories remain explicit doors.
-- Category members must name registered selectable sections.
-- A section may belong to multiple categories.
+- Base categories define automatic verbosity, bare-`-S`, and flat discovery
+  scope.
+- Domain categories are explicit doors.
+- A section can belong to more than one category.
+- Membership is never inferred from a display-name prefix.
 
-The pipeline does not derive membership from `Domain:` prefixes or noun
-suffixes.
-
-## Candidate selection
-
-Automatic candidate selection is the intersection of:
+Automatic candidate selection intersects:
 
 - the base-category union;
-- the current verbosity preset;
-- size and cost policy;
+- the verbosity preset;
+- size and effective cost policy;
 - explicit-only policy.
 
-Exact `-S` selection overrides automatic scope. Bare `-S` uses the fixed,
-network-free subset of the base union.
+Exact section selection overrides automatic scope. Category selection expands
+to authored members before scanner demand is computed. Bare `-S` uses the
+fixed, network-free subset of the base union.
 
-Category selection expands to authored members before producer demand is
-computed.
+The library catalog calls `WithoutComputedPoles`; it does not expose computed
+`@All` or `@Hidden` selectors.
 
-## Producer demand
+## Scanner registry
 
-`GetRequiredScanners` walks the candidate set and returns unique scanner keys.
-Several sections may share one scanner, so demand is deduplicated before the
-registry runs.
+`ScannerRegistry` maps each scanner key to a scan function, declared
+`SectionCost`, and immutable prerequisite list:
 
-```text
-selector / verbosity
-        |
-        v
-candidate sections
-        |
-        v
-required scanner keys
-        |
-        v
-scanner prerequisite closure
-        |
-        v
-model facts and findings
+```csharp
+registry.Add(
+    "ExtensionMethods",
+    SectionCost.NetworkFree,
+    ctx => LibraryMetadataService.ScanExtensionMethods(
+        ctx.AssemblyPath,
+        ctx.Model,
+        ctx.Logger));
 ```
 
-Command-level prerequisites that no section expresses are passed into the same
-method as attributed command demand. This keeps trace output complete.
+`AddBundle` registers prerequisite closure without adding work or declaring a
+synthetic cost. A bundle costs the maximum of the scanners it requires.
 
-The `ScannerRegistry` owns key-to-producer wiring and prerequisite expansion.
-Harnesses and commands must exercise that product-owned wiring rather than
-reconstruct it.
+The registry rejects:
+
+- duplicate keys;
+- unregistered requested keys or prerequisites;
+- dependency cycles;
+- missing cost declarations;
+- mutation of prerequisite state after registration.
+
+`ExpandRequired` computes transitive prerequisite closure.
+`RunScanners` executes prerequisites first and each scanner once.
+
+## Scanner-owned cost
+
+Production cost belongs to the scanner because multiple sections can be views
+over the same work. `UseScannerCosts(registry.CostOf)` binds a pipeline to the
+registry before any section is added.
+
+A section's effective cost is:
+
+```text
+max(descriptor cost, scanner prerequisite-closure cost)
+```
+
+A descriptor may raise cost for section-specific work or output, but it cannot
+lower scanner-owned cost. `CostOf` uses the maximum cost over the full
+prerequisite closure, so a nominally cheap scanner that requires an unbounded
+scanner is itself unbounded.
+
+The three production tiers are:
+
+| Cost | Automatic behavior |
+| --- | --- |
+| `NetworkFree` | Eligible for ordinary automatic views |
+| `Moderated` | Eligible only for detailed automatic output |
+| `Unbounded` | Never enters an automatic verbosity preset |
+
+An unbounded section remains reachable through exact selection, explicit
+category selection, or effective category discovery.
+
+`LibrarySectionCatalog` constructs one registry and one cost-bound pipeline.
+Commands use that pair for planning and execution so the pipeline cannot
+snapshot costs from one registry while another registry performs the work.
+
+## Resource declarations
+
+Whole-assembly body analysis is acquired through `ScannerContext.BodyIndex()`.
+Member drill data is acquired through `ScannerContext.DrillMap()`.
+
+Only a scanner declared `Unbounded` may acquire either resource. A cheaper
+scanner that calls one throws at the acquisition boundary. The production
+scanner catch boundary does not convert that declaration violation into a
+success-shaped result.
+
+The declaration is scoped to one registry run and cannot leak into later work.
+This is a correctness mechanism for product-owned scanner wiring, not an
+in-process security boundary.
+
+Metadata scanners share the command's open inspection session. They do not
+reopen the target independently, and they continue to observe the image the
+command opened even if the path is retargeted during the run.
+
+## Gesture planning
+
+The command translates a user gesture into candidate scope and command-level
+demand before the registry runs.
+
+For library discovery:
+
+| Gesture | Candidate scope | Scanner behavior |
+| --- | --- | --- |
+| `-D` | Base sections and category doors | Metadata presence only |
+| `-D --effective` | Base-category union | Full base scanner closure |
+| `-D @Category` | Authored category members | Structural; no member scanners |
+| `-D @Category --effective` | Authored category members | Full category scanner closure |
+| `-D --schema` | Complete graph | No target scanners |
+
+Plain discovery therefore stays within the local-target latency budget.
+Explicit effective discovery may request unbounded work. In particular,
+`-D @Performance` does not build the body index, while
+`-D @Performance --effective` does.
+
+Some command facts are not expressed by a section scanner. The command passes
+those keys to `GetRequiredScanners` as attributed command demand so the same
+closure and trace machinery still owns execution.
+
+`References` is core metadata rather than scanner work:
+
+- `-S References` collects direct assembly references and renders a flat table.
+- `-S References --tree` additionally resolves the transitive graph.
+- `--depth N` limits traversal; depth 1 contains direct references.
+
+The planner enables direct or tree collection from the candidate set instead
+of creating synonymous sections.
 
 ## Effectiveness
 
 The pipeline exposes separate queries for:
 
-- structurally applicable sections;
-- post-production renderable sections;
-- explicitly applicable sections whose renderability depends on selection.
+- structural applicability;
+- candidate selection;
+- post-production renderability.
 
-Cheap discovery uses structural predicates and a small command probe set. Full
-effective discovery runs the selected producers and asks the post-production
-predicates.
+Structural applicability answers whether a section can apply without running
+its producer. Post-production effectiveness answers whether the producer
+actually found renderable evidence.
 
-Full bare discovery remains scoped to base categories. Structural evidence for
-domain members may keep an applicable category door visible without placing
-those members in the flat base catalog.
+For example, method bodies make performance analysis applicable but do not
+prove that any performance finding exists. Structural performance discovery
+uses the former; `--effective` uses the latter.
+
+Full bare discovery remains scoped to base categories. Domain applicability
+can preserve a category door without placing its members in the flat base
+catalog.
 
 ## Rendering
 
 `ComputeIncludeSections` produces the section-name set passed to Markout.
-Markout remains responsible for document serialization and section filtering.
+Markout owns serialization and section filtering.
 
-Headless sections can carry compact context without rendering a heading. They
-participate in serializer filtering but are not independently selectable
-unless the command explicitly declares them as such.
+The curated verbosity contract is:
+
+| Verbosity | Automatic candidates |
+| --- | --- |
+| Quiet | Headless compact summary only |
+| Minimal | High-value info section, excluding unbounded work |
+| Normal | Terse and informative, network-free base sections |
+| Detailed | All bounded base sections |
+
+Compact identity fields are reserved for quiet verbosity. Minimal does not
+inherit the headless quiet summary.
 
 Row-oriented formats require one concrete schema or a homogeneous family.
 Heterogeneous categories are rejected before producers run.
 
-## Registration gates
+## Registration and behavior gates
 
-Registration and derived tests enforce:
+The test suite names the properties that enforce this architecture:
 
-1. Unique section and category names.
-2. Valid category-member references.
-3. Authored ownership for every selectable library section.
-4. Explicit base-category roles.
-5. Unbounded sections are expensive or explicit-only.
-6. Deterministic declaration order.
-7. Scanner prerequisites resolve.
+- `LibraryScannerRegistry_RegistrationMatchesDeclaration`
+- `LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner`
+- `LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic`
+- `CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure`
+- `Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost`
+- `Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt`
+- `SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor`
+- `SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened`
 
-Set-equality tests should derive expected ownership from the catalog so stale
-and missing entries both fail.
+Category ownership and output-shape gates live with the section model. Tests
+derive sets from declarations where possible so both stale and missing entries
+fail.
 
 ## Tracing
 
 Library `--trace` records:
 
-- selected sections;
 - section-to-scanner demand;
 - command-level demand;
 - prerequisite expansion;
-- scanner execution time;
-- expensive resources acquired.
+- scanner execution time and failure;
+- body-index and drill-map acquisition;
+- shared metadata-session use.
 
-Trace output is diagnostic stderr and never changes the document on stdout.
+Trace output is diagnostic stderr and never changes document stdout.
