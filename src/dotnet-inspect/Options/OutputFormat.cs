@@ -129,7 +129,10 @@ public static class OutputFormatResolver
         CommandError.Write($"Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
         CommandError.WriteBlankLine();
         CommandError.WriteLine("--table, --tsv, and --jsonl display one section at a time.");
-        CommandError.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
+        if (includeSections.Any(DotnetInspector.Sections.PerformanceKinds.Sections.Contains))
+            CommandError.WriteLine("Use -S with a specific section name, -S \"Performance:*\" for the homogeneous performance table family, or --markdown/--json for multi-section output.");
+        else
+            CommandError.WriteLine("Use -S with a specific section name, or --markdown/--json for multi-section output.");
         return false;
     }
 

@@ -114,7 +114,7 @@ public sealed partial class CSharpPrinter
             : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
-            return $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}";
+            return LambdaConversionText(lambda, $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}");
 
         int statementCount = lambda.Body.Blocks.SelectMany(b => b.Children).Count();
         if (LambdaReturnType(lambda) is { } fallbackReturnType
@@ -126,9 +126,10 @@ public sealed partial class CSharpPrinter
         if (NeedsNestedLambdaScope(lambda))
         {
             string bodyText = LambdaBodyTextWithLocalScope(lambda);
-            return statementCount > 1
+            string text = statementCount > 1
                 ? LambdaBlockText(parameters, bodyText)
                 : $"{parameters} => {{ {FlattenLambdaBodyText(bodyText)} }}";
+            return LambdaConversionText(lambda, text);
         }
 
         // Building the child statement texts one indent level deeper keeps any
@@ -157,9 +158,46 @@ public sealed partial class CSharpPrinter
             _statementIndent = enclosingIndent;
         }
 
-        return statements.Count > 1
+        if (statements.Count == 0)
+            return LambdaConversionText(lambda, $"{parameters} => {{ }}");
+
+        string blockText = statements.Count > 1
             ? LambdaBlockText(parameters, string.Join("\n", statements))
             : $"{parameters} => {{ {string.Join(" ", statements)} }}";
+        return LambdaConversionText(lambda, blockText);
+    }
+
+    string LambdaConversionText(Lambda lambda, string text)
+        => !lambda.ReturnsVoid
+            || LambdaContextPinsDelegateType(lambda)
+            ? text
+            : $"({TypeText(lambda.DelegateType)})({text})";
+
+    bool LambdaContextPinsDelegateType(Lambda lambda)
+        => lambda.Parent switch
+        {
+            StoreLocal store when ReferenceEquals(store.Value, lambda) => store.Type.Equals(lambda.DelegateType),
+            StoreField store when ReferenceEquals(store.Value, lambda) => store.Field.Type.Equals(lambda.DelegateType),
+            Return returnStatement when ReferenceEquals(returnStatement.Value, lambda)
+                => ReturnContextPinsDelegateType(returnStatement, lambda.DelegateType),
+            _ => false,
+        };
+
+    bool ReturnContextPinsDelegateType(Return returnStatement, TypeRef delegateType)
+    {
+        for (IrNode? current = returnStatement.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Lambda enclosingLambda:
+                    return LambdaReturnType(enclosingLambda)?.Equals(delegateType) == true;
+                case LocalFunctionStatement localFunction:
+                    return localFunction.ReturnType.Equals(delegateType);
+                case IrFunction function:
+                    return function.Signature.ReturnType.Equals(delegateType);
+            }
+        }
+        return false;
     }
 
     /// <summary>
