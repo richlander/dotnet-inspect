@@ -294,7 +294,10 @@ public sealed class SectionPipeline<TModel>
         .ToArray();
 
     /// <summary>Sections in the curated default preset, in registration order.</summary>
-    public string[] InfoSectionNames => _entries.Where(e => e.Info && IsSelectable(e)).Select(e => e.Name).ToArray();
+    public string[] InfoSectionNames => _entries
+        .Where(e => e.Info && IsSelectable(e) && IsCuratedAutoRendered(e, Verbosity.Minimal))
+        .Select(e => e.Name)
+        .ToArray();
 
     /// <summary>
     /// Fixed-overview membership, in registration order: sections whose row set does not grow with
@@ -810,7 +813,8 @@ public sealed class SectionPipeline<TModel>
         => verbosity switch
         {
             Verbosity.Quiet => IsHeadlessSummary(entry),
-            Verbosity.Minimal => entry.Info || IsHeadlessSummary(entry),
+            Verbosity.Minimal => (entry.Info && entry.Cost != SectionCost.Unbounded)
+                || IsHeadlessSummary(entry),
             Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
                 && entry.Cost == SectionCost.NetworkFree,
             _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost

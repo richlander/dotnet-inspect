@@ -1648,6 +1648,35 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void CuratedInfoSection_WithUnboundedScanner_LeavesMinimalDefaultsButKeepsItsDoor()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseCuratedCatalog()
+            .UseScannerCosts(_ => SectionCost.Unbounded)
+            .Add(new SectionEntry<TestModel>
+            {
+                Name = "Target",
+                IsExpensive = false,
+                Info = true,
+                SizeClass = SectionSizeClass.Terse,
+                Cost = SectionCost.NetworkFree,
+                ScannerKey = "target",
+                IsApplicable = _ => true,
+                CanRender = _ => true,
+            });
+
+        Assert.Empty(pipeline.GetEffectiveSections(new TestModel("target", 1), Verbosity.Minimal));
+        Assert.Empty(pipeline.GetRequiredScanners(Verbosity.Minimal));
+        Assert.Empty(pipeline.InfoSectionNames);
+
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Target" };
+        Assert.Equal(
+            ["Target"],
+            pipeline.GetEffectiveSections(new TestModel("target", 1), Verbosity.Minimal, include));
+        Assert.Equal(["target"], pipeline.GetRequiredScanners(Verbosity.Minimal, include));
+    }
+
+    [Fact]
     public void UseScannerCosts_ThrowsAfterSectionsAreRegistered()
     {
         // Costs are applied to entries as they are added, so wiring the source afterwards would
