@@ -32,7 +32,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     public PackageAcquisitionConcurrencyTests()
     {
         _cachePath = Path.Combine(_testRoot, "cache");
-        Core.HttpClientFactory.Initialize(offline: false);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
         Core.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize(
             "dotnet-inspect-test",
@@ -42,7 +42,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     public void Dispose()
     {
-        Core.HttpClientFactory.Initialize(offline: false);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
         Core.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);

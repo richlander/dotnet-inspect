@@ -4,15 +4,13 @@ using System.Reflection;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Covers <c>--http-timeout</c>, which is stripped from the argument array in
-/// <c>Program.cs</c> before command parsing because <c>HttpClientFactory.Shared</c> is built
-/// lazily on first use and the default has to be settled before any client exists.
+/// Covers the CLI-owned <c>--http-timeout</c> parsing and startup configuration.
 /// </summary>
 /// <remarks>
-/// These run the built executable rather than calling a helper, because the parsing under test
-/// lives in top-level statements that no in-process entry point exposes. The class joins the
-/// console collection so it does not spawn child processes alongside the concurrency tests,
-/// whose scheduling assertions are sensitive to load.
+/// The option-shape cases run the built executable because they cover the complete startup
+/// wiring rather than only the parsing helper. The class joins the console collection so it
+/// does not spawn child processes alongside concurrency tests whose scheduling assertions are
+/// sensitive to load.
 /// </remarks>
 [Collection("Console")]
 public class HttpTimeoutOptionTests
@@ -36,14 +34,15 @@ public class HttpTimeoutOptionTests
     }
 
     /// <summary>
-    /// Both spellings have to be stripped. Handling only the spaced form would leave
-    /// <c>--http-timeout=120</c> in the array, where it parses as a root option whose value
-    /// never reaches the factory, so the flag would appear to work and change nothing.
+    /// Every spelling accepted by System.CommandLine has to be stripped. Leaving an inline form
+    /// in the array lets it parse as a root option whose value never reaches the factory, so the
+    /// flag would appear to work and change nothing.
     /// </summary>
     [Theory]
     [InlineData("--http-timeout", "120")]
     [InlineData("--http-timeout=120", null)]
-    public void HttpTimeout_IsAcceptedOnASubcommandInBothSpellings(string flag, string? value)
+    [InlineData("--http-timeout:120", null)]
+    public void HttpTimeout_IsAcceptedOnASubcommandInEverySpelling(string flag, string? value)
     {
         string[] args = value is null
             ? [flag, "skill", "list"]
@@ -53,6 +52,41 @@ public class HttpTimeoutOptionTests
 
         Assert.Equal(0, exitCode);
         Assert.DoesNotContain("--http-timeout", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--http-timeout=0")]
+    [InlineData("--http-timeout:0")]
+    public void HttpTimeout_InlineUnusableValue_FailsInsteadOfBeingDiscarded(string flag)
+    {
+        var (exitCode, _, error) = RunCli([flag, "skill", "list"]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("--http-timeout expects a whole number of seconds between 1 and 3600.", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--http-timeout", "2", "--http-timeout", "5")]
+    [InlineData("--http-timeout=2", null, "--http-timeout:5", null)]
+    public void HttpTimeout_DuplicateFlagsAreRejected(
+        string firstFlag,
+        string? firstValue,
+        string secondFlag,
+        string? secondValue)
+    {
+        var args = new List<string> { firstFlag };
+        if (firstValue is not null)
+            args.Add(firstValue);
+        args.Add(secondFlag);
+        if (secondValue is not null)
+            args.Add(secondValue);
+        args.Add("skill");
+        args.Add("list");
+
+        var (exitCode, _, error) = RunCli([.. args]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("--http-timeout may only be specified once.", error, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -65,6 +99,7 @@ public class HttpTimeoutOptionTests
     [InlineData("--http-timeout 120")]
     [InlineData("--http-timeout")]
     [InlineData("--http-timeout=120")]
+    [InlineData("--http-timeout:120")]
     public void HttpTimeout_AfterAnEndOfOptionsSeparator_IsLeftForTheCommand(string trailing)
     {
         string[] trailingTokens = trailing.Split(' ');
@@ -92,6 +127,50 @@ public class HttpTimeoutOptionTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("--http-timeout", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The flag and environment variable share the CLI-owned parser so their accepted ranges
+    /// cannot drift apart.
+    /// </summary>
+    [Theory]
+    [InlineData("1", true, 1)]
+    [InlineData("120", true, 120)]
+    [InlineData("3600", true, 3600)]
+    [InlineData(null, false, 0)]
+    [InlineData("", false, 0)]
+    [InlineData("0", false, 0)]
+    [InlineData("-5", false, 0)]
+    [InlineData("3601", false, 0)]
+    [InlineData("abc", false, 0)]
+    [InlineData("12.5", false, 0)]
+    [InlineData("99999999", false, 0)]
+    [InlineData(" 120 ", true, 120)]
+    public void HttpTimeout_ParserAcceptsWholeSecondsInRange(
+        string? value,
+        bool expected,
+        int expectedSeconds)
+    {
+        bool accepted = HttpTimeoutConfiguration.TryParseSeconds(value, out TimeSpan timeout);
+
+        Assert.Equal(expected, accepted);
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), timeout);
+    }
+
+    [Theory]
+    [InlineData(null, 30)]
+    [InlineData("", 30)]
+    [InlineData("120", 120)]
+    [InlineData("0", 30)]
+    [InlineData("3601", 30)]
+    [InlineData("abc", 30)]
+    public void HttpTimeout_EnvironmentValueFallsBackToTheBuiltInDefault(
+        string? value,
+        int expectedSeconds)
+    {
+        TimeSpan timeout = HttpTimeoutConfiguration.ResolveEnvironmentDefault(value);
+
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), timeout);
     }
 
     private static (int ExitCode, string Output, string Error) RunCli(string[] args)

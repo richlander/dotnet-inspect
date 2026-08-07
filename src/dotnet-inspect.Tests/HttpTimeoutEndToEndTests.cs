@@ -13,8 +13,8 @@ namespace DotnetInspector.Tests;
 /// <remarks>
 /// <para>
 /// This is the only cover for the wiring itself. The unit tests prove that
-/// <c>HttpClientFactory</c> resolves a value, and the option tests prove that <c>Program.cs</c>
-/// parses and strips the flag, but neither would notice if the parsed value were dropped on the
+/// <c>HttpClientFactory</c> applies its configured default, and the option tests prove that the
+/// CLI parses and strips the flag, but neither would notice if the parsed value were dropped on the
 /// way into <c>Initialize</c>. Here the resolved value reaches <see cref="HttpClient.Timeout"/>
 /// and comes back out in the timeout message, so the assertion reads the number the caller asked
 /// for.
@@ -63,6 +63,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     [Theory]
     [InlineData("--http-timeout", "3")]
     [InlineData("--http-timeout=3", null)]
+    [InlineData("--http-timeout:3", null)]
     public void HttpTimeout_FlagGovernsTheSearchRequest(string flag, string? value)
     {
         string[] args = value is null ? [flag] : [flag, value];
@@ -157,7 +158,7 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
 
         // Explicitly cleared, not merely unset: an ambient value on the developer's machine
         // would otherwise decide the result of the cases that pass none.
-        psi.Environment["DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS"] = environmentValue ?? "";
+        psi.Environment[HttpTimeoutConfiguration.EnvironmentVariable] = environmentValue ?? "";
 
         // Same reasoning, different variable. An ambient DOTNET_INSPECT_OFFLINE=1 makes every
         // request throw before it can reach the stub feed, so all four cases fail somewhere

@@ -14,14 +14,14 @@ public class HttpClientFactoryTests : IDisposable
 
     public HttpClientFactoryTests()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_cacheDir))
             Directory.Delete(_cacheDir, recursive: true);
@@ -53,136 +53,75 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void CreateNew_ReturnsDifferentInstances()
+    public void CreateClient_ReturnsDifferentInstances()
     {
-        var client1 = DotnetInspector.Core.HttpClientFactory.CreateNew();
-        var client2 = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var client1 = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var client2 = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
         Assert.NotSame(client1, client2);
     }
 
     [Fact]
-    public void CreateNew_RespectsTimeout()
+    public void CreateClient_UsesConfiguredDefaultTimeout()
     {
-        var timeout = TimeSpan.FromSeconds(5);
-        var client = DotnetInspector.Core.HttpClientFactory.CreateNew(timeout);
-
-        Assert.Equal(timeout, client.Timeout);
-    }
-
-    /// <summary>
-    /// A package search against a large authenticated feed can exceed the 30 second default,
-    /// and before this variable existed the cap was unreachable from outside the process.
-    /// </summary>
-    [Theory]
-    [InlineData(null, 30)]          // unset: the documented default
-    [InlineData("", 30)]            // set but empty
-    [InlineData("120", 120)]        // the case the variable exists for
-    [InlineData("1", 1)]            // lower bound, accepted
-    [InlineData("3600", 3600)]      // upper bound, accepted
-    [InlineData("0", 30)]           // below the lower bound
-    [InlineData("-5", 30)]          // negative
-    [InlineData("3601", 30)]        // above the upper bound
-    [InlineData("abc", 30)]         // not a number
-    [InlineData("12.5", 30)]        // not whole seconds
-    [InlineData("99999999", 30)]    // would exceed HttpClient.Timeout's own ceiling
-    public void CreateNew_ReadsDefaultTimeoutFromEnvironment(string? configured, int expectedSeconds)
-    {
-        const string variable = "DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS";
-        string? original = Environment.GetEnvironmentVariable(variable);
-        try
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
-            Environment.SetEnvironmentVariable(variable, configured);
+            DefaultTimeout = TimeSpan.FromSeconds(5),
+        });
 
-            // Through CreateNew, not the parsing helper: the "99999999" case is only
-            // meaningful if the resolved value actually reaches HttpClient.Timeout, which
-            // throws above int.MaxValue milliseconds. Parsing it correctly and then
-            // crashing on assignment would still be a bug.
-            var client = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
-            Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), client.Timeout);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(variable, original);
-        }
+        Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
 
     /// <summary>
     /// The SSRF-hardened client visits URLs that come from untrusted artifacts, so its timeout
-    /// is containment rather than a feed-performance knob and must not follow the variable.
+    /// is containment rather than a feed-performance knob and must not follow the configured
+    /// default.
     /// </summary>
     [Fact]
-    public void CreateUntrustedFetchClient_IgnoresTheConfiguredTimeout()
+    public void CreateUntrustedFetchClient_DoesNotFollowTheConfiguredDefaultTimeout()
     {
-        const string variable = "DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS";
-        string? original = Environment.GetEnvironmentVariable(variable);
-        try
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
         {
-            Environment.SetEnvironmentVariable(variable, "600");
+            DefaultTimeout = TimeSpan.FromSeconds(600),
+        });
 
-            var untrusted = DotnetInspector.Core.HttpClientFactory.CreateUntrustedFetchClient();
-            var shared = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var untrusted = DotnetInspector.Core.HttpClientFactory.CreateUntrustedFetchClient();
+        var standard = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
-            Assert.Equal(TimeSpan.FromSeconds(30), untrusted.Timeout);
-            Assert.Equal(TimeSpan.FromSeconds(600), shared.Timeout);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(variable, original);
-        }
+        Assert.Equal(HttpClientFactoryOptions.BuiltInDefaultTimeout, untrusted.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
     }
 
     /// <summary>
-    /// The parsed <c>--http-timeout</c> value outranks the variable, so a flag on the command
-    /// line is not silently overridden by a stale export in a shell profile.
-    /// </summary>
-    [Fact]
-    public void CreateNew_PrefersTheInitializedTimeoutOverTheEnvironment()
-    {
-        const string variable = "DOTNET_INSPECT_HTTP_TIMEOUT_IN_SECONDS";
-        string? original = Environment.GetEnvironmentVariable(variable);
-        try
-        {
-            Environment.SetEnvironmentVariable(variable, "600");
-            DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(45));
-
-            var client = DotnetInspector.Core.HttpClientFactory.CreateNew();
-
-            Assert.Equal(TimeSpan.FromSeconds(45), client.Timeout);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(variable, original);
-            DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
-        }
-    }
-
-    /// <summary>
-    /// Initializing without a timeout has to clear a previously configured one. The field is
+    /// Initializing with default options has to clear a previously configured timeout. The field is
     /// static, so a leak here would make one test's flag change another test's client.
     /// </summary>
     [Fact]
-    public void Initialize_WithoutATimeout_ClearsAPreviouslyConfiguredOne()
+    public void Initialize_WithDefaultOptions_ClearsAPreviouslyConfiguredTimeout()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(45));
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 
-        var client = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
-        Assert.Equal(TimeSpan.FromSeconds(30), client.Timeout);
+        Assert.Equal(HttpClientFactoryOptions.BuiltInDefaultTimeout, client.Timeout);
     }
 
     /// <summary>
-    /// Gates the precondition stated on <c>Initialize</c>. Both of its parameters are consumed
-    /// in <c>CreateNew</c>, so a call made once <c>Shared</c> exists governs the next client
+    /// Gates the precondition stated on <c>Initialize</c>. Both option properties are consumed
+    /// in <c>CreateClient</c>, so a call made once <c>Shared</c> exists governs the next client
     /// built and leaves the cached one alone. Documented rather than fixed: resetting the cache
     /// on every call would discard a client that may be mid-request and disturb the
     /// authentication decorator wiring, and the CLI never hits it because <c>Program.cs</c>
     /// initializes before any command runs.
     /// </summary>
     /// <remarks>
-    /// Both parameters are asserted, not just the timeout. An earlier version of this test
+    /// Both settings are asserted, not just the timeout. An earlier version of this test
     /// passed <c>offline: false</c> throughout, so making the offline flag a per-request check
     /// left it green while breaking the very claim it was named as the gate for. The requests
     /// go to a closed loopback port, so an online client is refused at the socket and an
@@ -193,11 +132,18 @@ public class HttpClientFactoryTests : IDisposable
     {
         const string ClosedPort = "http://127.0.0.1:1/";
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false, defaultTimeout: TimeSpan.FromSeconds(45));
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
         var shared = DotnetInspector.Core.HttpClientFactory.Shared;
         Assert.Equal(TimeSpan.FromSeconds(45), shared.Timeout);
 
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: true, defaultTimeout: TimeSpan.FromSeconds(9));
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            Offline = true,
+            DefaultTimeout = TimeSpan.FromSeconds(9),
+        });
 
         // The cached client keeps the instance, the timeout, and the handler chain it was
         // built with. Reaching the socket and being refused is what proves it is still online.
@@ -210,7 +156,7 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Null(FindOffline(cachedFailure));
 
         // The same call does govern the next client built.
-        var later = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var later = DotnetInspector.Core.HttpClientFactory.CreateClient();
         Assert.Equal(TimeSpan.FromSeconds(9), later.Timeout);
         Assert.NotNull(FindOffline(await Record.ExceptionAsync(() => later.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
     }
@@ -230,31 +176,6 @@ public class HttpClientFactoryTests : IDisposable
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Both spellings of the setting share one validator, so they cannot drift apart on what
-    /// they accept. The flag reports a rejection and stops; the variable falls back.
-    /// </summary>
-    [Theory]
-    [InlineData("1", true, 1)]
-    [InlineData("120", true, 120)]
-    [InlineData("3600", true, 3600)]
-    [InlineData(null, false, 0)]
-    [InlineData("", false, 0)]
-    [InlineData("0", false, 0)]
-    [InlineData("-5", false, 0)]
-    [InlineData("3601", false, 0)]
-    [InlineData("abc", false, 0)]
-    [InlineData("12.5", false, 0)]
-    [InlineData("99999999", false, 0)]
-    [InlineData(" 120 ", true, 120)]    // NumberStyles.Integer tolerates surrounding whitespace
-    public void TryParseTimeoutSeconds_AcceptsWholeSecondsInRange(string? value, bool expected, int expectedSeconds)
-    {
-        bool accepted = DotnetInspector.Core.HttpClientFactory.TryParseTimeoutSeconds(value, out TimeSpan timeout);
-
-        Assert.Equal(expected, accepted);
-        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), timeout);
     }
 
     [Fact]

@@ -214,12 +214,15 @@ environment-driven paths do not use MSAL and are unaffected.
 ## When a feed is slow
 
 Requests default to a 30 second timeout. A large feed can take longer than that to answer a
-search, which surfaces as a cancelled request rather than as an error from the feed:
+search, which surfaces as a cancelled request rather than as an error from the feed. NativeAOT
+packages use the runtime resource key:
 
 ```text
 Error: No configured NuGet source could be searched.
-  myfeed: The request was canceled due to the configured HttpClient.Timeout of 30 seconds elapsing.
+  myfeed: net_http_request_timedout, 30
 ```
+
+The CoreCLR fallback package may instead spell out the equivalent timeout message.
 
 Give it more time with `--http-timeout`:
 

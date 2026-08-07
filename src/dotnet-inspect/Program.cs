@@ -65,65 +65,40 @@ try
         cacheBasePath = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-{sessionName}");
     }
 
-    // Parse --http-timeout <seconds> early: Shared is built lazily on first use, so the
-    // default has to be settled before any client exists. Both spellings are handled, because
-    // stripping only the spaced form would let --http-timeout=120 reach the parser as a
-    // root-level option and be silently discarded.
-    //
-    // The scan stops at a literal "--" so an end-of-options separator still means what it
-    // says and a positional argument spelled --http-timeout reaches the subcommand. The
-    // global flags stripped above do not yet honour "--"; see the pull request for why that
-    // is left alone here.
-    const string HttpTimeoutFlag = "--http-timeout";
-    string? httpTimeoutValue = null;
-    var timeoutArgs = new List<string>(args);
-    for (int i = 0; i < timeoutArgs.Count; i++)
+    // Resolve the CLI-owned timeout before any library client can be constructed.
+    var timeoutArguments = HttpTimeoutConfiguration.Extract(args);
+    if (timeoutArguments.HasDuplicate)
     {
-        if (timeoutArgs[i] == "--")
-        {
-            break;
-        }
-
-        if (timeoutArgs[i] == HttpTimeoutFlag)
-        {
-            httpTimeoutValue = string.Empty;
-            if (i + 1 < timeoutArgs.Count)
-            {
-                httpTimeoutValue = timeoutArgs[i + 1];
-                timeoutArgs.RemoveAt(i + 1);
-            }
-            timeoutArgs.RemoveAt(i);
-            break;
-        }
-
-        if (timeoutArgs[i].StartsWith($"{HttpTimeoutFlag}=", StringComparison.Ordinal))
-        {
-            httpTimeoutValue = timeoutArgs[i][(HttpTimeoutFlag.Length + 1)..];
-            timeoutArgs.RemoveAt(i);
-            break;
-        }
+        CommandError.Write($"{HttpTimeoutConfiguration.Flag} may only be specified once.");
+        return 1;
     }
 
-    TimeSpan? httpTimeout = null;
-    if (httpTimeoutValue is not null)
+    args = timeoutArguments.RemainingArgs;
+    TimeSpan httpTimeout;
+    if (timeoutArguments.ExplicitValue is not null)
     {
-        args = timeoutArgs.ToArray();
-
         // Rejected rather than clamped, and fatal rather than ignored: the operator typed this
         // one, so silently running with the 30 second default is the wrong kind of surprise.
-        if (!DotnetInspector.Core.HttpClientFactory.TryParseTimeoutSeconds(httpTimeoutValue, out TimeSpan parsedHttpTimeout))
+        if (!HttpTimeoutConfiguration.TryParseSeconds(timeoutArguments.ExplicitValue, out httpTimeout))
         {
             CommandError.Write(
-                $"{HttpTimeoutFlag} expects a whole number of seconds between 1 and 3600.",
-                $"Got: '{httpTimeoutValue}'");
+                $"{HttpTimeoutConfiguration.Flag} expects a whole number of seconds between 1 and 3600.",
+                $"Got: '{timeoutArguments.ExplicitValue}'");
             return 1;
         }
-
-        httpTimeout = parsedHttpTimeout;
+    }
+    else
+    {
+        httpTimeout = HttpTimeoutConfiguration.ResolveEnvironmentDefault(
+            Environment.GetEnvironmentVariable(HttpTimeoutConfiguration.EnvironmentVariable));
     }
 
     // Initialize library configuration
-    DotnetInspector.Core.HttpClientFactory.Initialize(offline, httpTimeout);
+    DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+    {
+        Offline = offline,
+        DefaultTimeout = httpTimeout,
+    });
 
     // Credential plugins are how a private feed is read without a password stored in nuget.config,
     // and NuGet ranks them as the most secure of the credential mechanisms. Discovery is only a

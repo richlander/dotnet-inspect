@@ -59,8 +59,8 @@ static class AuthoredRebuildFidelity
         int cap,
         int maxExamples)
     {
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
         List<AuthoredRebuildFidelityResult> results = [];
 
