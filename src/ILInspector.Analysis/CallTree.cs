@@ -33,7 +33,14 @@ public sealed record CallTreeNode(
     CallKind? Kind,
     CallTreeStatus Status,
     ImmutableArray<CallTreeNode> Children,
-    CallTreePerf? Perf = null);
+    CallTreePerf? Perf = null)
+{
+    /// <summary>
+    /// Physical and correspondence evidence for this occurrence when the tree
+    /// was built from a catalog call-graph scope.
+    /// </summary>
+    public GraphNodeEvidence? GraphEvidence { get; init; }
+}
 
 /// <summary>Perf-triage cues surfaced for a call-graph node.</summary>
 /// <remarks>
@@ -54,4 +61,25 @@ public sealed record CallTreePerf(
 {
     /// <summary>The node's signals, never null (falls back to <see cref="MethodSignals.None"/>).</summary>
     public MethodSignals SignalsOrNone => Signals ?? MethodSignals.None;
+}
+
+static class CallTreeMember
+{
+    internal static MemberRef FromDefinition(MethodIdentity method) =>
+        new(
+            method.DeclaringType,
+            method.Name,
+            method.ParameterTypes,
+            method.ReturnType,
+            method.Name is ".ctor" or ".cctor"
+                ? MemberKind.Constructor
+                : MemberKind.Method)
+        {
+            GenericArity = method.GenericArity,
+            HasThis = !method.IsStatic,
+            SignatureHeader = method.SignatureHeader,
+            RequiredParameterCount = method.RequiredParameterCount,
+            OpenParameterTypes = method.ParameterTypes,
+            OpenReturnType = method.ReturnType,
+        };
 }
