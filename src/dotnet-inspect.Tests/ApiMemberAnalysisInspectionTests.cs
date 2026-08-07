@@ -76,6 +76,32 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Single(scopes);
     }
 
+    [Fact]
+    public void CallerScopes_VersionSkewKeepsTheCallerForGraphDiagnostics()
+    {
+        string targetV2 =
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string targetV1 =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var inspection = Create(targetV2, [caller, targetV1]);
+        int ping = TokenOf(targetV2, "Api", "Ping");
+
+        IReadOnlyList<MethodBodyInspectionSession>? scopes =
+            inspection.CallerScopes(includeAllocations: false);
+        ILInspector.Analysis.CallTreeNode tree =
+            inspection.BuildCallerTree(ping);
+
+        Assert.NotNull(scopes);
+        Assert.Contains(
+            scopes,
+            scope => Path.GetFullPath(scope.Assembly.Path!)
+                == Path.GetFullPath(caller));
+        Assert.Empty(tree.Children);
+        Assert.True(inspection.CallGraphDiagnostics.IsIncomplete);
+    }
+
     // Round-2 review found that "would the unfiltered walk have opened it?" is not decidable in
     // general: an image whose Assembly/AssemblyRef tables read cleanly can still throw when its
     // bodies are indexed. Reproduced with single-byte mutations of a real assembly — 8 of 3000

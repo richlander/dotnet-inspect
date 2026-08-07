@@ -100,10 +100,15 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         AssemblyBindingSelection selection = policy.Select(request);
-        if (selection is AssemblyBindingSelection.Missing
-            && reference is not null
-            && IdentityMismatchSelection(reference.Identity)
-                is { } mismatch)
+        if (reference is not null
+            && selection
+                is AssemblyBindingSelection.Missing
+                    or AssemblyBindingSelection.Selected
+            && IdentityMismatchSelection(
+                reference.Identity,
+                (selection as AssemblyBindingSelection.Selected)
+                    ?.Assembly)
+                    is { } mismatch)
         {
             selection = mismatch;
         }
@@ -126,7 +131,8 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
     }
 
     AssemblyBindingSelection? IdentityMismatchSelection(
-        AssemblyReferenceIdentity requested)
+        AssemblyReferenceIdentity requested,
+        ResolvedAssemblyReference? selected)
     {
         ImmutableArray<ResolvedAssemblyReference> candidates =
         [
@@ -136,6 +142,17 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     requested.Name,
                     StringComparison.OrdinalIgnoreCase)),
         ];
+        if (selected is not null
+            && (!string.Equals(
+                    selected.Identity.Name,
+                    requested.Name,
+                    StringComparison.OrdinalIgnoreCase)
+                || candidates.Any(candidate =>
+                    candidate.Identity == selected.Identity)))
+        {
+            return null;
+        }
+
         return candidates.Length switch
         {
             0 => null,

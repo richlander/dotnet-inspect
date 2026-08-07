@@ -120,7 +120,7 @@ public class ProgressiveMemberCallGraphTests
         using var graph = ProgressiveMemberCallGraph.Open(
             TargetV2Path,
             ping,
-            NullResolver,
+            Resolver,
             [CallerPath]);
 
         MemberCallGraphView view = graph.CrossLibrary();

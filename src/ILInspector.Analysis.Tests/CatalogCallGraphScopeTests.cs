@@ -64,6 +64,7 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(storageEdges, scope.StorageEdgeCount);
         Assert.NotNull(callers.GraphEvidence?.Correspondence);
         Assert.NotNull(callees.GraphEvidence?.Correspondence);
+        Assert.Empty(scope.BindingIdentityConflicts);
     }
 
     [Fact]
@@ -111,6 +112,51 @@ public class CatalogCallGraphScopeTests
         Assert.Equal(
             throughFirst.Perf?.Fanout,
             throughDuplicate.Perf?.Fanout);
+    }
+
+    [Fact]
+    public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
+    {
+        LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        LibraryBodyIndex targetV1 = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(
+                targetV2,
+                [caller, targetV1]);
+        MethodIdentity ping = targetV2.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes.Length == 0);
+
+        CallTreeNode tree = scope.BuildCallerTree(
+            targetV2,
+            ping.MetadataToken);
+
+        Assert.Empty(tree.Children);
+        Assert.NotEmpty(scope.BindingIdentityConflicts);
+        Assert.Equal(
+            scope.BindingIdentityConflicts.Length,
+            scope.Diagnostics.BindingIdentityConflictCount);
+        Assert.All(
+            scope.BindingIdentityConflicts,
+            conflict =>
+            {
+                Assert.Equal(
+                    new Version(1, 0, 0, 0),
+                    conflict.Requested.Version);
+                Assert.Equal(
+                    new Version(1, 0, 0, 0),
+                    conflict.Selected.Version);
+                Assert.Equal(
+                    new Version(2, 0, 0, 0),
+                    conflict.Primary.Version);
+                Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                    conflict.CallSite.Correspondence);
+            });
     }
 
     [Fact]

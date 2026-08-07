@@ -6564,6 +6564,11 @@ public partial class CommandExecutionTests
             File.Copy(
                 caller,
                 Path.Combine(directory, Path.GetFileName(caller)));
+            string targetV1 =
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+            File.Copy(
+                targetV1,
+                Path.Combine(directory, Path.GetFileName(targetV1)));
 
             var (exit, output, error) = await RunAppAsync(
                 "member",
@@ -6584,7 +6589,7 @@ public partial class CommandExecutionTests
             Assert.Contains("## Call Graph", output);
             Assert.DoesNotContain("Shared.Entry.Run", output);
             Assert.Contains(
-                "Warning: Call graph results are incomplete because one or more caller-scope assembly references could not be fully resolved.",
+                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
                 error);
         }
         finally

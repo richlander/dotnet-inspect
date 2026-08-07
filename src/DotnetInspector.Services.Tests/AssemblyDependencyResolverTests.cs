@@ -157,6 +157,85 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void AssemblyGroup_SelectedVersionOutsideGroupRequiresIdentityPolicy()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var requested = new AssemblyReferenceIdentity(
+            "VersionSkewed.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.Create(
+                requested,
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "selected version-skew test"));
+        ResolvedAssemblyReference root =
+            ResolvedAssemblyReference.Create(
+                requested with { Version = new Version(2, 0, 0, 0) },
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "group version-skew test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(root, (IAssemblyBindingPolicy)new SelectedPolicy(selected))]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(root),
+            AssemblyResolutionScope.Any);
+
+        var unavailable = Assert.IsType<
+            AssemblyBindingSelection.Unavailable>(
+                group.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+    }
+
+    [Fact]
+    public void AssemblyGroup_SelectedRootIdentityPreservesPolicyRollForward()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var requested = new AssemblyReferenceIdentity(
+            "VersionSkewed.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        AssemblyReferenceIdentity selectedIdentity =
+            requested with { Version = new Version(2, 0, 0, 0) };
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.Create(
+                selectedIdentity,
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "selected roll-forward test"));
+        ResolvedAssemblyReference root =
+            ResolvedAssemblyReference.Create(
+                selectedIdentity,
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "group roll-forward test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(root, (IAssemblyBindingPolicy)new SelectedPolicy(selected))]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(root),
+            AssemblyResolutionScope.Any);
+
+        var result = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(selected, result.Assembly);
+    }
+
+    [Fact]
     public void Resolve_PlatformReference_RollsForwardToInstalledAssembly()
     {
         var current = typeof(System.Data.Common.DbDataReader).Assembly.GetName();

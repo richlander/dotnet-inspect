@@ -159,12 +159,20 @@ public class MethodBodyInspectionSessionTests
     [Fact]
     public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
     {
+        string targetV1 =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         MethodBodyInspectionSession target =
             MethodBodyInspectionSession.Open(
                 FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
         MethodBodyInspectionSession caller =
             MethodBodyInspectionSession.Open(
-                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                new DotnetInspector.Services.AssemblyDependencyResolver(
+                    new(
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath())));
+        MethodBodyInspectionSession targetV1Session =
+            MethodBodyInspectionSession.Open(targetV1);
         Analysis.MethodIdentity ping =
             target.BodyIndex.DeclaredMethods.Single(method =>
                 method.DeclaringType.Name == "Api"
@@ -173,12 +181,11 @@ public class MethodBodyInspectionSessionTests
 
         Analysis.CallTreeNode tree = target.CallerTree(
             ping.MetadataToken,
-            [caller],
+            [caller, targetV1Session],
             out Analysis.CatalogCallGraphDiagnostics diagnostics);
 
         Assert.Empty(tree.Children);
         Assert.True(diagnostics.IsIncomplete);
-        Assert.True(diagnostics.IncompleteNodeCount > 0);
-        Assert.True(diagnostics.IncompleteEdgeCount > 0);
+        Assert.True(diagnostics.BindingIdentityConflictCount > 0);
     }
 }

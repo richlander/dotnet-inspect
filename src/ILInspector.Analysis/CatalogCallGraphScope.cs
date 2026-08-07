@@ -46,23 +46,53 @@ public sealed class GraphEdgeEvidence
 }
 
 /// <summary>
+/// One physical call site whose exact selected definition belongs to a
+/// different identity of the graph's primary assembly.
+/// </summary>
+public sealed class GraphBindingIdentityConflictEvidence
+{
+    internal GraphBindingIdentityConflictEvidence(
+        GraphNodeEvidence callSite,
+        AssemblyReferenceIdentity requested,
+        AssemblyReferenceIdentity selected,
+        AssemblyReferenceIdentity primary)
+    {
+        CallSite = callSite;
+        Requested = requested;
+        Selected = selected;
+        Primary = primary;
+    }
+
+    public GraphNodeEvidence CallSite { get; }
+    public AssemblyReferenceIdentity Requested { get; }
+    public AssemblyReferenceIdentity Selected { get; }
+    public AssemblyReferenceIdentity Primary { get; }
+}
+
+/// <summary>
 /// Stable counts of graph evidence that could not establish complete catalog
 /// correspondence.
 /// </summary>
 public sealed record CatalogCallGraphDiagnostics(
     int IncompleteNodeCount,
-    int IncompleteEdgeCount)
+    int IncompleteEdgeCount,
+    int BindingIdentityConflictCount)
 {
-    public static CatalogCallGraphDiagnostics Empty { get; } = new(0, 0);
+    public static CatalogCallGraphDiagnostics Empty { get; } =
+        new(0, 0, 0);
 
     public bool IsIncomplete =>
-        IncompleteNodeCount > 0 || IncompleteEdgeCount > 0;
+        IncompleteNodeCount > 0
+        || IncompleteEdgeCount > 0
+        || BindingIdentityConflictCount > 0;
 }
 
 /// <summary>
 /// Catalog-owned identity and storage domain for one fixed assembly group.
 /// Signature plans, resolution, physical graph storage, and both traversal
-/// directions are built once and reused until the scope is released.
+/// directions are built once and reused until the scope is released. The
+/// first distinct participant is the primary assembly for identity-conflict
+/// diagnostics.
 /// </summary>
 public sealed class CatalogCallGraphScope : IDisposable
 {
@@ -163,6 +193,14 @@ public sealed class CatalogCallGraphScope : IDisposable
     /// </summary>
     public ImmutableArray<GraphEdgeEvidence> IncompleteEdges =>
         Graph.IncompleteEdges;
+
+    /// <summary>
+    /// Exact call-site bindings to a different identity of the primary
+    /// assembly. The calls retain their exact identity and are not joined to
+    /// the primary assembly.
+    /// </summary>
+    public ImmutableArray<GraphBindingIdentityConflictEvidence>
+        BindingIdentityConflicts => Graph.BindingIdentityConflicts;
 
     public int StorageNodeCount => Graph.StorageNodeCount;
     public int StorageEdgeCount => Graph.StorageEdgeCount;
@@ -275,6 +313,8 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly ImmutableArray<StoredEdge> _edges;
         readonly ImmutableArray<GraphNodeEvidence> _incompleteNodes;
         readonly ImmutableArray<GraphEdgeEvidence> _incompleteEdges;
+        readonly ImmutableArray<GraphBindingIdentityConflictEvidence>
+            _bindingIdentityConflicts;
         readonly CatalogCallGraphDiagnostics _diagnostics;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredDefinition>>
             _definitionsByIdentity;
@@ -289,6 +329,7 @@ public sealed class CatalogCallGraphScope : IDisposable
 
         ScopeGraph(
             TypeResolutionContext context,
+            ImmutableArray<CatalogCallGraphParticipant> participants,
             ImmutableArray<StoredDefinition> definitions,
             ImmutableArray<StoredCallSite> callSites,
             ImmutableArray<StoredEdge> edges)
@@ -321,9 +362,14 @@ public sealed class CatalogCallGraphScope : IDisposable
                         edge.Call.Kind,
                         edge.Call.InLoop)),
             ];
+            _bindingIdentityConflicts = FindBindingIdentityConflicts(
+                participants,
+                definitions,
+                callSites);
             _diagnostics = new(
                 _incompleteNodes.Length,
-                _incompleteEdges.Length);
+                _incompleteEdges.Length,
+                _bindingIdentityConflicts.Length);
             _definitionByLocation = definitions.ToDictionary(
                 definition =>
                     (definition.Participant.Index, definition.Method.MetadataToken));
@@ -368,6 +414,74 @@ public sealed class CatalogCallGraphScope : IDisposable
             _incompleteNodes;
         internal ImmutableArray<GraphEdgeEvidence> IncompleteEdges =>
             _incompleteEdges;
+        internal ImmutableArray<GraphBindingIdentityConflictEvidence>
+            BindingIdentityConflicts => _bindingIdentityConflicts;
+
+        static ImmutableArray<GraphBindingIdentityConflictEvidence>
+            FindBindingIdentityConflicts(
+                ImmutableArray<CatalogCallGraphParticipant> participants,
+                ImmutableArray<StoredDefinition> definitions,
+                ImmutableArray<StoredCallSite> callSites)
+        {
+            AssemblyReferenceIdentity primary =
+                participants[0].Assembly.Identity;
+            Dictionary<
+                GraphNodeIdentity,
+                ImmutableArray<AssemblyReferenceIdentity>>
+                skewedDefinitions = definitions
+                    .Where(definition =>
+                        string.Equals(
+                            definition.Participant.Assembly.Identity.Name,
+                            primary.Name,
+                            StringComparison.OrdinalIgnoreCase)
+                        && definition.Participant.Assembly.Identity
+                            != primary)
+                    .GroupBy(definition => definition.Evidence.Identity)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group
+                            .Select(definition =>
+                                definition.Participant.Assembly.Identity)
+                            .Distinct()
+                            .ToImmutableArray());
+            if (skewedDefinitions.Count == 0)
+                return [];
+
+            var conflicts = ImmutableArray.CreateBuilder<
+                GraphBindingIdentityConflictEvidence>();
+            foreach (StoredCallSite callSite in callSites)
+            {
+                if (callSite.Call.Callee.DeclaringType.Resolution?.Origin
+                        is not TypeReferenceOrigin.AssemblyReference requested
+                    || !string.Equals(
+                        requested.Assembly.Name,
+                        primary.Name,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !skewedDefinitions.TryGetValue(
+                        callSite.Evidence.Identity,
+                        out ImmutableArray<AssemblyReferenceIdentity>
+                            selectedIdentities))
+                {
+                    continue;
+                }
+
+                foreach (AssemblyReferenceIdentity selected
+                    in selectedIdentities)
+                {
+                    if (selected != requested.Assembly)
+                        continue;
+
+                    conflicts.Add(
+                        new GraphBindingIdentityConflictEvidence(
+                            callSite.Evidence,
+                            requested.Assembly,
+                            selected,
+                            primary));
+                }
+            }
+
+            return conflicts.ToImmutable();
+        }
 
         internal static ScopeGraph Create(
             TypeResolutionCatalog catalog,
@@ -499,6 +613,7 @@ public sealed class CatalogCallGraphScope : IDisposable
 
                 return new ScopeGraph(
                     context,
+                    participants,
                     storedDefinitions.ToImmutable(),
                     storedCallSites.ToImmutable(),
                     storedEdges.ToImmutable());

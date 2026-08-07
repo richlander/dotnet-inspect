@@ -178,9 +178,12 @@ package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
 host renders them with its own per-section tree rendering *or* projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
-`Diagnostics` is a stable count summary distilled before any temporary catalog
-scope is released. A host can therefore disclose incomplete correspondence
-without retaining generation-bound graph evidence or rebuilding the graph.
+`Diagnostics` is a stable count summary of incomplete correspondence and exact
+bindings to a different identity of the primary assembly, distilled before any
+temporary catalog scope is released. A host can therefore disclose those
+boundaries without retaining generation-bound graph evidence or rebuilding the
+graph. The exact binding remains exact graph identity; the diagnostic does not
+join one assembly version to another.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library

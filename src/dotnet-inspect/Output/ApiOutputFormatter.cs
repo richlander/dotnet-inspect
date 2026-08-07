@@ -1223,7 +1223,7 @@ public static class ApiOutputFormatter
             return;
 
         CommandError.WriteWarning(
-            "Call graph results are incomplete because one or more caller-scope assembly references could not be fully resolved.");
+            "Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.");
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)
