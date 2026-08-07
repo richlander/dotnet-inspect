@@ -60,6 +60,35 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_RecordsExecutableBodyPresenceFromMethodRvas()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType sample = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(SampleClassForTesting));
+        ApiType pinvoke = Assert.Single(
+            surface.Types,
+            type => type.Name == nameof(SamplePInvokeClass));
+
+        Assert.True(Assert.Single(
+            sample.Members,
+            member => member.Name == nameof(SampleClassForTesting.MethodWithParameters))
+            .HasMethodBody);
+        Assert.True(Assert.Single(
+            sample.Members,
+            member => member.Name == nameof(SampleClassForTesting.PropertyWithReturnNotNull))
+            .HasMethodBody);
+        Assert.False(Assert.Single(
+            pinvoke.Members,
+            member => member.Name == nameof(SamplePInvokeClass.GetCurrentProcessId))
+            .HasMethodBody);
+    }
+
+    [Fact]
     public void Extract_EscapesKeywordParameterNamesInMethodSignatures()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;

@@ -542,6 +542,7 @@ public static class ApiSurfaceExtractor
                     // round-tripped ApiSurface (where SignatureModel is gone).
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
+                    HasMethodBody = method.RelativeVirtualAddress != 0,
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
@@ -634,7 +635,9 @@ public static class ApiSurfaceExtractor
                     ObsoleteMessage = obsoleteMessage,
                     Attributes = RenderMemberAttributes(reader, prop.GetCustomAttributes()),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)
+                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    HasMethodBody = HasMethodBody(reader, accessors.Getter)
+                        || HasMethodBody(reader, accessors.Setter)
                 };
 
                 budget?.RetainMember();
@@ -866,7 +869,9 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    HasMethodBody = HasMethodBody(reader, accessors.Adder)
+                        || HasMethodBody(reader, accessors.Remover)
                 };
 
                 budget?.RetainMember();
@@ -1690,6 +1695,7 @@ public static class ApiSurfaceExtractor
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MetadataToken = extension.MetadataToken,
+                    HasMethodBody = extension.HasMethodBody,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,
@@ -1707,6 +1713,9 @@ public static class ApiSurfaceExtractor
             }
         }
     }
+
+    private static bool HasMethodBody(MetadataReader reader, MethodDefinitionHandle handle)
+        => !handle.IsNil && reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
 
     private static IEnumerable<string> GetTypeMatchKeys(ApiType type)
     {

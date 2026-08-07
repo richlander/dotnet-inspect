@@ -118,20 +118,21 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>()
-            .Add<ExceptionRegions>()
-            .Add<CalledTypes>()
-            .Add<AllocationFacts>()
-            .Add<SafetyFacts>()
-            .Add<CostFacts>()
-            .Add<TopLeverage>()
-            .Add<OptimizationOpportunities>()
+            .Add<UnsafeMembers>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<ExceptionRegions>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<CalledTypes>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<AllocationFacts>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<SafetyFacts>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<CostFacts>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<TopLeverage>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<OptimizationOpportunities>(isViewApplicable: HasExecutableBodyMembers)
             .Add<SourceFiles>()
-            .Add<DecompiledSource>()
-            .Add<OriginalSource>()
-            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
-            .Add<ILBody>()
-            .Add<Facts>()
+            .Add<DecompiledSource>(isViewApplicable: HasExecutableBodyMembersOrEnum)
+            .Add<OriginalSource>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
+                isViewApplicable: HasExecutableBodyMembers)
+            .Add<ILBody>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<Facts>(isViewApplicable: HasExecutableBodyMembers)
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -322,7 +323,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class CostOverlay : ISectionDescriptor<ApiType>
@@ -334,7 +335,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class SemanticsOverlay : ISectionDescriptor<ApiType>
@@ -346,7 +347,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class UnsafeMembers : ISectionDescriptor<ApiType>
@@ -356,7 +357,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
@@ -367,7 +368,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class CalledTypes : ISectionDescriptor<ApiType>
@@ -378,7 +379,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class AllocationFacts : ISectionDescriptor<ApiType>
@@ -446,7 +447,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class SourceFiles : ISectionDescriptor<ApiType>
@@ -458,7 +459,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike)
+            => model.Members.Any(IsBodyBacked)
                || !string.IsNullOrWhiteSpace(model.SourceUrl)
                || model.AdditionalSourceFiles.Count > 0;
     }
@@ -473,7 +474,7 @@ public static class ApiMemberSectionDescriptors
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
             // their declaration and values.
-            => model.Members.Any(IsMethodLike) || model.Kind == "enum";
+            => model.Members.Any(IsBodyBacked) || model.Kind == "enum";
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
@@ -482,7 +483,7 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class Facts : ISectionDescriptor<ApiType>
@@ -505,7 +506,7 @@ public static class ApiMemberSectionDescriptors
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public static bool IsMethodLike(ApiMember member) =>
@@ -527,7 +528,7 @@ public static class ApiMemberSectionDescriptors
     /// method identity for explicit CLI diagnostics but do not advertise body-dependent views.
     /// </summary>
     public static bool HasExecutableBody(ApiMember member) =>
-        !member.IsAbstract && IsBodyBacked(member);
+        member.HasMethodBody && IsBodyBacked(member);
 
     /// <summary>
     /// True when a property/event member records at least one accessor method token
@@ -551,6 +552,12 @@ public static class ApiMemberSectionDescriptors
 
     private static bool HasExtensionMethods(ApiType model)
         => model.Members.Any(m => m.Kind == "extension-method");
+
+    private static bool HasExecutableBodyMembers(ApiType model)
+        => model.Members.Any(HasExecutableBody);
+
+    private static bool HasExecutableBodyMembersOrEnum(ApiType model)
+        => model.Kind == "enum" || HasExecutableBodyMembers(model);
 }
 
 /// <summary>
@@ -572,22 +579,32 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
-            .Add<ApiMemberSectionDescriptors.SourceLocations>()
+            .Add<ApiMemberSectionDescriptors.SourceLocations>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.Operators>()
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
             .Add<ApiMemberSectionDescriptors.Events>()
             .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.DecompiledSource>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
-            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.OriginalSource>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
@@ -664,14 +681,14 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Summary>()
             .Add<Signature>()
             .Add<MethodAttributes>()
-            .Add<DecompiledSource>()
-            .Add<FidelityCauses>()
-            .Add<AppliedTaste>()
+            .Add<DecompiledSource>(isViewApplicable: HasExecutableBody)
+            .Add<FidelityCauses>(isViewApplicable: HasExecutableBody)
+            .Add<AppliedTaste>(isViewApplicable: HasExecutableBody)
             .Add<AnnotatedSource>(isViewApplicable: HasExecutableBody)
             .Add<AnnotatedSourceDocument>(isViewApplicable: HasExecutableBody)
             .Add<CostOverlay>(isViewApplicable: HasExecutableBody)
             .Add<SemanticsOverlay>(isViewApplicable: HasExecutableBody)
-            .Add<OriginalSource>()
+            .Add<OriginalSource>(isViewApplicable: HasExecutableBody)
             .Add<SourceDiff>(isViewApplicable: HasExecutableBody)
             .Add<SourceLocations>(isViewApplicable: HasExecutableBody)
             .Add<Calls>(isViewApplicable: HasExecutableBody)

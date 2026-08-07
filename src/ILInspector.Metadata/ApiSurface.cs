@@ -588,6 +588,13 @@ public class ApiMember
     public int? MetadataToken { get; set; }
 
     /// <summary>
+    /// True when this member has at least one executable method body. For methods this reflects
+    /// the MethodDef RVA; for properties and events it reflects their accessor MethodDefs.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasMethodBody { get; set; }
+
+    /// <summary>
     /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level
     /// call-graph rows (e.g. <c>get_Foo</c>) map back to the owning property's selector.
     /// </summary>

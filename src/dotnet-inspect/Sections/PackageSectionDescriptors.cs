@@ -244,6 +244,7 @@ public static class PackageSectionDescriptors
         public static string Name => PackageSections.SourceLinkFiles;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         // PDB acquisition plus a per-document listing: never auto-run. Matches the library
         // declaration of the same section; the @SourceLink door keeps it discoverable.

@@ -12,7 +12,13 @@ public class InspectionViewDescriptorTests
     public static TheoryData<ApiMember, bool> BodyApplicabilityCases => new()
     {
         {
-            new ApiMember { Name = "Run", Kind = "method", MetadataToken = 0x06000001 },
+            new ApiMember
+            {
+                Name = "Run",
+                Kind = "method",
+                MetadataToken = 0x06000001,
+                HasMethodBody = true
+            },
             true
         },
         {
@@ -26,7 +32,13 @@ public class InspectionViewDescriptorTests
             false
         },
         {
-            new ApiMember { Name = "Value", Kind = "property", GetterToken = 0x06000002 },
+            new ApiMember
+            {
+                Name = "Value",
+                Kind = "property",
+                GetterToken = 0x06000002,
+                HasMethodBody = true
+            },
             true
         },
         {
@@ -34,7 +46,13 @@ public class InspectionViewDescriptorTests
             false
         },
         {
-            new ApiMember { Name = "Changed", Kind = "event", AdderToken = 0x06000003 },
+            new ApiMember
+            {
+                Name = "Changed",
+                Kind = "event",
+                AdderToken = 0x06000003,
+                HasMethodBody = true
+            },
             true
         }
     };
@@ -57,8 +75,10 @@ public class InspectionViewDescriptorTests
 
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.AnnotatedSource));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.CallGraph));
+        Assert.Equal(hasBodyViews, ids.Contains(SectionNames.DecompiledSource));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.Facts));
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.IL));
+        Assert.Equal(hasBodyViews, ids.Contains(SectionNames.OriginalSource));
     }
 
     [Fact]
@@ -71,7 +91,13 @@ public class InspectionViewDescriptorTests
             Kind = "class",
             Members =
             [
-                new ApiMember { Name = "Run", Kind = "method", MetadataToken = 0x06000001 }
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = true
+                }
             ]
         };
 
@@ -96,6 +122,45 @@ public class InspectionViewDescriptorTests
                 model,
                 Verbosity.Normal,
                 new HashSet<string>(selection.SectionNames, StringComparer.OrdinalIgnoreCase)));
+    }
+
+    [Theory]
+    [InlineData("property")]
+    [InlineData("event")]
+    public void AccessorOverloadViews_RoundTripThroughExecution(string kind)
+    {
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = kind,
+                    GetterToken = kind == "property" ? 0x06000001 : null,
+                    AdderToken = kind == "event" ? 0x06000001 : null,
+                    HasMethodBody = true
+                }
+            ]
+        };
+        string[] requested =
+        [
+            SectionNames.DecompiledSource,
+            SectionNames.OriginalSource,
+            SectionNames.IL
+        ];
+
+        InspectionViewSelection selection = pipeline.ResolveInspectionViews(model, requested);
+        IReadOnlyList<string> effective = pipeline.GetEffectiveSections(
+            model,
+            Verbosity.Normal,
+            new HashSet<string>(selection.SectionNames, StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(requested, selection.Views.Select(view => view.Id));
+        Assert.Equal(requested, effective);
     }
 
     [Fact]
@@ -135,6 +200,49 @@ public class InspectionViewDescriptorTests
         Assert.Contains(
             PackageSections.PackageInfo,
             pipeline.ResolveInspectionViews(model, [packageInfo.Id]).SectionNames);
+    }
+
+    [Fact]
+    public void SourcePlanCapabilities_MatchInspectionViewDescriptors()
+    {
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            HasSourceLink = true
+        };
+        IReadOnlyDictionary<string, InspectionViewDescriptor> views =
+            LibrarySections.CreatePipeline()
+                .GetInspectionViews(model, includeInapplicable: true)
+                .ToDictionary(view => view.Id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (LibrarySourceSectionPlan sourceSection in LibrarySourcePlans.Sections)
+        {
+            SectionCapabilities expected = SectionCapabilities.MayDownloadPdb;
+            if (sourceSection.AuditSources)
+                expected |= SectionCapabilities.MayAuditSources;
+            if (sourceSection.VerifyIntegrity)
+                expected |= SectionCapabilities.MayFetchSources;
+
+            Assert.Equal(expected, views[sourceSection.Name].Capabilities);
+        }
+    }
+
+    [Fact]
+    public void PackageSourceLinkView_DisclosesPdbAcquisition()
+    {
+        var model = new InspectionResult
+        {
+            PackageName = "Example.Package",
+            Version = "1.0.0",
+            AssemblyCount = 1
+        };
+
+        InspectionViewDescriptor view = Assert.Single(
+            PackageSectionDescriptors.CreatePipeline().GetInspectionViews(model),
+            candidate => candidate.Id == PackageSections.SourceLinkFiles);
+
+        Assert.Equal(SectionCapabilities.MayDownloadPdb, view.Capabilities);
+        Assert.True(view.MayUseNetwork);
     }
 
     [Fact]
