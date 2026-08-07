@@ -982,6 +982,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void GetSourceKey_DistinguishesRepeatedTrailingSlashes()
+    {
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json"),
+            NuGetCache.GetSourceKey("https://pkgs.invalid/v3/index.json//"));
+    }
+
+    [Fact]
     public void GetSourceKey_DerivesWebSourceIdentityFromTheSharedCanonicalizer()
     {
         // The cache identity and the credential-scope comparison must agree
@@ -1121,18 +1129,105 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         var forward = PackageExtractor.CreatePackageAcquisitionRequest(
             "example",
             "1.0.0",
-            [producerA, producerB]);
+            [producerA, producerB],
+            null,
+            null);
         var reversed = PackageExtractor.CreatePackageAcquisitionRequest(
             "example",
             "1.0.0",
-            [producerB, producerA]);
+            [producerB, producerA],
+            null,
+            null);
         var reporterAOnly = PackageExtractor.CreatePackageAcquisitionRequest(
             "example",
             "1.0.0",
-            [producerA]);
+            [producerA],
+            null,
+            null);
 
         Assert.NotEqual(forward, reversed);
         Assert.NotEqual(forward, reporterAOnly);
+    }
+
+    [Fact]
+    public void PackageAcquisitionIdentity_IncludesCredentialTransport()
+    {
+        const string SourceUrl = "https://feed.invalid/v3/index.json";
+        string producer = NuGetCache.GetSourceKey(SourceUrl);
+        using var client = new HttpClient();
+        var stale = new NuGetFetch.PackageSource(
+            "feed",
+            SourceUrl,
+            new NuGetFetch.PackageSourceCredential("user", "stale"));
+        var valid = new NuGetFetch.PackageSource(
+            "feed",
+            SourceUrl,
+            new NuGetFetch.PackageSourceCredential("user", "valid"));
+
+        var staleRequest = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [stale],
+            client);
+        var validRequest = PackageExtractor.CreatePackageAcquisitionRequest(
+            "example",
+            "1.0.0",
+            [producer],
+            [valid],
+            client);
+
+        Assert.NotEqual(staleRequest, validRequest);
+        Assert.DoesNotContain("stale", staleRequest.ToString());
+        Assert.DoesNotContain("valid", validRequest.ToString());
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_DoesNotShareFlightsAcrossHttpClients()
+    {
+        string packageName = $"clientflight.test.{Guid.NewGuid():N}";
+        const string Version = "1.0.0";
+        byte[] archive = CreatePackageArchive(packageName, Version);
+        var firstHandler = new GatedPackageHandler(archive);
+        var secondHandler = new GatedPackageHandler(archive);
+        using var firstClient = new HttpClient(firstHandler);
+        using var secondClient = new HttpClient(secondHandler);
+
+        Task<PackageExtractionOutcome> first =
+            PackageExtractor.ExtractPackageAsync(
+                firstClient,
+                packageName,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+        Task<PackageExtractionOutcome> second =
+            PackageExtractor.ExtractPackageAsync(
+                secondClient,
+                packageName,
+                sourceOptions: s_nugetOrgSource,
+                version: Version);
+
+        bool[] bothStarted;
+        try
+        {
+            bothStarted = await Task.WhenAll(
+                WaitForRequestCountAsync(
+                    firstHandler,
+                    1,
+                    TimeSpan.FromSeconds(20)),
+                WaitForRequestCountAsync(
+                    secondHandler,
+                    1,
+                    TimeSpan.FromSeconds(20)));
+        }
+        finally
+        {
+            firstHandler.Release();
+            secondHandler.Release();
+        }
+
+        Assert.All(bothStarted, Assert.True);
+        PackageExtractionOutcome[] outcomes = await Task.WhenAll(first, second);
+        Assert.All(outcomes, outcome => Assert.True(outcome.IsSuccess));
     }
 
     [Fact]

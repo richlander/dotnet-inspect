@@ -106,7 +106,11 @@ public static class NuGetCredentialScope
         // is not, because a trailing slash inside a query is a value, not a path terminator.
         var origin =
             $"{url.Scheme.ToLowerInvariant()}://{url.IdnHost.ToLowerInvariant()}:{url.Port}";
-        var path = NormalizeEscapes(url.AbsolutePath.TrimEnd('/'));
+        string absolutePath = url.AbsolutePath;
+        var path = NormalizeEscapes(
+            absolutePath.EndsWith("/", StringComparison.Ordinal)
+                ? absolutePath[..^1]
+                : absolutePath);
         var query = NormalizeEscapes(url.Query);
         var fragment = NormalizeEscapes(url.Fragment);
         return $"{origin}{path}{query}{fragment}";

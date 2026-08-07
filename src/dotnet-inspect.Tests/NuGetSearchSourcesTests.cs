@@ -972,9 +972,20 @@ public class NuGetSearchSourcesTests
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
 
-            HttpResponseMessage response = _routes.TryGetValue(
-                WithoutQuery(url),
-                out (HttpStatusCode Status, string Body) route)
+            bool laterSearchPage = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Any(parameter =>
+                    parameter.StartsWith("skip=", StringComparison.OrdinalIgnoreCase)
+                    && parameter is not "skip=0");
+            HttpResponseMessage response = laterSearchPage
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"data":[]}""")
+                }
+                : _routes.TryGetValue(
+                    WithoutQuery(url),
+                    out (HttpStatusCode Status, string Body) route)
                 ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
 

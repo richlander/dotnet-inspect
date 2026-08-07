@@ -3,6 +3,9 @@
 
 using System.IO.Compression;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using DotnetInspector.Core;
 using InertText;
 using NuGetFetch;
@@ -68,6 +71,11 @@ public static class PackageExtractor
 
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
         s_packageRequests = new();
+    private static readonly ConditionalWeakTable<HttpClient, HttpClientIdentity>
+        s_httpClientIdentities = new();
+    private static readonly byte[] s_transportScopeKey =
+        RandomNumberGenerator.GetBytes(32);
+    private static long s_nextHttpClientIdentity;
 
     // PackageExtractor is the desktop acquisition path: its outputs are on-disk
     // extracted directories (IPackageContent.RootPath) that the CLI's existing
@@ -336,7 +344,9 @@ public static class PackageExtractor
         PackageAcquisitionRequest request = CreatePackageAcquisitionRequest(
             normalizedName,
             normalizedVersion,
-            authorizedProducerKeys);
+            authorizedProducerKeys,
+            authorizedSources,
+            client);
         PackageExtractionOutcome outcome =
             await s_packageRequests.GetOrAddAsync(
             request,
@@ -554,23 +564,70 @@ public static class PackageExtractor
     internal static PackageAcquisitionRequest CreatePackageAcquisitionRequest(
         string normalizedName,
         string normalizedVersion,
-        IReadOnlyList<string> authorizedProducerKeys)
+        IReadOnlyList<string> authorizedProducerKeys,
+        IReadOnlyList<NuGetSource>? transportSources,
+        HttpClient? client)
         => new(
             $"{normalizedName}@{normalizedVersion}",
             string.Join(
                 '|',
                 authorizedProducerKeys
                     .Distinct(StringComparer.Ordinal)),
+            CreateTransportScope(transportSources, client),
             Path.GetFullPath(NuGetCache.GetPackageContentCachePath()),
             NuGetCache.UsesGlobalPackages,
             HttpClientFactory.IsOffline);
 
+    private static string CreateTransportScope(
+        IReadOnlyList<NuGetSource>? sources,
+        HttpClient? client)
+    {
+        if (sources is null && client is null)
+            return string.Empty;
+
+        var scope = new StringBuilder();
+        if (client is not null)
+        {
+            long clientIdentity = s_httpClientIdentities.GetValue(
+                client,
+                static _ => new HttpClientIdentity(
+                    Interlocked.Increment(ref s_nextHttpClientIdentity))).Value;
+            Append(clientIdentity.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        if (sources is not null)
+        {
+            foreach (NuGetSource source in sources)
+            {
+                Append(source.Url);
+                Append(source.Credential?.Username);
+                Append(source.Credential?.Password);
+            }
+        }
+
+        return Convert.ToHexString(
+            HMACSHA256.HashData(
+                s_transportScopeKey,
+                Encoding.UTF8.GetBytes(scope.ToString())));
+
+        void Append(string? value)
+        {
+            scope.Append(value?.Length ?? -1);
+            scope.Append(':');
+            scope.Append(value);
+            scope.Append(';');
+        }
+    }
+
     internal readonly record struct PackageAcquisitionRequest(
         string Coordinate,
         string AuthorizedProducerScope,
+        string TransportScope,
         string CacheRoot,
         bool UseGlobalPackages,
         bool Offline);
+
+    private sealed record HttpClientIdentity(long Value);
 
     /// <summary>
     /// Gets the download URL for a package from a specific source.

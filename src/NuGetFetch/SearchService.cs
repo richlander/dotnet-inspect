@@ -7,6 +7,9 @@ namespace NuGetFetch;
 /// </summary>
 public class SearchService(HttpClient client, string? searchUrl = null)
 {
+    private const int PrefixSearchPageSize = 100;
+    private const int MaxPrefixSearchPages = 32;
+    private static readonly TimeSpan PrefixSearchTimeout = TimeSpan.FromSeconds(30);
     private readonly string _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
 
     /// <summary>
@@ -73,22 +76,35 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        const int PageSize = 100;
         List<SearchResult> matches = [];
+        var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int skip = 0;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(PrefixSearchTimeout);
 
-        while (matches.Count < take)
+        for (int pageNumber = 0;
+            pageNumber < MaxPrefixSearchPages && matches.Count < take;
+            pageNumber++)
         {
             IReadOnlyList<SearchResult> page = await SearchPageAsync(
                 prefix,
                 skip,
-                PageSize,
+                PrefixSearchPageSize,
                 prerelease,
                 auth,
-                cancellationToken).ConfigureAwait(false);
+                timeout.Token).ConfigureAwait(false);
+            if (page.Count == 0)
+                return matches;
+
+            bool madeProgress = false;
             foreach (SearchResult result in page)
             {
-                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                madeProgress |= observedResults.Add(
+                    $"{result.Id.Length}:{result.Id}{result.Version}");
+                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && matchedIds.Add(result.Id))
                 {
                     matches.Add(result);
                     if (matches.Count == take)
@@ -96,11 +112,16 @@ public class SearchService(HttpClient client, string? searchUrl = null)
                 }
             }
 
-            if (page.Count < PageSize)
-                break;
+            if (!madeProgress)
+                throw new InvalidOperationException(
+                    "NuGet search pagination repeated a page without making progress.");
 
             skip += page.Count;
         }
+
+        if (matches.Count < take)
+            throw new InvalidOperationException(
+                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
 
         return matches;
     }
