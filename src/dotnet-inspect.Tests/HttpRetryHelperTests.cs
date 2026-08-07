@@ -156,6 +156,7 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.NonRetryableStatus, "\n//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "\\/user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, " \\/user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "https://private.example/F/auth/auth/sup3rs3cret/api/v3/index.json", "(not retryable)", false)]
     public async Task FailureLogsRedactTheUrlOnEveryBranch(
         RetryFailureMode mode,
         string url,
@@ -232,8 +233,12 @@ public class HttpRetryHelperTests
         Assert.Contains("https:///v3/index.json", branchLog, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task FailureLogsRedactBackslashDelimitedRelativePath()
+    [Theory]
+    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "F\\feed\\auth\\REDACTED\\api")]
+    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "F\\auth\\REDACTED\\REDACTED\\api")]
+    public async Task FailureLogsRedactBackslashDelimitedRelativePath(
+        string url,
+        string expectedUrl)
     {
         var messages = new List<string>();
         using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus))
@@ -243,7 +248,7 @@ public class HttpRetryHelperTests
 
         var content = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
-            "F\\feed\\auth\\sup3rs3cret\\api",
+            url,
             retryCount: 0,
             log: messages.Add,
             cancellationToken: TestContext.Current.CancellationToken);
@@ -252,7 +257,7 @@ public class HttpRetryHelperTests
         string branchLog = Assert.Single(messages, message =>
             message.Contains("(not retryable)", StringComparison.Ordinal));
         Assert.DoesNotContain("sup3rs3cret", branchLog, StringComparison.Ordinal);
-        Assert.Contains("F\\feed\\auth\\REDACTED\\api", branchLog, StringComparison.Ordinal);
+        Assert.Contains(expectedUrl, branchLog, StringComparison.Ordinal);
     }
 
     [Fact]

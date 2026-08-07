@@ -192,6 +192,7 @@ public class FeedFailureTelemetryTests
     [InlineData("\n//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     [InlineData("\\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     [InlineData(" \\/user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("https://private.example/F/auth/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
     public async Task ASecretInTheSourceUrlIsNeverStoredOrRendered(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
@@ -238,8 +239,12 @@ public class FeedFailureTelemetryTests
         Assert.Equal("https:///v3/index.json", failure.Url.ToString());
     }
 
-    [Fact]
-    public async Task ABackslashDelimitedRelativePathTokenIsNeverStoredOrRendered()
+    [Theory]
+    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "F\\feed\\auth\\REDACTED\\api")]
+    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "F\\auth\\REDACTED\\REDACTED\\api")]
+    public async Task ABackslashDelimitedRelativePathTokenIsNeverStoredOrRendered(
+        string url,
+        string expectedUrl)
     {
         using var scope = FeedFailureTelemetry.Scope();
         using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized))
@@ -249,13 +254,13 @@ public class FeedFailureTelemetryTests
 
         await HttpRetryHelper.GetStringWithRetryAsync(
             client,
-            "F\\feed\\auth\\sup3rs3cret\\api",
+            url,
             retryCount: 0,
             cancellationToken: TestContext.Current.CancellationToken,
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
-        Assert.Equal("F\\feed\\auth\\REDACTED\\api", failure.Url.ToString());
+        Assert.Equal(expectedUrl, failure.Url.ToString());
 
         var described = FeedFailureTelemetry.Current.DescribeFailure("markout");
         Assert.NotNull(described);

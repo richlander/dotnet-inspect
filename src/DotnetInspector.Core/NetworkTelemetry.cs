@@ -376,8 +376,7 @@ public sealed record NetworkRequestObservation(
                 builder.Append(path[i]);
 
             changed |= redact;
-            previousWasAuth = !redact
-                && segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            previousWasAuth = segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
             segmentStart = i + 1;
         }
 
