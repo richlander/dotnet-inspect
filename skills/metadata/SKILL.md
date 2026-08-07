@@ -16,9 +16,9 @@ dnx dotnet-inspect -y -- <command>
 
 ## Discover before reading
 
-Metadata tables are unbounded and explicit-only: no verbosity and not even
-`-S @All` renders them automatically. Discover the tables present in the image,
-then count or select one:
+Metadata tables are unbounded and explicit-only: no verbosity or base category
+renders them automatically. Discover the tables present in the image, then
+count or select one:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -D @Metadata

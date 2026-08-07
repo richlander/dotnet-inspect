@@ -54,10 +54,12 @@ devirtualization, bounds-check elimination, null-check folding).
 Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
 confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
 curated ranked prefix. Supplying any of those flags selects the applicable
-performance lens automatically. In library tabular output, `@Performance`
-flattens the kind sections into one table with a leading `Kind` column. `--top`
-narrows ranked data before rendering; `--rows N` caps rendered rows afterward.
-Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
+performance lens automatically. In library row formats, `Performance:*`
+flattens the homogeneous kind sections into one table with a leading `Kind`
+column. `@Performance` also includes heterogeneous sections, so use it for
+discovery, counts, Markdown, or JSON documents instead. `--top` narrows ranked
+data before rendering; `--rows N` caps rendered rows afterward. Common shapes
+include `capturing-delegate`, `box-value-type`, `small-array`,
 `linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
 from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
@@ -107,7 +109,7 @@ A once-per-call allocation can still be repeated by an upstream caller's loop.
 Select rows with an exact direct invocation receipt:
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S @Performance \
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "CallerLoop=direct" --jsonl
 ```
 

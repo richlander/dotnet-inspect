@@ -46,21 +46,20 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 
 `@` names a category of sections. Examples include `@Library`, `@Surface`,
 `@Audit`, `@Context`, `@Source`, `@SourceLink`, `@Integrations`,
-`@Performance`, and `@Metadata`; `@All` selects across categories. `Switches`
-is a plain section, not a category. Some large families expose only their
-category door in the top-level catalog; drill in with `-D @Performance` or
-`-D @Metadata`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one
-concrete section; supported grouped categories add a self-identifying leading
-column.
+`@Performance`, and `@Metadata`. `Switches` is a plain section, not a category.
+Some large families expose only their category door in the top-level catalog;
+drill in with `-D @Performance` or `-D @Metadata`. Row formats
+(`--tsv`/`--jsonl`/`--table`) require one concrete section or a supported
+homogeneous family; `Performance:*` flattens with a leading `Kind` column.
 
 ## Filter and order performance rows
 
-On `@Performance` and `Performance Triage`, use `--where` with a discovered
+On `Performance:*` and `Performance Triage`, use `--where` with a discovered
 field name and repeat it to combine predicates. Use
 `--order-by "Field desc,Other asc"` before applying output limits.
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S @Performance \
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Finding=analysis.allocation" --order-by "RootReach desc" --jsonl
 ```
 
