@@ -304,8 +304,11 @@ public sealed record NetworkRequestObservation(
 
         string relative = uri.ToString();
         int networkPathStart = 0;
-        while (networkPathStart < relative.Length && char.IsWhiteSpace(relative[networkPathStart]))
+        while (networkPathStart < relative.Length
+            && relative[networkPathStart] is ' ' or '\t' or '\r' or '\n')
+        {
             networkPathStart++;
+        }
 
         if (relative.Length >= networkPathStart + 2
             && (relative[networkPathStart] == '/' || relative[networkPathStart] == '\\')
@@ -354,17 +357,31 @@ public sealed record NetworkRequestObservation(
         if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
             return path;
 
-        var segments = path.Split('/');
-        for (var i = 1; i < segments.Length; i++)
+        var builder = new StringBuilder(path.Length);
+        int segmentStart = 0;
+        bool previousWasAuth = false;
+        bool changed = false;
+        for (int i = 0; i <= path.Length; i++)
         {
-            if (segments[i].Length > 0
-                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
-            {
-                segments[i] = "REDACTED";
-            }
+            if (i < path.Length && path[i] is not ('/' or '\\'))
+                continue;
+
+            ReadOnlySpan<char> segment = path.AsSpan(segmentStart, i - segmentStart);
+            bool redact = segment.Length > 0 && previousWasAuth;
+            if (redact)
+                builder.Append("REDACTED");
+            else
+                builder.Append(segment);
+            if (i < path.Length)
+                builder.Append(path[i]);
+
+            changed |= redact;
+            previousWasAuth = !redact
+                && segment.Equals("auth", StringComparison.OrdinalIgnoreCase);
+            segmentStart = i + 1;
         }
 
-        return string.Join('/', segments);
+        return changed ? builder.ToString() : path;
     }
 
     private static string RedactQuery(string query)

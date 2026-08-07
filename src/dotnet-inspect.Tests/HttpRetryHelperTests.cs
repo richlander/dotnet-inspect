@@ -232,6 +232,53 @@ public class HttpRetryHelperTests
         Assert.Contains("https:///v3/index.json", branchLog, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task FailureLogsRedactBackslashDelimitedRelativePath()
+    {
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus))
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "F\\feed\\auth\\sup3rs3cret\\api",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        string branchLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.DoesNotContain("sup3rs3cret", branchLog, StringComparison.Ordinal);
+        Assert.Contains("F\\feed\\auth\\REDACTED\\api", branchLog, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnicodeWhitespaceDoesNotCreateNetworkPathAuthority()
+    {
+        var messages = new List<string>();
+        using var handler = new CaptureStatusHandler();
+        using var client = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "\u00A0//user@private.example/path",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        Assert.Equal("base.example", handler.RequestUri?.Host);
+        string branchLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.Contains("user@private.example", branchLog, StringComparison.Ordinal);
+    }
+
     private static void AssertRedactedUrl(string message)
     {
         Assert.DoesNotContain("sup3rs3cret", message, StringComparison.Ordinal);
@@ -277,5 +324,21 @@ public class HttpRetryHelperTests
                 Content = new StringContent("ok"),
                 RequestMessage = request,
             });
+    }
+
+    private sealed class CaptureStatusHandler : HttpMessageHandler
+    {
+        public Uri? RequestUri { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                RequestMessage = request,
+            });
+        }
     }
 }

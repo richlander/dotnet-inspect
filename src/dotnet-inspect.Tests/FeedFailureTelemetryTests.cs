@@ -239,6 +239,30 @@ public class FeedFailureTelemetryTests
     }
 
     [Fact]
+    public async Task ABackslashDelimitedRelativePathTokenIsNeverStoredOrRendered()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized))
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "F\\feed\\auth\\sup3rs3cret\\api",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("F\\feed\\auth\\REDACTED\\api", failure.Url.ToString());
+
+        var described = FeedFailureTelemetry.Current.DescribeFailure("markout");
+        Assert.NotNull(described);
+        Assert.DoesNotContain("sup3rs3cret", described.Value.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void AFailureFromOneRedirectHopDoesNotExplainTheNextHop()
     {
         // A tool wrapper redirect resolves a different package id on each hop. A 401 recorded
