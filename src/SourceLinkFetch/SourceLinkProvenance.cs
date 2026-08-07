@@ -327,9 +327,13 @@ public static class SourceLinkProvenance
         // else -- in the route, the repository segment, 'api-version', or a version selector that
         // the immutability rules already pin to one commit -- leaves the served file fixed.
         if (queryStart >= 0
-            && TrySpanOfContentSelector(url, queryStart, out int valueStart, out int valueEnd)
-            && offset >= valueStart
-            && end <= valueEnd)
+            && TrySpanOfContentSelector(
+                url,
+                queryStart,
+                out int valueStart,
+                out int valueEnd,
+                out bool requestAlwaysFails)
+            && (requestAlwaysFails || (offset >= valueStart && end <= valueEnd)))
         {
             return true;
         }
@@ -622,7 +626,8 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// Finds the span of the parameter value Azure DevOps actually selects content with.
+    /// Finds the span of the parameter value Azure DevOps actually selects content with, or
+    /// reports that both selectors are valued and the host refuses the request.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -656,16 +661,43 @@ public static class SourceLinkProvenance
     /// </para>
     /// </remarks>
     private static bool TrySpanOfContentSelector(
-        string url, int queryStart, out int valueStart, out int valueEnd)
+        string url,
+        int queryStart,
+        out int valueStart,
+        out int valueEnd,
+        out bool requestAlwaysFails)
     {
-        if (TrySpanOfQueryValue(url, queryStart, "path", out valueStart, out valueEnd)
-            && ValueSelects(url, valueStart, valueEnd))
+        bool pathSelects =
+            TrySpanOfQueryValue(url, queryStart, "path", out int pathStart, out int pathEnd)
+            && ValueSelects(url, pathStart, pathEnd);
+        bool scopePathSelects =
+            TrySpanOfQueryValue(
+                url,
+                queryStart,
+                "scopePath",
+                out int scopePathStart,
+                out int scopePathEnd)
+            && ValueSelects(url, scopePathStart, scopePathEnd);
+
+        requestAlwaysFails = pathSelects && scopePathSelects;
+
+        if (pathSelects)
         {
+            valueStart = pathStart;
+            valueEnd = pathEnd;
             return true;
         }
 
-        return TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd)
-            && ValueSelects(url, valueStart, valueEnd);
+        if (scopePathSelects)
+        {
+            valueStart = scopePathStart;
+            valueEnd = scopePathEnd;
+            return true;
+        }
+
+        valueStart = 0;
+        valueEnd = 0;
+        return false;
     }
 
     /// <summary>

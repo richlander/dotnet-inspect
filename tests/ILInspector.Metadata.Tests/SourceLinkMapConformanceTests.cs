@@ -694,6 +694,16 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&path=%20&scopePath=/*",
         true)]
+    // Accepted: when both selectors are valued, Azure returns 400 regardless of which carries the
+    // wildcard. Neither form can serve one fixed file, so resolution must treat them symmetrically.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=/One.cs&scopePath=/*",
+        true)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&scopePath=/One.cs&path=/*",
+        true)]
     // Accepted: a nested spelling is not deleted, because the host makes a single pass and does
     // not rescan. This is the close negative for the middle-bracket row above.
     [InlineData(
