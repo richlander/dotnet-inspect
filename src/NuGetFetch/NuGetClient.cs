@@ -52,7 +52,8 @@ public class NuGetClient(HttpClient client)
     public async Task<string?> GetLatestVersionAsync(string packageId, bool includePrerelease = false, string? sourceUrl = null, PackageSourceCredential? credential = null, CancellationToken cancellationToken = default)
     {
         // For nuget.org, use the search API (faster than listing all versions)
-        if (sourceUrl is null || IsNuGetOrg(sourceUrl))
+        if (sourceUrl is null
+            || PackageSource.IsNuGetOrgServiceIndex(sourceUrl))
         {
             return await GetLatestVersionFromSearchAsync(packageId, includePrerelease, cancellationToken).ConfigureAwait(false);
         }
@@ -182,7 +183,8 @@ public class NuGetClient(HttpClient client)
 
     private async Task<string> ResolveBaseAddressAsync(string? sourceUrl, CancellationToken cancellationToken)
     {
-        if (sourceUrl is null || IsNuGetOrg(sourceUrl))
+        if (sourceUrl is null
+            || PackageSource.IsNuGetOrgServiceIndex(sourceUrl))
         {
             return NuGetOrgFlatContainer;
         }
@@ -197,20 +199,6 @@ public class NuGetClient(HttpClient client)
 
         _baseAddressCache.TryAdd(sourceUrl, baseAddress);
         return baseAddress;
-    }
-
-    private static bool IsNuGetOrg(string url)
-    {
-        if (Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
-        {
-            string host = uri.Host;
-            return host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
-                || host.Equals("azuresearch-usnc.nuget.org", StringComparison.OrdinalIgnoreCase)
-                || host.Equals("globalcdn.nuget.org", StringComparison.OrdinalIgnoreCase)
-                || host.EndsWith(".nuget.org", StringComparison.OrdinalIgnoreCase);
-        }
-
-        return false;
     }
 
     private static void ApplyCredential(HttpRequestMessage request, PackageSourceCredential? credential)

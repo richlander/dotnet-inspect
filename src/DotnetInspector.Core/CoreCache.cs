@@ -291,7 +291,7 @@ public static class CoreCache
             {
                 Directory.CreateDirectory(dir);
             }
-            File.WriteAllText(path, content);
+            WriteAtomically(path, tempPath => File.WriteAllText(tempPath, content));
             CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
@@ -314,12 +314,26 @@ public static class CoreCache
             {
                 Directory.CreateDirectory(dir);
             }
-            File.WriteAllBytes(path, content);
+            WriteAtomically(path, tempPath => File.WriteAllBytes(tempPath, content));
             CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
         {
             // Caching is best-effort
+        }
+    }
+
+    private static void WriteAtomically(string path, Action<string> write)
+    {
+        string tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            write(tempPath);
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
         }
     }
 
