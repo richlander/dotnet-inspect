@@ -155,6 +155,8 @@ Each row contains these fields:
    whatever product state the branch happened to be based on. Measuring a
    methodology or product change against its own base is a valid experiment —
    it belongs in that PR's evidence, not in this series.
+   The `Check EVIL history commits are on main` CI step enforces ancestry for
+   every recorded commit against the full `origin/main` history.
    A methodology-bump PR therefore leaves the newest stored methodology one
    version behind while it is under review. After the change lands, append its
    first row from the resulting `main` commit in a follow-up.

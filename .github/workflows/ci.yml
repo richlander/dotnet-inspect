@@ -73,6 +73,23 @@ jobs:
         with:
           dotnet-version: '11.0.x'
 
+      # Trend rows are reproducible evidence only when their recorded commit
+      # landed on main. This job already has the full history needed to prove
+      # ancestry, so keep the gate here rather than making test jobs deepen
+      # otherwise-shallow checkouts.
+      - name: Check EVIL history commits are on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          history=tools/DecompilerHarness/corpus/evil-runs/history.jsonl
+          jq -e . "$history" > /dev/null
+          while IFS= read -r commit; do
+            if ! git merge-base --is-ancestor "$commit" origin/main; then
+              echo "::error file=$history::Recorded commit '$commit' is not an ancestor of origin/main."
+              exit 1
+            fi
+          done < <(jq -r 'select(.commit != null) | .commit' "$history")
+
       - name: Self-test change detection
         shell: bash
         run: dotnet run eng/test-ci-change-detection.cs
