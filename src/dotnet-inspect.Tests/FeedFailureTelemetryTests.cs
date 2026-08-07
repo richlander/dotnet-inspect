@@ -186,10 +186,17 @@ public class FeedFailureTelemetryTests
     [InlineData("https://private.example/v3/index.json?sig=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/v3/index.json?accessToken=sup3rs3cret", "sup3rs3cret")]
     [InlineData("https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "sup3rs3cret")]
+    [InlineData(" //user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\t//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\r//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
+    [InlineData("\n//user:sup3rs3cret@private.example/v3/index.json", "sup3rs3cret")]
     public async Task ASecretInTheSourceUrlIsNeverStoredOrRendered(string url, string secret)
     {
         using var scope = FeedFailureTelemetry.Scope();
-        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized))
+        {
+            BaseAddress = new Uri("https://base.example/")
+        };
 
         await HttpRetryHelper.GetStringWithRetryAsync(
             client,
@@ -210,6 +217,23 @@ public class FeedFailureTelemetryTests
 
         // Redaction must not blank the whole URL; the operator still needs to know which source.
         Assert.Contains("private.example", failure.Url.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnAcceptedUrlThatCannotBeRebuiltIsStillRecorded()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://\u202E/v3/index.json",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("https:///v3/index.json", failure.Url.ToString());
     }
 
     [Fact]

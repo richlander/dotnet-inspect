@@ -150,6 +150,10 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "Socket error", true)]
     [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret", "request timeout", true)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, " //user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "\t//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "\r//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "\n//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     public async Task FailureLogsRedactTheUrlOnEveryBranch(
         RetryFailureMode mode,
         string url,
@@ -205,6 +209,25 @@ public class HttpRetryHelperTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("ok", content);
+    }
+
+    [Fact]
+    public async Task FailureLoggingDoesNotRequireRebuildingAnAcceptedAbsoluteUrl()
+    {
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus));
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://\u202E/v3/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        string branchLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.Contains("https:///v3/index.json", branchLog, StringComparison.Ordinal);
     }
 
     private static void AssertRedactedUrl(string message)

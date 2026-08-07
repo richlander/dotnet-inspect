@@ -275,11 +275,19 @@ public sealed record NetworkRequestObservation(
         builder.Query = RedactQuery(builder.Query);
         builder.Path = RedactPath(builder.Path);
 
-        // Redaction removes the secrets; this removes the ability to act on the terminal that
-        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
-        // though this were already handled, but it passes Cf straight through — so a bidi
-        // override in a source URL survives into a failure message and reorders it.
-        return new InertString(TextPolicy.Field, builder.Uri.ToString());
+        string redacted;
+        try
+        {
+            redacted = builder.Uri.ToString();
+        }
+        catch (UriFormatException)
+        {
+            // HttpClient accepts some absolute URIs whose normalized host is empty. Preserve a
+            // safe display for those instead of letting diagnostics replace the request failure.
+            redacted = builder.ToString();
+        }
+
+        return new InertString(TextPolicy.Field, redacted);
     }
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
@@ -295,22 +303,34 @@ public sealed record NetworkRequestObservation(
             return RedactUrl(uri) ?? new InertString(TextPolicy.Field, value);
 
         string relative = uri.ToString();
-        if (relative.StartsWith("//", StringComparison.Ordinal))
-            relative = RedactNetworkPathUserInfo(relative);
+        int networkPathStart = 0;
+        while (networkPathStart < relative.Length && char.IsWhiteSpace(relative[networkPathStart]))
+            networkPathStart++;
+
+        if (relative.Length >= networkPathStart + 2
+            && relative[networkPathStart] == '/'
+            && relative[networkPathStart + 1] == '/')
+        {
+            relative = RedactNetworkPathUserInfo(relative, networkPathStart);
+        }
 
         return new InertString(TextPolicy.Field, RedactRelativeUrl(relative));
     }
 
-    private static string RedactNetworkPathUserInfo(string url)
+    private static string RedactNetworkPathUserInfo(string url, int networkPathStart)
     {
-        int authorityEnd = url.IndexOfAny(['/', '?', '#'], 2);
+        int authorityStart = networkPathStart + 2;
+        int authorityEnd = url.IndexOfAny(['/', '?', '#'], authorityStart);
         if (authorityEnd < 0)
             authorityEnd = url.Length;
 
-        int userInfoEnd = url.LastIndexOf('@', authorityEnd - 1, authorityEnd - 1);
-        return userInfoEnd < 2
+        int authorityLength = authorityEnd - authorityStart;
+        int userInfoEnd = authorityLength > 0
+            ? url.LastIndexOf('@', authorityEnd - 1, authorityLength)
+            : -1;
+        return userInfoEnd < authorityStart
             ? url
-            : string.Concat("//", url.AsSpan(userInfoEnd + 1));
+            : string.Concat(url.AsSpan(0, authorityStart), url.AsSpan(userInfoEnd + 1));
     }
 
     private static string RedactRelativeUrl(string url)
