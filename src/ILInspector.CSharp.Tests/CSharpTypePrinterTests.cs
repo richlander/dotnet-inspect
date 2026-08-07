@@ -1176,7 +1176,7 @@ public sealed class CSharpTypePrinterTests
             Kind = "method",
             SignatureModel = new ApiSignature
             {
-                ReturnType = "int",
+                ReturnType = "System.Runtime.InteropServices.UnmanagedType",
                 MemberName = "Encode",
                 Parameters =
                 [
@@ -1204,6 +1204,70 @@ public sealed class CSharpTypePrinterTests
             "[MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]",
             result.Units[0].Source,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "[MarshalAs(UnmanagedType.I4)]",
+            result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DottedAttributeValueKeepsQualificationButStillEscapesAndRequalifies()
+    {
+        var type = CreateEmptyType("App", "Samples");
+        var member = CreateMethod("GetColor");
+        member.SignatureModel!.ReturnType = "Samples.Models.Color";
+        member.Attributes =
+        [
+            "System.ComponentModel.DefaultValue(Samples.Models.Color.Red)",
+            "System.ComponentModel.Description(\"Items[0]\")"
+        ];
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains(
+            "[System.ComponentModel.DefaultValue(global::Samples.Models.Color.Red)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public global::Samples.Models.Color GetColor();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void KeywordRootInDottedAttributeValueIsEscapedWithoutShortening()
+    {
+        var type = CreateEmptyType("Samples", "Worker");
+        var member = CreateMethod("GetColor");
+        member.SignatureModel!.ReturnType = "event.Models.Color";
+        member.Attributes =
+        [
+            "System.ComponentModel.DefaultValue(event.Models.Color.Red)"
+        ];
+        type.Members.Add(member);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains("using @event.Models;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "@event.Models.Color.Red",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("DefaultValue(Color.Red)", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Color GetColor();", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -499,6 +499,46 @@ public sealed class CSharpFormatterTests
         Assert.DoesNotContain("@global::", declaration.Text, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.Qualified, "public @event.Models.Widget GetWidget()", false)]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Widget GetWidget()", true)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort, "public Widget GetWidget()", false)]
+    public void KeywordNamespaceRootMatchesTypeNamePlan(
+        CSharpTypeNamePolicy policy,
+        string expectedDeclaration,
+        bool importNamespace)
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetWidget",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "event.Models.Widget",
+                MemberName = "GetWidget"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = policy,
+            Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                ? ["event.Models"]
+                : []
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(expectedDeclaration, declaration.Text, StringComparison.Ordinal);
+        if (importNamespace)
+            Assert.Contains("using @event.Models;", declaration.Text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void QualifiedPolicyEscapesKeywordTypeWithShadowedRoot()
     {
@@ -625,6 +665,47 @@ public sealed class CSharpFormatterTests
         Assert.Equal(
             "private delegate void Callback();",
             new CSharpFormatter().FormatDelegate(type, type.Members.Single()));
+    }
+
+    [Fact]
+    public void FormatsDelegateWithContainedHostileName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Call\nback",
+            Kind = "delegate",
+            Accessibility = "private"
+        };
+        var invoke = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "Invoke"
+            }
+        };
+
+        Assert.Equal(
+            "private delegate void Call_back();",
+            new CSharpFormatter().FormatDelegate(type, invoke));
+    }
+
+    [Fact]
+    public void FormatsNestedTypeNameWithoutFoldingItsNestingSeparator()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Outer.Inner",
+            Kind = "class"
+        };
+
+        Assert.Equal(
+            "public class Outer.Inner",
+            new CSharpFormatter().FormatTypeDeclaration(type));
     }
 
     [Fact]

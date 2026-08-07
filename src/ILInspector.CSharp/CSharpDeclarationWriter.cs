@@ -597,7 +597,7 @@ internal static class CSharpDeclarationWriter
     {
         var sb = new StringBuilder();
         foreach (var ns in usings)
-            sb.AppendLf($"using {ns};");
+            sb.AppendLf($"using {EscapeNamespace(ns)};");
 
         if (usings.Count > 0)
             sb.AppendLf();
@@ -605,7 +605,7 @@ internal static class CSharpDeclarationWriter
         if (options.NamespaceMode == CSharpNamespaceMode.FileScoped
             && !string.IsNullOrWhiteSpace(options.ContainingNamespace))
         {
-            sb.AppendLf($"namespace {options.ContainingNamespace};");
+            sb.AppendLf($"namespace {EscapeNamespace(options.ContainingNamespace)};");
             sb.AppendLf();
         }
 
@@ -1650,7 +1650,7 @@ internal static class CSharpDeclarationWriter
         var tick = name.IndexOf('`');
         if (tick >= 0)
             name = name[..tick];
-        name = EscapeQualifiedIdentifier(name);
+        name = ContainQualifiedName(name);
         if (typeParameters.Count > 0)
             name += $"<{string.Join(", ", typeParameters.Select(TypeParameterDisplayName))}>";
         return name;
@@ -2439,14 +2439,14 @@ internal static class CSharpDeclarationWriter
     }
 
     sealed record TypeNamePlan(
-        IReadOnlyDictionary<string, string> Replacements,
+        IReadOnlyDictionary<string, (string Qualified, string? Shortened)> Replacements,
         IReadOnlyList<string> GeneratedUsings,
         IReadOnlyList<string> Diagnostics)
     {
         public string Apply(string text)
         {
-            foreach (var (qualified, replacement) in Replacements.OrderByDescending(kvp => kvp.Key.Length))
-                text = ReplaceIdentifierToken(text, qualified, replacement);
+            foreach (var (qualified, replacements) in Replacements.OrderByDescending(kvp => kvp.Key.Length))
+                text = ReplaceIdentifierToken(text, qualified, replacements);
             return text;
         }
 
@@ -2526,13 +2526,30 @@ internal static class CSharpDeclarationWriter
             var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
             var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
             var diagnostics = new List<string>();
-            var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+            var replacements = new Dictionary<string, (string Qualified, string? Shortened)>(
+                StringComparer.Ordinal);
+            void ReplaceQualifiedName(
+                TypeRef typeRef,
+                string qualifiedReplacement,
+                string? shortenedReplacement = null)
+            {
+                var plan = (qualifiedReplacement, shortenedReplacement);
+                replacements[EscapeQualifiedKeywordSegments(typeRef.FullName)] = plan;
+                replacements[EscapeNamespace(typeRef.FullName)] = plan;
+            }
             void KeepResolvableQualified(TypeRef typeRef)
             {
                 if (rootShadowingNames.Contains(NamespaceRoot(typeRef.Namespace)))
                 {
                     string escapedFullName = EscapeNamespace(typeRef.FullName);
-                    replacements[escapedFullName] = $"global::{escapedFullName}";
+                    ReplaceQualifiedName(typeRef, $"global::{escapedFullName}");
+                }
+                else
+                {
+                    string renderedFullName = EscapeQualifiedKeywordSegments(typeRef.FullName);
+                    string escapedFullName = EscapeNamespace(typeRef.FullName);
+                    if (!string.Equals(renderedFullName, escapedFullName, StringComparison.Ordinal))
+                        replacements[renderedFullName] = (escapedFullName, null);
                 }
             }
 
@@ -2584,7 +2601,10 @@ internal static class CSharpDeclarationWriter
                     continue;
                 }
 
-                replacements[EscapeNamespace(typeRef.FullName)] = EscapeIdentifier(typeRef.SimpleName);
+                ReplaceQualifiedName(
+                    typeRef,
+                    EscapeNamespace(typeRef.FullName),
+                    EscapeIdentifier(typeRef.SimpleName));
                 if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
                     generatedUsings.Add(typeRef.Namespace);
             }
@@ -2592,7 +2612,10 @@ internal static class CSharpDeclarationWriter
             return new TypeNamePlan(replacements, generatedUsings.ToList(), diagnostics);
         }
 
-        static string ReplaceIdentifierToken(string text, string token, string replacement)
+        static string ReplaceIdentifierToken(
+            string text,
+            string token,
+            (string Qualified, string? Shortened) replacements)
         {
             var sb = new StringBuilder(text.Length);
             for (var i = 0; i < text.Length;)
@@ -2621,6 +2644,13 @@ internal static class CSharpDeclarationWriter
                         sb.Append(text[i++]);
                         continue;
                     }
+                    bool preserveQualification = IsAttributeValuePrefix(
+                        text,
+                        i,
+                        i + token.Length);
+                    string replacement = preserveQualification
+                        ? replacements.Qualified
+                        : replacements.Shortened ?? replacements.Qualified;
                     sb.Append(replacement);
                     i += token.Length;
                     continue;
@@ -2648,12 +2678,56 @@ internal static class CSharpDeclarationWriter
         static bool IsStartBoundary(string text, int index)
             => index < 0
                || index >= text.Length
-               || (!IsIdentifierPart(text[index]) && text[index] is not '.' and not '+');
+               || (!IsIdentifierPart(text[index]) && text[index] is not '.' and not '+' and not '@');
 
         static bool IsEndBoundary(string text, int index)
             => index < 0
                || index >= text.Length
                || (!IsIdentifierPart(text[index]) && text[index] != '+');
+
+        static bool IsAttributeValuePrefix(string text, int start, int end)
+        {
+            if (end >= text.Length || text[end] != '.')
+                return false;
+
+            int parenthesisDepth = 0;
+            var bracketParenthesisDepths = new Stack<int>();
+            for (int index = 0; index < start;)
+            {
+                if (IsStringLiteralStart(text, index))
+                {
+                    index = SkipStringLiteral(text, index);
+                    continue;
+                }
+                if (text[index] == '\'')
+                {
+                    index = SkipCharLiteral(text, index);
+                    continue;
+                }
+
+                switch (text[index])
+                {
+                    case '[':
+                        bracketParenthesisDepths.Push(parenthesisDepth);
+                        break;
+                    case ']':
+                        if (bracketParenthesisDepths.Count > 0)
+                            bracketParenthesisDepths.Pop();
+                        break;
+                    case '(':
+                        parenthesisDepth++;
+                        break;
+                    case ')':
+                        if (parenthesisDepth > 0)
+                            parenthesisDepth--;
+                        break;
+                }
+                index++;
+            }
+
+            return bracketParenthesisDepths.Count > 0
+                && parenthesisDepth > bracketParenthesisDepths.Peek();
+        }
     }
 
     static bool IsStringLiteralStart(string text, int index)
