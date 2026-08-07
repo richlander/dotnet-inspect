@@ -19,7 +19,10 @@ if [ ! -x "$dotnetup" ]; then
     bootstrap_dir="$(mktemp -d "$install_dir/.dotnetup-bootstrap.XXXXXX")"
     trap 'rm -f "$installer"; rm -rf "$bootstrap_dir"' EXIT
     curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o "$installer"
-    bash "$installer" --install-dir "$bootstrap_dir"
+    if ! bootstrap_output="$(bash "$installer" --install-dir "$bootstrap_dir" 2>&1)"; then
+        printf '%s\n' "$bootstrap_output" >&2
+        exit 1
+    fi
     [ -x "$bootstrap_dir/dotnetup" ] ||
         { echo "error: dotnetup installation did not produce an executable." >&2; exit 1; }
     mv -f "$bootstrap_dir/dotnetup" "$dotnetup"
@@ -28,5 +31,8 @@ if [ ! -x "$dotnetup" ]; then
     trap - EXIT
 fi
 
-"$dotnetup" sdk install 11 --interactive false --no-progress
+if ! install_output="$("$dotnetup" sdk install 11 --interactive false --no-progress 2>&1)"; then
+    printf '%s\n' "$install_output" >&2
+    exit 1
+fi
 exec "$dotnetup" dotnet -- "$@"

@@ -1,5 +1,8 @@
+#Requires -Version 7.3
+
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+$PSNativeCommandArgumentPassing = "Standard"
 
 if ($args.Count -eq 0) {
     [Console]::Error.WriteLine("Usage: .\eng\dotnet.ps1 <dotnet arguments>")
@@ -32,8 +35,11 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
             }
         }
 
-        & $installer -InstallDir $bootstrapDir
+        $bootstrapOutput = & $installer -InstallDir $bootstrapDir *>&1
         if (-not (Test-Path -LiteralPath $bootstrapDotnetup -PathType Leaf)) {
+            foreach ($line in $bootstrapOutput) {
+                [Console]::Error.WriteLine($line)
+            }
             throw "dotnetup installation did not produce $bootstrapDotnetup."
         }
 
@@ -50,11 +56,15 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
     }
 }
 
-& $dotnetup sdk install 11 --interactive false --no-progress
-if ($LASTEXITCODE -ne 0) {
+$installOutput = & $dotnetup sdk install 11 --interactive false --no-progress 2>&1
+$installExitCode = $LASTEXITCODE
+if ($installExitCode -ne 0) {
+    foreach ($line in $installOutput) {
+        [Console]::Error.WriteLine($line)
+    }
     [Console]::Error.WriteLine(
-        "dotnetup could not prepare the .NET 11 SDK (exit $LASTEXITCODE).")
-    exit $LASTEXITCODE
+        "dotnetup could not prepare the .NET 11 SDK (exit $installExitCode).")
+    exit $installExitCode
 }
 
 & $dotnetup dotnet -- @args
