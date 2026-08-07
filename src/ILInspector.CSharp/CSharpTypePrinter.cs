@@ -70,6 +70,19 @@ public sealed class CSharpTypePrinter
             .Where(type => type.Namespace.Length == 0)
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
             .ToImmutableHashSet(StringComparer.Ordinal);
+        foreach (string globalTypeName in globalDeclaredTypeNames)
+        {
+            bool conflictsWithNamespace = preparedTypes.Any(type =>
+                NamespaceRoot(type.Namespace) == globalTypeName);
+            bool conflictsWithUsing = emittedUsings.Any(@namespace =>
+                NamespaceRoot(@namespace) == globalTypeName);
+            if (conflictsWithNamespace || conflictsWithUsing)
+            {
+                diagnostics.Add(new CSharpTypePrintDiagnostic(
+                    globalTypeName,
+                    $"Namespace root '{globalTypeName}' conflicts with global type '{globalTypeName}'; emitted namespace or using directives cannot bind that root as a namespace."));
+            }
+        }
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
@@ -91,6 +104,10 @@ public sealed class CSharpTypePrinter
                 .Where(candidate => IsAncestorNamespace(candidate.Namespace, group.Key))
                 .Select(candidate => CSharpFormatter.StripArity(candidate.Type.Name))
                 .ToImmutableHashSet(StringComparer.Ordinal);
+            var referencedAncestorTypeNames = typeNameContext.ReferencedTypeNames
+                .Where(reference => string.Equals(reference.Namespace, group.Key, StringComparison.Ordinal)
+                    || IsAncestorNamespace(reference.Namespace, group.Key))
+                .Select(reference => reference.SimpleName);
             var source = string.Join(
                 "\n\n",
                 groupedTypes.Select(type => RenderType(
@@ -103,6 +120,7 @@ public sealed class CSharpTypePrinter
                         .Where(sibling => !ReferenceEquals(sibling, type))
                         .Select(sibling => CSharpFormatter.StripArity(sibling.Type.Name))
                         .Concat(ancestorTypeNames)
+                        .Concat(referencedAncestorTypeNames)
                         .Concat(importedDeclaredTypeNames)
                         .ToImmutableHashSet(StringComparer.Ordinal),
                     globalDeclaredTypeNames,
@@ -123,7 +141,7 @@ public sealed class CSharpTypePrinter
         var unitList = units.ToImmutable();
         return new CSharpTypePrintResult(
             unitList,
-            diagnostics.ToImmutable(),
+            diagnostics.Distinct().ToImmutableArray(),
             emittedUsings,
             () => ComposeSource(unitList, emittedUsings, options));
     }
@@ -134,7 +152,8 @@ public sealed class CSharpTypePrinter
     /// </summary>
     static (
         IReadOnlyList<string> SafeUsings,
-        IReadOnlyList<string> KnownNamespaces) ComputeTypeNameContext(
+        IReadOnlyList<string> KnownNamespaces,
+        IReadOnlyList<(string Namespace, string SimpleName)> ReferencedTypeNames) ComputeTypeNameContext(
         IReadOnlyList<PreparedType> preparedTypes,
         CSharpTypePrintOptions options)
     {
@@ -157,6 +176,12 @@ public sealed class CSharpTypePrinter
         return CSharpDeclarationWriter.DeriveTypeNameContext(
             scopes,
             options.Usings);
+    }
+
+    static string NamespaceRoot(string @namespace)
+    {
+        int separator = @namespace.IndexOf('.');
+        return separator < 0 ? @namespace : @namespace[..separator];
     }
 
     static bool IsAncestorNamespace(string candidate, string descendant)

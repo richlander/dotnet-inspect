@@ -73,9 +73,12 @@ internal static class CSharpDeclarationWriter
         var qualificationOnlyAttributeReferences = CollectQualificationOnlyAttributeTypeReferences(
                 member.Attributes,
                 member)
+            .Concat(CollectExplicitInterfaceTypeReferences(member))
             .ToHashSet(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
-        var references = memberReferences.Concat(attributeReferences);
+        var references = memberReferences
+            .Concat(attributeReferences)
+            .Concat(CollectExplicitInterfaceTypeReferences(member));
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -107,9 +110,12 @@ internal static class CSharpDeclarationWriter
         var qualificationOnlyAttributeReferences = CollectQualificationOnlyAttributeTypeReferences(
                 member.Attributes,
                 member)
+            .Concat(CollectExplicitInterfaceTypeReferences(member))
             .ToHashSet(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
-        var references = memberReferences.Concat(attributeReferences);
+        var references = memberReferences
+            .Concat(attributeReferences)
+            .Concat(CollectExplicitInterfaceTypeReferences(member));
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -148,6 +154,7 @@ internal static class CSharpDeclarationWriter
                 CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)))
             .Concat(parameters.SelectMany(parameter =>
                 CollectAttributeArgumentTypeReferences(parameter.Attributes)))
+            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
             .ToHashSet(StringComparer.Ordinal);
         var primaryParameterAttributeReferences = parameters
             .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
@@ -160,7 +167,8 @@ internal static class CSharpDeclarationWriter
         var references = shortenableReferences
             .Concat(parameters.SelectMany(CollectParameterTypeReferences))
             .Concat(attributeReferences)
-            .Concat(primaryParameterAttributeReferences);
+            .Concat(primaryParameterAttributeReferences)
+            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences));
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -241,8 +249,11 @@ internal static class CSharpDeclarationWriter
                 : "";
             string unsafeText = delegateInvoke.IsUnsafe ? " unsafe" : "";
             string parameterList = CSharpFormatter.FormatParameterList(signature.Parameters);
+            string returnAttributes = signature.ReturnAttributes.Count > 0
+                ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
+                : "";
             string delegateDeclaration =
-                $"{attributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type.Name, type.TypeParameters)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type.Name, type.TypeParameters)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -305,7 +316,8 @@ internal static class CSharpDeclarationWriter
 
     internal static (
         IReadOnlyList<string> SafeUsings,
-        IReadOnlyList<string> KnownNamespaces) DeriveTypeNameContext(
+        IReadOnlyList<string> KnownNamespaces,
+        IReadOnlyList<(string Namespace, string SimpleName)> ReferencedTypeNames) DeriveTypeNameContext(
         IEnumerable<(
             ApiType Type,
             IEnumerable<ApiMember> Members,
@@ -330,7 +342,8 @@ internal static class CSharpDeclarationWriter
         var attributeTypeRefs = scopeList
             .SelectMany(scope => CollectDeclaredAttributeTypeReferences(scope.Type.Attributes)
                 .Concat(scope.Members.SelectMany(member =>
-                    CollectDeclaredAttributeTypeReferences(member.Attributes, member))))
+                    CollectDeclaredAttributeTypeReferences(member.Attributes, member)))
+                .Concat(scope.Members.SelectMany(CollectExplicitInterfaceTypeReferences)))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -395,7 +408,12 @@ internal static class CSharpDeclarationWriter
             usings.Add(ns);
         }
 
-        return (usings.ToList(), knownNamespaces);
+        var referencedTypeNames = typeRefs
+            .Concat(attributeTypeRefs)
+            .Select(typeRef => (typeRef.Namespace, typeRef.SimpleName))
+            .Distinct()
+            .ToList();
+        return (usings.ToList(), knownNamespaces, referencedTypeNames);
     }
 
     static IEnumerable<string> CollectParameterTypeReferences(ApiParameter parameter)
@@ -939,6 +957,19 @@ internal static class CSharpDeclarationWriter
         foreach (var expression in MemberTypeExpressions(member))
         {
             foreach (var reference in ExtractQualifiedTypeNames(expression))
+                yield return reference;
+        }
+    }
+
+    static IEnumerable<string> CollectExplicitInterfaceTypeReferences(ApiMember member)
+    {
+        if (member.Kind != "explicit-interface-implementation")
+            yield break;
+
+        int memberSeparator = member.Name.LastIndexOf('.');
+        if (memberSeparator > 0)
+        {
+            foreach (var reference in ExtractQualifiedTypeNames(member.Name[..memberSeparator]))
                 yield return reference;
         }
     }
@@ -2614,10 +2645,15 @@ internal static class CSharpDeclarationWriter
             rootShadowingNames.Add(declaredTypeName);
             rootShadowingNames.UnionWith(namespaceRootShadowingNames);
             rootShadowingNames.UnionWith(bindingTypeRefs
-                .Where(typeRef => string.Equals(
-                    typeRef.Namespace,
-                    options.ContainingNamespace,
-                    StringComparison.Ordinal))
+                .Where(typeRef =>
+                {
+                    string containingNamespace = options.ContainingNamespace ?? "";
+                    return typeRef.Namespace.Length <= containingNamespace.Length
+                        && containingNamespace.StartsWith(typeRef.Namespace, StringComparison.Ordinal)
+                        && (typeRef.Namespace.Length == containingNamespace.Length
+                            || typeRef.Namespace.Length == 0
+                            || containingNamespace[typeRef.Namespace.Length] == '.');
+                })
                 .Select(typeRef => typeRef.SimpleName));
 
             var collisions = CollidingSimpleNames(bindingTypeRefs);

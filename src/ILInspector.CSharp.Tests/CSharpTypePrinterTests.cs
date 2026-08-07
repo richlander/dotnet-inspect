@@ -2547,6 +2547,150 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceQualifierRespectsLexicalShadowing()
+    {
+        var property = new ApiMember
+        {
+            Name = "Samples.IValue.Value",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Samples.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("Samples", "Widget`1");
+        type.MetadataName = "Widget`1";
+        type.TypeParameters = [new TypeParameter { Name = "Samples" }];
+        type.Interfaces.Add("Samples.IValue");
+        type.Members.Add(property);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "int global::Samples.IValue.Value",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SiblingMemberTypeReferenceContributesRootShadowing()
+    {
+        var type = CreateEmptyType("Contoso.Data", "Store");
+        var getJson = CreateMethod("GetJson");
+        getJson.SignatureModel!.ReturnType = "Contoso.Data.Json";
+        var getNode = CreateMethod("GetNode");
+        getNode.SignatureModel!.ReturnType = "Json.Node";
+        type.Members.Add(getJson);
+        type.Members.Add(getNode);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeUsings = false
+            });
+
+        Assert.Contains(
+            "public global::Json.Node GetNode();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AncestorNamespaceTypeReferenceContributesRootShadowing()
+    {
+        var type = CreateEmptyType("Contoso.Data.Serialization", "Store");
+        var convert = CreateMethod("Convert");
+        convert.SignatureModel!.ReturnType = "Json.Node";
+        convert.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "Contoso.Data.Json",
+            Name = "value"
+        });
+        type.Members.Add(convert);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeUsings = false
+            });
+
+        Assert.Contains(
+            "public global::Json.Node Convert(Contoso.Data.Json value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HiddenCustomAttributesStillContributeBindingEvidence()
+    {
+        var type = CreateEmptyType("App", "Widget");
+        type.Attributes = ["App.Foo.MarkerAttribute"];
+        var method = CreateMethod("Get");
+        method.SignatureModel!.ReturnType = "Foo.Bar.Baz";
+        type.Members.Add(method);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                IncludeCustomAttributes = false,
+                IncludeUsings = false
+            });
+
+        Assert.DoesNotContain("MarkerAttribute", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public global::Foo.Bar.Baz Get();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlobalTypeConflictingWithNamespaceDeclarationReportsDiagnostic()
+    {
+        var root = CreateEmptyType("", "Foo");
+        var namespaced = CreateEmptyType("Foo.Bar", "Worker");
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(root), new CSharpTypePrintRequest(namespaced)]);
+
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "Namespace root 'Foo' conflicts with global type 'Foo'",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GlobalTypeConflictingWithUsingReportsDiagnostic()
+    {
+        var system = CreateEmptyType("", "System");
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(system),
+            new CSharpTypePrintOptions
+            {
+                Usings = ["System.Text"]
+            });
+
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "Namespace root 'System' conflicts with global type 'System'",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void NestedTypesAndPrimaryConstructorsRenderInFileScopedNamespaceUnits()
     {
         var nested = CreateEmptyType("Samples", "Nested");
@@ -2651,6 +2795,30 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains(
             "    internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
             result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateReturnAttributesAreRenderedAndPlanned()
+    {
+        var external = CreateEmptyType("", "External");
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "bool";
+        invoke.SignatureModel.ReturnAttributes = ["External.Marker"];
+        var delegateType = CreateEmptyType("Samples", "Predicate");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(external), new CSharpTypePrintRequest(delegateType)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "[return: global::External.Marker]\n    public delegate bool Predicate();",
+            result.Source,
             StringComparison.Ordinal);
     }
 
