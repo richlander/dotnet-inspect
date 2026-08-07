@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace ILInspector.CSharp.Tests;
+namespace CSharpText.Tests;
 
 public sealed class CSharpMemberLayoutTests
 {

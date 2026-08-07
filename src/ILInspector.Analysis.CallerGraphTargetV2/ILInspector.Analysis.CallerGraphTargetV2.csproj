@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <AssemblyName>ILInspector.Analysis.CallerGraphTarget</AssemblyName>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ILInspector.Analysis.CallerGraphTarget\TargetApi.cs" Link="TargetApi.cs" />
+  </ItemGroup>
+
+</Project>

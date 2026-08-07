@@ -17,7 +17,7 @@ inspection producers that will extend that space.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
-- `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
+- `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
@@ -49,7 +49,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
-- [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S @All`, and limiter behavior.
+- [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
+  discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
