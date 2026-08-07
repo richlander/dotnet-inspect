@@ -493,7 +493,14 @@ public sealed class SwitchRaisingPass : IIrPass
     static IrExpression ValueBlockExpr(Block block) => ((StoreLocal)block.Children[0]).Value;
 
     /// <summary>Replaces a value-producing jump table with <c>return v switch { … };</c>: the arms group case labels by their value block, and the default arm is supplied by the recognizer.</summary>
-    static void BuildSwitchExpression(BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
+    static void BuildSwitchExpression(
+        BlockContainer container,
+        int s,
+        SwitchBranch sw,
+        int[] caseTargets,
+        IrExpression defaultArm,
+        int join,
+        Stepper stepper)
     {
         var all = container.Blocks.ToList();
 
@@ -501,13 +508,14 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < caseTargets.Length; i++)
             (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
 
+        var value = DetachSwitchValue(sw, out int labelOffset);
+        sw.Detach();
+
         var arms = new List<SwitchExpressionArm>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            arms.Add(new SwitchExpressionArm([.. labels], isDefault: false, (IrExpression)ValueBlockExpr(all[target]).Clone()));
+            arms.Add(new SwitchExpressionArm([.. labels.Select(label => OffsetLabel(label, labelOffset))],
+                isDefault: false, (IrExpression)ValueBlockExpr(all[target]).Clone()));
         arms.Add(new SwitchExpressionArm([], isDefault: true, defaultArm));
-
-        var value = (IrExpression)sw.DetachChildren()[0];
-        sw.Detach();
 
         foreach (var block in all)
             block.Detach();
@@ -1234,12 +1242,66 @@ public sealed class SwitchRaisingPass : IIrPass
         _ => [],
     };
 
-    /// <summary>Jump-table indices as <c>int</c> case-label constants.</summary>
-    static ImmutableArray<Constant> IntLabels(IEnumerable<int> indices)
-        => [.. indices.Select(IntConst)];
+    /// <summary>Jump-table indices shifted back to semantic <c>int</c> case-label constants.</summary>
+    static ImmutableArray<Constant> IntLabels(IEnumerable<int> indices, int labelOffset)
+        => [.. indices.Select(index => IntConst(OffsetLabel(index, labelOffset)))];
 
     /// <summary>A single <c>int</c> case-label constant.</summary>
     static Constant IntConst(int value) => new(value, TypeRef.CoreLib("System", "Int32"));
+
+    static int OffsetLabel(int index, int labelOffset) => unchecked(index + labelOffset);
+
+    /// <summary>
+    /// Removes an unchecked enum add/subtract normalization and returns the
+    /// corresponding modulo-32-bit label offset. Checked or unproven enum
+    /// arithmetic remains intact because removing it can change exceptions or
+    /// reinterpret a non-enum operation. Enum identity uses imported shape
+    /// evidence when available and the printer's conservative unresolved named
+    /// switch-value rule for cross-assembly enums.
+    /// </summary>
+    static IrExpression DetachSwitchValue(
+        SwitchBranch sw,
+        out int labelOffset)
+    {
+        labelOffset = 0;
+        var value = sw.Value;
+        if (value is not Binary
+            {
+                Kind: BinaryKind.Add or BinaryKind.Subtract,
+                IsChecked: false,
+                Left: var left,
+                Right: Constant { Value: int constant },
+            } binary
+            || left.ResultType is not { } leftType
+            || OwningFunction(sw) is not { } function
+            || !IsEnumSwitchType(leftType, function.TypeShapes))
+        {
+            return (IrExpression)sw.DetachChildren()[0];
+        }
+
+        labelOffset = binary.Kind == BinaryKind.Subtract
+            ? constant
+            : unchecked(-constant);
+        sw.DetachChildren();
+        return (IrExpression)binary.DetachChildren()[0];
+    }
+
+    static bool IsEnumSwitchType(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> typeShapes)
+    {
+        if (typeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+            return true;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            && typeShapes.GetValueOrDefault(type) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(type);
+    }
+
+    static IrFunction? OwningFunction(IrNode node)
+    {
+        for (var ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            if (ancestor is IrFunction function)
+                return function;
+        return null;
+    }
 
     /// <summary>A single <c>string</c> case-label constant.</summary>
     static Constant StringConst(string value) => new(value, TypeRef.CoreLib("System", "String"));
@@ -1913,20 +1975,21 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < caseTargets.Length; i++)
             (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
 
+        var value = DetachSwitchValue(sw, out int labelOffset);
+        sw.Detach();
+
         foreach (var block in all)
             block.Detach();
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection(IntLabels(labels), isDefault: target == defaultSharesTarget,
+            sections.Add(new SwitchSection(IntLabels(labels, labelOffset), isDefault: target == defaultSharesTarget,
                 SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
                 SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
-        sw.Detach();
         switchBlock.Add(new Switch(value, sections));
 
         var rebuilt = new BlockContainer();
@@ -1980,6 +2043,9 @@ public sealed class SwitchRaisingPass : IIrPass
         for (int i = 0; i < caseTargets.Length; i++)
             (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
 
+        var value = DetachSwitchValue(sw, out int labelOffset);
+        sw.Detach();
+
         // Clone the shared terminator before detaching: the default falls into a
         // single-block terminating case, which C# cannot do, so its body is
         // duplicated into the default section.
@@ -1994,10 +2060,10 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
             if (target == join)
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(IntLabels(labels, labelOffset),
                     isDefault: defaultSharesTarget && target == defaultIndex, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(IntLabels(labels, labelOffset),
                     isDefault: defaultSharesTarget && target == defaultIndex,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
@@ -2006,8 +2072,6 @@ public sealed class SwitchRaisingPass : IIrPass
                 DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
-        sw.Detach();
         switchBlock.Add(new Switch(value, sections));
 
         var rebuilt = new BlockContainer();

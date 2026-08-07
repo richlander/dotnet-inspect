@@ -7,7 +7,12 @@ enum SharedGuardAlgorithm
     Low6 = 6,
     Low7 = 7,
     Dense24 = 24,
+    Dense24Alias = Dense24,
     Dense25 = 25,
+    Dense26 = 26,
+    Dense27 = 27,
+    Dense28 = 28,
+    Dense29 = 29,
     Dense30 = 30,
     Dense31 = 31,
     Dense32 = 32,
@@ -43,6 +48,18 @@ static class SharedGuardSwitchFixture
                 throw new ArgumentException();
         }
     }
+
+    public static int Classify(SharedGuardAlgorithm algorithm)
+        => algorithm switch
+        {
+            SharedGuardAlgorithm.Dense24 => 0,
+            SharedGuardAlgorithm.Dense25 => 1,
+            SharedGuardAlgorithm.Dense26 => 2,
+            SharedGuardAlgorithm.Dense27 => 3,
+            SharedGuardAlgorithm.Dense28 => 4,
+            SharedGuardAlgorithm.Dense29 => 5,
+            _ => -1,
+        };
 
     public static int ExitLoopFromDefault(int value, bool skip)
     {
@@ -153,13 +170,43 @@ public class SwitchRaisingSharedGuardTests
         IrPasses.Run(function);
         function.CheckInvariant();
 
-        Assert.Single(function.Descendants.OfType<Switch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Single(node.Sections, section => section.IsDefault);
+        Assert.Contains(node.Sections, section => section.Labels.Length > 1);
         Assert.Empty(function.Descendants.OfType<SwitchBranch>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("switch (algorithm - 24)", output);
+        Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case SharedGuardAlgorithm.Dense24:", output);
+        Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("algorithm - 24", output);
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void CompilerProducedEnumSwitchExpression_ReconstructsOffsetIntoMemberLabels()
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            nameof(SharedGuardSwitchFixture.Classify));
+        Assert.NotNull(function);
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("algorithm switch", output);
+        Assert.Contains("SharedGuardAlgorithm.Dense24 => 0", output);
+        Assert.Contains("SharedGuardAlgorithm.Dense29 => 5", output);
+        Assert.Contains("_ => -1", output);
+        Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("algorithm - 24", output);
     }
 
     [Fact]
