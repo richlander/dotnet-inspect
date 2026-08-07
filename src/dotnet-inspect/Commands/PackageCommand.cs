@@ -628,8 +628,9 @@ public class PackageCommand
             // different payload than the one -D displays.
             if (options.Count && !effectiveDiscovery)
             {
-                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
+                CountOutput.WriteCountResult(
+                    OutputFormatter.FormatResult(result, options, pipeline),
+                    options.OutputPath);
                 return 0;
             }
 
@@ -845,7 +846,9 @@ public class PackageCommand
 
         if (options.Count)
         {
-            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
             return 0;
         }
 
@@ -2281,7 +2284,7 @@ public class PackageCommand
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
-                CountOutput.WriteCount(0);
+                CountOutput.WriteCount(0, options.OutputPath);
             return 0;
         }
 
@@ -2294,7 +2297,7 @@ public class PackageCommand
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown);
+            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
             Console.WriteLine(markdown);
         return 0;
@@ -2332,6 +2335,7 @@ public class PackageCommand
             Fields = options.Fields,
             Schema = options.Schema,
             Count = options.Count,
+            OutputPath = options.OutputPath,
             Rows = options.Rows,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
