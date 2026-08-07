@@ -517,6 +517,27 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void PopulateAnnotatedSourceMap_PreservesFailureForSectionAndRawOutput()
+    {
+        var failure = DecompilerResult.Failure(
+            DiagnosticIds.InternalError,
+            "InvalidOperationException: map failed");
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateAnnotatedSourceMap(
+            sections,
+            sourceMap: null,
+            failure));
+        Assert.Same(failure, sections.AnnotatedSourceMapFailure);
+        Assert.Equal(
+            "DEC0001: InvalidOperationException: map failed",
+            sections.AnnotatedSourceMapCode.Content);
+        Assert.Equal(
+            "DEC0001: InvalidOperationException: map failed",
+            ApiCommand.AnnotatedSourceMapError(sections));
+    }
+
+    [Fact]
     public void PopulateCSharpSections_AppliesBodyModifierFactsToAllOverlays()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };

@@ -855,6 +855,10 @@ public class MemberCodeView
     [JsonIgnore]
     public ILInspector.Decompiler.AnnotatedSourceMap? AnnotatedSourceMap { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.DecompilerResult? AnnotatedSourceMapFailure { get; set; }
+
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }
 

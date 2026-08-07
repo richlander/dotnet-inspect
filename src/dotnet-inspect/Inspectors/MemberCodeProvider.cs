@@ -44,7 +44,8 @@ internal static class MemberCodeProvider
         // body. The resolved-config warnings should surface whenever this holds,
         // including map-only and Applied-Taste-only runs.
         bool StyledProjectionProduced = false,
-        Decompiler.AnnotatedSourceMap? SourceMap = null);
+        Decompiler.AnnotatedSourceMap? SourceMap = null,
+        Decompiler.DecompilerResult? SourceMapFailure = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -251,6 +252,9 @@ internal static class MemberCodeProvider
             var sourceMap = request.SourceMap
                 ? researchProjection?.SourceMap
                 : null;
+            var sourceMapFailure = request.SourceMap
+                ? researchProjection?.SourceMapFailure
+                : null;
             if (sourceMap?.Lines.Count > 0)
                 styledProjectionProduced = true;
 
@@ -325,7 +329,8 @@ internal static class MemberCodeProvider
                 appliedTaste,
                 requiresAsyncBodyModifier,
                 styledProjectionProduced,
-                sourceMap)));
+                sourceMap,
+                sourceMapFailure)));
         }
 
         return results;

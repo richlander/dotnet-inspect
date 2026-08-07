@@ -373,7 +373,9 @@ section. Markdown renders the source-generated JSON in a fenced block, while
 snake-case JSON convention. Wildcard and category selections retain the ordinary
 document JSON shape, even when they resolve only to this section. A member whose
 printer emits no C# body still carries its IL plane and facts; printer failure is
-an error rather than a successful empty envelope. IL string operands escape
+an error rather than a successful empty envelope. Map failure remains scoped to
+that section when it is co-selected, so sibling member sections still render;
+an explicit raw-map request reports the diagnostic and fails. IL string operands escape
 unpaired UTF-16 surrogates so JSON replay preserves every code unit rather than
 silently substituting U+FFFD. Production is opt-in and uses
 an isolated import: printing and style lenses mutate IR, so sharing that graph

@@ -1730,16 +1730,10 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            if (code.SourceMap is { } sourceMap)
-            {
-                memberCode.AnnotatedSourceMap = sourceMap;
-                memberCode.AnnotatedSourceMapCode = new CodeSection(
-                    "json",
-                    JsonSerializer.Serialize(
-                        sourceMap,
-                        AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap));
-                hasCode = true;
-            }
+            hasCode |= PopulateAnnotatedSourceMap(
+                memberCode,
+                code.SourceMap,
+                code.SourceMapFailure);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1827,6 +1821,35 @@ public static class ApiOutputFormatter
         }
 
         return hasCode;
+    }
+
+    internal static bool PopulateAnnotatedSourceMap(
+        MemberCodeView memberCode,
+        Decompiler.AnnotatedSourceMap? sourceMap,
+        Decompiler.DecompilerResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (sourceMap is not null)
+        {
+            memberCode.AnnotatedSourceMap = sourceMap;
+            memberCode.AnnotatedSourceMapCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    sourceMap,
+                    AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap));
+            return true;
+        }
+        if (failure is not null)
+        {
+            memberCode.AnnotatedSourceMapFailure = failure;
+            memberCode.AnnotatedSourceMapCode = new CodeSection(
+                "text",
+                string.Join(
+                    "\n",
+                    failure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+            return true;
+        }
+        return false;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

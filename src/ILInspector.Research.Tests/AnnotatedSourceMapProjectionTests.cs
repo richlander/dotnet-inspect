@@ -327,6 +327,21 @@ public class AnnotatedSourceMapProjectionTests
     }
 
     [Fact]
+    public void MapFailureIsIsolatedForSiblingProjections()
+    {
+        var (map, failure) = ResearchViews.CaptureSourceMap(
+            () => throw new InvalidOperationException("map failed"));
+
+        Assert.Null(map);
+        Assert.NotNull(failure);
+        Assert.False(failure.Succeeded);
+        Assert.Contains(
+            failure.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.InternalError
+                && diagnostic.Message.Contains("map failed", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SilentConstructorProloguePrecedesTheFirstPrintedStatement()
     {
         using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);

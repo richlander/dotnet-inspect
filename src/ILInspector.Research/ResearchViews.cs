@@ -60,7 +60,13 @@ public static partial class ResearchViews
         /// Portable interleaved source, produced only when
         /// <see cref="MemberProjectionRequest.SourceMap"/> is requested.
         /// </summary>
-        AnnotatedSourceMap? SourceMap = null);
+        AnnotatedSourceMap? SourceMap = null,
+
+        /// <summary>
+        /// Failure isolated to portable-map production. Sibling projections
+        /// remain available when the map's C# printer cannot produce output.
+        /// </summary>
+        DecompilerResult? SourceMapFailure = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -91,25 +97,29 @@ public static partial class ResearchViews
                 : [];
 
             AnnotatedSourceMap? sourceMap = null;
+            DecompilerResult? sourceMapFailure = null;
             if (request.SourceMap)
             {
                 // Printing mutates the raised graph. Produce the portable map
                 // first and from its own import so selecting it cannot reshape
                 // any sibling projection.
-                var mapFunction = ImportFunction()
-                    ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
-                sourceMap = BuildAnnotatedSourceMap(
-                    request.Source,
-                    request.Type,
-                    request.Method,
-                    mapFunction,
-                    facts,
-                    headerFacts,
-                    request.AnnotatedStage,
-                    request.OverloadIndex,
-                    request.PublicOnly,
-                    request.MethodToken,
-                    request.PrinterOptions);
+                (sourceMap, sourceMapFailure) = CaptureSourceMap(() =>
+                {
+                    var mapFunction = ImportFunction()
+                        ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                    return BuildAnnotatedSourceMap(
+                        request.Source,
+                        request.Type,
+                        request.Method,
+                        mapFunction,
+                        facts,
+                        headerFacts,
+                        request.AnnotatedStage,
+                        request.OverloadIndex,
+                        request.PublicOnly,
+                        request.MethodToken,
+                        request.PrinterOptions);
+                });
             }
 
             DecompilerResult? annotatedSource = null;
@@ -178,7 +188,8 @@ public static partial class ResearchViews
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
                 UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
-                sourceMap);
+                sourceMap,
+                sourceMapFailure);
         }
         catch (Exception ex)
         {
@@ -376,6 +387,24 @@ public static partial class ResearchViews
                 $"Annotated source map C# projection failed: {string.Join("; ", result.Diagnostics)}");
         }
         return result.Output!;
+    }
+
+    internal static (AnnotatedSourceMap? Map, DecompilerResult? Failure) CaptureSourceMap(
+        Func<AnnotatedSourceMap> produce)
+    {
+        ArgumentNullException.ThrowIfNull(produce);
+        try
+        {
+            return (produce(), null);
+        }
+        catch (Exception ex)
+        {
+            return (
+                null,
+                DecompilerResult.Failure(
+                    DiagnosticIds.InternalError,
+                    $"{ex.GetType().Name}: {ex.Message}"));
+        }
     }
 
     static IReadOnlyList<BoundSourceLine> CorrelatePortableSource(

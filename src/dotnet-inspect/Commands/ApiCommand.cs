@@ -1247,7 +1247,7 @@ public class ApiCommand
         {
             if (view.MemberCode?.AnnotatedSourceMap is not { } sourceMap)
             {
-                CommandError.Write($"section '{SectionNames.AnnotatedSourceMap}' produced no payload.");
+                CommandError.Write(AnnotatedSourceMapError(view.MemberCode));
                 return 1;
             }
 
@@ -2181,6 +2181,13 @@ public class ApiCommand
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    internal static string AnnotatedSourceMapError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceMapFailure is { } failure
+            ? string.Join(
+                "; ",
+                failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
+            : $"section '{SectionNames.AnnotatedSourceMap}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {
