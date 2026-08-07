@@ -163,10 +163,10 @@ Two practical consequences:
 - `--source` and `--add-source` take part in this. A run that replaces your sources will not read
   content cached under the sources it replaced.
 
-The NuGet global folder (`~/.nuget/packages`) is a read-only payload cache, not a source of version
-candidates. An exact package there participates only when its `.nupkg.metadata` records a producer
-eligible under the active source configuration. Missing, ambiguous, or mismatched provenance is a
-cache miss. To exclude the global payload layer even for active sources, add `--no-nuget-cache`:
+The NuGet global folder (`~/.nuget/packages`) is a separate, source-blind cache. Its package
+directories can supply cached version candidates or fulfill an exact package coordinate without
+checking `.nupkg.metadata` against the active sources. Changing or removing sources therefore does
+not isolate this layer. To exclude it, add `--no-nuget-cache`:
 
 ```bash
 dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache

@@ -1,15 +1,16 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Find and verify authoritative original source through PDB SourceLink data — map files and member locations, fetch source, or resolve checksum-matched content from a local git clone.
+description: Find SourceLink-mapped original source through PDB data — map files and member locations, fetch source, or resolve checksum-matched content locally.
 ---
 
 # dotnet-inspect: SourceLink and original source
 
-Use this skill to get the authoritative original source as written by the
-author. PDBs carry SourceLink data; dotnet-inspect resolves that map and verifies
-the source against the PDB checksum. It can fetch over the network or read the
-committed blob from a local git clone with `--repo`. Without a usable PDB,
+Use this skill to get the original source mapped by the PDB. dotnet-inspect
+verifies local files and committed blobs read through `--repo` against the PDB
+checksum. A network `Original Source` fetch follows the SourceLink URL without
+performing that checksum check; use `library -S "SourceLink: Integrity"` for
+opt-in content verification of every mapped file. Without a usable PDB,
 SourceLink map, or matching source, use the always-local `decompiler` skill.
 
 ```bash

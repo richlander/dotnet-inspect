@@ -96,7 +96,8 @@ dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
 ```
 
 Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
-compose applicable `Context: *` sections: member, instruction, source location,
-exception, callsite, return address, allocation, safety, and cost. Use
+compose its default source-location, member, instruction, exception, callsite,
+and return-address sections. Allocation, safety, and cost are opt-in; request
+them with `-S "Context: Allocation,Context: Safety,Context: Cost"`. Use
 `--il-offsets coordinates.txt` for a sparse batch. For call edges (what a method
 calls, who calls it), see the `relationships` skill.

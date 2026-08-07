@@ -44,8 +44,9 @@ with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invok
 methods) and provenance/supply-chain signals, see the `signals` skill.
 
 For one crash or profiler coordinate, use `library --il-offset
-0x06000001+0x5` to compose `Context: Exception`, `Context: Safety`, and the
-other applicable coordinate sections without inferring from display text.
+0x06000001+0x5` for the default source-location, member, instruction, exception,
+callsite, and return-address context. Safety evidence is opt-in:
+`--il-offset 0x06000001+0x5 -S "Context: Safety"`.
 
 To confirm whether one definite unsafe operation appeared at an adjacent
 version boundary, first correlate caller-selected package cells:
