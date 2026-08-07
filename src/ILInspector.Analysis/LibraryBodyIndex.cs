@@ -1064,7 +1064,15 @@ public sealed class LibraryBodyIndex
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
-                group => group
+                group => CallTreeOrdering.OrderCallers(
+                        group,
+                        call => call.Caller.AssemblyName,
+                        call => CallTreeMember.ToQualifiedDisplayString(
+                            call.Caller),
+                        call => call.Caller.ParameterTypes.Length,
+                        call => call.Caller.ModuleVersionId,
+                        call => call.Caller.MetadataToken,
+                        call => call.ILOffset)
                     .GroupBy(call => call.Caller.MetadataToken)
                     .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
                     .ToImmutableArray(),
@@ -1490,11 +1498,11 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public CallTreeNode BuildCallerTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
     {
-        var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
-        // When the selected method has no body of its own (abstract/interface/extern) it is
-        // absent from Methods, but its callers reference it by operand token and carry the
-        // resolved callee signature. Recover the root label from any such inbound edge so the
-        // graph names the member instead of printing a bare token.
+        var root = DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == rootMethodToken);
+        // DeclaredMethods supplies the label even when the selected method has no body of its
+        // own. For a token with no local declaration, recover the label from an inbound edge so
+        // the graph can still name the member instead of printing a bare token.
         var rootMember = root is { } identity
             ? CallTreeMember.FromDefinition(identity)
             : DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
@@ -1536,7 +1544,15 @@ public sealed class LibraryBodyIndex
                     .Where(group => group.Key != 0)
                     .ToDictionary(
                         group => group.Key,
-                        group => group
+                        group => CallTreeOrdering.OrderCallers(
+                                group,
+                                call => call.Caller.AssemblyName,
+                                call => CallTreeMember.ToQualifiedDisplayString(
+                                    call.Caller),
+                                call => call.Caller.ParameterTypes.Length,
+                                call => call.Caller.ModuleVersionId,
+                                call => call.Caller.MetadataToken,
+                                call => call.ILOffset)
                             .GroupBy(call => call.Caller.MetadataToken)
                             .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
                             .ToImmutableArray(),
