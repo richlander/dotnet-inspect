@@ -1,5 +1,6 @@
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -30,6 +31,10 @@ public class ApiInventoryQueryTests
         Assert.True(result.KindFacets.Select(facet => facet.Weight).SequenceEqual(
             result.KindFacets.Select(facet => facet.Weight).Order()));
         Assert.All(result.KindFacets, facet => Assert.True(facet.IsDefault));
+        var publicAccessibility = Assert.Single(result.AccessibilityFacets);
+        Assert.Equal("public", publicAccessibility.SingularLabel);
+        Assert.Equal(surface.Types.Count, publicAccessibility.Count);
+        Assert.True(publicAccessibility.IsDefault);
         Assert.Equal(surface.Types, result.Types);
 
         foreach (var facet in result.KindFacets)
@@ -62,7 +67,35 @@ public class ApiInventoryQueryTests
             surface.Types,
             candidate => candidate.FullName == typeof(InventoryFixture).FullName);
 
-        var result = ApiInventoryQuery.Members(type);
+        var catalog = ApiInventoryQuery.Members(type);
+        Assert.Equal(
+            [
+                "public",
+                "protected",
+                "protected internal",
+                "private protected",
+                "internal",
+                "private",
+            ],
+            catalog.AccessibilityFacets.Select(facet => facet.SingularLabel));
+        Assert.True(Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "public").IsDefault);
+        Assert.All(
+            catalog.AccessibilityFacets.Where(facet => facet.SingularLabel != "public"),
+            facet => Assert.False(facet.IsDefault));
+        Assert.All(
+            catalog.Members,
+            member => Assert.True(
+                string.IsNullOrEmpty(member.Accessibility)
+                || member.Accessibility == "public"));
+
+        var allAccessibilityIds = catalog.AccessibilityFacets
+            .Select(facet => facet.Id)
+            .ToList();
+        var result = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest(AccessibilityFacetIds: allAccessibilityIds));
 
         Assert.Equal(
             [
@@ -83,22 +116,156 @@ public class ApiInventoryQueryTests
         {
             var filtered = ApiInventoryQuery.Members(
                 type,
-                new ApiMemberInventoryRequest([facet.Id]));
+                new ApiMemberInventoryRequest([facet.Id], allAccessibilityIds));
+            Assert.Equal(facet.Count, filtered.Members.Count);
+        }
+
+        foreach (var facet in catalog.AccessibilityFacets)
+        {
+            var filtered = ApiInventoryQuery.Members(
+                type,
+                new ApiMemberInventoryRequest(AccessibilityFacetIds: [facet.Id]));
             Assert.Equal(facet.Count, filtered.Members.Count);
         }
 
         var constant = Assert.Single(result.KindFacets, facet => facet.SingularLabel == "constant");
         var constants = ApiInventoryQuery.Members(
             type,
-            new ApiMemberInventoryRequest([constant.Id]));
+            new ApiMemberInventoryRequest([constant.Id], allAccessibilityIds));
         Assert.Contains(constants.Members, member => member.Name == nameof(InventoryFixture.Constant));
         Assert.All(constants.Members, member => Assert.True(member.IsConst));
 
         var extension = Assert.Single(result.KindFacets, facet => facet.SingularLabel == "extension method");
         var extensions = ApiInventoryQuery.Members(
             type,
-            new ApiMemberInventoryRequest([extension.Id]));
+            new ApiMemberInventoryRequest([extension.Id], allAccessibilityIds));
         Assert.Contains(extensions.Members, member => member.Name == nameof(InventoryExtensions.Extend));
+
+        var privateFacet = Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "private");
+        var privateMembers = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest(AccessibilityFacetIds: [privateFacet.Id]));
+        Assert.Contains(privateMembers.Members, member => member.Name == "s_privateField");
+        Assert.DoesNotContain(privateMembers.Members, member => member.Name == "s_publicField");
+
+        var publicFacet = Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "public");
+        var publicMembers = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest(AccessibilityFacetIds: [publicFacet.Id]));
+        Assert.Contains(publicMembers.Members, member => member.Name == "s_publicField");
+        Assert.DoesNotContain(publicMembers.Members, member => member.Name == "s_privateField");
+
+        var methodFacet = Assert.Single(
+            result.KindFacets,
+            facet => facet.SingularLabel == "method");
+        var privateMethods = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest([methodFacet.Id], [privateFacet.Id]));
+        Assert.All(privateMethods.Members, member =>
+        {
+            Assert.Equal("method", member.Kind);
+            Assert.Equal("private", member.Accessibility);
+        });
+        Assert.Equal(
+            privateMethods.Members.Count,
+            Assert.Single(
+                privateMethods.KindFacets,
+                facet => facet.Id == methodFacet.Id).Count);
+    }
+
+    [Fact]
+    public void Types_AccessibilityFacetsClassifyCompoundValues()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType { Name = "DefaultPublic", Kind = "class" },
+                new ApiType { Name = "ExplicitPublic", Kind = "class", Accessibility = "public" },
+                new ApiType { Name = "Protected", Kind = "class", Accessibility = "protected" },
+                new ApiType { Name = "ProtectedInternal", Kind = "class", Accessibility = "protected internal" },
+                new ApiType { Name = "PrivateProtected", Kind = "class", Accessibility = "private protected" },
+                new ApiType { Name = "Internal", Kind = "class", Accessibility = "internal" },
+                new ApiType { Name = "Private", Kind = "class", Accessibility = "private" },
+            ]
+        };
+
+        var result = ApiInventoryQuery.Types(surface);
+
+        Assert.Equal(
+            [
+                "public",
+                "protected",
+                "protected internal",
+                "private protected",
+                "internal",
+                "private",
+            ],
+            result.AccessibilityFacets.Select(facet => facet.SingularLabel));
+        Assert.Equal([2, 1, 1, 1, 1, 1], result.AccessibilityFacets.Select(facet => facet.Count));
+        Assert.True(result.AccessibilityFacets.Select(facet => facet.Weight).SequenceEqual(
+            result.AccessibilityFacets.Select(facet => facet.Weight).Order()));
+        Assert.Equal(["DefaultPublic", "ExplicitPublic"], result.Types.Select(type => type.Name));
+
+        foreach (var facet in result.AccessibilityFacets)
+        {
+            var filtered = ApiInventoryQuery.Types(
+                surface,
+                new ApiTypeInventoryRequest(AccessibilityFacetIds: [facet.Id]));
+            Assert.Equal(facet.Count, filtered.Types.Count);
+        }
+
+        var protectedFamily = result.AccessibilityFacets
+            .Where(facet => facet.SingularLabel.Contains("protected", StringComparison.Ordinal))
+            .Select(facet => facet.Id)
+            .ToList();
+        var combined = ApiInventoryQuery.Types(
+            surface,
+            new ApiTypeInventoryRequest(AccessibilityFacetIds: protectedFamily));
+        Assert.Equal(3, combined.Types.Count);
+    }
+
+    [Fact]
+    public void AccessibilityClassification_UsesMetadataFactsNotGeneratedNames()
+    {
+        using var stream = File.OpenRead(typeof(ApiInventoryQueryTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var extracted = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true,
+            includeCompilerGenerated: true);
+        var generated = Assert.Single(
+            extracted.Types,
+            type => type.MetadataName == "ApiInventoryQueryTests+<>c");
+        var generatedLookingPublic = Assert.Single(
+            extracted.Types,
+            type => type.FullName == typeof(__PublicAccessibilityFixture).FullName);
+        var surface = new ApiSurface
+        {
+            Types = [generated, generatedLookingPublic]
+        };
+
+        var catalog = ApiInventoryQuery.Types(surface);
+        var privateFacet = Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "private");
+        var publicFacet = Assert.Single(
+            catalog.AccessibilityFacets,
+            facet => facet.SingularLabel == "public");
+
+        var privateTypes = ApiInventoryQuery.Types(
+            surface,
+            new ApiTypeInventoryRequest(AccessibilityFacetIds: [privateFacet.Id]));
+        var publicTypes = ApiInventoryQuery.Types(
+            surface,
+            new ApiTypeInventoryRequest(AccessibilityFacetIds: [publicFacet.Id]));
+
+        Assert.Contains(generated, privateTypes.Types);
+        Assert.Contains(generatedLookingPublic, publicTypes.Types);
     }
 
     [Fact]
@@ -225,6 +392,14 @@ public class ApiInventoryQueryTests
                 new ApiTypeInventoryRequest(["consumer-invented-kind"])));
 
         Assert.Contains("consumer-invented-kind", error.Message);
+
+        error = Assert.Throws<ArgumentException>(() =>
+            ApiInventoryQuery.Types(
+                surface,
+                new ApiTypeInventoryRequest(
+                    AccessibilityFacetIds: ["consumer-invented-accessibility"])));
+
+        Assert.Contains("consumer-invented-accessibility", error.Message);
     }
 
     [Fact]
@@ -251,6 +426,21 @@ public class ApiInventoryQueryTests
 
         Assert.Throws<InvalidOperationException>(() => ApiInventoryQuery.Types(surface));
         Assert.Throws<InvalidOperationException>(() => ApiInventoryQuery.Members(type));
+
+        var unknownAccessibility = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Name = "Future",
+                    Kind = "class",
+                    Accessibility = "future-accessibility"
+                }
+            ]
+        };
+        Assert.Throws<InvalidOperationException>(
+            () => ApiInventoryQuery.Types(unknownAccessibility));
     }
 }
 
@@ -259,10 +449,12 @@ public interface IInventoryFixture
     void Explicit();
 }
 
-public sealed class InventoryFixture : IInventoryFixture
+public class InventoryFixture : IInventoryFixture
 {
     public const int Constant = 1;
     public int Field;
+    public static int s_publicField;
+    private static int s_privateField = 1;
     public int Property { get; set; }
     public event EventHandler? Changed;
 
@@ -273,6 +465,16 @@ public sealed class InventoryFixture : IInventoryFixture
     ~InventoryFixture() { }
 
     public void Method() => Changed?.Invoke(this, EventArgs.Empty);
+
+    protected void ProtectedMethod() { }
+
+    protected internal void ProtectedInternalMethod() { }
+
+    private protected void PrivateProtectedMethod() { }
+
+    internal void InternalMethod() { }
+
+    private int PrivateMethod() => s_privateField;
 
     void IInventoryFixture.Explicit() { }
 
@@ -291,3 +493,4 @@ public struct InventoryStruct;
 public interface IInventoryType;
 public enum InventoryEnum;
 public delegate void InventoryDelegate();
+public class __PublicAccessibilityFixture;

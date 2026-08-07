@@ -607,7 +607,7 @@ Research overlay bridge, and the application layer:
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
 │  Typed per-assembly and group-query coordination             │
-│  ApiInventoryQuery          type/member inventory facets    │
+│  ApiInventoryQuery          kind/accessibility facets       │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │

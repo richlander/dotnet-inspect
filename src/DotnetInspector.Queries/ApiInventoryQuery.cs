@@ -11,7 +11,9 @@ namespace DotnetInspector.Queries;
 /// <param name="SingularLabel">Display label for one result.</param>
 /// <param name="PluralLabel">Display label for zero or multiple results.</param>
 /// <param name="Weight">Producer-owned display order.</param>
-/// <param name="Count">Number of items in the unfiltered inventory that belong to this facet.</param>
+/// <param name="Count">
+/// Number of items in the current opposite-axis scope that belong to this facet.
+/// </param>
 /// <param name="IsDefault">Whether this facet participates when no explicit selection is supplied.</param>
 public sealed record ApiFacetDescriptor(
     string Id,
@@ -22,39 +24,46 @@ public sealed record ApiFacetDescriptor(
     bool IsDefault);
 
 /// <summary>
-/// Selects type-kind facets. Null or empty means the producer-declared defaults.
+/// Selects type-kind and accessibility facets. Null or empty means the
+/// producer-declared defaults for that facet axis.
 /// </summary>
 public sealed record ApiTypeInventoryRequest(
-    IReadOnlyCollection<string>? KindFacetIds = null);
+    IReadOnlyCollection<string>? KindFacetIds = null,
+    IReadOnlyCollection<string>? AccessibilityFacetIds = null);
 
 /// <summary>
-/// Type inventory and the available type-kind facets for its unfiltered input.
+/// Type inventory plus the effective kind and accessibility facets for the current request.
 /// </summary>
 public sealed record ApiTypeInventoryResult(
     IReadOnlyList<ApiType> Types,
     IReadOnlyList<ApiFacetDescriptor> KindFacets,
+    IReadOnlyList<ApiFacetDescriptor> AccessibilityFacets,
     IReadOnlyList<ApiSurfaceInspectionFailure> InspectionFailures);
 
 /// <summary>
-/// Selects member-kind facets. Null or empty means the producer-declared defaults.
+/// Selects member-kind and accessibility facets. Null or empty means the
+/// producer-declared defaults for that facet axis.
 /// </summary>
 public sealed record ApiMemberInventoryRequest(
-    IReadOnlyCollection<string>? KindFacetIds = null);
+    IReadOnlyCollection<string>? KindFacetIds = null,
+    IReadOnlyCollection<string>? AccessibilityFacetIds = null);
 
 /// <summary>
-/// Member inventory and the available member-kind facets for its unfiltered input.
+/// Member inventory plus the effective kind and accessibility facets for the current request.
 /// </summary>
 public sealed record ApiMemberInventoryResult(
     IReadOnlyList<ApiMember> Members,
-    IReadOnlyList<ApiFacetDescriptor> KindFacets);
+    IReadOnlyList<ApiFacetDescriptor> KindFacets,
+    IReadOnlyList<ApiFacetDescriptor> AccessibilityFacets);
 
 /// <summary>
 /// Product-owned type and member inventory queries.
 /// </summary>
 /// <remarks>
-/// Raw <see cref="ApiType.Kind"/> and <see cref="ApiMember.Kind"/> values remain metadata facts.
-/// This query owns the filter identity, grouping, labels, order, defaults, and application so a
-/// consumer never has to parse or classify those facts.
+/// Raw <see cref="ApiType.Kind"/>, <see cref="ApiType.Accessibility"/>,
+/// <see cref="ApiMember.Kind"/>, and <see cref="ApiMember.Accessibility"/> values remain metadata
+/// facts. This query owns the filter identity, grouping, labels, order, defaults, and application
+/// so a consumer never has to parse or classify those facts.
 /// </remarks>
 public static class ApiInventoryQuery
 {
@@ -65,6 +74,8 @@ public static class ApiInventoryQuery
         int Weight,
         bool IsDefault,
         Func<T, bool> Matches);
+
+    sealed record ClassifiedItem<T>(T Item, string KindFacetId, string AccessibilityFacetId);
 
     static readonly IReadOnlyList<FacetDefinition<ApiType>> TypeKindFacets =
     [
@@ -100,9 +111,25 @@ public static class ApiInventoryQuery
             member => member.Kind == "event"),
     ];
 
+    static readonly IReadOnlyList<FacetDefinition<string?>> AccessibilityFacets =
+    [
+        new("api.accessibility.public", "public", "public", 100, true,
+            accessibility => string.IsNullOrEmpty(accessibility) || accessibility == "public"),
+        new("api.accessibility.protected", "protected", "protected", 200, false,
+            accessibility => accessibility == "protected"),
+        new("api.accessibility.protected-internal", "protected internal", "protected internal", 300, false,
+            accessibility => accessibility == "protected internal"),
+        new("api.accessibility.private-protected", "private protected", "private protected", 400, false,
+            accessibility => accessibility == "private protected"),
+        new("api.accessibility.internal", "internal", "internal", 500, false,
+            accessibility => accessibility == "internal"),
+        new("api.accessibility.private", "private", "private", 600, false,
+            accessibility => accessibility == "private"),
+    ];
+
     /// <summary>
-    /// Returns the available ordered type-kind descriptors and the projection selected by their
-    /// opaque IDs.
+    /// Returns effective ordered type-kind and accessibility descriptors and the projection
+    /// selected by their opaque IDs.
     /// </summary>
     public static ApiTypeInventoryResult Types(
         ApiSurface surface,
@@ -110,17 +137,41 @@ public static class ApiInventoryQuery
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        var descriptors = Describe(surface.Types, TypeKindFacets, "type");
-        var selected = SelectIds(request?.KindFacetIds, TypeKindFacets);
-        var types = surface.Types
-            .Where(type => selected.Contains(Classify(type, TypeKindFacets, "type")))
+        var inventory = surface.Types
+            .Select(type => new ClassifiedItem<ApiType>(
+                type,
+                Classify(type, TypeKindFacets, "type kind"),
+                Classify(type.Accessibility, AccessibilityFacets, "type accessibility")))
             .ToList();
-        return new ApiTypeInventoryResult(types, descriptors, [.. surface.InspectionFailures]);
+        var selectedKinds = SelectIds(request?.KindFacetIds, TypeKindFacets);
+        var selectedAccessibilities = SelectIds(
+            request?.AccessibilityFacetIds,
+            AccessibilityFacets);
+        var kindDescriptors = Describe(
+            inventory
+                .Where(item => selectedAccessibilities.Contains(item.AccessibilityFacetId))
+                .Select(item => item.KindFacetId),
+            TypeKindFacets);
+        var accessibilityDescriptors = Describe(
+            inventory
+                .Where(item => selectedKinds.Contains(item.KindFacetId))
+                .Select(item => item.AccessibilityFacetId),
+            AccessibilityFacets);
+        var types = inventory
+            .Where(item => selectedKinds.Contains(item.KindFacetId)
+                && selectedAccessibilities.Contains(item.AccessibilityFacetId))
+            .Select(item => item.Item)
+            .ToList();
+        return new ApiTypeInventoryResult(
+            types,
+            kindDescriptors,
+            accessibilityDescriptors,
+            [.. surface.InspectionFailures]);
     }
 
     /// <summary>
-    /// Returns the available ordered member-kind descriptors and the projection selected by their
-    /// opaque IDs.
+    /// Returns effective ordered member-kind and accessibility descriptors and the projection
+    /// selected by their opaque IDs.
     /// </summary>
     public static ApiMemberInventoryResult Members(
         ApiType type,
@@ -128,25 +179,41 @@ public static class ApiInventoryQuery
     {
         ArgumentNullException.ThrowIfNull(type);
 
-        var descriptors = Describe(type.Members, MemberKindFacets, "member");
-        var selected = SelectIds(request?.KindFacetIds, MemberKindFacets);
-        var members = type.Members
-            .Where(member => selected.Contains(Classify(member, MemberKindFacets, "member")))
+        var inventory = type.Members
+            .Select(member => new ClassifiedItem<ApiMember>(
+                member,
+                Classify(member, MemberKindFacets, "member kind"),
+                Classify(member.Accessibility, AccessibilityFacets, "member accessibility")))
             .ToList();
-        return new ApiMemberInventoryResult(members, descriptors);
+        var selectedKinds = SelectIds(request?.KindFacetIds, MemberKindFacets);
+        var selectedAccessibilities = SelectIds(
+            request?.AccessibilityFacetIds,
+            AccessibilityFacets);
+        var kindDescriptors = Describe(
+            inventory
+                .Where(item => selectedAccessibilities.Contains(item.AccessibilityFacetId))
+                .Select(item => item.KindFacetId),
+            MemberKindFacets);
+        var accessibilityDescriptors = Describe(
+            inventory
+                .Where(item => selectedKinds.Contains(item.KindFacetId))
+                .Select(item => item.AccessibilityFacetId),
+            AccessibilityFacets);
+        var members = inventory
+            .Where(item => selectedKinds.Contains(item.KindFacetId)
+                && selectedAccessibilities.Contains(item.AccessibilityFacetId))
+            .Select(item => item.Item)
+            .ToList();
+        return new ApiMemberInventoryResult(members, kindDescriptors, accessibilityDescriptors);
     }
 
     static IReadOnlyList<ApiFacetDescriptor> Describe<T>(
-        IReadOnlyList<T> items,
-        IReadOnlyList<FacetDefinition<T>> definitions,
-        string subject)
+        IEnumerable<string> classifiedIds,
+        IReadOnlyList<FacetDefinition<T>> definitions)
     {
         Dictionary<string, int> counts = new(StringComparer.Ordinal);
-        foreach (var item in items)
-        {
-            var id = Classify(item, definitions, subject);
+        foreach (var id in classifiedIds)
             counts[id] = counts.GetValueOrDefault(id) + 1;
-        }
 
         return definitions
             .Where(definition => counts.ContainsKey(definition.Id))

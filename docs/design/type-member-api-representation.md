@@ -80,17 +80,22 @@ of repeated in every row.
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
-| `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind or member identity |
+| `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable kind/accessibility filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind, accessibility spelling, or member identity |
 | `InspectionGraphMemberIdentity.AcquiredApi` | One loaded workspace context | Which acquisition registration and `MemberAnchor` own a Metadata API member subject | Portable artifact identity or body evidence |
 | `InspectionGraphTypeIdentity.AcquiredDefinition` | One loaded workspace context | Which acquisition registration and exact `MetadataTypeDefinitionName` own a type subject | Cross-context correspondence or structural signature shape |
 | `InspectionGraphAssemblyIdentity.Acquired` | One loaded workspace context | Which acquisition registration, assembly identity, and provenance own an assembly subject in a session-bound graph | Portable artifact identity or correspondence outside that acquisition |
 | `InspectionGraphPackageIdentity.Realized` | One portable inspection-graph subject | Which exact package version, producer, framework, and RID own the package subject | Assembly membership without the workspace package-boundary projection |
 
-`ApiType.Kind` and `ApiMember.Kind` remain raw product facts. Consumers do not
-parse them or own a parallel grouping vocabulary: `ApiInventoryQuery` maps each
-item into one product-owned kind facet and accepts the returned opaque IDs for
-filtering. Unknown IDs and unclassified producer values fail visibly rather
-than becoming an empty inventory.
+`ApiType.Kind`, `ApiMember.Kind`, and their `Accessibility` values remain raw
+product facts. Consumers do not parse them or own a parallel grouping
+vocabulary: `ApiInventoryQuery` maps each item into exactly one product-owned
+kind facet and one accessibility facet, then accepts the returned opaque IDs
+for filtering. Missing accessibility is the public metadata projection;
+compound accessibilities retain distinct producer-owned facets. Public is the
+only default accessibility, while selections union within a facet axis and
+intersect across kind and accessibility. Unknown IDs and unclassified producer
+values fail visibly rather than becoming an empty inventory. The contract is
+gated by `ApiInventoryQueryTests`.
 
 #### `ILInspector.Analysis`
 
