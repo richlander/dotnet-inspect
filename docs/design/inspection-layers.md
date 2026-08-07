@@ -226,5 +226,6 @@ apart from its name binding.
 - It does not require every consumer to adopt L2. Consuming L1 alone is a
   supported choice.
 - It does not retire `ILInspector.*` ownership. Metadata still owns metadata
-  facts, Analysis owns IL-body evidence, CSharp owns C# spelling, and Research
-  composes evidence. L1 sits above them and composes them into typed results.
+  facts, Analysis owns IL-body evidence, CSharpText owns model-free textual
+  grammars, CSharp owns model-bound C# spelling, and Research composes evidence.
+  L1 sits above them and composes them into typed results.

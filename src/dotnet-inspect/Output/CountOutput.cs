@@ -24,9 +24,14 @@ public static class CountOutput
     /// <see cref="ValidateSingleSection"/> this permits multi-section selection (e.g. a
     /// category such as <c>@Performance</c>), which renders a per-section count map.
     /// </summary>
-    public static bool ValidateSectionsSelected(HashSet<string>? includeSections)
+    /// <param name="fixedOverview">
+    /// Whether bare <c>-S</c> selected the fixed overview. That route carries its selection as a
+    /// flag rather than as <paramref name="includeSections"/>, so reading the include set alone
+    /// reports a selection the user did make as no selection at all (#3547).
+    /// </param>
+    public static bool ValidateSectionsSelected(HashSet<string>? includeSections, bool fixedOverview)
     {
-        if (includeSections is { Count: >= 1 })
+        if (includeSections is { Count: >= 1 } || fixedOverview)
             return true;
 
         CommandError.Write(SectionRequiredMessage);

@@ -1143,6 +1143,88 @@ public partial class CommandExecutionTests
         Assert.Contains("Performance: Other", output);
     }
 
+    /// <summary>
+    /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
+    /// curated route carries that selection as a flag rather than as an include set, so this also
+    /// gates that the <c>--count</c> requirement reads the selection and not just the set.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_EmitsFixedOverviewMap()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+
+        var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+        Assert.True(expected.Length > 1, "The overview must name several sections for a map to be the right answer.");
+        foreach (var section in expected)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/>: the map has to
+    /// describe the render bare <c>-S</c> produces, not some adjacent set. Every section of that
+    /// pipeline renders rows for this assembly, so the two sets must match exactly - comparing the
+    /// map against the pipeline property instead would assert nothing, because that property is
+    /// what a wrong answer here would come from. The requested-but-empty case, where the map
+    /// legitimately carries a row the render does not, is covered by
+    /// <c>Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections</c>.
+    /// </summary>
+    [Fact]
+    public async Task Library_BareSelectCount_MapDescribesTheBareSelectRender()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+            .Select(line => line[3..].Trim())
+            .ToList();
+        Assert.True(rendered.Count > 1, "The overview must render several sections for a map to be the right answer.");
+
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "--count", "--tips", "q");
+        Assert.Equal(0, countExit);
+
+        var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+            .Select(line => line.Split('|')[1].Trim())
+            .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
+            .ToList();
+
+        Assert.Equal(mapped.Distinct().Count(), mapped.Count);
+        Assert.Equal(rendered.Order(), mapped.Order());
+    }
+
+    /// <summary>
+    /// The gate for <see cref="SectionPipeline{TModel}.BareSelectSectionNames"/> excluding
+    /// <c>ExplicitOnly</c> sections on a curated pipeline. The distinction is live, not defensive:
+    /// <c>Metadata: Image</c> and <c>Metadata: Heap</c> are <c>ExplicitOnly</c> and also
+    /// <c>Fixed</c>/<c>NetworkFree</c>, so they are fixed-overview members that bare <c>-S</c>
+    /// never renders. Reading <see cref="SectionPipeline{TModel}.FixedOverviewSectionNames"/>
+    /// instead would put both in the count map, each reporting zero for a section the user cannot
+    /// get this way.
+    /// </summary>
+    [Fact]
+    public void BareSelect_ExcludesExplicitOnlySections_OnCuratedPipelines()
+    {
+        var library = LibrarySections.CreatePipeline();
+
+        Assert.Equal(
+            [MetadataSectionNames.Image, MetadataSectionNames.Heap],
+            library.FixedOverviewSectionNames.Except(library.BareSelectSectionNames));
+        Assert.Empty(library.BareSelectSectionNames.Except(library.FixedOverviewSectionNames));
+
+        // The package pipeline marks none of its fixed sections ExplicitOnly, so the two agree
+        // there. Pinning both shapes keeps the exclusion honest in either direction.
+        var package = PackageSectionDescriptors.CreatePipeline();
+        Assert.Equal(package.FixedOverviewSectionNames, package.BareSelectSectionNames);
+    }
+
     [Fact]
     public async Task PerformanceLegacyName_RedirectsToGroup()
     {
@@ -5092,6 +5174,109 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsScanner()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", SectionNames.TopLeverage,
+            "--count",
+            "-S", SectionNames.TopLeverage,
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+        Assert.Contains("trace: library", error);
+        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, error);
+        Assert.DoesNotContain("body index", error);
+        Assert.DoesNotContain("drill map", error);
+    }
+
+    [Fact]
+    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingScanner()
+    {
+        string assemblyPath = typeof(InstructionProducer).Assembly.Location;
+        var (renderExit, renderOutput, renderError) = await RunAppAsync(
+            "library", assemblyPath,
+            "-S", SectionNames.UnsafeMembers,
+            "--count",
+            "--tips", "q");
+
+        Assert.Equal(0, renderExit);
+        Assert.Empty(renderError);
+        Assert.True(
+            int.Parse(renderOutput.Trim(), CultureInfo.InvariantCulture) > 0,
+            "The fixture must contain body-only unsafe evidence for discovery to preserve.");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D", SectionNames.UnsafeMembers,
+            "--count",
+            "-S", SectionNames.UnsafeMembers,
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+        Assert.Contains("trace: library", error);
+        Assert.DoesNotContain(LibrarySections.ScannerUnsafeMembers, error);
+        Assert.DoesNotContain("body index", error);
+    }
+
+    [Fact]
+    public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
+    {
+        const string legacyCategory = "effective-v19";
+        const string currentCategory = "effective-v20";
+        string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Instructions.dll");
+        File.Copy(typeof(InstructionProducer).Assembly.Location, assemblyPath);
+
+        string hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assemblyPath)));
+        string[] keys =
+        [
+            LibraryCommand.BuildEffectiveCacheKey(assemblyPath, hash, hasSourceLink: false),
+            LibraryCommand.BuildEffectiveCacheKey(assemblyPath, hash, hasSourceLink: true),
+        ];
+
+        try
+        {
+            foreach (string key in keys)
+            {
+                CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+                Assert.NotNull(CoreCache.TryGet(legacyCategory, key, extension: "tsv"));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "-D",
+                "--tree",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(SectionNames.UnsafeMembers, output);
+        }
+        finally
+        {
+            foreach (string key in keys)
+            {
+                DeleteIfPresent(CoreCache.GetFilePath(legacyCategory, key, extension: "tsv"));
+                DeleteIfPresent(CoreCache.GetFilePath(currentCategory, key, extension: "tsv"));
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+
+        static void DeleteIfPresent(string path)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
     {
         // Effective discovery renders discovered rows, but the command's own --count branch sat
@@ -5399,6 +5584,49 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// The package half of #3547 gap 6. The map reports a requested section that has no rows as
+    /// zero rather than omitting it, which is what makes it a cheap probe of the whole overview -
+    /// the same contract a category map already has.
+    /// </summary>
+    [Fact]
+    public async Task Package_BareSelectCount_EmitsFixedOverviewMapIncludingEmptySections()
+    {
+        var (renderExit, renderOutput, _) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--tips", "q");
+        Assert.Equal(0, renderExit);
+
+        // This package ships no README, so the section is requested but renders nothing. Without
+        // such a section the zero-row half of the claim would be untested.
+        Assert.DoesNotContain("## Package README file", renderOutput);
+
+        var (exit, output, error) = await RunAppAsync(
+            "package", "NETStandard.Library@2.0.3", "-S", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+        Assert.Contains("| Package README file | 0 |", output);
+
+        foreach (var section in PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames)
+            Assert.Contains($"| {section} |", output);
+    }
+
+    /// <summary>
+    /// The negative case for the widened <c>--count</c> requirement: it accepts bare <c>-S</c>
+    /// because that is a selection, not because the requirement was dropped.
+    /// </summary>
+    [Fact]
+    public async Task Package_CountWithoutSelect_StillRequiresASelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(CountOutput.SectionRequiredMessage, error);
     }
 
     [Fact]
@@ -6425,6 +6653,52 @@ public partial class CommandExecutionTests
         Assert.Contains("Overloaded~<digest>", error);
         Assert.Contains("Overloaded:1 through Overloaded:2", error);
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
+    }
+
+    [Fact]
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-version-skew-").FullName;
+        try
+        {
+            string caller =
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+            File.Copy(
+                caller,
+                Path.Combine(directory, Path.GetFileName(caller)));
+            string targetV1 =
+                FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+            File.Copy(
+                targetV1,
+                Path.Combine(directory, Path.GetFileName(targetV1)));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath(),
+                "-m",
+                "Api.Ping",
+                "--index",
+                "1",
+                "-S",
+                "Call Graph",
+                "--bin",
+                directory,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Call Graph", output);
+            Assert.DoesNotContain("Shared.Entry.Run", output);
+            Assert.Contains(
+                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

@@ -1,7 +1,9 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
@@ -43,6 +45,24 @@ public class CallGraphProjectionTests
     static (int From, int To, string? Loop)[] EdgeTuples(CallGraphProjection projection)
         => [.. projection.Edges.Select(e => (e.From, e.To, e.LoopLabel))];
 
+    static GraphNodeEvidence Evidence(int token)
+    {
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(CallGraphProjectionTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    "call-graph projection test"));
+        GraphNodeStorageKey storage =
+            GraphNodeStorageKey.Definition(
+                source,
+                new Guid("11111111-1111-1111-1111-111111111111"),
+                token);
+        return new GraphNodeEvidence(
+            storage,
+            GraphNodeIdentity.FromStorage(storage),
+            correspondence: null);
+    }
+
     [Fact]
     public void FocusIsAlwaysNodeZero()
     {
@@ -52,6 +72,81 @@ public class CallGraphProjectionTests
         Assert.Equal(0, projection.Focus.Id);
         Assert.Equal(CallGraphNodeKind.Focus, projection.Focus.Kind);
         Assert.Same(projection.Nodes[0], projection.Focus);
+    }
+
+    [Fact]
+    public void CompleteGraphEvidenceIsTheIdentityDomain()
+    {
+        MemberRef repeated = Member("Svc", "Do");
+        CallTreeNode root = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [
+                Leaf(repeated) with { GraphEvidence = Evidence(2) },
+                Leaf(repeated) with { GraphEvidence = Evidence(3) },
+            ]) with
+        {
+            GraphEvidence = Evidence(1),
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(root);
+
+        Assert.Equal(3, projection.Nodes.Length);
+        Assert.Equal(2, projection.Nodes.Count(node =>
+            node.Member.Name == "Do"));
+    }
+
+    [Fact]
+    public void MissingEvidenceSelectsStructuralIdentityForTheWholeProjection()
+    {
+        MemberRef repeated = Member("Svc", "Do");
+        CallTreeNode root = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [
+                Leaf(repeated) with { GraphEvidence = Evidence(2) },
+                Leaf(repeated),
+            ]) with
+        {
+            GraphEvidence = Evidence(1),
+        };
+
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(root);
+
+        Assert.Equal(2, projection.Nodes.Length);
+        CallGraphNode callee = Assert.Single(
+            projection.Nodes,
+            node => node.Member.Name == "Do");
+        Assert.Single(callee.GraphEvidence);
+    }
+
+    [Fact]
+    public void InstanceSelfRecursionFromBodyIndexCollapsesOntoFocus()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        MethodIdentity method = index.DeclaredMethods.Single(candidate =>
+            candidate.DeclaringType.Name
+                == "InstanceRecursionApi"
+            && candidate.Name
+                == "Recurse");
+
+        CallGraphProjection projection = CallGraphProjection.Create(
+            index.BuildCallerTree(method.MetadataToken),
+            index.BuildCallTree(method.MetadataToken));
+
+        Assert.Single(
+            projection.Nodes,
+            node => node.Member.DeclaringType.Name
+                    == "InstanceRecursionApi"
+                && node.Member.Name
+                    == "Recurse");
+        Assert.Contains(
+            projection.Edges,
+            edge => edge.From == projection.Focus.Id
+                && edge.To == projection.Focus.Id);
     }
 
     [Fact]
