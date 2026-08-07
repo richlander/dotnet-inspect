@@ -7,6 +7,7 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
@@ -78,6 +79,44 @@ public sealed class ValidDifferentFaultIsolationTests
         Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
         Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
         Assert.Contains("did not compile", result.Detail);
+    }
+
+    [Fact]
+    public void AuthoredConstructorBody_PreservesTheFinalRtsConstructorChain()
+    {
+        using var fixture = FidelityFixture.Create(
+            """
+            public class Class1
+            {
+                public Class1() : this(1) { }
+                public Class1(int value) { }
+            }
+            """,
+            rejectedBody: "",
+            authoredBody: "",
+            methodName: ".ctor",
+            constructorChain: "this(1)");
+
+        var result = fixture.Isolate();
+
+        Assert.NotNull(result);
+        Assert.True(
+            result.Kind == ReturnToSender.FaultIsolationKind.BodyDefect,
+            result.Detail);
+        Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
+    }
+
+    [Fact]
+    public void UnavailableFullComparison_ReturnsNoVerdict()
+    {
+        var unavailable = new IlBodyDiffResult(
+            IlBodyDiffOutcome.Unavailable,
+            Failure: "body comparison unavailable",
+            Rows: []);
+
+        Assert.Null(ReturnToSender.ClassifyFidelityControlStatus(
+            opcodesExact: false,
+            unavailable));
     }
 
     [Fact]
@@ -217,7 +256,8 @@ public sealed class ValidDifferentFaultIsolationTests
             string rejectedBody,
             string? authoredBody,
             string fullType = "Class1",
-            string methodName = "M")
+            string methodName = "M",
+            string? constructorChain = null)
         {
             string directory = Path.Combine(Path.GetTempPath(), $"rts-fidelity-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
@@ -240,7 +280,7 @@ public sealed class ValidDifferentFaultIsolationTests
                 Function: function,
                 TargetType: typeHandle,
                 TargetMethod: methodHandle,
-                TargetBody: new ProductTargetBody(rejectedBody, []),
+                TargetBody: new ProductTargetBody(rejectedBody, [], constructorChain),
                 FullType: fullType,
                 MethodName: methodName,
                 Overload: 0,

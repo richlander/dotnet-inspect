@@ -2343,9 +2343,8 @@ static class ReturnToSender
         if (originalOps is null)
             return null;
 
-        var status = FidelityCheck.ClassifyStatus(
-            isFull: true,
-            opcodesExact: originalOps.SequenceEqual(authoredOps),
+        var status = ClassifyFidelityControlStatus(
+            originalOps.SequenceEqual(authoredOps),
             fidelityDiff);
         return status switch
         {
@@ -2366,6 +2365,25 @@ static class ReturnToSender
                 },
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Forms an authored-body control verdict only when the Full-fidelity body
+    /// comparison itself is available. The general compile-back classifier can
+    /// still report an opcode difference without that comparison; attribution
+    /// cannot, because methodology v3 promises the existing Full contract.
+    /// </summary>
+    internal static FidelityCheck.CompileBackStatus? ClassifyFidelityControlStatus(
+        bool opcodesExact,
+        IlBodyDiffResult? fidelityDiff)
+    {
+        if (fidelityDiff is not { IsAvailable: true })
+            return null;
+
+        return FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact,
+            fidelityDiff);
     }
 
     sealed record AuthoredBodyCompilation(
@@ -2393,8 +2411,13 @@ static class ReturnToSender
 
         try
         {
+            var authoredTargetBody = request.TargetBody with
+            {
+                Source = authoredBody,
+                Decisions = [],
+            };
             var authoredArtifact = CompileBackSourceComposer.Compose(
-                WithTargetBody(request, new ProductTargetBody(authoredBody, [])));
+                WithTargetBody(request, authoredTargetBody));
             var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
             var compilation = CSharpCompilation.Create(
                 "return-to-sender-source-oracle",
