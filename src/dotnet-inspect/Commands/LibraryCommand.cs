@@ -327,7 +327,8 @@ public class LibraryCommand
             trace.Verbosity = options.Verbosity.ToString();
         var scanners = pipeline.GetRequiredScanners(
             options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
-            effectiveDiscovery ? DiscoveryScanners : null);
+            effectiveDiscovery ? DiscoveryScanners : null,
+            excludeUnbounded: effectiveDiscovery);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&

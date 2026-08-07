@@ -5174,6 +5174,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsScanner()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", SectionNames.TopLeverage,
+            "--count",
+            "-S", SectionNames.TopLeverage,
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+        Assert.Contains("trace: library", error);
+        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, error);
+        Assert.DoesNotContain("body index", error);
+        Assert.DoesNotContain("drill map", error);
+    }
+
+    [Fact]
     public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
     {
         // Effective discovery renders discovered rows, but the command's own --count branch sat

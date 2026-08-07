@@ -700,16 +700,24 @@ public sealed class SectionPipeline<TModel>
     /// one place that knows the full requested set, so anything added later is a scanner the trace
     /// cannot attribute and will misreport as prerequisite expansion.
     /// </param>
+    /// <param name="excludeUnbounded">
+    /// Keeps explicitly included unbounded sections from demanding their scanners. Effective
+    /// discovery uses this because <c>-S</c> narrows the discovered rows but must not turn
+    /// discovery into execution of the selected section.
+    /// </param>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
         HashSet<string>? include = null, bool fixedOverview = false,
         InspectionTrace? trace = null,
-        IReadOnlyList<(string Reason, string Scanner)>? commandDemand = null)
+        IReadOnlyList<(string Reason, string Scanner)>? commandDemand = null,
+        bool excludeUnbounded = false)
     {
         HashSet<string> scanners = [];
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
             if (entry.ScannerKey == null)
+                continue;
+            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
                 continue;
             if (IsRequested(entry, i, verbosity, include, fixedOverview))
             {

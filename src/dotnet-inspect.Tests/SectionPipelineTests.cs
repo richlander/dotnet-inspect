@@ -997,6 +997,28 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void GetRequiredScanners_ExcludeUnbounded_PreservesExplicitBoundedSelection()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var include = new HashSet<string>
+        {
+            SectionNames.TopLeverage,
+            LibrarySections.PInvokeMethods.Name,
+        };
+
+        var renderScanners = pipeline.GetRequiredScanners(Verbosity.Detailed, include);
+        var discoveryScanners = pipeline.GetRequiredScanners(
+            Verbosity.Detailed,
+            include,
+            excludeUnbounded: true);
+
+        Assert.Contains(LibrarySections.ScannerTopLeverage, renderScanners);
+        Assert.Contains(LibrarySections.ScannerClassifiedMethods, renderScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, discoveryScanners);
+        Assert.Equal([LibrarySections.ScannerClassifiedMethods], discoveryScanners);
+    }
+
+    [Fact]
     public void GetRequiredScanners_NullScannerKeyExcluded()
     {
         var pipeline = CreateTestPipeline();
