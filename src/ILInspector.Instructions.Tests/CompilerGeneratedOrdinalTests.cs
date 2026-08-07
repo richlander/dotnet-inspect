@@ -1470,6 +1470,43 @@ public class CompilerGeneratedOrdinalTests
     }
 
     [Fact]
+    public void OversizedStructuralSignature_FailsClosed()
+    {
+        var oversized = GenericGenerated("<M>g__L|1_0", 1) with
+        {
+            GenericConstraintType = "System.IDisposable",
+            GenericConstraintCopies = 24_000,
+        };
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [oversized])));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        var oldMethod = oldReader.GetMethodDefinition(
+            MethodNamed(oldReader, oversized.Name));
+
+        Assert.True(
+            oldReader.GetTableRowCount(TableIndex.GenericParamConstraint)
+                < ushort.MaxValue);
+        Assert.Throws<BadImageFormatException>(
+            () => MethodStructuralSignature.Build(oldReader, oldMethod));
+
+        var ordinary = GenericGenerated("<M>g__L|2_0", 1);
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [ordinary])));
+        MetadataReader newReader = newPe.GetMetadataReader();
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader);
+
+        Assert.False(
+            oldSide.TryGetMethodName(
+                MethodNamed(oldReader, oversized.Name),
+                out _));
+        Assert.False(
+            newSide.TryGetMethodName(
+                MethodNamed(newReader, ordinary.Name),
+                out _));
+    }
+
+    [Fact]
     public void IdenticallyConstrainedGenericMembers_StillFold()
     {
         var result = Compare(

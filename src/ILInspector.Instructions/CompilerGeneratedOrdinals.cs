@@ -263,17 +263,29 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         var oldMethods = new Dictionary<MethodDefinitionHandle, string>();
         var newMethods = new Dictionary<MethodDefinitionHandle, string>();
-        foreach (var (key, handle) in oldIndex.Methods)
+        foreach (var (declaringType, oldGroup) in oldIndex.MethodGroups)
         {
-            if (oldIndex.AmbiguousMethods.Contains(key)
-                || newIndex.AmbiguousMethods.Contains(key)
-                || !newIndex.Methods.TryGetValue(key, out var counterpart))
+            if (!newIndex.MethodGroups.TryGetValue(
+                    declaringType,
+                    out var newGroup))
             {
                 continue;
             }
 
-            oldMethods[handle] = oldIndex.MethodNames[handle];
-            newMethods[counterpart] = newIndex.MethodNames[counterpart];
+            foreach (var (component, handle) in oldGroup.Methods)
+            {
+                if (oldGroup.AmbiguousMethods.Contains(component)
+                    || newGroup.AmbiguousMethods.Contains(component)
+                    || !newGroup.Methods.TryGetValue(
+                        component,
+                        out var counterpart))
+                {
+                    continue;
+                }
+
+                oldMethods[handle] = oldIndex.MethodNames[handle];
+                newMethods[counterpart] = newIndex.MethodNames[counterpart];
+            }
         }
 
         var oldTypes = new Dictionary<TypeDefinitionHandle, string>();
@@ -618,15 +630,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     {
         static readonly ConditionalWeakTable<MetadataReader, SideIndex> s_cache = new();
 
-        public required Dictionary<string, MethodDefinitionHandle> Methods { get; init; }
-        public required HashSet<string> AmbiguousMethods { get; init; }
+        public required Dictionary<StructuralTypeKey, MethodGroup> MethodGroups { get; init; }
         public required Dictionary<MethodDefinitionHandle, string> MethodNames { get; init; }
-        public required Dictionary<string, TypeDefinitionHandle> Types { get; init; }
-        public required HashSet<string> AmbiguousTypes { get; init; }
+        public required Dictionary<StructuralTypeKey, TypeDefinitionHandle> Types { get; init; }
+        public required HashSet<StructuralTypeKey> AmbiguousTypes { get; init; }
         public required Dictionary<TypeDefinitionHandle, string> TypeNames { get; init; }
         public required Dictionary<FieldDefinitionHandle, MethodDefinitionHandle> FieldSiblings { get; init; }
 
-        public bool IsEmpty => Methods.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
+        public bool IsEmpty => MethodGroups.Count == 0 && Types.Count == 0 && FieldSiblings.Count == 0;
 
         public static SideIndex For(MetadataReader reader)
             => s_cache.GetValue(reader, static r => Create(r));
@@ -655,8 +666,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             {
                 return new SideIndex
                 {
-                    Methods = [],
-                    AmbiguousMethods = [],
+                    MethodGroups = [],
                     MethodNames = [],
                     Types = [],
                     AmbiguousTypes = [],
@@ -668,11 +678,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         static SideIndex CreateCore(MetadataReader reader)
         {
-            var methods = new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
-            var ambiguousMethods = new HashSet<string>(StringComparer.Ordinal);
+            var methodGroups = new Dictionary<StructuralTypeKey, MethodGroup>();
             var methodNames = new Dictionary<MethodDefinitionHandle, string>();
-            var types = new Dictionary<string, TypeDefinitionHandle>(StringComparer.Ordinal);
-            var ambiguousTypes = new HashSet<string>(StringComparer.Ordinal);
+            var types = new Dictionary<StructuralTypeKey, TypeDefinitionHandle>();
+            var ambiguousTypes = new HashSet<StructuralTypeKey>();
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
             var fieldSiblings = new Dictionary<FieldDefinitionHandle, MethodDefinitionHandle>();
 
@@ -696,7 +705,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Add(
                         types,
                         ambiguousTypes,
-                        structuralKeys.BuildType(typeHandle),
+                        structuralKeys.BuildTypeKey(typeHandle),
                         typeHandle);
                 }
 
@@ -755,10 +764,19 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                             (ambiguousSiblings ??= new HashSet<string>(StringComparer.Ordinal)).Add(siblingTail);
                     }
 
+                    StructuralMethodKey key =
+                        structuralKeys.BuildMethodKey(method, elided);
+                    if (!methodGroups.TryGetValue(
+                            key.DeclaringType,
+                            out var group))
+                    {
+                        group = new MethodGroup();
+                        methodGroups.Add(key.DeclaringType, group);
+                    }
                     Add(
-                        methods,
-                        ambiguousMethods,
-                        structuralKeys.BuildMethod(method, elided),
+                        group.Methods,
+                        group.AmbiguousMethods,
+                        key.Component,
                         methodHandle);
                 }
 
@@ -799,8 +817,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
             return new SideIndex
             {
-                Methods = methods,
-                AmbiguousMethods = ambiguousMethods,
+                MethodGroups = methodGroups,
                 MethodNames = methodNames,
                 Types = types,
                 AmbiguousTypes = ambiguousTypes,
@@ -809,14 +826,23 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             };
         }
 
-        static void Add<THandle>(
-            Dictionary<string, THandle> index,
-            HashSet<string> ambiguous,
-            string key,
+        static void Add<TKey, THandle>(
+            Dictionary<TKey, THandle> index,
+            HashSet<TKey> ambiguous,
+            TKey key,
             THandle handle)
+            where TKey : notnull
         {
             if (!index.TryAdd(key, handle))
                 ambiguous.Add(key);
+        }
+
+        internal sealed class MethodGroup
+        {
+            internal Dictionary<StructuralMethodComponent, MethodDefinitionHandle>
+                Methods { get; } = [];
+
+            internal HashSet<StructuralMethodComponent> AmbiguousMethods { get; } = [];
         }
 
         /// <summary>

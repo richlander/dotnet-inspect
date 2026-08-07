@@ -53,11 +53,12 @@ public static class TypeStructuralSignature
         => new StructuralSignatureBuilder(reader, typeNameOverrides)
             .BuildType(handle);
 
-    internal static string BuildCore(
+    internal static StructuralTypeKey BuildCore(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
         StructuralSignatureTypeProvider provider,
+        Dictionary<TypeDefinitionHandle, StructuralTypeKey> typeKeys,
         Dictionary<TypeDefinitionHandle, string> segmentKeys)
     {
         Span<TypeDefinitionHandle> chain =
@@ -76,12 +77,17 @@ public static class TypeStructuralSignature
                 rejection?.Detail ?? "The type has an invalid declaring-type chain.");
         }
 
-        var builder = new StringBuilder("T");
         var outer = reader.GetTypeDefinition(chain[0]);
-        StructuralSignatureKey.AppendPart(builder, reader.GetString(outer.Namespace));
-        StructuralSignatureKey.AppendNumber(builder, consumed);
+        string @namespace = reader.GetString(outer.Namespace);
+        StructuralTypeKey? parent = null;
         for (int i = 0; i < consumed; i++)
         {
+            if (typeKeys.TryGetValue(chain[i], out var cached))
+            {
+                parent = cached;
+                continue;
+            }
+
             if (!segmentKeys.TryGetValue(chain[i], out string? segmentKey))
             {
                 var segment = reader.GetTypeDefinition(chain[i]);
@@ -99,10 +105,218 @@ public static class TypeStructuralSignature
                 segmentKey = segmentBuilder.ToString();
                 segmentKeys.Add(chain[i], segmentKey);
             }
-            builder.Append(segmentKey);
+
+            parent = new StructuralTypeKey(@namespace, parent, segmentKey);
+            typeKeys.Add(chain[i], parent);
         }
 
+        return parent!;
+    }
+}
+
+internal sealed class StructuralTypeKey : IEquatable<StructuralTypeKey>
+{
+    readonly int _hashCode;
+
+    internal StructuralTypeKey(
+        string @namespace,
+        StructuralTypeKey? declaringType,
+        string segment)
+    {
+        Namespace = @namespace;
+        DeclaringType = declaringType;
+        Segment = segment;
+        Depth = declaringType is null ? 1 : declaringType.Depth + 1;
+        SegmentTextLength =
+            checked((declaringType?.SegmentTextLength ?? 0) + segment.Length);
+        if (EncodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The structural type key exceeds the encoded-character budget.");
+        }
+        _hashCode = HashCode.Combine(
+            declaringType?._hashCode
+                ?? StringComparer.Ordinal.GetHashCode(@namespace),
+            StringComparer.Ordinal.GetHashCode(@namespace),
+            StringComparer.Ordinal.GetHashCode(segment));
+    }
+
+    internal string Namespace { get; }
+    internal StructuralTypeKey? DeclaringType { get; }
+    internal string Segment { get; }
+    internal int Depth { get; }
+    internal int SegmentTextLength { get; }
+
+    internal int EncodedLength =>
+        checked(
+            1
+            + StructuralSignatureKey.PartLength(Namespace)
+            + StructuralSignatureKey.NumberLength(Depth)
+            + SegmentTextLength);
+
+    public bool Equals(StructuralTypeKey? other)
+    {
+        if (ReferenceEquals(this, other))
+            return true;
+        if (other is null
+            || _hashCode != other._hashCode
+            || Depth != other.Depth
+            || !StringComparer.Ordinal.Equals(Namespace, other.Namespace))
+        {
+            return false;
+        }
+
+        StructuralTypeKey? left = this;
+        StructuralTypeKey? right = other;
+        while (left is not null && right is not null)
+        {
+            if (!StringComparer.Ordinal.Equals(left.Segment, right.Segment))
+                return false;
+            left = left.DeclaringType;
+            right = right.DeclaringType;
+        }
+        return left is null && right is null;
+    }
+
+    public override bool Equals(object? obj)
+        => obj is StructuralTypeKey other && Equals(other);
+
+    public override int GetHashCode() => _hashCode;
+
+    public override string ToString()
+    {
+        var builder = new StringBuilder(EncodedLength);
+        AppendEncoded(builder);
         return builder.ToString();
+    }
+
+    internal void AppendEncoded(StringBuilder builder)
+    {
+        builder.Append('T');
+        StructuralSignatureKey.AppendPart(builder, Namespace);
+        StructuralSignatureKey.AppendNumber(builder, Depth);
+        AppendSegments(builder);
+    }
+
+    void AppendSegments(StringBuilder builder)
+    {
+        DeclaringType?.AppendSegments(builder);
+        builder.Append(Segment);
+    }
+}
+
+internal sealed class StructuralMethodKey : IEquatable<StructuralMethodKey>
+{
+    readonly int _hashCode;
+
+    internal StructuralMethodKey(
+        StructuralTypeKey declaringType,
+        string methodName,
+        string genericParameters,
+        string signature)
+    {
+        DeclaringType = declaringType;
+        Component = new StructuralMethodComponent(
+            methodName,
+            genericParameters,
+            signature);
+        if (EncodedLength > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The structural method key exceeds the encoded-character budget.");
+        }
+        _hashCode = HashCode.Combine(
+            declaringType.GetHashCode(),
+            Component.GetHashCode());
+    }
+
+    internal StructuralTypeKey DeclaringType { get; }
+    internal StructuralMethodComponent Component { get; }
+
+    int EncodedLength =>
+        checked(
+            1
+            + StructuralSignatureKey.NumberLength(DeclaringType.EncodedLength)
+            + DeclaringType.EncodedLength
+            + Component.EncodedLength);
+
+    public bool Equals(StructuralMethodKey? other)
+        => ReferenceEquals(this, other)
+            || other is not null
+                && _hashCode == other._hashCode
+                && DeclaringType.Equals(other.DeclaringType)
+                && Component.Equals(other.Component);
+
+    public override bool Equals(object? obj)
+        => obj is StructuralMethodKey other && Equals(other);
+
+    public override int GetHashCode() => _hashCode;
+
+    public override string ToString()
+    {
+        int typeLength = DeclaringType.EncodedLength;
+        var builder = new StringBuilder(EncodedLength);
+        builder.Append('M');
+        StructuralSignatureKey.AppendNumber(builder, typeLength);
+        DeclaringType.AppendEncoded(builder);
+        Component.AppendEncoded(builder);
+        return builder.ToString();
+    }
+}
+
+internal sealed class StructuralMethodComponent
+    : IEquatable<StructuralMethodComponent>
+{
+    readonly int _hashCode;
+
+    internal StructuralMethodComponent(
+        string methodName,
+        string genericParameters,
+        string signature)
+    {
+        MethodName = methodName;
+        GenericParameters = genericParameters;
+        Signature = signature;
+        _hashCode = HashCode.Combine(
+            StringComparer.Ordinal.GetHashCode(methodName),
+            StringComparer.Ordinal.GetHashCode(genericParameters),
+            StringComparer.Ordinal.GetHashCode(signature));
+    }
+
+    internal string MethodName { get; }
+    internal string GenericParameters { get; }
+    internal string Signature { get; }
+
+    internal int EncodedLength =>
+        checked(
+            StructuralSignatureKey.PartLength(MethodName)
+            + GenericParameters.Length
+            + Signature.Length);
+
+    public bool Equals(StructuralMethodComponent? other)
+        => ReferenceEquals(this, other)
+            || other is not null
+                && _hashCode == other._hashCode
+                && StringComparer.Ordinal.Equals(
+                    MethodName,
+                    other.MethodName)
+                && StringComparer.Ordinal.Equals(
+                    GenericParameters,
+                    other.GenericParameters)
+                && StringComparer.Ordinal.Equals(
+                    Signature,
+                    other.Signature);
+
+    public override bool Equals(object? obj)
+        => obj is StructuralMethodComponent other && Equals(other);
+
+    public override int GetHashCode() => _hashCode;
+
+    internal void AppendEncoded(StringBuilder builder)
+    {
+        StructuralSignatureKey.AppendPart(builder, MethodName);
+        builder.Append(GenericParameters);
+        builder.Append(Signature);
     }
 }
 
@@ -115,8 +329,9 @@ public sealed class StructuralSignatureBuilder
     readonly MetadataReader _reader;
     readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
     readonly StructuralSignatureTypeProvider _provider = new();
-    readonly Dictionary<TypeDefinitionHandle, string> _typeKeys = [];
+    readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
+    readonly Dictionary<BlobHandle, string> _methodSignatures = [];
 
     /// <summary>
     /// Creates a reusable builder. The override map must remain unchanged for
@@ -135,64 +350,81 @@ public sealed class StructuralSignatureBuilder
     public string BuildMethod(
         MethodDefinition method,
         string? methodName = null)
+        => BuildMethodKey(method, methodName).ToString();
+
+    internal StructuralMethodKey BuildMethodKey(
+        MethodDefinition method,
+        string? methodName = null)
         => StructuralSignatureKey.Build(_reader, () =>
         {
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    method.Signature,
-                    SignatureBlobGuard.Kind.Method))
-            {
-                throw new BadImageFormatException(
-                    "The method signature exceeds the structural safety limit.");
-            }
-
-            MethodSignature<string> signature =
-                method.DecodeSignature(_provider, null);
-            var builder = new StringBuilder("M");
-            StructuralSignatureKey.AppendPart(
-                builder,
-                BuildTypeCore(method.GetDeclaringType()));
-            StructuralSignatureKey.AppendPart(
-                builder,
-                methodName ?? _reader.GetString(method.Name));
-            StructuralSignatureKey.AppendGenericParameters(
-                builder,
+            string genericParameters =
+                StructuralSignatureKey.EncodeGenericParameters(
                 _reader,
                 method.GetGenericParameters(),
                 _provider);
-            StructuralSignatureKey.AppendMethodSignature(builder, signature);
-            return builder.ToString();
+            return new StructuralMethodKey(
+                BuildTypeCore(method.GetDeclaringType()),
+                methodName ?? _reader.GetString(method.Name),
+                genericParameters,
+                BuildMethodSignature(method));
         });
 
     /// <summary>Builds a type key.</summary>
     public string BuildType(TypeDefinitionHandle handle)
+        => BuildTypeKey(handle).ToString();
+
+    internal StructuralTypeKey BuildTypeKey(TypeDefinitionHandle handle)
         => StructuralSignatureKey.Build(
             _reader,
             () => BuildTypeCore(handle));
 
-    string BuildTypeCore(TypeDefinitionHandle handle)
+    StructuralTypeKey BuildTypeCore(TypeDefinitionHandle handle)
     {
-        if (_typeKeys.TryGetValue(handle, out string? key))
+        if (_typeKeys.TryGetValue(handle, out var key))
             return key;
 
-        // A declaring chain may carry many constraint rows. Reuse its encoded
-        // key across every method on that type so artifact-controlled method and
-        // constraint counts cannot multiply. Gated by
-        // BuildMethod_ReusesDeclaringTypeKeyAcrossMethods.
+        // A declaring segment may carry many constraint rows. Immutable parent
+        // nodes let production keys share that segment instead of copying the
+        // declaring chain into every method or nested type. Gated by
+        // BuildMethodKey_SharesDeclaringTypeKeyAcrossMethods and
+        // BuildTypeKey_SharesAncestorAcrossNestedTypes.
         key = TypeStructuralSignature.BuildCore(
             _reader,
             handle,
             _typeNameOverrides,
             _provider,
+            _typeKeys,
             _typeSegments);
-        _typeKeys.Add(handle, key);
         return key;
+    }
+
+    string BuildMethodSignature(MethodDefinition method)
+    {
+        if (_methodSignatures.TryGetValue(method.Signature, out string? signatureKey))
+            return signatureKey;
+
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                method.Signature,
+                SignatureBlobGuard.Kind.Method))
+        {
+            throw new BadImageFormatException(
+                "The method signature exceeds the structural safety limit.");
+        }
+
+        MethodSignature<string> signature =
+            method.DecodeSignature(_provider, null);
+        var builder = new StringBuilder();
+        StructuralSignatureKey.AppendMethodSignature(builder, signature);
+        signatureKey = builder.ToString();
+        _methodSignatures.Add(method.Signature, signatureKey);
+        return signatureKey;
     }
 }
 
 static class StructuralSignatureKey
 {
-    internal static string Build(MetadataReader reader, Func<string> build)
+    internal static T Build<T>(MetadataReader reader, Func<T> build)
     {
         try
         {
@@ -288,6 +520,19 @@ static class StructuralSignatureKey
         }
     }
 
+    internal static string EncodeGenericParameters(
+        MetadataReader reader,
+        GenericParameterHandleCollection handles,
+        StructuralSignatureTypeProvider provider)
+    {
+        if (handles.Count == 0)
+            return "0;";
+
+        var builder = new StringBuilder();
+        AppendGenericParameters(builder, reader, handles, provider);
+        return builder.ToString();
+    }
+
     internal static string ReferenceScope(
         MetadataReader reader,
         EntityHandle scope)
@@ -333,12 +578,33 @@ static class StructuralSignatureKey
     internal static void AppendPart(StringBuilder builder, string value)
     {
         AppendNumber(builder, value.Length);
+        EnsureCanAppend(builder, value.Length);
         builder.Append(value);
     }
 
     internal static void AppendNumber(StringBuilder builder, int value)
     {
-        builder.Append(value.ToString(CultureInfo.InvariantCulture)).Append(';');
+        string text = value.ToString(CultureInfo.InvariantCulture);
+        EnsureCanAppend(builder, text.Length + 1);
+        builder.Append(text).Append(';');
+    }
+
+    internal static int NumberLength(int value)
+        => value.ToString(CultureInfo.InvariantCulture).Length + 1;
+
+    internal static int PartLength(string value)
+        => checked(NumberLength(value.Length) + value.Length);
+
+    static void EnsureCanAppend(StringBuilder builder, int additionalLength)
+    {
+        if (additionalLength < 0
+            || builder.Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars
+                    - additionalLength)
+        {
+            throw new BadImageFormatException(
+                "The structural signature exceeds the encoded-character budget.");
+        }
     }
 
     static void AppendAssembly(
@@ -361,6 +627,8 @@ static class StructuralSignatureKey
 sealed class StructuralSignatureTypeProvider
     : ISignatureTypeProvider<string, object?>
 {
+    readonly Dictionary<EntityHandle, string> _constraintTypes = [];
+
     public string GetPrimitiveType(PrimitiveTypeCode typeCode)
         => "p" + ((int)typeCode).ToString(CultureInfo.InvariantCulture) + ";";
 
@@ -402,7 +670,11 @@ sealed class StructuralSignatureTypeProvider
     }
 
     internal string GetConstraintType(MetadataReader reader, EntityHandle handle)
-        => handle.Kind switch
+    {
+        if (_constraintTypes.TryGetValue(handle, out string? type))
+            return type;
+
+        type = handle.Kind switch
         {
             HandleKind.TypeDefinition => "d" + Part(
                 StructuralTypeName.OfDefinition(
@@ -420,6 +692,9 @@ sealed class StructuralSignatureTypeProvider
             _ => throw new BadImageFormatException(
                 $"Unsupported generic constraint type {handle.Kind}."),
         };
+        _constraintTypes.Add(handle, type);
+        return type;
+    }
 
     string DecodeConstraintTypeSpecification(
         MetadataReader reader,

@@ -7,6 +7,12 @@ namespace ILInspector.Metadata;
 public static class MetadataSafetyPolicy
 {
     /// <summary>
+    /// Maximum encoded characters in one structural type or method key.
+    /// Gated by <c>OversizedStructuralSignature_FailsClosed</c>.
+    /// </summary>
+    public const int MaxStructuralSignatureChars = 1024 * 1024;
+
+    /// <summary>
     /// Maximum unique handles in one TypeDef, TypeRef, or ExportedType
     /// relationship chain.
     /// </summary>

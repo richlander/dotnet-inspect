@@ -59,16 +59,35 @@ public static class MethodCorrespondenceResolver
             // cannot break a real cross-build match.
             var sourceSignatures =
                 new StructuralSignatureBuilder(sourceReader);
-            string sourceKey = sourceSignatures.BuildMethod(sourceMethod);
+            StructuralMethodKey sourceKey =
+                sourceSignatures.BuildMethodKey(sourceMethod);
 
             List<MetadataMethodAddress> candidates = [];
             var targetSignatures =
                 new StructuralSignatureBuilder(targetReader);
+            var matchingDeclaringTypes =
+                new Dictionary<TypeDefinitionHandle, bool>();
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod = targetReader.GetMethodDefinition(targetHandle);
-                string targetKey = targetSignatures.BuildMethod(targetMethod);
-                if (string.Equals(sourceKey, targetKey, StringComparison.Ordinal))
+                TypeDefinitionHandle declaringType =
+                    targetMethod.GetDeclaringType();
+                if (!matchingDeclaringTypes.TryGetValue(
+                        declaringType,
+                        out bool declaringTypeMatches))
+                {
+                    declaringTypeMatches = sourceKey.DeclaringType.Equals(
+                        targetSignatures.BuildTypeKey(declaringType));
+                    matchingDeclaringTypes.Add(
+                        declaringType,
+                        declaringTypeMatches);
+                }
+                if (!declaringTypeMatches)
+                    continue;
+
+                StructuralMethodKey targetKey =
+                    targetSignatures.BuildMethodKey(targetMethod);
+                if (sourceKey.Component.Equals(targetKey.Component))
                 {
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
                 }

@@ -280,7 +280,7 @@ public sealed class MethodStructuralSignatureTests
     }
 
     [Fact]
-    public void BuildMethod_ReusesDeclaringTypeKeyAcrossMethods()
+    public void BuildMethodKey_SharesDeclaringTypeKeyAcrossMethods()
     {
         using var image = new MetadataImage(
             typeof(MethodStructuralSignatureTests).Assembly.Location);
@@ -296,22 +296,46 @@ public sealed class MethodStructuralSignatureTests
             image.Reader,
             overrides);
 
-        builder.BuildMethod(
-            image.Reader.GetMethodDefinition(
-                FindMethod(
-                    image.Reader,
-                    type,
-                    nameof(StructuralSignatureFixture.ByValue))));
+        var firstMethod = image.Reader.GetMethodDefinition(
+            FindMethod(
+                image.Reader,
+                type,
+                nameof(StructuralSignatureFixture.ByValue)));
+        var secondMethod = image.Reader.GetMethodDefinition(
+            FindMethod(
+                image.Reader,
+                type,
+                nameof(StructuralSignatureFixture.ByValueAgain)));
+        Assert.Equal(firstMethod.Signature, secondMethod.Signature);
+
+        StructuralMethodKey first = builder.BuildMethodKey(firstMethod);
         int lookupsAfterFirstMethod = overrides.LookupCount;
-        builder.BuildMethod(
-            image.Reader.GetMethodDefinition(
-                FindMethod(
-                    image.Reader,
-                    type,
-                    nameof(StructuralSignatureFixture.ByValueAgain))));
+        StructuralMethodKey second = builder.BuildMethodKey(secondMethod);
 
         Assert.True(lookupsAfterFirstMethod > 0);
         Assert.Equal(lookupsAfterFirstMethod, overrides.LookupCount);
+        Assert.Same(first.DeclaringType, second.DeclaringType);
+        Assert.Same(first.Component.Signature, second.Component.Signature);
+    }
+
+    [Fact]
+    public void BuildTypeKey_SharesAncestorAcrossNestedTypes()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var outer = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        var inner = FindNestedType(
+            image.Reader,
+            outer,
+            nameof(StructuralSignatureFixture.Inner));
+        var builder = new StructuralSignatureBuilder(image.Reader);
+
+        StructuralTypeKey innerKey = builder.BuildTypeKey(inner);
+        StructuralTypeKey outerKey = builder.BuildTypeKey(outer);
+
+        Assert.Same(outerKey, innerKey.DeclaringType);
     }
 
     [Fact]
@@ -429,6 +453,22 @@ public sealed class MethodStructuralSignatureTests
 
         throw new InvalidOperationException(
             $"Method '{reader.GetString(type.Name)}::{methodName}' was not found.");
+    }
+
+    static TypeDefinitionHandle FindNestedType(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        string typeName)
+    {
+        var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+        foreach (var typeHandle in declaringType.GetNestedTypes())
+        {
+            if (reader.GetString(reader.GetTypeDefinition(typeHandle).Name) == typeName)
+                return typeHandle;
+        }
+
+        throw new InvalidOperationException(
+            $"Nested type '{reader.GetString(declaringType.Name)}+{typeName}' was not found.");
     }
 
     static List<MethodDefinitionHandle> FindMethods(MetadataReader reader, string typeName, string methodName)
