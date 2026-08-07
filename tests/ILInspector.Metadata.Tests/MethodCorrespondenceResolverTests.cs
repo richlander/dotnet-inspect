@@ -98,6 +98,50 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void Resolve_DeepAcceptedSignatureDoesNotExpandAnchorQuadratically()
+    {
+        byte[] warmImage = BuildDeepMethodSignatureImage(
+            typeDepth: 1,
+            typeNameLength: 32);
+        using (var warmSourcePe = new PEReader(new MemoryStream(warmImage)))
+        using (var warmTargetPe = new PEReader(new MemoryStream(warmImage)))
+        {
+            MetadataReader warmSourceReader =
+                warmSourcePe.GetMetadataReader();
+            MethodDefinitionHandle warmMethod =
+                warmSourceReader.MethodDefinitions.Single();
+            _ = MethodCorrespondenceResolver.Resolve(
+                warmSourceReader,
+                MetadataMethodAddress.Create(warmSourceReader, warmMethod),
+                warmTargetPe.GetMetadataReader());
+        }
+
+        byte[] image = BuildDeepMethodSignatureImage(
+            typeDepth: 511,
+            typeNameLength: 262_070);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.NotNull(result.Anchor);
+        Assert.True(
+            allocated < 64 * 1024 * 1024,
+            $"Deep anchor construction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void BuildMethodKey_CumulativeWorkBudgetFailsBeforeRepeatingDecode()
     {
         byte[] image = BuildConstrainedMethodImage(
@@ -227,6 +271,77 @@ public sealed class MethodCorrespondenceResolverTests
                 metadata.AddGenericParameterConstraint(parameter, constraint);
             }
         }
+
+        var pe = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.Dll | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata),
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildDeepMethodSignatureImage(
+        int typeDepth,
+        int typeNameLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("DeepMethod.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DeepMethod"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("Probe"),
+            metadata.GetOrAddString(new string('X', typeNameLength)));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < typeDepth; i++)
+            signature.WriteByte(0x1D);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((1 << 2) | 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
 
         var pe = new ManagedPEBuilder(
             new PEHeaderBuilder(

@@ -47,11 +47,6 @@ public static class MethodCorrespondenceResolver
             var sourceMethod = sourceReader.GetMethodDefinition(source.Handle);
             var sourceTypeHandle = sourceMethod.GetDeclaringType();
             var sourceType = sourceReader.GetTypeDefinition(sourceTypeHandle);
-            var anchor = ApiMemberIdentity.CreateMethodAnchor(
-                sourceReader,
-                sourceTypeHandle,
-                sourceMethod,
-                IsExtensionMethod(sourceReader, sourceType, sourceMethod));
 
             // This is definition correspondence, not ECMA MemberRef lookup: the key
             // carries generic constraints in addition to the structural signature,
@@ -61,6 +56,11 @@ public static class MethodCorrespondenceResolver
                 new StructuralSignatureBuilder(sourceReader);
             StructuralMethodKey sourceKey =
                 sourceSignatures.BuildMethodKey(sourceMethod);
+            var anchor = ApiMemberIdentity.CreateMethodAnchor(
+                sourceReader,
+                sourceTypeHandle,
+                sourceMethod,
+                IsExtensionMethod(sourceReader, sourceType, sourceMethod));
 
             List<MetadataMethodAddress> candidates = [];
             var targetSignatures =
