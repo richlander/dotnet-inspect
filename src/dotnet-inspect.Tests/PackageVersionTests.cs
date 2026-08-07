@@ -20,7 +20,7 @@ public class PackageVersionTests
     {
         await EnsurePackageCached("System.CommandLine");
 
-        var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
+        var cachedVersion = PackageExtractor.TryGetLatestCachedCandidateVersion(
             "System.CommandLine",
             NuGetSourceResolver.ResolveSourceKeys(null));
         Assert.NotNull(cachedVersion);
