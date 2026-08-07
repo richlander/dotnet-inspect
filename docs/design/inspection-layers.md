@@ -208,6 +208,13 @@ Metadata-image inspection is the first vertical L1 canary:
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
+- The query registry exposes each executor's maximum transitive
+  `InspectionCost` to a host execution scope. The CLI adapter maps it to
+  `SectionCost` and enforces body-index and drill-map acquisition through
+  `ScannerContext`; the
+  `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost` and
+  `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost` gates enforce this
+  boundary.
 - `MetadataImageOverview.MetadataVersion` remains an `InertString` from the
   metadata producer through query results to the rendering sink. Inspection
   trace fields and lines use the same query-to-sink currency.

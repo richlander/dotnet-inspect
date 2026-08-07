@@ -109,6 +109,26 @@ public sealed class InspectionQueryResults
 public sealed class InspectionQueryRegistry<TContext>
 {
     private readonly Dictionary<InspectionQueryDefinition, Registration> _registrations = [];
+    private readonly Func<
+        TContext,
+        InspectionQueryDefinition,
+        InspectionCost,
+        IDisposable>? _enterExecutionScope;
+
+    /// <summary>
+    /// Creates a query registry.
+    /// </summary>
+    /// <param name="enterExecutionScope">
+    /// Optional host callback invoked immediately around each query executor with that query's
+    /// maximum transitive cost. Hosts can use it to enforce resource acquisition policy without
+    /// coupling this query layer to host-specific resource types.
+    /// </param>
+    public InspectionQueryRegistry(
+        Func<TContext, InspectionQueryDefinition, InspectionCost, IDisposable>?
+            enterExecutionScope = null)
+    {
+        _enterExecutionScope = enterExecutionScope;
+    }
 
     /// <summary>Every registered query, in registration order.</summary>
     public IReadOnlyCollection<InspectionQueryDefinition> RegisteredQueries => _registrations.Keys;
@@ -242,6 +262,10 @@ public sealed class InspectionQueryRegistry<TContext>
         {
             HashSet<InspectionQueryDefinition> prerequisites =
                 ExpandRequired(registration.Requires);
+            using IDisposable? scope = _enterExecutionScope?.Invoke(
+                context,
+                query,
+                CostOf(query));
             registration.Execute(
                 context,
                 results,

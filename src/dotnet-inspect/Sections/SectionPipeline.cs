@@ -210,14 +210,7 @@ public sealed class SectionPipeline<TModel>
 
         if (_queryCost is { } queryCostOf && entry.Query is { } query)
         {
-            SectionCost queryCost = queryCostOf(query) switch
-            {
-                InspectionCost.NetworkFree => SectionCost.NetworkFree,
-                InspectionCost.Moderated => SectionCost.Moderated,
-                InspectionCost.Unbounded => SectionCost.Unbounded,
-                _ => throw new InvalidOperationException(
-                    $"Unknown inspection query cost for '{query.Name}'."),
-            };
+            SectionCost queryCost = queryCostOf(query).ToSectionCost(query);
 
             if (queryCost > entry.Cost)
                 entry = entry with { Cost = queryCost };

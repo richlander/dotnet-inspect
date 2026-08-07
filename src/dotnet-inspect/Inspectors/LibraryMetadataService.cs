@@ -342,7 +342,7 @@ internal static class LibraryMetadataService
 
             return inspection;
         }
-        catch (ScannerCostDeclarationException)
+        catch (CostDeclarationException)
         {
             throw;
         }
@@ -817,7 +817,7 @@ internal static class LibraryMetadataService
 
             return rows.Count > 0 ? rows : null;
         }
-        catch (ScannerCostDeclarationException)
+        catch (CostDeclarationException)
         {
             throw;
         }
@@ -903,7 +903,7 @@ internal static class LibraryMetadataService
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
-        catch (ScannerCostDeclarationException)
+        catch (CostDeclarationException)
         {
             throw;
         }
@@ -1010,7 +1010,7 @@ internal static class LibraryMetadataService
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
-        catch (ScannerCostDeclarationException)
+        catch (CostDeclarationException)
         {
             throw;
         }

@@ -1544,6 +1544,89 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost()
+    {
+        var cheap = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var cheapRegistry = LibrarySections.CreateQueryRegistry()
+            .Add(cheap, ctx =>
+            {
+                ctx.BodyIndex();
+                return 0;
+            });
+
+        var refused = Assert.Throws<QueryCostDeclarationException>(
+            () => cheapRegistry.Run([cheap], NullScannerContext()));
+        Assert.Contains("Query 'cheap'", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("body index", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("NetworkFree", refused.Message, StringComparison.Ordinal);
+
+        var unboundedPrerequisite = new InspectionQuery<int>(
+            "unbounded prerequisite",
+            InspectionCost.Unbounded);
+        var transitivelyUnbounded = new InspectionQuery<int>(
+            "transitively unbounded",
+            InspectionCost.NetworkFree);
+        var declaredRegistry = LibrarySections.CreateQueryRegistry()
+            .Add(unboundedPrerequisite, _ => 1)
+            .Add(
+                transitivelyUnbounded,
+                ctx =>
+                {
+                    ctx.BodyIndex();
+                    return 0;
+                },
+                unboundedPrerequisite);
+
+        var allowed = Assert.Throws<InvalidOperationException>(
+            () => declaredRegistry.Run([transitivelyUnbounded], NullScannerContext()));
+        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("transitively unbounded", allowed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost()
+    {
+        var cheap = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var cheapRegistry = LibrarySections.CreateQueryRegistry()
+            .Add(cheap, ctx =>
+            {
+                ctx.DrillMap();
+                return 0;
+            });
+
+        var refused = Assert.Throws<QueryCostDeclarationException>(
+            () => cheapRegistry.Run([cheap], NullScannerContext()));
+        Assert.Contains("drill map", refused.Message, StringComparison.Ordinal);
+
+        var declared = new InspectionQuery<int>("declared", InspectionCost.Unbounded);
+        var declaredRegistry = LibrarySections.CreateQueryRegistry()
+            .Add(declared, ctx =>
+            {
+                ctx.DrillMap();
+                return 0;
+            });
+
+        var allowed = Assert.Throws<InvalidOperationException>(
+            () => declaredRegistry.Run([declared], NullScannerContext()));
+        Assert.Contains("metadata context", allowed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypedQueryDeclaration_DoesNotOutliveTheExecutor()
+    {
+        var query = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add(query, _ => 1);
+        var context = NullScannerContext();
+
+        registry.Run([query], context);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => context.BodyIndex());
+        Assert.Contains("metadata context", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("NetworkFree", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MetadataImageQuery_CarriesInertStringInItsTypedResult()
     {
         using var session = AssemblyInspectionSession.Open(
@@ -1799,6 +1882,30 @@ public class SectionPipelineTests
 
         Assert.Throws<ScannerCostDeclarationException>(
             () => registry.RunScanners(["cheap"], NullScannerContext()));
+    }
+
+    [Fact]
+    public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
+    {
+        var query = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add(query, ctx =>
+            {
+                ctx.BodyIndex();
+                return 0;
+            });
+        using var httpClient = new HttpClient();
+
+        await Assert.ThrowsAsync<QueryCostDeclarationException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                queries: [query],
+                queryRegistry: registry));
     }
 
     [Fact]

@@ -83,12 +83,21 @@ be cheap throws instead of quietly restoring the defect. The check is scoped to
 scanner execution and cleared when the run ends, because the `Func` can outlive
 the scanner that supplied it and be invoked while rendering.
 
+Typed queries use the same host-side resource guard. The query registry enters
+an execution scope with each query's maximum transitive `InspectionCost`; the
+L2 adapter maps that cost to `SectionCost` before invoking the executor. A
+network-free query therefore cannot acquire the body index or drill map, while a
+query with an unbounded prerequisite can. The
+`TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost` and
+`TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost` gates enforce both
+directions.
+
 This is a correctness aid for well-behaved product code, not an in-process
-security boundary. Scanner implementations are expected to acquire shared
-resources through `ScannerContext` and declare dependencies through the
-registry. Code review and this guidance enforce that convention; the registry
-does not attempt to prevent deliberate bypasses through direct helper calls,
-reflection, unsafe code, or nested registries.
+security boundary. Scanner and query implementations are expected to acquire
+shared resources through `ScannerContext` and declare dependencies through
+their registries. Code review and this guidance enforce that convention; the
+registries do not attempt to prevent deliberate bypasses through direct helper
+calls, reflection, unsafe code, or nested registries.
 
 ### What `Unbounded` means for selection
 

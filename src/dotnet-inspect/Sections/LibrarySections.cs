@@ -192,7 +192,9 @@ public static class LibrarySections
     /// <summary>Builds the typed query registry used by library sections.</summary>
     public static InspectionQueryRegistry<ScannerContext> CreateQueryRegistry()
     {
-        return new InspectionQueryRegistry<ScannerContext>()
+        return new InspectionQueryRegistry<ScannerContext>(
+            static (context, query, cost) =>
+                context.EnterQuery(query.Name, cost.ToSectionCost(query)))
             .Add(MetadataImageQuery.Definition, ctx =>
                 ctx.Scan(
                     MetadataImageQuery.Execute,
