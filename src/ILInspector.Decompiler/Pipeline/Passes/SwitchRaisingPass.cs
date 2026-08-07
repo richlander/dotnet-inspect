@@ -178,6 +178,8 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var region in regions.Values)
             if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
                 return false;
+        if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
+            return false;
 
         // Nothing outside the switch (the block s aside, which dispatches) may
         // enter the owned blocks — including a leave from another container.
@@ -1677,6 +1679,8 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var region in regions.Values)
             if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
                 return false;
+        if (regions.Values.Any(region => ContainsBreakTargetingOutsideRegion(blocks, region)))
+            return false;
 
         if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
             return false;

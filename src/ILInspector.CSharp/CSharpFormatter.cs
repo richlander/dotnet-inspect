@@ -6,8 +6,19 @@ namespace ILInspector.CSharp;
 
 public enum CSharpTypeNamePolicy
 {
+    /// <summary>Keep referenced type names qualified and derive no namespace imports.</summary>
     Qualified,
+
+    /// <summary>
+    /// Derive namespace imports for the output unit and shorten references against
+    /// that shared set.
+    /// </summary>
     ShortWithUsings,
+
+    /// <summary>
+    /// Shorten references only against the declaring namespace and caller-supplied
+    /// namespace context.
+    /// </summary>
     ContextualShort
 }
 

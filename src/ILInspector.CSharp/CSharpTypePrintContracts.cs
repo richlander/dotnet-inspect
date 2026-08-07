@@ -236,12 +236,12 @@ public sealed record CSharpTypePrintOptions
     /// <see cref="CSharpTypePrintResult.Source"/>. Escaped, de-duplicated, and
     /// ordinal-ordered at composition time. Ignored when <see cref="IncludeUsings"/>
     /// is false. The per-type <see cref="CSharpTypePrintResult.Units"/> never carry
-    /// their own using directives; under <see cref="ShortenTypeNames"/> a unit's
-    /// <see cref="CSharpTypeSourceUnit.Source"/> is therefore file-context-relative —
-    /// its shortened names resolve only against this using block in the composed
-    /// <see cref="CSharpTypePrintResult.Source"/>. A per-unit consumer must compose
-    /// against <see cref="CSharpTypePrintResult.Source"/> or set
-    /// <see cref="ShortenTypeNames"/> to false to get self-contained unit source.
+    /// their own using directives; under
+    /// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/> or
+    /// <see cref="CSharpTypeNamePolicy.ContextualShort"/> a unit's source may be
+    /// file-context-relative. A per-unit consumer must compose against
+    /// <see cref="CSharpTypePrintResult.Source"/> or select
+    /// <see cref="CSharpTypeNamePolicy.Qualified"/> for self-contained unit source.
     /// </summary>
     public IReadOnlyList<string> Usings { get; init; } = [];
 
@@ -264,13 +264,13 @@ public sealed record CSharpTypePrintOptions
     public IReadOnlyList<string> ModuleAttributes { get; init; } = [];
 
     /// <summary>
-    /// When true (the default), type references in rendered declarations are
-    /// shortened to their simple names wherever doing so is unambiguous across the
-    /// compilation unit, and the namespaces that makes that possible are emitted as
-    /// <c>using</c> directives in the composed <see cref="CSharpTypePrintResult.Source"/>.
-    /// Set false to keep every reference fully qualified.
+    /// Controls type-name spelling across the complete output unit. The default
+    /// preserves the existing type-printer behavior by deriving imports for the unit.
+    /// <see cref="CSharpTypeNamePolicy.Qualified"/> keeps references qualified, while
+    /// <see cref="CSharpTypeNamePolicy.ContextualShort"/> uses only caller context.
     /// </summary>
-    public bool ShortenTypeNames { get; init; } = true;
+    public CSharpTypeNamePolicy TypeNamePolicy { get; init; } =
+        CSharpTypeNamePolicy.ShortWithUsings;
 
     /// <summary>
     /// When true, the composed source begins with <c>#pragma warning disable</c>.
@@ -281,9 +281,9 @@ public sealed record CSharpTypePrintOptions
 
 /// <summary>
 /// One rendered type declaration. Under
-/// <see cref="CSharpTypePrintOptions.ShortenTypeNames"/> the <paramref name="Source"/>
-/// is file-context-relative: its shortened type names resolve against the using block
-/// in the composed <see cref="CSharpTypePrintResult.Source"/>, not in isolation.
+/// <see cref="CSharpTypeNamePolicy.ShortWithUsings"/> or
+/// <see cref="CSharpTypeNamePolicy.ContextualShort"/> the <paramref name="Source"/>
+/// may be file-context-relative.
 /// </summary>
 public sealed record CSharpTypeSourceUnit(string? Namespace, string Source);
 
@@ -302,7 +302,7 @@ public sealed record CSharpTypePrintResult
         ArgumentNullException.ThrowIfNull(usings);
         ArgumentNullException.ThrowIfNull(sourceFactory);
         Units = units;
-        Usings = usings;
+        Usings = usings.ToImmutableSortedSet(StringComparer.Ordinal);
         Diagnostics = diagnostics;
         _source = new Lazy<string>(sourceFactory);
     }
@@ -326,15 +326,14 @@ public sealed record CSharpTypePrintResult
     /// </summary>
     public string Source => _source.Value;
 
-    // Value equality is defined over the eagerly-known content (Units, Diagnostics)
-    // only. The lazy source field is excluded so equality neither forces composition
-    // nor degrades to reference identity of the Lazy wrapper.
+    // Value equality excludes the lazy source field so comparison does not force
+    // composition or degrade to reference identity of the Lazy wrapper.
     public bool Equals(CSharpTypePrintResult? other)
         => other is not null
             && Units.SequenceEqual(other.Units)
-            && Usings.SetEquals(other.Usings)
-            && Diagnostics.SequenceEqual(other.Diagnostics);
+            && Diagnostics.SequenceEqual(other.Diagnostics)
+            && Usings.SetEquals(other.Usings);
 
     public override int GetHashCode()
-        => HashCode.Combine(Units.Length, Usings.Count, Diagnostics.Length);
+        => HashCode.Combine(Units.Length, Diagnostics.Length, Usings.Count);
 }

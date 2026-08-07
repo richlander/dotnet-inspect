@@ -20,6 +20,10 @@ public sealed class CSharpTypePrinter
     {
         ArgumentNullException.ThrowIfNull(requests);
         options ??= new CSharpTypePrintOptions();
+        if (!Enum.IsDefined(options.TypeNamePolicy))
+            throw new ArgumentOutOfRangeException(nameof(options), options.TypeNamePolicy, "C# type-name policy must be defined.");
+        var configuredUsings = options.Usings?.ToArray()
+            ?? throw new ArgumentException("C# type printer usings cannot be null.", nameof(options));
 
         var requestList = requests.ToArray();
         if (requestList.Any(request => request is null))
@@ -48,8 +52,18 @@ public sealed class CSharpTypePrinter
         }
 
         var derivedUsings = ComputeDerivedUsings(preparedTypes, options);
+        IReadOnlyList<string> contextualUsings = options.TypeNamePolicy switch
+        {
+            CSharpTypeNamePolicy.Qualified => [],
+            CSharpTypeNamePolicy.ShortWithUsings => derivedUsings,
+            CSharpTypeNamePolicy.ContextualShort when options.IncludeUsings => configuredUsings,
+            CSharpTypeNamePolicy.ContextualShort => [],
+            _ => throw new InvalidOperationException()
+        };
         var effectiveUsings = options.IncludeUsings
-            ? options.Usings.Concat(derivedUsings).ToImmutableSortedSet(StringComparer.Ordinal)
+            ? configuredUsings
+                .Concat(derivedUsings)
+                .ToImmutableSortedSet(StringComparer.Ordinal)
             : ImmutableSortedSet.Create<string>(StringComparer.Ordinal);
 
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
@@ -58,7 +72,7 @@ public sealed class CSharpTypePrinter
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             var source = string.Join(
                 "\n\n",
-                group.Select(type => RenderType(type, indent: 0, options, derivedUsings, diagnostics)));
+                group.Select(type => RenderType(type, indent: 0, options, contextualUsings, diagnostics)));
             if (containingNamespace is not null)
             {
                 string renderedNamespace = CSharpFormatter.EscapeNamespace(containingNamespace);
@@ -90,7 +104,8 @@ public sealed class CSharpTypePrinter
         // Shortening is only sound when the enabling `using` directives are
         // actually emitted. When usings are suppressed, keep references qualified
         // so the composed source stays compilable.
-        if (!options.ShortenTypeNames || !options.IncludeUsings)
+        if (options.TypeNamePolicy != CSharpTypeNamePolicy.ShortWithUsings
+            || !options.IncludeUsings)
             return [];
 
         var allTypes = new List<ApiType>();
@@ -122,8 +137,11 @@ public sealed class CSharpTypePrinter
             sb.AppendLf($"[assembly: {attribute}]");
         foreach (var attribute in options.ModuleAttributes)
             sb.AppendLf($"[module: {attribute}]");
-        foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace))
-            sb.AppendLf($"using {ns};");
+        if (options.IncludeUsings)
+        {
+            foreach (var ns in usings.Select(CSharpFormatter.EscapeNamespace))
+                sb.AppendLf($"using {ns};");
+        }
         foreach (var unit in units)
             sb.AppendLf(unit.Source);
 
@@ -490,7 +508,9 @@ public sealed class CSharpTypePrinter
         bool terminateMemberDeclaration = false)
         => new(new CSharpFormatOptions
         {
-            TypeNamePolicy = CSharpTypeNamePolicy.ContextualShort,
+            TypeNamePolicy = options.TypeNamePolicy == CSharpTypeNamePolicy.Qualified
+                ? CSharpTypeNamePolicy.Qualified
+                : CSharpTypeNamePolicy.ContextualShort,
             ContainingNamespace = containingNamespace.Length == 0 ? null : containingNamespace,
             Usings = contextualUsings,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
