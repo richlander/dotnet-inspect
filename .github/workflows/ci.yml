@@ -82,6 +82,17 @@ jobs:
         run: |
           set -euo pipefail
           history=tools/DecompilerHarness/corpus/evil-runs/history.jsonl
+          line_number=0
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            ((line_number += 1))
+            [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+            if ! printf '%s\n' "$line" |
+              jq -s -e 'length == 1 and (.[0] | type == "object")' > /dev/null
+            then
+              echo "EVIL history line $line_number must contain exactly one JSON object." >&2
+              exit 1
+            fi
+          done < "$history"
           jq -s -e '
             ([.[] | select(.commit == null)] | length) == 1
             and (.[0].commit == null)
