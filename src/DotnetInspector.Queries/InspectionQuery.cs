@@ -5,6 +5,23 @@ using System.Diagnostics.CodeAnalysis;
 namespace DotnetInspector.Queries;
 
 /// <summary>
+/// A typed query could not be planned or executed. This is a query contract failure, not an
+/// inspected-artifact failure.
+/// </summary>
+public sealed class InspectionQueryException : InvalidOperationException
+{
+    public InspectionQueryException(string message)
+        : base(message)
+    {
+    }
+
+    public InspectionQueryException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+/// <summary>
 /// The identity, result contract, and cost of one typed inspection query. Identity is the
 /// definition instance, not <see cref="Name"/>; a consumer supplies execution context separately.
 /// </summary>
@@ -71,7 +88,7 @@ public sealed class InspectionQueryResults
         ArgumentNullException.ThrowIfNull(query);
         EnsureAccessible(query);
         if (!_values.TryGetValue(query, out object? value))
-            throw new InvalidOperationException($"Query '{query.Name}' did not produce a result.");
+            throw new InspectionQueryException($"Query '{query.Name}' did not produce a result.");
 
         return (TResult)value!;
     }
@@ -97,7 +114,7 @@ public sealed class InspectionQueryResults
     {
         if (_accessible is not null && !_accessible.Contains(query))
         {
-            throw new InvalidOperationException(
+            throw new InspectionQueryException(
                 $"Query '{query.Name}' is not a declared prerequisite of the query being executed.");
         }
     }
@@ -144,7 +161,7 @@ public sealed class InspectionQueryRegistry<TContext>
         ArgumentNullException.ThrowIfNull(requires);
 
         if (_registrations.ContainsKey(query))
-            throw new InvalidOperationException($"Query '{query.Name}' is already registered.");
+            throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
 
         _registrations.Add(
             query,
@@ -230,7 +247,7 @@ public sealed class InspectionQueryRegistry<TContext>
     {
         EnsureRegistered(query);
         if (!visiting.Add(query))
-            throw new InvalidOperationException(
+            throw new InspectionQueryException(
                 $"Inspection query prerequisite cycle detected at '{query.Name}'.");
 
         if (closure.Add(query))
@@ -280,7 +297,7 @@ public sealed class InspectionQueryRegistry<TContext>
     private void EnsureRegistered(InspectionQueryDefinition query)
     {
         if (!_registrations.ContainsKey(query))
-            throw new InvalidOperationException($"Query '{query.Name}' is not registered.");
+            throw new InspectionQueryException($"Query '{query.Name}' is not registered.");
     }
 
     private abstract class Registration(

@@ -1492,9 +1492,9 @@ public class SectionPipelineTests
             .Add(hidden, _ => 42)
             .Add(query, (_, results) => results.Get(hidden));
 
-        var present = Assert.Throws<InvalidOperationException>(
+        var present = Assert.Throws<InspectionQueryException>(
             () => registry.Run([hidden, query], context: null));
-        var absent = Assert.Throws<InvalidOperationException>(
+        var absent = Assert.Throws<InspectionQueryException>(
             () => registry.Run([query], context: null));
 
         Assert.Contains("not a declared prerequisite", present.Message, StringComparison.Ordinal);
@@ -1520,7 +1520,7 @@ public class SectionPipelineTests
         Assert.Equal(InspectionCost.NetworkFree, registry.CostOf(query));
 
         var missing = new InspectionQuery<int>("missing", InspectionCost.NetworkFree);
-        Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired([missing]));
+        Assert.Throws<InspectionQueryException>(() => registry.ExpandRequired([missing]));
     }
 
     [Fact]
@@ -1532,7 +1532,7 @@ public class SectionPipelineTests
             .Add(first, _ => 1, second)
             .Add(second, _ => 2, first);
 
-        Assert.Throws<InvalidOperationException>(() => registry.ExpandRequired([first]));
+        Assert.Throws<InspectionQueryException>(() => registry.ExpandRequired([first]));
     }
 
     [Fact]
@@ -1906,6 +1906,69 @@ public class SectionPipelineTests
                 httpClient,
                 queries: [query],
                 queryRegistry: registry));
+    }
+
+    [Fact]
+    public async Task ProductionQueryCatchBoundary_DoesNotSwallowExecutorFailure()
+    {
+        var query = new InspectionQuery<int>("failing", InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add<int>(query, _ => throw new IOException("executor failed"));
+        using var httpClient = new HttpClient();
+
+        var ex = await Assert.ThrowsAsync<InspectionQueryException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                queries: [query],
+                queryRegistry: registry));
+
+        Assert.Contains("query execution", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<IOException>(ex.InnerException);
+    }
+
+    [Fact]
+    public async Task ProductionQueryCatchBoundary_PreservesCancellation()
+    {
+        var query = new InspectionQuery<int>("cancelled", InspectionCost.NetworkFree);
+        var registry = LibrarySections.CreateQueryRegistry()
+            .Add<int>(query, _ => throw new OperationCanceledException("cancelled"));
+        using var httpClient = new HttpClient();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                queries: [query],
+                queryRegistry: registry));
+    }
+
+    [Fact]
+    public async Task ProductionQueryCatchBoundary_DoesNotSwallowUnknownDemand()
+    {
+        var query = new InspectionQuery<int>("unregistered", InspectionCost.NetworkFree);
+        using var httpClient = new HttpClient();
+
+        var ex = await Assert.ThrowsAsync<InspectionQueryException>(() =>
+            LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions(),
+                new DotnetInspector.Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                queries: [query],
+                queryRegistry: LibrarySections.CreateQueryRegistry()));
+
+        Assert.Contains("unregistered", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

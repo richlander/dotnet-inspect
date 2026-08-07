@@ -342,6 +342,14 @@ internal static class LibraryMetadataService
 
             return inspection;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InspectionQueryException)
+        {
+            throw;
+        }
         catch (CostDeclarationException)
         {
             throw;
@@ -1834,10 +1842,31 @@ internal static class LibraryMetadataService
         Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
             ? null
             : trace.RecordQueryExecution;
-        InspectionQueryResults results = queryRegistry.Run(
-            requiredQueries,
-            scannerContext,
-            recordQuery);
+        InspectionQueryResults results;
+        try
+        {
+            results = queryRegistry.Run(
+                requiredQueries,
+                scannerContext,
+                recordQuery);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InspectionQueryException)
+        {
+            throw;
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InspectionQueryException("Typed query execution failed.", ex);
+        }
+
         ApplyQueryResults(path, inspection, logger, results);
     }
 
