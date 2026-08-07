@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using NuGet.Versioning;
-
 namespace DotnetInspector.Packages;
 
 /// <summary>
@@ -30,7 +28,7 @@ public sealed class InMemoryPackageStore : IPackageStore
                 continue;
 
             log?.Invoke($"Using cached package: {packageName} {version}");
-            return new InMemoryPackageContent(bytes, fromCache: true);
+            return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
         }
 
         return null;
@@ -54,43 +52,7 @@ public sealed class InMemoryPackageStore : IPackageStore
         var bytes = buffer.ToArray();
 
         _packages[Key(packageName, version, sourceKey)] = bytes;
-        return new InMemoryPackageContent(bytes, fromCache: true);
+        return new InMemoryPackageContent(bytes, fromCache: true, sourceKey);
     }
 
-    /// <inheritdoc />
-    public string? TryGetLatestCachedVersion(
-        string packageName,
-        IReadOnlyList<string>? allowedSourceKeys)
-    {
-        var prefix = packageName.ToLowerInvariant() + "@";
-        NuGetVersion? best = null;
-        string? bestRaw = null;
-
-        foreach (var key in _packages.Keys)
-        {
-            if (!key.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
-
-            var remainder = key[prefix.Length..];
-            var separator = remainder.LastIndexOf('@');
-            if (separator < 0)
-                continue;
-
-            var sourceKey = remainder[(separator + 1)..];
-            if (allowedSourceKeys is null || !allowedSourceKeys.Contains(sourceKey))
-                continue;
-
-            var raw = remainder[..separator];
-            if (!NuGetVersion.TryParse(raw, out var parsed) || parsed.IsPrerelease)
-                continue;
-
-            if (best is null || parsed > best)
-            {
-                best = parsed;
-                bestRaw = raw;
-            }
-        }
-
-        return bestRaw;
-    }
 }
