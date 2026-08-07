@@ -18,8 +18,11 @@ internal sealed record RenderStyleResolution(
     string? Origin,
     IReadOnlyList<string> Warnings)
 {
-    /// <summary>No config file found: shipped defaults, no origin, no warnings.</summary>
-    public static RenderStyleResolution None { get; } = new(PrinterOptions.Default, null, []);
+    /// <summary>No config file found: CLI defaults, no origin, no warnings.</summary>
+    public static RenderStyleResolution None { get; } = new(
+        PrinterOptions.Default with { ReadableLocalNames = true },
+        null,
+        []);
 }
 
 /// <summary>
@@ -107,7 +110,9 @@ internal static class RenderStyleConfig
     /// <summary>
     /// Discovers the nearest style file from <paramref name="startDirectory"/>,
     /// reads it, and parses it. Returns <see cref="RenderStyleResolution.None"/>
-    /// when no file is found, so the caller renders with shipped defaults.
+    /// when no file is found, so the caller renders with the user-facing CLI
+    /// defaults. Library and harness callers continue to use
+    /// <see cref="PrinterOptions.Default"/> directly.
     /// </summary>
     public static RenderStyleResolution Resolve(string startDirectory)
     {
@@ -123,7 +128,7 @@ internal static class RenderStyleConfig
         catch (Exception ex)
         {
             return new RenderStyleResolution(
-                PrinterOptions.Default,
+                RenderStyleResolution.None.Options,
                 path,
                 [$"could not read '{path}': {ex.Message}"]);
         }
@@ -139,7 +144,7 @@ internal static class RenderStyleConfig
     /// </summary>
     public static RenderStyleResolution Parse(string text, string? origin)
     {
-        var options = PrinterOptions.Default;
+        var options = RenderStyleResolution.None.Options;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);

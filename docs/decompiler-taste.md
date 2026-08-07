@@ -629,7 +629,17 @@ show the shape beneath that sugar.
 
 ## Names
 
-Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`text`, `items`, `stringBuilder`) where no PDB source name exists is the largest remaining cosmetic gap against source, so it is exposed as an **opt-in** knob rather than a default: turning it on for every render would break the slot-name alignment the Annotated IL view relies on and churn the corpus. It rests only on evidence already in the IR (a local's type, and whether it is a loop counter) and falls back to `V_index` when no honest name applies (see `docs/design/readable-local-names.md`). Select it per run with `--readable-names` on `member`/`type`, or persistently with `dotnet_inspect_style_readable_local_names = true`. It is byte-preserving (names do not affect IL), so it is not part of the oracle-endorsed [taste](#style-configuration) aggregate and carries its own tool-owned key.
+Without a PDB, user-facing Decompiled and Annotated Source views synthesize
+readable local names (`text`, `items`, `stringBuilder`) from evidence already in
+the IR (a local's type and whether it is a loop counter), falling back to
+`V_index` when no honest name applies. The decompiler library, fidelity/corpus
+gates, and `--skip-pdb` harness path retain slot names by default, so stable
+evidence does not churn. Set
+`dotnet_inspect_style_readable_local_names = false` to restore slot names in CLI
+source views; `--readable-names` overrides that configuration for one run. The
+setting is byte-preserving (names do not affect IL), so it is not part of the
+oracle-endorsed [taste](#style-configuration) aggregate and carries its own
+tool-owned key.
 
 ## Style configuration
 

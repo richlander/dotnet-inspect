@@ -78,9 +78,10 @@ public partial record ApiOptions : IProjectionOptions
     public bool RequestAllTaste { get; init; }
 
     /// <summary>
-    /// The <c>--readable-names</c> gesture: for this run, synthesize a readable
-    /// identifier (from a local's type and role) for any local that has no usable
-    /// PDB source name, instead of the <c>V_index</c> fallback (see
+    /// The <c>--readable-names</c> gesture: for this run, retain the CLI's default
+    /// readable local-name synthesis even when configuration disables it. A
+    /// readable identifier is derived from a local's type and role when no usable
+    /// PDB source name exists, instead of the <c>V_index</c> fallback (see
     /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
     /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
     /// do not affect IL, so it is not a byte-divergent lens and leaves the

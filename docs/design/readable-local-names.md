@@ -1,9 +1,10 @@
-# Readable local names (opt-in)
+# Readable local names
 
 Design note for the #998 "Local naming and declaration placement" row. Scope is
-deliberately narrow: an **opt-in** mode that gives synthesized, readable names to
-locals that have no usable PDB source name, while leaving the **default** output
-byte-identical.
+deliberately narrow: synthesized, readable names for locals that have no usable
+PDB source name. User-facing CLI source renders enable the mode by default,
+while the decompiler library and fidelity/corpus harnesses retain stable slot
+names unless they explicitly opt in.
 
 ## Problem
 
@@ -13,19 +14,23 @@ back to `V_index`. With no PDB — the common case for shipped/stripped assembli
 and the deterministic `--skip-pdb` reading path — every local is `V_0`, `V_1`, …,
 which is the single largest readability gap in otherwise-structured output.
 
-## Constraint: default output must remain stable
+## Consumer defaults
 
-`V_n` is not just cosmetic to leave alone — three things depend on it:
+`V_n` remains important even though it is not the best normal reading
+experience:
 
 - **Fidelity gate / corpus snapshots** compare rendered text; any default-name
-  change is a churn diff across the whole corpus.
+  change there would be a churn diff across the whole corpus.
 - **`--skip-pdb`** exists precisely to give a *deterministic, symbol-independent*
-  spelling for diffing; readable names are non-deterministic-looking and would
-  defeat that.
-- **Annotated-IL alignment** (the default member view) pairs source lines with IL
-  offsets; names there should stay IL-aligned, not editorialized.
+  slot spelling for harness diffing.
+- **Library consumers** need an explicit, stable default rather than silently
+  inheriting a CLI presentation policy.
 
-So readable names must be **opt-in** and must not touch any of those paths.
+Therefore `PrinterOptions.Default` remains off, preserving those paths.
+`dotnet-inspect` applies `ReadableLocalNames = true` at its CLI configuration
+edge for ordinary Decompiled and Annotated Source rendering. An explicit
+`dotnet_inspect_style_readable_local_names = false` restores slot names; the
+`--readable-names` gesture overrides that configuration for one invocation.
 
 ## Approach
 
@@ -39,8 +44,9 @@ So readable names must be **opt-in** and must not touch any of those paths.
    It never invents a name for a local that already has a usable source name.
 2. `LocalName` consults the synthesizer **only when the mode is on and no usable
    source name exists**; otherwise the existing `V_index` fallback is untouched.
-3. The mode is threaded as an explicit option (see the open fork below), defaulting
-   **off**, so `Print`/`PrintRaised` and every gate keep today's output.
+3. The mode is threaded as an explicit option. It defaults off in the library,
+   so `Print`/`PrintRaised` and every gate keep stable output; the CLI enables it
+   for user-facing source.
 
 ## Role evidence (no guessing)
 
@@ -56,20 +62,17 @@ fabricating — honest degradation, same as the rest of the pipeline.
 
 ## Wiring decision (resolved)
 
-Of the fork below, **option A (printer option)** was taken. The library already
-carries `PrinterOptions.ReadableLocalNames` (default off) and consumes it in
-`CSharpPrinter.LocalName`; the CLI exposes it as the api-surface flag
-`--readable-names` on the `member` and `type` commands. The flag is threaded as
-`ApiOptions.RequestReadableLocalNames` and applied at the CLI edge in
-`ApiCommand` on top of the resolved `.dotnet-inspectconfig`/`--taste` render
-options — it is orthogonal to those style axes (a name synthesis, not a
-byte-divergent lens), so it never has to be reconciled against them and leaves
-the Annotated view's interleaved IL intact. For a persistent form the catalog
-entry also carries the tool-owned config key
-`dotnet_inspect_style_readable_local_names`. Because the mode is byte-preserving
-(names do not affect IL) it is **not** oracle-endorsed, so the `--taste` /
-`dotnet_inspect_style_full_taste` aggregate never turns it on; only the explicit
-flag or its own key does. Default output stays byte-identical `V_index`.
+Of the fork below, **option A (printer option)** was taken. The library carries
+`PrinterOptions.ReadableLocalNames` (default off) and consumes it in
+`CSharpPrinter.LocalName`; the CLI enables it by default for `member` and `type`
+source rendering. `ApiOptions.RequestReadableLocalNames` remains the explicit
+one-run override for a config that disabled synthesis. The setting is
+orthogonal to the style axes (a name synthesis, not a byte-divergent lens), so
+it leaves the Annotated view's interleaved IL intact. For a persistent form the
+catalog entry carries the tool-owned config key
+`dotnet_inspect_style_readable_local_names`. Because the mode is
+byte-preserving (names do not affect IL) it is **not** oracle-endorsed, so the
+`--taste` / `dotnet_inspect_style_full_taste` aggregate never changes it.
 
 ## Open fork (historical — resolved above)
 
@@ -90,6 +93,6 @@ Where the opt-in lives:
 ## First contained slice
 
 `LocalNameSynthesizer` as a standalone, fully-tested pure unit (type-based +
-loop-counter roles, collision resolution), plus its single consumer wired through
-whichever surface we pick in the fork. Default output stays byte-identical;
-proven by the unchanged fidelity gate and a `--skip-pdb`-equivalent render test.
+loop-counter roles, collision resolution), plus its single consumer wired
+through the printer option. The library default stays byte-identical; proven by
+the unchanged fidelity gate and a `--skip-pdb`-equivalent render test.

@@ -411,9 +411,10 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
-        // --readable-names is orthogonal to the style axes the config/--taste cover
-        // (it names V_index locals, not a byte-divergent lens), so it applies on top
-        // of whatever those resolved and never has to be re-checked against them.
+        // Readable local names are the user-facing CLI default. Library, harness,
+        // fidelity, and corpus paths keep PrinterOptions.Default (V_index), while
+        // an explicit config value of false restores slot names for CLI rendering.
+        // --readable-names is the one-run override for that configuration.
         if (options.RequestReadableLocalNames)
             renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with

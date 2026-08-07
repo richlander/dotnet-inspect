@@ -21,11 +21,12 @@ public class RenderStyleConfigTests
     // ---- parsing ----
 
     [Fact]
-    public void Parse_EmptyText_IsDefaultsWithNoWarnings()
+    public void Parse_EmptyText_IsCliDefaultsWithNoWarnings()
     {
         var result = RenderStyleConfig.Parse("", origin: null);
 
-        Assert.Equal(PrinterOptions.Default, result.Options);
+        Assert.Equal(RenderStyleResolution.None.Options, result.Options);
+        Assert.True(result.Options.ReadableLocalNames);
         Assert.False(result.Options.QualifyFieldAccess);
         Assert.False(result.Options.QualifyPropertyAccess);
         Assert.Empty(result.Warnings);
@@ -470,7 +471,10 @@ public class RenderStyleConfigTests
 
             Assert.Same(RenderStyleResolution.None, resolution);
             Assert.Null(resolution.Origin);
-            Assert.Equal(PrinterOptions.Default, resolution.Options);
+            Assert.True(resolution.Options.ReadableLocalNames);
+            Assert.Equal(
+                PrinterOptions.Default with { ReadableLocalNames = true },
+                resolution.Options);
         }
         finally
         {
@@ -964,8 +968,9 @@ public class RenderStyleConfigTests
     [Fact]
     public void ReadableLocalNamesConfigKey_RoundTrips()
     {
-        // readable-local-names is byte-preserving synthesis, so it is not in the
-        // oracle-endorsed taste aggregate; it carries its own tool-owned key.
+        // Readable names are the CLI default and remain independently configurable:
+        // false restores V_index, while --readable-names overrides that config at
+        // the command edge.
         var on = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = true", origin: "cfg");
         Assert.Empty(on.Warnings);
         Assert.True(on.Options.ReadableLocalNames);
@@ -974,9 +979,25 @@ public class RenderStyleConfigTests
         Assert.Empty(off.Warnings);
         Assert.False(off.Options.ReadableLocalNames);
 
-        // The aggregate must not turn it on (it is not oracle-endorsed).
-        var taste = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+        // The aggregate must not change it (it is not oracle-endorsed).
+        var taste = RenderStyleConfig.Parse(
+            """
+            dotnet_inspect_style_readable_local_names = false
+            dotnet_inspect_style_full_taste = true
+            """,
+            origin: "cfg");
         Assert.False(taste.Options.ReadableLocalNames);
+    }
+
+    [Fact]
+    public void UnrelatedConfig_PreservesReadableLocalNamesDefault()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_style_qualification_for_field = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.ReadableLocalNames);
+        Assert.True(result.Options.QualifyFieldAccess);
     }
 
     private static string CreateTempDirectory()

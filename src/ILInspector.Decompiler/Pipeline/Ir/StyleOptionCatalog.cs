@@ -378,8 +378,8 @@ public static class StyleOptionCatalog
     }
 
     /// <summary>
-    /// Every opt-in knob, in a stable presentation order (formatting and spelling
-    /// first, then the byte-divergent lens). Two-state knobs carry a
+    /// Every configurable knob, in a stable presentation order (formatting and
+    /// spelling first, then the byte-divergent lens). Two-state knobs carry a
     /// <c>false</c>/<c>true</c> value domain; the guarded-boolean-return knob is a
     /// single multi-value axis (<c>flat</c> / <c>conditional-expression</c> /
     /// <c>branchless</c>). The catalog is exhaustive: the drift-guard test asserts
