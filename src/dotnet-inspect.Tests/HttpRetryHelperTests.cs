@@ -150,7 +150,7 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret", "503 (retryable)", true)]
     [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "Socket error", true)]
     [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret", "request timeout", true)]
-    [InlineData(RetryFailureMode.NonRetryableSocket, "******private.example/v3/index.json", "error HostNotFound", false)]
+    [InlineData(RetryFailureMode.NonRetryableSocket, "https://private.example/v3/index.json?access_token=sup3rs3cret", "error HostNotFound", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, " //user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "\t//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
@@ -238,6 +238,31 @@ public class HttpRetryHelperTests
             "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
             branchLog,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls()
+    {
+        const string Secret = "sup3rs3cret";
+        using var failureScope = FeedFailureTelemetry.Scope();
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus));
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            $"https://private.example/v3/index.json#opaque-{Secret}",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        string branchLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.DoesNotContain(Secret, branchLog, StringComparison.Ordinal);
+        Assert.DoesNotContain('#', branchLog);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("https://private.example/v3/index.json", failure.Url.ToString());
     }
 
     [Theory]

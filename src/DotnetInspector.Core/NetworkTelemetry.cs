@@ -268,6 +268,7 @@ public sealed record NetworkRequestObservation(
 
         var builder = new UriBuilder(uri)
         {
+            Fragment = "",
             UserName = "",
             Password = ""
         };
@@ -292,7 +293,8 @@ public sealed record NetworkRequestObservation(
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
-    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>.
+    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>
+    /// and <c>HttpRetryHelperTests.FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrl(Uri uri)
     {
@@ -302,10 +304,13 @@ public sealed record NetworkRequestObservation(
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
-    /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c>.
+    /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c> and
+    /// <c>FeedFailureTelemetryTests.ARawFailureFragmentIsRemovedBeforeStorage</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrlText(string value)
     {
+        value = RemoveFragment(value);
+
         if (!Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri))
             return new InertString(TextPolicy.Field, value);
 
@@ -348,6 +353,7 @@ public sealed record NetworkRequestObservation(
 
     private static string RedactRelativeUrl(string url)
     {
+        url = RemoveFragment(url);
         var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
         if (queryIndex < 0)
             return RedactPath(url);
@@ -355,6 +361,12 @@ public sealed record NetworkRequestObservation(
         var path = url[..queryIndex];
         var query = url[queryIndex..];
         return $"{RedactPath(path)}?{RedactQuery(query)}";
+    }
+
+    private static string RemoveFragment(string value)
+    {
+        int fragmentIndex = value.IndexOf('#', StringComparison.Ordinal);
+        return fragmentIndex < 0 ? value : value[..fragmentIndex];
     }
 
     // Some feeds carry the credential in the path rather than the query. MyGet publishes

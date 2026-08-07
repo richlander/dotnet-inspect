@@ -223,6 +223,19 @@ public class FeedFailureTelemetryTests
     }
 
     [Fact]
+    public void ARawFailureFragmentIsRemovedBeforeStorage()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+
+        FeedFailureTelemetry.Record(
+            "relative/feed#opaque-sup3rs3cret",
+            HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("relative/feed", failure.Url.ToString());
+    }
+
+    [Fact]
     public async Task AnEffectiveUrlThatCannotBeReparsedIsStillRedactedBeforeStorage()
     {
         const string Secret = "sup3rs3cret";
