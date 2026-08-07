@@ -1381,8 +1381,9 @@ public class LibraryViewShapeDerivedContainmentTests
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
     /// <c>TypeParameter.DisplayName</c> are computed from members the walk
-    /// already fills, so they carry the hostile text transitively rather than
-    /// being set.
+    /// already fills, while <c>LibraryInspection.MetadataOverview</c> projects
+    /// the available case of the typed metadata-image result. They carry text
+    /// transitively rather than being set.
     /// </description></item>
     /// </list>
     ///
@@ -1410,6 +1411,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.InspectionFailures (List`1): computed projection still null after the walk",
         "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
         "LibraryInspection.Logging (List`1): computed projection still null after the walk",
+        "LibraryInspection.MetadataOverview (MetadataImageOverview): computed projection still null after the walk",
         "LibraryInspection.OpenApi (List`1): computed projection still null after the walk",
         "LibraryInspection.OpenTelemetry (List`1): computed projection still null after the walk",
         "LibraryInspection.Options (List`1): computed projection still null after the walk",
