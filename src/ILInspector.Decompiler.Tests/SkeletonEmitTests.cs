@@ -13,6 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class SkeletonEmitTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.SkeletonEmitFixture";
@@ -20,8 +21,10 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonCompilesPastExplicitImplAndConstEnum()
     {
-        var sum = FidelityCheck.Evaluate(typeof(SkeletonEmitFixture).Assembly.Location, type => type == FixtureType)
-            .Single(r => r.Type == FixtureType && r.Method == "Sum");
+        var sum = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonEmitFixture).Assembly.Location,
+            type => type == FixtureType,
+            method => method.Method == "Sum"));
 
         // The point is that the whole-module skeleton compiles: an unhandled
         // explicit impl (CS0106) or const enum (CS0266) would surface here as a
@@ -43,8 +46,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(CfgSampleClass).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.CfgSampleClass")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.CfgSampleClass" && r.Method == method);
+                type => type == "ILInspector.Decompiler.Tests.CfgSampleClass",
+                candidate => candidate.Method == method)
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -57,8 +61,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(EmbeddedAttributeSkeletonFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture" && r.Method == "Value");
+                type => type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture",
+                method => method.Method == "Value")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -70,8 +75,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(FixedBufferSkeletonFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture" && r.Method == "Value");
+                type => type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture",
+                method => method.Method == "Value")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -87,8 +93,9 @@ public class SkeletonEmitTests
         // CS0305. Only the own (zero) parameters may be restated.
         var result = FidelityCheck.Evaluate(
                 typeof(GenericNestedHolder<>).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.GenericNestedUser")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.GenericNestedUser" && r.Method == "UseNested");
+                type => type == "ILInspector.Decompiler.Tests.GenericNestedUser",
+                method => method.Method == "UseNested")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -105,8 +112,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(ConstraintFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.ConstraintFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.ConstraintFixture" && r.Method == method);
+                type => type == "ILInspector.Decompiler.Tests.ConstraintFixture",
+                candidate => candidate.Method == method)
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
