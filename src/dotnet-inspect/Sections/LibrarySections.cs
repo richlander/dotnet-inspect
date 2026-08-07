@@ -52,7 +52,7 @@ public static class LibrarySections
             .Add<MissingSourceFiles>(SourceLinkDiscoverable)
             .Add<SourceIntegrity>(SourceLinkDiscoverable)
             .Add<Symbols>()
-            .Add<Signals>()
+            .Add<Signals>(HasAssemblyInfo)
             .Add<Switches>()
             .Add<IntegrationOpportunities>()
             .Add<AI>()
@@ -482,6 +482,9 @@ public static class LibrarySections
     // still runs on demand when a section is explicitly selected.
     private static bool SourceLinkDiscoverable(LibraryInspection model)
         => model.AssemblyInfo != null && model.HasSourceLink;
+
+    private static bool HasAssemblyInfo(LibraryInspection model)
+        => model.AssemblyInfo != null;
 
     private static bool HasReferenceData(LibraryInspection model)
         => model.AssemblyInfo?.References is { Count: > 0 }

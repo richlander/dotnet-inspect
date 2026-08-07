@@ -1041,6 +1041,20 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibraryPipeline_SignalsDiscoverySeparatesApplicabilityFromEffectiveness()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var model = new LibraryInspection { AssemblyInfo = new AssemblyInfo() };
+
+        Assert.Contains(SectionNames.Signals, pipeline.GetDiscoverableSections(model));
+        Assert.DoesNotContain(SectionNames.Signals, pipeline.GetAvailableSections(model));
+
+        model.AuditSignals = [new AuditSignal("Provenance", "SourceLink", "Present", "test")];
+
+        Assert.Contains(SectionNames.Signals, pipeline.GetAvailableSections(model));
+    }
+
+    [Fact]
     public void LibraryPipeline_QuietShowsNoSections()
     {
         var pipeline = LibrarySections.CreatePipeline();

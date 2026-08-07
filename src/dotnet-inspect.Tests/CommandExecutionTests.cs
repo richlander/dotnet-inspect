@@ -9390,6 +9390,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Library Info | section |", output);
         // The curated -D catalog drops the internal (verbose)/(opt-in) markers: every
         // effective section is listed with the bare "section" kind.
+        Assert.Contains("| Signals | section |", output);
         Assert.Contains("| Async Methods | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
         Assert.DoesNotContain("section (opt-in)", output);
