@@ -110,9 +110,17 @@ public static class HttpRetryHelper
         {
             Uri? effectiveRequestUri = null;
             string? redactedUrl = null;
-            string RedactionSource() => effectiveRequestUri?.ToString() ?? url;
             string RedactedUrl() =>
-                redactedUrl ??= NetworkRequestObservation.RedactSensitiveUrlText(RedactionSource()).ToString();
+                redactedUrl ??= (effectiveRequestUri is { } effectiveUri
+                    ? NetworkRequestObservation.RedactSensitiveUrl(effectiveUri)
+                    : NetworkRequestObservation.RedactSensitiveUrlText(url)).ToString();
+            void RecordFailure(HttpStatusCode? status)
+            {
+                if (effectiveRequestUri is { } effectiveUri)
+                    FeedFailureTelemetry.Record(effectiveUri, status);
+                else
+                    FeedFailureTelemetry.Record(url, status);
+            }
             void CaptureEffectiveRequestUri(Uri? uri)
             {
                 if (uri?.IsAbsoluteUri == true)
@@ -128,10 +136,12 @@ public static class HttpRetryHelper
                 try
                 {
                     request = requestFactory();
-                    var response = await client.SendAsync(
+                    Task<HttpResponseMessage> sendTask = client.SendAsync(
                         request,
                         completionOption,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken);
+                    CaptureEffectiveRequestUri(request.RequestUri);
+                    var response = await sendTask.ConfigureAwait(false);
                     CaptureEffectiveRequestUri(response.RequestMessage?.RequestUri ?? request.RequestUri);
 
                     if (response.IsSuccessStatusCode)
@@ -157,7 +167,7 @@ public static class HttpRetryHelper
                     if (!IsRetryableStatus(statusCode))
                     {
                         log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {RedactedUrl()}");
-                        FeedFailureTelemetry.Record(RedactionSource(), statusCode);
+                        RecordFailure(statusCode);
                         return new HttpRetryResult(null, statusCode);
                     }
 
@@ -165,7 +175,8 @@ public static class HttpRetryHelper
                 }
                 catch (HttpRequestException ex)
                 {
-                    CaptureEffectiveRequestUri(request?.RequestUri);
+                    if (effectiveRequestUri is null)
+                        CaptureEffectiveRequestUri(request?.RequestUri);
                     var (isRetryable, socketError) = GetSocketError(ex);
 
                     if (!isRetryable)
@@ -174,7 +185,7 @@ public static class HttpRetryHelper
                             ? socketError.ToString()
                             : ex.HttpRequestError.ToString();
                         log?.Invoke($"HTTP {methodName} error {errorKind} (not retryable): {RedactedUrl()}");
-                        FeedFailureTelemetry.Record(RedactionSource(), null);
+                        RecordFailure(null);
                         return new HttpRetryResult(null, null);
                     }
 
@@ -200,7 +211,8 @@ public static class HttpRetryHelper
                 }
                 catch (TaskCanceledException)
                 {
-                    CaptureEffectiveRequestUri(request?.RequestUri);
+                    if (effectiveRequestUri is null)
+                        CaptureEffectiveRequestUri(request?.RequestUri);
                     // Timeout - treat as retryable
                     log?.Invoke($"{methodName} request timeout (retryable): {RedactedUrl()}");
                 }
@@ -213,7 +225,7 @@ public static class HttpRetryHelper
                 if (attempts++ >= retryCount)
                 {
                     log?.Invoke($"Max retries ({retryCount}) exceeded: {RedactedUrl()}");
-                    FeedFailureTelemetry.Record(RedactionSource(), null);
+                    RecordFailure(null);
                     return new HttpRetryResult(null, null);
                 }
             }

@@ -292,6 +292,16 @@ public sealed record NetworkRequestObservation(
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
+    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>.
+    /// </remarks>
+    public static InertString RedactSensitiveUrl(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return RedactUrl(uri) ?? throw new UnreachableException();
+    }
+
+    /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
+    /// <remarks>
     /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrlText(string value)

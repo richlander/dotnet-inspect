@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -216,14 +217,15 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
-    public async Task FailureLoggingDoesNotRequireRebuildingAnAcceptedAbsoluteUrl()
+    public async Task FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt()
     {
+        const string Secret = "sup3rs3cret";
         var messages = new List<string>();
         using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus));
 
         var content = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
-            "https://\u202E/v3/index.json",
+            $"https://user:{Secret}@\u202E/F/feed/auth/{Secret}/api?access_token={Secret}",
             retryCount: 0,
             log: messages.Add,
             cancellationToken: TestContext.Current.CancellationToken);
@@ -231,7 +233,11 @@ public class HttpRetryHelperTests
         Assert.Null(content);
         string branchLog = Assert.Single(messages, message =>
             message.Contains("(not retryable)", StringComparison.Ordinal));
-        Assert.Contains("https:///v3/index.json", branchLog, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, branchLog, StringComparison.Ordinal);
+        Assert.Contains(
+            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            branchLog,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -376,6 +382,69 @@ public class HttpRetryHelperTests
         Assert.NotNull(response.RequestMessage);
         response.RequestMessage.RequestUri = new Uri("https://after.example/");
         Assert.Equal("after.example", response.RequestMessage.RequestUri.Host);
+    }
+
+    [Fact]
+    public async Task RedirectFailureUsesTheOriginalResolvedRequestUrl()
+    {
+        const string Secret = "sup3rs3cret";
+        using var failureScope = FeedFailureTelemetry.Scope();
+        using var redirectListener = new TcpListener(IPAddress.Loopback, 0);
+        redirectListener.Start();
+        int redirectPort = ((IPEndPoint)redirectListener.LocalEndpoint).Port;
+
+        int closedPort;
+        using (var closedListener = new TcpListener(IPAddress.Loopback, 0))
+        {
+            closedListener.Start();
+            closedPort = ((IPEndPoint)closedListener.LocalEndpoint).Port;
+        }
+
+        string originalUrl = $"http://127.0.0.1:{redirectPort}/original";
+        string redirectUrl = $"http://127.0.0.1:{closedPort}/auth/{Secret}";
+        Task serverTask = ServeRedirectAsync(
+            redirectListener,
+            redirectUrl,
+            TestContext.Current.CancellationToken);
+        var messages = new List<string>();
+        using var client = new HttpClient();
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            originalUrl,
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+        await serverTask;
+
+        Assert.Null(content);
+        string errorLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.Contains(originalUrl, errorLog, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, errorLog, StringComparison.Ordinal);
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(originalUrl, failure.Url.ToString());
+    }
+
+    private static async Task ServeRedirectAsync(
+        TcpListener listener,
+        string redirectUrl,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient connection = await listener.AcceptTcpClientAsync(cancellationToken);
+        using NetworkStream stream = connection.GetStream();
+        using var reader = new StreamReader(
+            stream,
+            System.Text.Encoding.ASCII,
+            detectEncodingFromByteOrderMarks: false,
+            leaveOpen: true);
+        while (!string.IsNullOrEmpty(await reader.ReadLineAsync(cancellationToken)))
+        {
+        }
+
+        byte[] response = System.Text.Encoding.ASCII.GetBytes(
+            $"HTTP/1.1 302 Found\r\nLocation: {redirectUrl}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(response, cancellationToken);
     }
 
     private static void AssertRedactedUrl(string message)

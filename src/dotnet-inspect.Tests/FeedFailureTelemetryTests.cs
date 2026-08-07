@@ -223,20 +223,24 @@ public class FeedFailureTelemetryTests
     }
 
     [Fact]
-    public async Task AnAcceptedUrlThatCannotBeRebuiltIsStillRecorded()
+    public async Task AnEffectiveUrlThatCannotBeReparsedIsStillRedactedBeforeStorage()
     {
+        const string Secret = "sup3rs3cret";
         using var scope = FeedFailureTelemetry.Scope();
         using var client = new HttpClient(new FixedStatusHandler(HttpStatusCode.Unauthorized));
 
         await HttpRetryHelper.GetStringWithRetryAsync(
             client,
-            "https://\u202E/v3/index.json",
+            $"https://user:{Secret}@\u202E/F/feed/auth/{Secret}/api?access_token={Secret}",
             retryCount: 0,
             cancellationToken: TestContext.Current.CancellationToken,
             trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
 
         var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
-        Assert.Equal("https:///v3/index.json", failure.Url.ToString());
+        Assert.DoesNotContain(Secret, failure.Url.ToString(), StringComparison.Ordinal);
+        Assert.Equal(
+            "https:///F/feed/auth/REDACTED/api?access_token=REDACTED",
+            failure.Url.ToString());
     }
 
     [Theory]
