@@ -56,45 +56,54 @@ internal sealed class AssemblyImageSnapshot
         long reservedBytes = 0;
         try
         {
-            using Stream stream = OpenSource(assembly);
-            long length = ReadRemainingLength(stream);
-
-            if (length > int.MaxValue || !tryReserveBytes(length))
+            AssemblyImageSnapshot snapshot;
+            using (Stream stream = OpenSource(assembly))
             {
-                return Reject(
-                    CandidateOpenFailureKind.ResourceBudget,
-                    "The retained-image budget was exhausted.");
-            }
+                long length = ReadRemainingLength(stream);
 
-            reservedBytes = length;
-            var bytes = GC.AllocateUninitializedArray<byte>((int)length);
-            stream.ReadExactly(bytes);
-            ImmutableArray<byte> content =
-                ImmutableCollectionsMarshal.AsImmutableArray(bytes);
+                if (length > int.MaxValue
+                    || !tryReserveBytes(length))
+                {
+                    return Reject(
+                        CandidateOpenFailureKind.ResourceBudget,
+                        "The retained-image budget was exhausted.");
+                }
 
-            using var peReader = new PEReader(content);
-            if (!peReader.HasMetadata)
-            {
-                return Reject(
-                    CandidateOpenFailureKind.InvalidImage,
-                    "The selected image has no managed metadata.");
-            }
+                reservedBytes = length;
+                var bytes =
+                    GC.AllocateUninitializedArray<byte>((int)length);
+                stream.ReadExactly(bytes);
+                ImmutableArray<byte> content =
+                    ImmutableCollectionsMarshal.AsImmutableArray(bytes);
 
-            MetadataReader reader = peReader.GetMetadataReader();
-            AssemblyReferenceIdentity identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!IdentityMatches(assembly.Identity, identity))
-            {
-                return Reject(
-                    CandidateOpenFailureKind.InvalidImage,
-                    "The opened image identity does not match its descriptor.");
+                using var peReader = new PEReader(content);
+                if (!peReader.HasMetadata)
+                {
+                    return Reject(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "The selected image has no managed metadata.");
+                }
+
+                MetadataReader reader = peReader.GetMetadataReader();
+                AssemblyReferenceIdentity identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        reader);
+                if (!IdentityMatches(assembly.Identity, identity))
+                {
+                    return Reject(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "The opened image identity does not match its descriptor.");
+                }
+
+                snapshot = new AssemblyImageSnapshot(
+                    content,
+                    identity,
+                    reader.GetGuid(
+                        reader.GetModuleDefinition().Mvid));
             }
 
             var result = new AssemblyImageSnapshotResult.Ready(
-                new AssemblyImageSnapshot(
-                    content,
-                    identity,
-                    reader.GetGuid(reader.GetModuleDefinition().Mvid)));
+                snapshot);
             reservedBytes = 0;
             return result;
         }

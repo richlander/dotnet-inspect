@@ -364,6 +364,41 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void StreamDisposalFailure_ReleasesReservedBudget()
+    {
+        TestAssembly failingSource = TestAssembly.Create();
+        TestAssembly validSource = TestAssembly.Create();
+        ResolvedAssemblyReference failingAssembly =
+            ResolvedAssemblyReference.Create(
+                failingSource.Assembly.Identity,
+                path: null,
+                () => new ThrowingDisposeMemoryStream(
+                    failingSource.Bytes),
+                AssemblyResolutionProvenance.Local(
+                    "workspace disposal-failure test"));
+        var failingParticipant =
+            new AssemblyContextParticipant(
+                failingAssembly,
+                MissingBindingPolicy.Instance);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [failingParticipant, validSource.Participant],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes =
+                        validSource.Bytes.Length,
+                });
+
+        Assert.Throws<InvalidOperationException>(
+            () => group.GetAssemblyImageSpan(failingAssembly));
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.True(
+            group.GetAssemblyImageSpan(
+                validSource.Assembly).IsAvailable);
+    }
+
+    [Fact]
     public void ImageBudget_IsCumulativeAcrossParticipants()
     {
         TestAssembly first = TestAssembly.Create();
@@ -572,5 +607,19 @@ public sealed class InspectionWorkspaceTests
             AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable));
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] bytes)
+        : MemoryStream(bytes, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
+        }
     }
 }

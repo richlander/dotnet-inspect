@@ -351,6 +351,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         _sourceOpenGate.Enter();
         long reservedBytes = 0;
+        bool retainReservation = false;
         try
         {
             Stream? stream =
@@ -381,7 +382,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     || session.ModuleVersionId()
                         != inventory.Inventory.ModuleVersionId)
                 {
-                    ReleaseImage(reservedBytes);
                     return new CandidateSessionResult.Rejected(
                         new CandidateOpenFailure(
                             CandidateOpenFailureKind.InvalidImage,
@@ -390,6 +390,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
                 var ready = new CandidateSessionResult.Ready(session);
                 session = null;
+                retainReservation = true;
                 return ready;
             }
             finally
@@ -404,7 +405,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 or NotSupportedException
                 or ObjectDisposedException)
         {
-            ReleaseImage(reservedBytes);
             return new CandidateSessionResult.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.Unreadable,
@@ -414,7 +414,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             ex is BadImageFormatException
                 or ArgumentOutOfRangeException)
         {
-            ReleaseImage(reservedBytes);
             return new CandidateSessionResult.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.InvalidImage,
@@ -422,6 +421,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
+            if (!retainReservation)
+                ReleaseImage(reservedBytes);
             _sourceOpenGate.Exit();
         }
     }
