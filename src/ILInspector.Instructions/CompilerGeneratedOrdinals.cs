@@ -74,7 +74,9 @@ namespace ILInspector.Instructions;
 /// The correspondence keys are produced by <see cref="MethodStructuralSignature"/> and
 /// <see cref="TypeStructuralSignature"/>. Their tagged, length-prefixed grammar preserves
 /// segment boundaries even when metadata names contain punctuation that was significant
-/// to the former display-shaped key.
+/// to the former display-shaped key. Gated by
+/// <c>Build_LengthPrefixesEveryNameSegmentation</c> and
+/// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c>.
 /// </para>
 /// <para>
 /// Anonymous shapes (<c>&lt;&gt;c__DisplayClassN_K</c>, <c>&lt;&gt;9__N_K</c>) are excluded:

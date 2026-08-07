@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 
 namespace ILInspector.Metadata;
@@ -15,15 +16,27 @@ namespace ILInspector.Metadata;
 public static class MethodStructuralSignature
 {
     /// <summary>
-    /// Builds the key. Optional name substitutions support correspondences whose
-    /// source language gives generated definitions unstable names.
+    /// Builds the key from the definition's metadata names.
+    /// </summary>
+    public static string Build(
+        MetadataReader reader,
+        MethodDefinition method)
+        => Build(
+            reader,
+            method,
+            methodName: null,
+            typeNameOverrides: null);
+
+    /// <summary>
+    /// Builds the key with name substitutions for correspondences whose source
+    /// language gives generated definitions unstable names.
     /// </summary>
     public static string Build(
         MetadataReader reader,
         MethodDefinition method,
-        string? methodName = null,
-        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides = null)
-        => StructuralSignatureKey.Build(() =>
+        string? methodName,
+        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
+        => StructuralSignatureKey.Build(reader, () =>
         {
             var provider = new StructuralSignatureTypeProvider();
             if (!SignatureBlobGuard.IsSafeToDecode(
@@ -72,7 +85,7 @@ public static class TypeStructuralSignature
         MetadataReader reader,
         TypeDefinitionHandle handle,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides = null)
-        => StructuralSignatureKey.Build(() =>
+        => StructuralSignatureKey.Build(reader, () =>
             BuildCore(
                 reader,
                 handle,
@@ -126,10 +139,11 @@ public static class TypeStructuralSignature
 
 static class StructuralSignatureKey
 {
-    internal static string Build(Func<string> build)
+    internal static string Build(MetadataReader reader, Func<string> build)
     {
         try
         {
+            EnsureCollectionRangesFit(reader);
             return build();
         }
         catch (BadImageFormatException)
@@ -144,6 +158,17 @@ static class StructuralSignatureKey
             throw new BadImageFormatException(
                 "The structural signature could not be read from malformed metadata.",
                 ex);
+        }
+    }
+
+    static void EnsureCollectionRangesFit(MetadataReader reader)
+    {
+        if (reader.GetTableRowCount(TableIndex.GenericParam) > ushort.MaxValue
+            || reader.GetTableRowCount(TableIndex.GenericParamConstraint) > ushort.MaxValue)
+        {
+            throw new BadImageFormatException(
+                "Generic parameter or constraint tables exceed the lossless "
+                + "System.Reflection.Metadata collection range.");
         }
     }
 

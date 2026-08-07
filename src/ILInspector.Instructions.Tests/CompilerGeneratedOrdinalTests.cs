@@ -4,6 +4,8 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
+using ILInspector.Metadata;
+
 namespace ILInspector.Instructions.Tests;
 
 /// <summary>
@@ -191,6 +193,11 @@ public class CompilerGeneratedOrdinalTests
             {
                 [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x03, 0x01, 0x00],
                 [0x00, 0x00, 0x14, 0x08, 0x01, 0x01, 0x03, 0x01, 0x01]
+            },
+            // modreq versus modopt over the same modifier type and parameter.
+            {
+                [0x00, 0x01, 0x01, 0x1F, 0x08, 0x08],
+                [0x00, 0x01, 0x01, 0x20, 0x08, 0x08]
             },
         };
 
@@ -1021,11 +1028,9 @@ public class CompilerGeneratedOrdinalTests
     /// comparison name.
     /// </summary>
     /// <remarks>
-    /// Driven from <see cref="CompilerGeneratedOrdinalCorrespondence.CacheFieldNameSeparator"/>, so a separator
-    /// changed to any spellable character fails here. That is the half
-    /// <c>ForgedKeySegmentation_DoesNotFoldAcrossDeclaringTypes</c> cannot see: its attack
-    /// is written against the historical <c>.</c>/<c>+</c>/<c>::</c> joining, so it does
-    /// not fire for an arbitrary spellable single-character separator.
+    /// Driven from
+    /// <see cref="CompilerGeneratedOrdinalCorrespondence.CacheFieldNameSeparator"/>,
+    /// so a separator changed to any spellable character fails here.
     /// </remarks>
     [Fact]
     public void CacheFieldNameSeparatorCannotBeSpelledByAMetadataName()
@@ -1070,18 +1075,6 @@ public class CompilerGeneratedOrdinalTests
     /// Two types whose names take a generated shape but carry no attribute name different
     /// state machines, so folding them equates two genuinely different call targets.
     /// </summary>
-    /// <remarks>
-    /// The method-side rule was gated from the start and the type-side rule was not, which
-    /// is the same asymmetry the ambiguity checks had: a rule mirrored in the product but
-    /// not in its controls.
-    /// <para>
-    /// This pins the type-side <em>outcome</em>, not the specific call site that produces
-    /// it. Eligibility is computed twice — once when indexing the type and again when
-    /// building an enclosing key prefix — and the second keeps an unattributed name raw on
-    /// its own, so deleting the first leaves this control green. Distinguishing them needs
-    /// a nested-type fixture; that branch is tracked as unverified in the class remarks.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void TypeNameShapeAlone_DoesNotFold()
     {
@@ -1432,6 +1425,43 @@ public class CompilerGeneratedOrdinalTests
             Ordinals);
 
         Assert.True(result.IsExact);
+    }
+
+    [Fact]
+    public void OverflowingGenericConstraintRange_FailsClosed()
+    {
+        var overflowed = GenericGenerated("<M>g__L|1_0", 1) with
+        {
+            GenericConstraintType = "System.IDisposable",
+            GenericConstraintCopies = 65_536,
+        };
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [overflowed])));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        var oldMethod = oldReader.GetMethodDefinition(
+            MethodNamed(oldReader, overflowed.Name));
+
+        Assert.Equal(
+            65_536,
+            oldReader.GetTableRowCount(TableIndex.GenericParamConstraint));
+        Assert.Throws<BadImageFormatException>(
+            () => MethodStructuralSignature.Build(oldReader, oldMethod));
+
+        var unconstrained = GenericGenerated("<M>g__L|2_0", 1);
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage("Probe", [unconstrained])));
+        MetadataReader newReader = newPe.GetMetadataReader();
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader);
+
+        Assert.False(
+            oldSide.TryGetMethodName(
+                MethodNamed(oldReader, overflowed.Name),
+                out _));
+        Assert.False(
+            newSide.TryGetMethodName(
+                MethodNamed(newReader, unconstrained.Name),
+                out _));
     }
 
     [Fact]
@@ -2006,7 +2036,8 @@ public class CompilerGeneratedOrdinalTests
         byte SignatureHeader = 0x00,
         byte[]? RawSignature = null,
         GenericParameterAttributes GenericConstraint = GenericParameterAttributes.None,
-        string? GenericConstraintType = null);
+        string? GenericConstraintType = null,
+        int GenericConstraintCopies = 1);
 
     /// <summary>
     /// A compiler-generated member declaring <paramref name="arity"/> generic parameters.
@@ -2266,12 +2297,17 @@ public class CompilerGeneratedOrdinalTests
         // owners are declared: the table is sorted by coded owner, and TypeDef and
         // MethodDef interleave under TypeOrMethodDef exactly as they do for
         // CustomAttribute, so declaration order is not sorted order.
-        var genericParameters = new List<(EntityHandle Owner, int Index, GenericParameterAttributes Constraint, string? ConstraintType)>();
+        var genericParameters = new List<(
+            EntityHandle Owner,
+            int Index,
+            GenericParameterAttributes Constraint,
+            string? ConstraintType,
+            int ConstraintCopies)>();
 
         // The type that declares the members. A local function is never itself generic,
         // so a constraint here is only reachable through the declaring chain.
         if (declaringTypeConstraint is { } declaringConstraint)
-            genericParameters.Add((declaringTypeHandle, 0, declaringConstraint, null));
+            genericParameters.Add((declaringTypeHandle, 0, declaringConstraint, null, 0));
         string[] extraTypes = generatedTypes ?? [];
         var generatedTypeHandles = new List<TypeDefinitionHandle>();
         for (int i = 0; i < extraTypes.Length; i++)
@@ -2290,7 +2326,8 @@ public class CompilerGeneratedOrdinalTests
                     generatedTypeConstraints is { } typeConstraints && i < typeConstraints.Length
                         ? typeConstraints[i]
                         : GenericParameterAttributes.None,
-                    null));
+                    null,
+                    0));
         }
 
         // An assembly may define CompilerGeneratedAttribute itself — System.Private.CoreLib
@@ -2413,7 +2450,14 @@ public class CompilerGeneratedOrdinalTests
                 memberOffsets[i],
                 MetadataTokens.ParameterHandle(1));
             for (int g = 0; g < members[i].GenericArity; g++)
-                genericParameters.Add((handle, g, members[i].GenericConstraint, members[i].GenericConstraintType));
+            {
+                genericParameters.Add((
+                    handle,
+                    g,
+                    members[i].GenericConstraint,
+                    members[i].GenericConstraintType,
+                    members[i].GenericConstraintCopies));
+            }
 
             if (members[i].CompilerGenerated)
             {
@@ -2523,7 +2567,8 @@ public class CompilerGeneratedOrdinalTests
         // is (row << 1) | tag and the two kinds interleave: MethodDef row 2 codes to 5 and
         // sorts ahead of TypeDef row 5, which codes to 10. Sorting on the code rather than
         // emitting per owner is what keeps the table valid for an image that carries both.
-        foreach (var (owner, index, constraint, constraintType) in genericParameters.OrderBy(CodedOwner).ThenBy(e => e.Index))
+        foreach (var (owner, index, constraint, constraintType, constraintCopies)
+            in genericParameters.OrderBy(CodedOwner).ThenBy(e => e.Index))
         {
             var parameter = metadata.AddGenericParameter(
                 owner,
@@ -2534,16 +2579,25 @@ public class CompilerGeneratedOrdinalTests
             if (constraintType is { } constrained)
             {
                 int split = constrained.LastIndexOf('.');
-                metadata.AddGenericParameterConstraint(
-                    parameter,
-                    metadata.AddTypeReference(
-                        corlib,
-                        metadata.GetOrAddString(constrained[..split]),
-                        metadata.GetOrAddString(constrained[(split + 1)..])));
+                var constraintTypeHandle = metadata.AddTypeReference(
+                    corlib,
+                    metadata.GetOrAddString(constrained[..split]),
+                    metadata.GetOrAddString(constrained[(split + 1)..]));
+                for (int i = 0; i < constraintCopies; i++)
+                {
+                    metadata.AddGenericParameterConstraint(
+                        parameter,
+                        constraintTypeHandle);
+                }
             }
         }
 
-        static int CodedOwner((EntityHandle Owner, int Index, GenericParameterAttributes Constraint, string? ConstraintType) entry)
+        static int CodedOwner((
+            EntityHandle Owner,
+            int Index,
+            GenericParameterAttributes Constraint,
+            string? ConstraintType,
+            int ConstraintCopies) entry)
             => (MetadataTokens.GetRowNumber(entry.Owner) << 1)
                 | (entry.Owner.Kind == HandleKind.MethodDefinition ? 1 : 0);
 

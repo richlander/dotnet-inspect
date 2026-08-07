@@ -59,7 +59,7 @@ public sealed class MethodStructuralSignatureTests
             methodNameOverride: "Consume");
         string unmodified = BuildFor(
             nameof(IStructuralSignatureFixture),
-            nameof(IStructuralSignatureFixture.ConsumeValue),
+            nameof(IStructuralSignatureFixture.ConsumeRef),
             methodNameOverride: "Consume");
 
         Assert.NotEqual(modified, unmodified);
@@ -113,6 +113,41 @@ public sealed class MethodStructuralSignatureTests
         string second = MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(pings[1]));
 
         Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void Build_PreservesNestedVersusNamespaceBoundary()
+    {
+        using var nestedImage = new MetadataImage(
+            Path.Combine(AppContext.BaseDirectory, "DiffAsmLibA.dll"));
+        using var namespaceImage = new MetadataImage(
+            Path.Combine(AppContext.BaseDirectory, "DiffAsmLibB.dll"));
+
+        string nested = BuildFor(
+            nestedImage.Reader,
+            FindType(nestedImage.Reader, "Api"),
+            "Accept",
+            methodNameOverride: "Accept",
+            typeNameOverrides: null);
+        string namespaced = BuildFor(
+            namespaceImage.Reader,
+            FindType(namespaceImage.Reader, "Api"),
+            "Accept",
+            methodNameOverride: "Accept",
+            typeNameOverrides: null);
+
+        Assert.NotEqual(nested, namespaced);
+    }
+
+    [Fact]
+    public void Build_PreservesTwoParameterBinarySignature()
+    {
+        var method = typeof(MethodStructuralSignature).GetMethod(
+            nameof(MethodStructuralSignature.Build),
+            [typeof(MetadataReader), typeof(MethodDefinition)]);
+
+        Assert.NotNull(method);
+        Assert.Equal(typeof(string), method.ReturnType);
     }
 
     [Fact]
@@ -467,6 +502,8 @@ public sealed class StructuralSignatureFixture
 public interface IStructuralSignatureFixture
 {
     void Consume(in int value);
+
+    void ConsumeRef(ref int value);
 
     void ConsumeValue(int value);
 }
