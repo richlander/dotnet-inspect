@@ -180,6 +180,8 @@ public class UnlistedVersionTests : IDisposable
     [InlineData("""{"items":[{"@id":42}]}""")]
     [InlineData("""{"items":[{"items":[{}]}]}""")]
     [InlineData("""{"items":[{"items":[{"catalogEntry":{"listed":false}}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{"listed":true}}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{}}]}]}""")]
     public async Task GetLatestVersion_ReturnsNull_WhenRegistrationPageIsIncomplete(
         string registration)
     {
@@ -187,6 +189,26 @@ public class UnlistedVersionTests : IDisposable
             "unlistedpkg",
             Registry,
             registrationBodyOverride: registration));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_ReturnsNull_WhenRegistrationOmitsFlatContainerVersions()
+    {
+        const string partialRegistration =
+            """
+            {"items":[{"items":[
+                {"catalogEntry":{"version":"1.0.0","listed":true}}
+            ]}]}
+            """;
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: partialRegistration));
 
         var result = await PackageExtractor.GetLatestVersionAsync(
             client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);

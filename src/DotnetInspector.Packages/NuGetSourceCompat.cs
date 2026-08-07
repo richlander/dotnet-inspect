@@ -315,9 +315,27 @@ public static class NuGetSearchService
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
     {
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
-
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        return await SearchResolvedAsync(
+            client,
+            sources,
+            query,
+            take,
+            prerelease,
+            log,
+            resultFilter: null).ConfigureAwait(false);
+    }
+
+    private static async Task<NuGetSearchOutcome> SearchResolvedAsync(
+        HttpClient client,
+        List<NuGetSource> sources,
+        string query,
+        int take,
+        bool prerelease,
+        Action<string>? log,
+        Func<SearchResult, bool>? resultFilter)
+    {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
         // nuget.org's search endpoint is well known, so searching it needs no service-index
         // request. That shortcut is keyed on where resolution actually landed, not on whether a
@@ -333,10 +351,23 @@ public static class NuGetSearchService
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
             IReadOnlyList<SearchResult> results = await service.SearchAsync(query, take, prerelease);
-            return new NuGetSearchOutcome(results.Select(NuGetSearchResult.From).ToList(), []);
+            return new NuGetSearchOutcome(
+                results
+                    .Where(result => resultFilter?.Invoke(result) ?? true)
+                    .Select(NuGetSearchResult.From)
+                    .Take(take)
+                    .ToList(),
+                []);
         }
 
-        return await SearchSourcesAsync(client, sources, query, take, prerelease, log);
+        return await SearchSourcesAsync(
+            client,
+            sources,
+            query,
+            take,
+            prerelease,
+            log,
+            resultFilter).ConfigureAwait(false);
     }
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
@@ -345,7 +376,8 @@ public static class NuGetSearchService
         string query,
         int take,
         bool prerelease,
-        Action<string>? log)
+        Action<string>? log,
+        Func<SearchResult, bool>? resultFilter)
     {
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
@@ -395,7 +427,8 @@ public static class NuGetSearchService
             searched++;
             foreach (SearchResult result in found)
             {
-                if (seen.Add((result.Id, result.Version)))
+                if ((resultFilter?.Invoke(result) ?? true)
+                    && seen.Add((result.Id, result.Version)))
                 {
                     results.Add(NuGetSearchResult.From(result));
                 }
@@ -440,13 +473,16 @@ public static class NuGetSearchService
         NuGetSourceOptions? sourceOptions = null)
     {
         log?.Invoke($"Searching packages by prefix: {prefix}");
-        NuGetSearchOutcome outcome = await SearchAsync(
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        NuGetSearchOutcome outcome = await SearchResolvedAsync(
             client,
+            sources,
             prefix,
             take,
             prerelease,
             log,
-            sourceOptions).ConfigureAwait(false);
+            result => result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ConfigureAwait(false);
         if (outcome.Failures.Count > 0)
         {
             throw new InvalidOperationException(
@@ -456,11 +492,7 @@ public static class NuGetSearchService
                 + string.Join(Environment.NewLine + "  ", outcome.Failures));
         }
 
-        return
-        [
-            .. outcome.Results.Where(result =>
-                result.PackageId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)),
-        ];
+        return [.. outcome.Results];
     }
 
     public static List<NuGetSearchResult> ParseSearchResponse(string json)

@@ -216,6 +216,7 @@ public static class SourceResolver
         ArgumentNullException.ThrowIfNull(initialSources);
 
         var mergedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        List<string> sourceOrder = [];
         var inheritedSourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var credentials =
@@ -223,7 +224,7 @@ public static class SourceResolver
 
         foreach (PackageSource source in initialSources)
         {
-            mergedSources[source.Name] = source.Url;
+            SetSource(mergedSources, sourceOrder, source.Name, source.Url);
             inheritedSourceNames.Add(source.Name);
 
             if (source.Credential is not null)
@@ -239,19 +240,20 @@ public static class SourceResolver
             MergeConfigFile(
                 configFiles[i],
                 mergedSources,
+                sourceOrder,
                 inheritedSourceNames,
                 disabled,
                 credentials);
         }
 
         List<PackageSource> sources = [];
-        IEnumerable<KeyValuePair<string, string>> configuredSources = mergedSources
-            .Where(source => !inheritedSourceNames.Contains(source.Key));
-        IEnumerable<KeyValuePair<string, string>> inheritedSources = mergedSources
-            .Where(source => inheritedSourceNames.Contains(source.Key));
+        IEnumerable<string> configuredSources = sourceOrder
+            .Where(name => !inheritedSourceNames.Contains(name));
+        IEnumerable<string> inheritedSources = sourceOrder
+            .Where(inheritedSourceNames.Contains);
 
         // Explicitly configured sources are consulted before surviving defaults.
-        foreach ((string name, string url) in configuredSources.Concat(inheritedSources))
+        foreach (string name in configuredSources.Concat(inheritedSources))
         {
             if (disabled.Contains(name))
             {
@@ -259,7 +261,7 @@ public static class SourceResolver
             }
 
             credentials.TryGetValue(name, out PackageSourceCredential? credential);
-            sources.Add(new PackageSource(name, url, credential));
+            sources.Add(new PackageSource(name, mergedSources[name], credential));
         }
 
         return sources.Count == 0 ? PackageSources.Empty : sources;
@@ -323,6 +325,7 @@ public static class SourceResolver
     private static void MergeConfigFile(
         string configPath,
         Dictionary<string, string> sources,
+        List<string> sourceOrder,
         HashSet<string> inheritedSourceNames,
         HashSet<string> disabled,
         Dictionary<string, PackageSourceCredential> credentials)
@@ -352,6 +355,7 @@ public static class SourceResolver
                     if (element.Name == "clear")
                     {
                         sources.Clear();
+                        sourceOrder.Clear();
                         inheritedSourceNames.Clear();
                         continue;
                     }
@@ -363,12 +367,8 @@ public static class SourceResolver
 
                         if (key is not null && value is not null)
                         {
-                            if (inheritedSourceNames.Remove(key))
-                            {
-                                sources.Remove(key);
-                            }
-
-                            sources[key] = value;
+                            inheritedSourceNames.Remove(key);
+                            SetSource(sources, sourceOrder, key, value);
                         }
                     }
                 }
@@ -447,6 +447,24 @@ public static class SourceResolver
         {
             // Best-effort config parsing
         }
+    }
+
+    private static void SetSource(
+        Dictionary<string, string> sources,
+        List<string> sourceOrder,
+        string name,
+        string url)
+    {
+        int existingIndex = sourceOrder.FindIndex(
+            existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+        {
+            sourceOrder.RemoveAt(existingIndex);
+        }
+
+        sources.Remove(name);
+        sources[name] = url;
+        sourceOrder.Add(name);
     }
 
     private static string? GetUserConfigPath()

@@ -55,6 +55,24 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
+    public void MergeConfigFiles_RedeclaredDefault_KeepsDeclarationOrder()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://private.example.com/v3/index.json" />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Default);
+
+        Assert.Equal(["PrivateFeed", "nuget.org"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
     public void MergeConfigFiles_CaseVariantName_OverridesDefault()
     {
         var configPath = WriteConfig("""

@@ -1349,17 +1349,20 @@ public static class PackageExtractor
         if (versions == null || !source.IsNuGetOrg)
             return (versions, Authoritative: true);
 
-        var unlisted = await FetchUnlistedVersionsFromNuGetOrgAsync(
+        var registration = await FetchRegistrationVersionsFromNuGetOrgAsync(
             client,
             packageName,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (unlisted == null)
+        if (registration == null
+            || !RegistrationCovers(versions, registration.AllVersions))
             return (versions, Authoritative: false);
-        if (unlisted.Count == 0)
+        if (registration.UnlistedVersions.Count == 0)
             return (versions, Authoritative: true);
 
-        var filtered = versions.Where(v => !IsUnlisted(v, unlisted)).ToList();
+        var filtered = versions
+            .Where(v => !IsUnlisted(v, registration.UnlistedVersions))
+            .ToList();
         int removed = versions.Count - filtered.Count;
         if (removed > 0)
             log?.Invoke($"Excluded {removed} unlisted version(s) from enumeration");
@@ -1369,13 +1372,24 @@ public static class PackageExtractor
     private static bool IsUnlisted(string version, HashSet<NuGet.Versioning.NuGetVersion> unlisted) =>
         NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed) && unlisted.Contains(parsed);
 
+    private static bool RegistrationCovers(
+        IEnumerable<string> versions,
+        HashSet<NuGet.Versioning.NuGetVersion> registeredVersions) =>
+        versions.All(version =>
+            NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed)
+            && registeredVersions.Contains(parsed));
+
+    private sealed record NuGetOrgRegistrationVersions(
+        HashSet<NuGet.Versioning.NuGetVersion> AllVersions,
+        HashSet<NuGet.Versioning.NuGetVersion> UnlistedVersions);
+
     /// <summary>
-    /// Reads the nuget.org registration index and returns the set of versions whose
+    /// Reads the nuget.org registration index and returns every version and the subset whose
     /// <c>catalogEntry.listed</c> is explicitly <c>false</c>. A missing <c>listed</c> property is
     /// treated as listed (older catalog entries omit it). Returns <c>null</c> when the index cannot
     /// be fetched or parsed, so callers fail open (no filtering) rather than dropping real versions.
     /// </summary>
-    private static async Task<HashSet<NuGet.Versioning.NuGetVersion>?> FetchUnlistedVersionsFromNuGetOrgAsync(
+    private static async Task<NuGetOrgRegistrationVersions?> FetchRegistrationVersionsFromNuGetOrgAsync(
         HttpClient client,
         string packageName,
         Action<string>? log,
@@ -1391,7 +1405,8 @@ public static class PackageExtractor
         if (json == null)
             return null;
 
-        var unlisted = new HashSet<NuGet.Versioning.NuGetVersion>();
+        var allVersions = new HashSet<NuGet.Versioning.NuGetVersion>();
+        var unlistedVersions = new HashSet<NuGet.Versioning.NuGetVersion>();
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(json);
@@ -1404,7 +1419,10 @@ public static class PackageExtractor
                 // fetched separately (registration pages are split for large version histories).
                 if (page.TryGetProperty("items", out var inlineItems))
                 {
-                    CollectUnlisted(inlineItems, unlisted);
+                    CollectRegistrationVersions(
+                        inlineItems,
+                        allVersions,
+                        unlistedVersions);
                 }
                 else if (page.TryGetProperty("@id", out var pageIdElement)
                     && pageIdElement.GetString() is string pageUrl)
@@ -1419,7 +1437,10 @@ public static class PackageExtractor
                     if (!pageDoc.RootElement.TryGetProperty("items", out var pageItems))
                         throw new InvalidOperationException(
                             "Registration page does not contain items.");
-                    CollectUnlisted(pageItems, unlisted);
+                    CollectRegistrationVersions(
+                        pageItems,
+                        allVersions,
+                        unlistedVersions);
                 }
                 else
                     throw new InvalidOperationException(
@@ -1435,18 +1456,27 @@ public static class PackageExtractor
             return null;
         }
 
-        return unlisted;
+        return new NuGetOrgRegistrationVersions(allVersions, unlistedVersions);
     }
 
-    private static void CollectUnlisted(
+    private static void CollectRegistrationVersions(
         System.Text.Json.JsonElement items,
-        HashSet<NuGet.Versioning.NuGetVersion> unlisted)
+        HashSet<NuGet.Versioning.NuGetVersion> allVersions,
+        HashSet<NuGet.Versioning.NuGetVersion> unlistedVersions)
     {
         foreach (var item in items.EnumerateArray())
         {
             if (!item.TryGetProperty("catalogEntry", out var entry))
                 throw new InvalidOperationException(
                     "Registration item does not contain a catalog entry.");
+            if (!entry.TryGetProperty("version", out var versionElement)
+                || versionElement.GetString() is not string version
+                || !NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+                throw new InvalidOperationException(
+                    "Registration entry does not contain a valid version.");
+
+            allVersions.Add(parsed);
+
             if (!entry.TryGetProperty("listed", out var listedElement))
                 continue; // absent -> listed by default (matches NuGet's own default)
             if (listedElement.ValueKind == System.Text.Json.JsonValueKind.True)
@@ -1462,13 +1492,7 @@ public static class PackageExtractor
                 throw new InvalidOperationException(
                     $"Unexpected 'listed' value kind '{listedElement.ValueKind}' in registration entry");
             }
-            if (!entry.TryGetProperty("version", out var versionElement)
-                || versionElement.GetString() is not string version
-                || !NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
-                throw new InvalidOperationException(
-                    "Unlisted registration entry does not contain a valid version.");
-
-            unlisted.Add(parsed);
+            unlistedVersions.Add(parsed);
         }
     }
 
@@ -2209,13 +2233,21 @@ public static class PackageExtractor
         if (versions == null)
             return (null, Authoritative: true);
 
-        HashSet<NuGet.Versioning.NuGetVersion>? unlisted = source.IsNuGetOrg
-            ? await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false)
+        NuGetOrgRegistrationVersions? registration = source.IsNuGetOrg
+            ? await FetchRegistrationVersionsFromNuGetOrgAsync(
+                client,
+                packageName,
+                log).ConfigureAwait(false)
             : null;
 
-        bool authoritative = !source.IsNuGetOrg || unlisted != null;
+        bool authoritative = !source.IsNuGetOrg
+            || registration is not null
+                && RegistrationCovers(versions, registration.AllVersions);
         var listings = versions
-            .Select(v => new PackageVersionInfo(v, unlisted == null || !IsUnlisted(v, unlisted)))
+            .Select(v => new PackageVersionInfo(
+                v,
+                registration == null
+                    || !IsUnlisted(v, registration.UnlistedVersions)))
             .ToList();
         return (listings, authoritative);
     }

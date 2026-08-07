@@ -713,6 +713,56 @@ public class NuGetSearchSourcesTests
             Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task SearchByPrefixAsync_FiltersBeforeAggregateLimit()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"Other.Package","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_FailsClosedWhenSelectedSourceIsUnsearchable()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NuGetSearchService.SearchByPrefixAsync(
+                client,
+                "Contoso.",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index, "/local/packages"],
+                }));
+
+        Assert.Contains("Could not search every configured NuGet source", error.Message);
+    }
+
     /// <summary>
     /// Regression: source resolution ran only when a source option was passed, so a NuGet.Config
     /// discovered from the working directory was ignored and search silently went to nuget.org —
