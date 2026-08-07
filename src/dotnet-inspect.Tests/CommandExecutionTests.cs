@@ -5193,6 +5193,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingScanner()
+    {
+        string assemblyPath = typeof(InstructionProducer).Assembly.Location;
+        var (renderExit, renderOutput, renderError) = await RunAppAsync(
+            "library", assemblyPath,
+            "-S", SectionNames.UnsafeMembers,
+            "--count",
+            "--tips", "q");
+
+        Assert.Equal(0, renderExit);
+        Assert.Empty(renderError);
+        Assert.True(
+            int.Parse(renderOutput.Trim(), CultureInfo.InvariantCulture) > 0,
+            "The fixture must contain body-only unsafe evidence for discovery to preserve.");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D", SectionNames.UnsafeMembers,
+            "--count",
+            "-S", SectionNames.UnsafeMembers,
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+        Assert.Contains("trace: library", error);
+        Assert.DoesNotContain(LibrarySections.ScannerUnsafeMembers, error);
+        Assert.DoesNotContain("body index", error);
+    }
+
+    [Fact]
     public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
     {
         // Effective discovery renders discovered rows, but the command's own --count branch sat

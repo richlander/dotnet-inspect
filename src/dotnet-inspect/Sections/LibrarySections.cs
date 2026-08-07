@@ -71,7 +71,7 @@ public static class LibrarySections
             .Add<References>(HasReferenceData)
             .Add<Dependencies>(HasReferenceData)
             .Add<ExtensionMethods>()
-            .Add<UnsafeMembers>()
+            .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
             .Add<TopLeverage>()
             .Add<PerformanceBoxing>()
             .Add<PerformanceArrays>()
@@ -493,6 +493,9 @@ public static class LibrarySections
     private static bool HasReferenceData(LibraryInspection model)
         => model.AssemblyInfo?.References is { Count: > 0 }
            || model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+
+    private static bool UnsafeMembersDiscoverable(LibraryInspection model)
+        => model.HasMethodBodies || UnsafeMembers.CanRender(model);
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
