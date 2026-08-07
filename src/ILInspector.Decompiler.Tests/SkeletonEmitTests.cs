@@ -33,6 +33,22 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton failed to compile for {FixtureType}.Sum: {sum.Status} / {sum.Detail}");
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, sum.Status);
+
+        string path = CreateAssemblyWithDuplicateUnrelatedType();
+        try
+        {
+            var duplicateType = Assert.Single(FidelityCheck.Evaluate(
+                path,
+                type => type == FixtureType,
+                method => method.Method == "Sum"));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, duplicateType.Status);
+            Assert.Contains("CS0101", duplicateType.Detail);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
@@ -120,4 +136,32 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
     }
+
+    static string CreateAssemblyWithDuplicateUnrelatedType()
+    {
+        byte[] bytes = File.ReadAllBytes(typeof(SkeletonEmitFixture).Assembly.Location);
+        byte[] original = "WholeModuleHazardBravo\0"u8.ToArray();
+        byte[] replacement = "WholeModuleHazardAlpha\0"u8.ToArray();
+        Assert.Equal(original.Length, replacement.Length);
+
+        int replacements = 0;
+        int searchStart = 0;
+        while (bytes.AsSpan(searchStart).IndexOf(original) is var relative && relative >= 0)
+        {
+            int match = searchStart + relative;
+            replacement.CopyTo(bytes, match);
+            replacements++;
+            searchStart = match + original.Length;
+        }
+        Assert.True(replacements > 0, "Expected the unrelated hazard type name in the assembly metadata.");
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
 }
+
+public sealed class WholeModuleHazardAlpha;
+public sealed class WholeModuleHazardBravo;

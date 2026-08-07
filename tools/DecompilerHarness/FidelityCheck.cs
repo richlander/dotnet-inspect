@@ -468,6 +468,13 @@ static class FidelityCheck
                     + $"'{assemblyPath}' does not contain managed metadata.",
                     nameof(typeFilter));
             }
+            if (methodFilter is not null)
+            {
+                throw new ArgumentException(
+                    $"The method filter selected no processable method because "
+                    + $"'{assemblyPath}' does not contain managed metadata.",
+                    nameof(methodFilter));
+            }
 
             return results;
         }
@@ -1232,7 +1239,7 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncBodyModifier
                 || function.IsRuntimeAsync == MetadataFactState.Yes;
-            var wholeMember = TryRenderTargetMember(pe, source, mh);
+            var wholeMember = TryRenderTargetMember(pe, source, mh, targeted: methodFilter is not null);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -3718,12 +3725,12 @@ static class FidelityCheck
     /// (keeping the legacy <see cref="EmitMethod"/> path) for member kinds not yet
     /// migrated — constructors interact with lifted field initializers, and
     /// accessors are emitted as whole properties — or when production does not
-    /// complete. The whole type is rendered once (batched) and memoized, so
-    /// resolving each of a type's members costs one shared setup, not one per
-    /// member.
+    /// complete. Broad evaluation renders the whole type once and memoizes the
+    /// batch; method-filtered evaluation uses the product's targeted member path
+    /// so unselected siblings are not rendered.
     /// </summary>
     static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
-        PEReader pe, MetadataSource source, MethodDefinitionHandle mh)
+        PEReader pe, MetadataSource source, MethodDefinitionHandle mh, bool targeted)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
@@ -3732,11 +3739,34 @@ static class FidelityCheck
         if (entry.Member.Kind is not ("method" or "operator"))
             return null;
 
-        var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
-        var rendered = memo.GetOrAdd(entry.Type, static (type, src) => RenderTypeMembers(type, src), source);
-        if (!rendered.TryGetValue(entry.Member, out var result) || !result.IsComplete || result.Text is null)
+        var result = targeted
+            ? RenderTargetMember(entry.Type, entry.Member, source)
+            : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
+        if (result is null || !result.IsComplete || result.Text is null)
             return null;
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
+    {
+        try
+        {
+            return SourceContextCache.TryGetValue(source, out var context)
+                ? MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null, context.Resolver, context)
+                : MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static MemberRenderResult? RenderTypeMemberBatch(
+        PEReader pe, ApiType type, ApiMember member, MetadataSource source)
+    {
+        var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
+        var rendered = memo.GetOrAdd(type, static (candidate, src) => RenderTypeMembers(candidate, src), source);
+        return rendered.GetValueOrDefault(member);
     }
 
     /// <summary>

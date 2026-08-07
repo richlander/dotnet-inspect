@@ -467,17 +467,17 @@ shape as `NON-ENUMERATED OR REPEATED CASES`.
 `SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
 Its focused `FidelityCheck.Evaluate` calls select a typed
 `(Type, Method, Overload)` identity before method import, rendering,
-disassembly, and compile-back, reducing the class from 374.25 seconds to 14.83
+disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
 seconds locally. The resulting 94-case serialized `pre-merge` preset completes
-in 845.53 seconds locally. A supplied method filter that produces no processable
+in 729.56 seconds locally. A supplied method filter that produces no processable
 row throws rather than returning a vacuous green result; selecting by name
 admits all overloads, while the overload ordinal can select one.
 
 Method selection does **not** narrow reconstruction. Each selected body still
 compiles against the whole-module skeleton, preserving the class's declaration
-hazard contract. The selection guard mutates two unrelated metadata type names
-to collide and requires that collision to fail the selected compile-back; a
-pruned skeleton would incorrectly turn that canary green.
+hazard contract. A gated `SkeletonEmitTests` case mutates two unrelated metadata
+type names to collide and requires that collision to fail the selected
+compile-back; a pruned skeleton would incorrectly turn that canary green.
 
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this

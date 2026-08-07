@@ -72,6 +72,18 @@ public class FidelityCheckSelectionGuardTests
 
             Assert.Contains("selected no processable top-level class or struct", error.Message);
             Assert.Contains("does not contain managed metadata", error.Message);
+
+            var methodError = Assert.Throws<ArgumentException>(
+                "methodFilter",
+                () => FidelityCheck.Evaluate(
+                    path,
+                    lowered: false,
+                    FidelityCheck.ClusterMode.Off,
+                    typeFilter: null,
+                    methodFilter: _ => true));
+
+            Assert.Contains("selected no processable method", methodError.Message);
+            Assert.Contains("does not contain managed metadata", methodError.Message);
         }
         finally
         {
@@ -131,29 +143,6 @@ public class FidelityCheckSelectionGuardTests
         Assert.Equal(1, overload.Overload);
     }
 
-    [Fact]
-    [Trait("Speed", "Slow")]
-    public void Evaluate_MethodFilterPreservesUnrelatedWholeModuleDeclarations()
-    {
-        string path = CreateAssemblyWithDuplicateUnrelatedType();
-        string fixtureType = typeof(FidelityCheckMethodSelectionFixture).FullName!;
-
-        try
-        {
-            var result = Assert.Single(FidelityCheck.Evaluate(
-                path,
-                type => type == fixtureType,
-                method => method.Method == nameof(FidelityCheckMethodSelectionFixture.Identity)));
-
-            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
-            Assert.Contains("CS0101", result.Detail);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     static string CreatePeWithoutManagedMetadata()
     {
         byte[] bytes = File.ReadAllBytes(TestAssembly);
@@ -175,30 +164,6 @@ public class FidelityCheckSelectionGuardTests
         return path;
     }
 
-    static string CreateAssemblyWithDuplicateUnrelatedType()
-    {
-        byte[] bytes = File.ReadAllBytes(TestAssembly);
-        byte[] original = "WholeModuleHazardBravo\0"u8.ToArray();
-        byte[] replacement = "WholeModuleHazardAlpha\0"u8.ToArray();
-        Assert.Equal(original.Length, replacement.Length);
-
-        int replacements = 0;
-        int searchStart = 0;
-        while (bytes.AsSpan(searchStart).IndexOf(original) is var relative && relative >= 0)
-        {
-            int match = searchStart + relative;
-            replacement.CopyTo(bytes, match);
-            replacements++;
-            searchStart = match + original.Length;
-        }
-        Assert.True(replacements > 0, "Expected the unrelated hazard type name in the assembly metadata.");
-
-        string path = Path.Combine(
-            Path.GetTempPath(),
-            $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
-        File.WriteAllBytes(path, bytes);
-        return path;
-    }
 }
 
 public sealed class FidelityCheckSelectionGuardFixture
@@ -214,9 +179,6 @@ public sealed class FidelityCheckMethodSelectionFixture
     public static int Transform(int left, int right) => left + right;
     public static int Identity(int value) => value;
 }
-
-public sealed class WholeModuleHazardAlpha;
-public sealed class WholeModuleHazardBravo;
 
 [System.Runtime.CompilerServices.CompilerGenerated]
 public sealed class FidelityCheckSelectionGuardGeneratedFixture;
