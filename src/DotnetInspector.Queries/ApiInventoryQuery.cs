@@ -91,7 +91,8 @@ public static class ApiInventoryQuery
         new("api.member-kind.operator", "operator", "operators", 700, true,
             member => member.Kind == "operator"),
         new("api.member-kind.extension-method", "extension method", "extension methods", 800, true,
-            member => member.Kind == "extension-method" || member.IsExtension),
+            member => member.Kind == "extension-method"
+                || (member.IsExtension && member.Kind == "method")),
         new("api.member-kind.explicit-implementation", "explicit implementation", "explicit implementations", 900, true,
             member => member.Kind == "explicit-interface-implementation"),
         new("api.member-kind.event", "event", "events", 1000, true,

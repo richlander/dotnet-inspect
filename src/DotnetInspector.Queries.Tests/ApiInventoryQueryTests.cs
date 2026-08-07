@@ -102,6 +102,38 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
+    public void Members_CompilerProducedExtensionOperatorHasOneKindFacet()
+    {
+        using var inspection = AssemblyInspectionSession.Open(
+            typeof(ApiInventoryQueryTests).Assembly.Location);
+        var surface = inspection.ApiSurface(includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(InventoryExtensions).FullName);
+        var extensionOperator = Assert.Single(
+            type.Members,
+            member => member.Name == "op_Addition");
+
+        Assert.Equal("operator", extensionOperator.Kind);
+        Assert.True(extensionOperator.IsExtension);
+
+        var result = ApiInventoryQuery.Members(type);
+
+        var operatorFacet = Assert.Single(
+            result.KindFacets,
+            facet => facet.SingularLabel == "operator" && facet.Count == 1);
+        Assert.Single(
+            result.KindFacets,
+            facet => facet.SingularLabel == "extension method" && facet.Count == 1);
+        Assert.Single(
+            ApiInventoryQuery.Members(
+                type,
+                new ApiMemberInventoryRequest([operatorFacet.Id]))
+            .Members,
+            member => member.Name == "op_Addition");
+    }
+
+    [Fact]
     public void Selection_RejectsUnknownFacetIds()
     {
         var surface = new ApiSurface
@@ -163,6 +195,8 @@ public sealed class InventoryFixture : IInventoryFixture
 public static class InventoryExtensions
 {
     public static void Extend(this InventoryFixture fixture) => fixture.Method();
+
+    public static void op_Addition(this InventoryFixture fixture) => fixture.Method();
 }
 
 public struct InventoryStruct;
