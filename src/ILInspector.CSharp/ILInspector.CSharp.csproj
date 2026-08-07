@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
   </ItemGroup>
 
