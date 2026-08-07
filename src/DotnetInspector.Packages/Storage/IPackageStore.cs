@@ -45,11 +45,4 @@ public interface IPackageStore
         Stream nupkg,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Returns the newest cached version of <paramref name="packageName"/> (pure
-    /// cache lookup, never network), or <c>null</c> when none is cached.
-    /// </summary>
-    string? TryGetLatestCachedVersion(
-        string packageName,
-        IReadOnlyList<string>? allowedSourceKeys);
 }

@@ -1006,11 +1006,6 @@ public class LibraryInspection
     [JsonIgnore]
     public int SwitchCount { get; set; }
 
-    /// <summary>
-    /// View routing flag: when true, show nested dependency tree instead of flat references.
-    /// </summary>
-    [JsonIgnore]
-    public bool UseDependenciesView { get; set; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

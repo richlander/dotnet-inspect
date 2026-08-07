@@ -61,8 +61,9 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
-            using var service = bodyAnalysisFeatures
-                == Analysis.LibraryBodyAnalysisFeatures.None
+            using var service = discoveryOnly
+                ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(path, logger.Log)
                     : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
@@ -127,11 +128,13 @@ internal static class LibraryMetadataService
                     : MetadataFindings.InspectAssemblySurface(
                         surfaceClassification,
                         FindingSubjectFor(path)),
-                UseDependenciesView = options.IncludeDependencies,
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
+            var collectReferenceTree = options.CollectReferenceTree;
+            var collectReferences = options.CollectReferences
+                || collectReferenceTree || needsAuditSignals;
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(collectReferences);
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -182,7 +185,7 @@ internal static class LibraryMetadataService
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
             // Build transitive reference tree if requested
-            if (options.IncludeDependencies && inspection.AssemblyInfo?.References != null)
+            if (collectReferenceTree && inspection.AssemblyInfo?.References != null)
             {
                 var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -193,7 +196,8 @@ internal static class LibraryMetadataService
                     sourceDir,
                     visited,
                     logger,
-                    deduplicate: options.IncludeDependencies);
+                    deduplicate: true,
+                    maxDepth: options.ReferenceTreeDepth);
             }
 
             // Run legacy scanners and typed queries against one shared assembly context.
@@ -267,20 +271,20 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Effective-section discovery (-D) must be network-free regardless of
-            // verbosity or -S filters. The SourceLink family is listed from the
-            // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
-            // runs no network-capable source stage: no PDB download, no source-URL
-            // HEAD audit, no integrity GET, and no source-file collection. (For an
-            // embedded/adjacent PDB the local audit stages would otherwise fire.)
-            // This keeps -D listings verbosity-independent and keeps the effective
-            // cache token (probe-driven) consistent with what the inspection records
-            // for HasSourceLink.
-            var sourcePlan = discoveryOnly
-                ? default
-                : LibrarySourcePlans.For(
-                    options.UserVerbosity,
-                    options.IncludeSections);
+            // Cheap discovery needs local applicability facts, not the source-analysis model.
+            // Preserve the PDB facts that drive section gates, then avoid source findings,
+            // compilation records, builder inference, and every network-capable stage.
+            if (discoveryOnly)
+            {
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
+                inspection.WindowsPdbDetected = pdbContext.WindowsPdbDetected;
+                return inspection;
+            }
+
+            var sourcePlan = LibrarySourcePlans.For(options);
 
             await AuditAsync(
                 service,
@@ -572,7 +576,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
+        Dictionary<string, int>? globalSeen = null,
+        int? maxDepth = null)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -642,10 +647,19 @@ internal static class LibraryMetadataService
                 {
                     var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
                     node.Company = company;
-                    if (childRefs.Count > 0)
+                    if (childRefs.Count > 0
+                        && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
+                        var childNodes = BuildTransitiveReferences(
+                            childRefs,
+                            Path.GetDirectoryName(resolvedPath),
+                            branchVisited,
+                            logger,
+                            depth + 1,
+                            deduplicate,
+                            globalSeen,
+                            maxDepth);
                         nodes.AddRange(childNodes);
                     }
                 }

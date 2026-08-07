@@ -193,6 +193,21 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Null(result.Published);
     }
 
+    [Theory]
+    [InlineData("http://api.nuget.org/v3/index.json")]
+    [InlineData("https://api.nuget.org:444/v3/index.json")]
+    [InlineData("https://api.nuget.org/private/v3/index.json")]
+    [InlineData("https://api.nuget.org/v3/index.json?source=custom")]
+    public void SupportsNuGetOrgMetadata_RejectsNoncanonicalEndpoint(string sourceUrl)
+    {
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [sourceUrl],
+        };
+
+        Assert.False(PackageMetadataService.SupportsNuGetOrgMetadata(sourceOptions));
+    }
+
     private sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

@@ -325,7 +325,7 @@ public static class RouterCommandDefinition
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {
-                if (await PackageExistsAsync(target, sourceKeys, sourceOptions, context))
+                if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
 
                 return ["type", target, .. tail];
@@ -343,14 +343,16 @@ public static class RouterCommandDefinition
 
         private static async Task<bool> PackageExistsAsync(
             string packageName,
-            IReadOnlyList<string> sourceKeys,
             NuGetSourceOptions sourceOptions,
             CommandContext context)
         {
-            if (NuGetCache.TryGetLatestCachedVersion(
+            if (PackageExtractor.HasCachedCandidateVersion(
                     packageName,
-                    sourceKeys) != null)
+                    NuGetSourceResolver.ResolveSourceKeys(
+                        sourceOptions)))
+            {
                 return true;
+            }
 
             try
             {
