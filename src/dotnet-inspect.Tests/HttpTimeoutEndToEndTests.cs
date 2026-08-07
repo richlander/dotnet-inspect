@@ -97,6 +97,14 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
         Assert.DoesNotContain(9, seconds);
     }
 
+    [Theory]
+    [InlineData("explicit: net_http_request_timedout, 7")]
+    [InlineData("explicit: The request was canceled due to the configured HttpClient.Timeout of 7 seconds elapsing.")]
+    public void TimeoutSeconds_RecognizesBothShippedRuntimeMessageShapes(string error)
+    {
+        Assert.Contains(7, TimeoutSeconds(error));
+    }
+
     /// <summary>
     /// Reads the numbers out of the timed-out clause of the error.
     /// </summary>
@@ -107,14 +115,17 @@ public sealed class HttpTimeoutEndToEndTests : IDisposable
     /// went undetected until this compared integers.
     /// </para>
     /// <para>
-    /// The clause is isolated first so the port in the stub feed's URL cannot supply a digit,
-    /// and every number in it is returned rather than one at a fixed offset, because the
-    /// message is a runtime resource string whose wording is not this repository's to pin.
+    /// The clause is isolated first so the port in the stub feed's URL cannot supply a digit.
+    /// NativeAOT emits the resource key while CoreCLR spells out the property name, so either
+    /// stable marker can locate it. Every number in the clause is returned rather than one at
+    /// a fixed offset because the surrounding runtime wording is not this repository's to pin.
     /// </para>
     /// </remarks>
     private static IReadOnlyList<int> TimeoutSeconds(string error)
     {
         int start = error.IndexOf("timedout", StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            start = error.IndexOf("HttpClient.Timeout", StringComparison.Ordinal);
         Assert.True(start >= 0, $"Expected a timeout in the error, got: {error}");
 
         int end = error.IndexOf('\n', start);
