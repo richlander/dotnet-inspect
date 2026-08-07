@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
@@ -119,6 +120,33 @@ public class CallGraphProjectionTests
             projection.Nodes,
             node => node.Member.Name == "Do");
         Assert.Single(callee.GraphEvidence);
+    }
+
+    [Fact]
+    public void InstanceSelfRecursionFromBodyIndexCollapsesOntoFocus()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        MethodIdentity method = index.DeclaredMethods.Single(candidate =>
+            candidate.DeclaringType.Name
+                == "InstanceRecursionApi"
+            && candidate.Name
+                == "Recurse");
+
+        CallGraphProjection projection = CallGraphProjection.Create(
+            index.BuildCallerTree(method.MetadataToken),
+            index.BuildCallTree(method.MetadataToken));
+
+        Assert.Single(
+            projection.Nodes,
+            node => node.Member.DeclaringType.Name
+                    == "InstanceRecursionApi"
+                && node.Member.Name
+                    == "Recurse");
+        Assert.Contains(
+            projection.Edges,
+            edge => edge.From == projection.Focus.Id
+                && edge.To == projection.Focus.Id);
     }
 
     [Fact]

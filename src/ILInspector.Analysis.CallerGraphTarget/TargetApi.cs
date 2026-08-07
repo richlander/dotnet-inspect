@@ -69,6 +69,12 @@ namespace Target
         }
     }
 
+    public sealed class InstanceRecursionApi
+    {
+        public bool Recurse(int depth) =>
+            depth > 0 && Recurse(depth - 1);
+    }
+
     public interface IBodilessApi
     {
         void Invoke();

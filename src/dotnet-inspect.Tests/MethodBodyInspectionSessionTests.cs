@@ -1,4 +1,5 @@
 using DotnetInspector.Inspectors;
+using ILInspector.CallGraph;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
@@ -126,5 +127,31 @@ public class MethodBodyInspectionSessionTests
         var actual = target.CallerTree(token, [caller]);
 
         Assert.Equal(expected.Children.Count(), actual.Children.Count());
+    }
+
+    [Fact]
+    public void CallerTree_SessionScopes_ProjectsWithUnscopedInstanceCallees()
+    {
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        Analysis.MethodIdentity method =
+            target.BodyIndex.DeclaredMethods.Single(candidate =>
+                candidate.DeclaringType.Name
+                    == nameof(ProgressiveMemberCallGraph)
+                && candidate.Name
+                    == nameof(ProgressiveMemberCallGraph.Callees)
+                && candidate.ParameterTypes.Length == 0);
+
+        Analysis.CallTreeNode callerRoot =
+            target.CallerTree(method.MetadataToken, [caller]);
+        Analysis.CallTreeNode calleeRoot =
+            target.BodyIndex.BuildCallTree(method.MetadataToken);
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        Assert.Equal(method.Name, projection.Focus.Member.Name);
+        Assert.True(projection.Focus.Member.HasThis);
     }
 }

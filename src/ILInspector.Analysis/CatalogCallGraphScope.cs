@@ -363,7 +363,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 foreach (MethodIdentity method
                     in participant.Index.DeclaredMethods)
                 {
-                    MemberRef member = MemberFromDefinition(method);
+                    MemberRef member =
+                        CallTreeMember.FromDefinition(method);
                     var storage = GraphNodeStorageKey.Definition(
                         participant.Assembly,
                         method.ModuleVersionId,
@@ -873,25 +874,6 @@ public sealed class CatalogCallGraphScope : IDisposable
             plans.Add(key, entry);
             return entry;
         }
-
-        static MemberRef MemberFromDefinition(MethodIdentity method) =>
-            new(
-                method.DeclaringType,
-                method.Name,
-                method.ParameterTypes,
-                method.ReturnType,
-                method.Name is ".ctor" or ".cctor"
-                    ? MemberKind.Constructor
-                    : MemberKind.Method)
-            {
-                GenericArity = method.GenericArity,
-                HasThis = !method.IsStatic,
-                SignatureHeader = method.SignatureHeader,
-                RequiredParameterCount =
-                    method.RequiredParameterCount,
-                OpenParameterTypes = method.ParameterTypes,
-                OpenReturnType = method.ReturnType,
-            };
 
         static CallTreeNode Node(
             MemberRef member,

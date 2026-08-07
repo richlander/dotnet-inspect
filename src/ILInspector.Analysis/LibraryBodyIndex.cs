@@ -1419,7 +1419,7 @@ public sealed class LibraryBodyIndex
         var root = DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == rootMethodToken);
         var rootMember = root is { } identity
-            ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
+            ? CallTreeMember.FromDefinition(identity)
             : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
         var callsByCaller = GetDirectCallsByCaller();
@@ -1496,7 +1496,7 @@ public sealed class LibraryBodyIndex
         // resolved callee signature. Recover the root label from any such inbound edge so the
         // graph names the member instead of printing a bare token.
         var rootMember = root is { } identity
-            ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
+            ? CallTreeMember.FromDefinition(identity)
             : DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
                 && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolvedCallee }
                 ? resolvedCallee
@@ -1583,7 +1583,7 @@ public sealed class LibraryBodyIndex
                 created++;
                 var caller = edge.Caller;
                 children.Add(Build(
-                    new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
+                    CallTreeMember.FromDefinition(caller),
                     caller.MetadataToken,
                     depth + 1,
                     edge.InLoop));
