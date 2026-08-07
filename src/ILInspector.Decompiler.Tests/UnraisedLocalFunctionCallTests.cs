@@ -156,6 +156,32 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
     }
 
+    [Fact]
+    public void SameNamedRaiseCandidates_AreBothDeclined()
+    {
+        var type = typeof(DuplicateLocalFunctionNameSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(DuplicateLocalFunctionNameSamples.BothRaise));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!.ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("static int Pick(", output);
+        Assert.DoesNotContain("return Pick(", output);
+        string[] survivingNames = Regex.Matches(output, @"__BothRaise_g__Pick_\d+_\d+")
+            .Select(match => match.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(2, survivingNames.Length);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator == DecompilerFidelityDiscriminators.LocalFunctionMethodName);
+    }
+
     /// <summary>
     /// The gate for the node the sweep would miss if it only walked calls. A local
     /// function converted to a delegate lowers to <c>ldftn</c>, which imports as

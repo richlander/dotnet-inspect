@@ -25,7 +25,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// captured variable stored more than once (reassigned, so no single value is
 /// live at every call site), and a body that itself calls a local function
 /// (recursion / nesting), which keeps the import non-recursive. Every call declines when the
-/// seam is absent, and each is stamped as such.</para>
+/// seam is absent, and each is stamped as such. Otherwise-viable local functions
+/// that recover the same source name also decline: declarations are currently
+/// flattened into one trailing scope, where raising both would create CS0128 and
+/// make both calls bind to one ambiguous name. The compiler-produced
+/// <c>SameNamedRaiseCandidates_AreBothDeclined</c> test enforces that boundary.</para>
 /// </summary>
 public sealed class LocalFunctionRaisingPass : IIrPass
 {
@@ -201,6 +205,13 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .Select(m => m!)
             .ToList();
 
+    sealed record Candidate(
+        MethodRef Method,
+        List<Call> Calls,
+        Environment? Environment,
+        IrFunction Body,
+        string Name);
+
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
     static HashSet<(TypeRef Type, string Name)> RaiseCalls(IrFunction function, PassContext context)
     {
@@ -228,7 +239,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             .GroupBy(c => Identity(c.Callee))
             .ToList();
 
-        var declarations = new List<LocalFunctionStatement>();
+        var candidates = new List<Candidate>();
         foreach (var group in groups)
         {
             var calls = group.ToList();
@@ -322,61 +333,91 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     || !IsPrintableBody(body, allowLocals))
                     continue;
 
-                string name = CSharpNaming.MethodName(method.Name);
-                RewriteSelfCalls(body, method, name);
-                // The environment parameter is the last one; drop it from the source signature.
-                var parameters = environment is null
-                    ? body.Signature.Parameters
-                    : body.Signature.Parameters.RemoveAt(body.Signature.Parameters.Length - 1);
-
-                var container = body.Body;
-                container.Detach();
-                // The body is another method's; clear its offsets so they cannot collide
-                // with the host's offset-keyed annotations and interleaved IL.
-                foreach (var node in Self(container))
-                    node.SetSourceOffset(-1);
-
-                foreach (var call in calls)
-                {
-                    context.Stepper.StepOver($"raise local function {name}", call);
-                    var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
-                    if (environment is not null)
-                        arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
-                    call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
-                }
-                // A capturing local function cannot be `static` (CS8421); the
-                // synthesized method is static only because the environment is passed
-                // explicitly by ref, which the recovered source form does not show.
-                raised.Add(Identity(method));
-                declarations.Add(new LocalFunctionStatement(
-                    name,
-                    method.ReturnType,
-                    parameters,
-                    isStatic: environment is null,
-                    body.Locals,
-                    body.LocalNames,
-                    body.UsesUpdatedMemorySafetyRules,
-                    body.SkipLocalsInit,
-                    container));
-                // Merge the raised body's resolved type info into the enclosing
-                // function. The body was imported from a separate method, so the
-                // host never materialized shapes/enum members/underlying types/
-                // union types for definitions only this local function references.
-                // The metadata-free printer reads these off the enclosing function
-                // for every local-function print path — inline (expression-bodied
-                // or block) and the reconstructed nested scope — so without the
-                // merge an enum-typed constant used only inside the local function
-                // renders as a bare int (CS1503/CS0266) even though the host body
-                // spells the same value correctly (issue #2983). Outer entries win
-                // on collision: a definition the host already resolved keeps its
-                // authoritative shape.
-                function.TypeShapes = MergeMap(function.TypeShapes, body.TypeShapes);
-                function.EnumMembers = MergeMap(function.EnumMembers, body.EnumMembers);
-                function.EnumUnderlyingTypes = MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes);
-                function.UnionTypes = MergeSet(function.UnionTypes, body.UnionTypes);
-                function.ByRefLikeTypes = MergeSet(function.ByRefLikeTypes, body.ByRefLikeTypes);
-                environment?.Elide();
+                candidates.Add(new Candidate(
+                    method,
+                    calls,
+                    environment,
+                    body,
+                    CSharpNaming.MethodName(method.Name)));
             }
+        }
+
+        // Local functions declared in disjoint source scopes may share one name,
+        // but declarations are currently flattened into the host's trailing block.
+        // Prepare every viable candidate before mutating the host so a collision
+        // declines every participant instead of letting the first one claim the
+        // shared spelling and bind later calls to the wrong body.
+        var collidingNames = candidates
+            .GroupBy(candidate => candidate.Name, StringComparer.Ordinal)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var declarations = new List<LocalFunctionStatement>();
+        foreach (var candidate in candidates)
+        {
+            if (collidingNames.Contains(candidate.Name))
+                continue;
+
+            var method = candidate.Method;
+            var calls = candidate.Calls;
+            var environment = candidate.Environment;
+            var body = candidate.Body;
+            string name = candidate.Name;
+
+            RewriteSelfCalls(body, method, name);
+            // The environment parameter is the last one; drop it from the source signature.
+            var parameters = environment is null
+                ? body.Signature.Parameters
+                : body.Signature.Parameters.RemoveAt(body.Signature.Parameters.Length - 1);
+
+            var container = body.Body;
+            container.Detach();
+            // The body is another method's; clear its offsets so they cannot collide
+            // with the host's offset-keyed annotations and interleaved IL.
+            foreach (var node in Self(container))
+                node.SetSourceOffset(-1);
+
+            foreach (var call in calls)
+            {
+                context.Stepper.StepOver($"raise local function {name}", call);
+                var arguments = call.DetachChildren().Cast<IrExpression>().ToList();
+                if (environment is not null)
+                    arguments.RemoveAt(arguments.Count - 1);   // drop the ref-env argument
+                call.ReplaceWith(new LocalFunctionInvocation(name, method.ReturnType, arguments));
+            }
+            // A capturing local function cannot be `static` (CS8421); the
+            // synthesized method is static only because the environment is passed
+            // explicitly by ref, which the recovered source form does not show.
+            raised.Add(Identity(method));
+            declarations.Add(new LocalFunctionStatement(
+                name,
+                method.ReturnType,
+                parameters,
+                isStatic: environment is null,
+                body.Locals,
+                body.LocalNames,
+                body.UsesUpdatedMemorySafetyRules,
+                body.SkipLocalsInit,
+                container));
+            // Merge the raised body's resolved type info into the enclosing
+            // function. The body was imported from a separate method, so the
+            // host never materialized shapes/enum members/underlying types/
+            // union types for definitions only this local function references.
+            // The metadata-free printer reads these off the enclosing function
+            // for every local-function print path — inline (expression-bodied
+            // or block) and the reconstructed nested scope — so without the
+            // merge an enum-typed constant used only inside the local function
+            // renders as a bare int (CS1503/CS0266) even though the host body
+            // spells the same value correctly (issue #2983). Outer entries win
+            // on collision: a definition the host already resolved keeps its
+            // authoritative shape.
+            function.TypeShapes = MergeMap(function.TypeShapes, body.TypeShapes);
+            function.EnumMembers = MergeMap(function.EnumMembers, body.EnumMembers);
+            function.EnumUnderlyingTypes = MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes);
+            function.UnionTypes = MergeSet(function.UnionTypes, body.UnionTypes);
+            function.ByRefLikeTypes = MergeSet(function.ByRefLikeTypes, body.ByRefLikeTypes);
+            environment?.Elide();
         }
 
         if (declarations.Count == 0)
