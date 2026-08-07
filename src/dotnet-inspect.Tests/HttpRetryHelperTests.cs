@@ -149,6 +149,7 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret", "503 (retryable)", true)]
     [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "Socket error", true)]
     [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret", "request timeout", true)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     public async Task FailureLogsRedactTheUrlOnEveryBranch(
         RetryFailureMode mode,
         string url,
@@ -156,7 +157,10 @@ public class HttpRetryHelperTests
         bool exhaustsRetries)
     {
         var messages = new List<string>();
-        using var client = new HttpClient(new FailureHandler(mode));
+        using var client = new HttpClient(new FailureHandler(mode))
+        {
+            BaseAddress = new Uri("https://base.example/")
+        };
 
         var content = await HttpRetryHelper.GetStringWithRetryAsync(
             client,
@@ -167,15 +171,46 @@ public class HttpRetryHelperTests
 
         Assert.Null(content);
         Assert.NotEmpty(messages);
-        Assert.Contains(messages, message =>
+        string branchLog = Assert.Single(messages, message =>
             message.Contains(branchMessage, StringComparison.Ordinal));
-        Assert.Equal(
-            exhaustsRetries,
-            messages.Any(message => message.Contains("Max retries", StringComparison.Ordinal)));
+        AssertRedactedUrl(branchLog);
+        var exhaustedLogs = messages
+            .Where(message => message.Contains("Max retries", StringComparison.Ordinal))
+            .ToArray();
+        if (exhaustsRetries)
+        {
+            AssertRedactedUrl(Assert.Single(exhaustedLogs));
+        }
+        else
+        {
+            Assert.Empty(exhaustedLogs);
+        }
+
         Assert.DoesNotContain(messages, message =>
             message.Contains("sup3rs3cret", StringComparison.Ordinal));
-        Assert.Contains(messages, message =>
-            message.Contains("private.example", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SuccessWithoutLoggingDoesNotRequireDisplayUrlParsing()
+    {
+        using var client = new HttpClient(new SuccessHandler())
+        {
+            BaseAddress = new Uri("https://base.example/")
+        };
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "/\\/\u202E",
+            log: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("ok", content);
+    }
+
+    private static void AssertRedactedUrl(string message)
+    {
+        Assert.DoesNotContain("sup3rs3cret", message, StringComparison.Ordinal);
+        Assert.Contains("private.example", message, StringComparison.Ordinal);
     }
 
     public enum RetryFailureMode
@@ -205,5 +240,17 @@ public class HttpRetryHelperTests
                     Task.FromException<HttpResponseMessage>(new TaskCanceledException()),
                 _ => throw new InvalidOperationException($"Unexpected failure mode: {mode}"),
             };
+    }
+
+    private sealed class SuccessHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("ok"),
+                RequestMessage = request,
+            });
     }
 }

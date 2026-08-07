@@ -103,7 +103,9 @@ public static class HttpRetryHelper
         NetworkTrafficKind trafficKind)
     {
         int attempts = 0;
-        var redactedUrl = NetworkRequestObservation.RedactSensitiveUrlText(url);
+        string? redactedUrl = null;
+        string RedactedUrl() =>
+            redactedUrl ??= NetworkRequestObservation.RedactSensitiveUrlText(url).ToString();
 
         while (true)
         {
@@ -132,12 +134,12 @@ public static class HttpRetryHelper
                     // Check if retryable
                     if (!IsRetryableStatus(statusCode))
                     {
-                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {redactedUrl}");
+                        log?.Invoke($"HTTP {methodName} {(int)statusCode} (not retryable): {RedactedUrl()}");
                         FeedFailureTelemetry.Record(url, statusCode);
                         return new HttpRetryResult(null, statusCode);
                     }
 
-                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {redactedUrl}");
+                    log?.Invoke($"HTTP {methodName} {(int)statusCode} (retryable): {RedactedUrl()}");
                 }
                 catch (HttpRequestException ex)
                 {
@@ -150,7 +152,7 @@ public static class HttpRetryHelper
                         return new HttpRetryResult(null, null);
                     }
 
-                    log?.Invoke($"Socket error {socketError} (retryable): {redactedUrl}");
+                    log?.Invoke($"Socket error {socketError} (retryable): {RedactedUrl()}");
                 }
                 catch (NotSupportedException ex)
                 {
@@ -173,13 +175,13 @@ public static class HttpRetryHelper
                 catch (TaskCanceledException)
                 {
                     // Timeout - treat as retryable
-                    log?.Invoke($"{methodName} request timeout (retryable): {redactedUrl}");
+                    log?.Invoke($"{methodName} request timeout (retryable): {RedactedUrl()}");
                 }
 
                 // Check retry limit while the attempt's traffic currency is still active.
                 if (attempts++ >= retryCount)
                 {
-                    log?.Invoke($"Max retries ({retryCount}) exceeded: {redactedUrl}");
+                    log?.Invoke($"Max retries ({retryCount}) exceeded: {RedactedUrl()}");
                     FeedFailureTelemetry.Record(url, null);
                     return new HttpRetryResult(null, null);
                 }

@@ -284,18 +284,33 @@ public sealed record NetworkRequestObservation(
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
-    /// Gated by <c>HttpClientFactoryTests.NetworkTelemetry_AddsActivityEvent</c> and
-    /// <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c>.
+    /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrlText(string value)
     {
-        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);
+        if (!Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri))
+            return new InertString(TextPolicy.Field, value);
 
-        if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(relative.ToString()));
+        if (uri.IsAbsoluteUri)
+            return RedactUrl(uri) ?? new InertString(TextPolicy.Field, value);
 
-        return new InertString(TextPolicy.Field, value);
+        string relative = uri.ToString();
+        if (relative.StartsWith("//", StringComparison.Ordinal))
+            relative = RedactNetworkPathUserInfo(relative);
+
+        return new InertString(TextPolicy.Field, RedactRelativeUrl(relative));
+    }
+
+    private static string RedactNetworkPathUserInfo(string url)
+    {
+        int authorityEnd = url.IndexOfAny(['/', '?', '#'], 2);
+        if (authorityEnd < 0)
+            authorityEnd = url.Length;
+
+        int userInfoEnd = url.LastIndexOf('@', authorityEnd - 1, authorityEnd - 1);
+        return userInfoEnd < 2
+            ? url
+            : string.Concat("//", url.AsSpan(userInfoEnd + 1));
     }
 
     private static string RedactRelativeUrl(string url)
