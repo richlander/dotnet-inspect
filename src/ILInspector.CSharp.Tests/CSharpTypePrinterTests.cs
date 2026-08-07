@@ -1608,6 +1608,26 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void GlobalNamespaceTypeNameTriggersGlobalAliasInNamespacedUnit()
+    {
+        var system = CreateEmptyType("", "System");
+        var worker = CreateEmptyType("Samples", "Worker");
+        var uri = CreateMethod("GetUri");
+        uri.SignatureModel!.ReturnType = "System.Uri";
+        worker.Members.Add(uri);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(system), new CSharpTypePrintRequest(worker)],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains("public class System", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public global::System.Uri GetUri();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SiblingTypeReferenceRemainsShort()
     {
         var widget = CreateEmptyType("Alpha", "Widget");

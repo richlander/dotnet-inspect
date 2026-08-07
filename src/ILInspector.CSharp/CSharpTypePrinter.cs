@@ -145,7 +145,7 @@ public sealed class CSharpTypePrinter
     static bool IsAncestorNamespace(string candidate, string descendant)
         => candidate.Length < descendant.Length
             && descendant.StartsWith(candidate, StringComparison.Ordinal)
-            && descendant[candidate.Length] == '.';
+            && (candidate.Length == 0 || descendant[candidate.Length] == '.');
 
     static IReadOnlyList<string> TypeNameContext(
         CSharpTypePrintOptions options,
