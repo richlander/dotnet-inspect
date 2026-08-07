@@ -14,11 +14,13 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace or typed query plan
-today. Existing foundations include shared image and inspection session
-ownership, catalog generations, `CoreCache`, typed provenance and resolution
-currencies, and `InertString`; the workspace and query-plan model describes how
-those pieces will be composed.
+govern its migration. No command runs through a workspace today. Library
+metadata inspection is the first typed-query canary: its section catalog plans
+typed metadata demand and executes it through a prerequisite-aware registry,
+while the command still owns orchestration. Existing foundations also include
+shared image and inspection session ownership, catalog generations, `CoreCache`,
+typed provenance and resolution currencies, and `InertString`; the workspace
+model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
