@@ -149,6 +149,7 @@ public class HttpRetryHelperTests
     [InlineData(RetryFailureMode.RetryableStatus, "https://private.example/v3/index.json?access_token=sup3rs3cret", "503 (retryable)", true)]
     [InlineData(RetryFailureMode.RetryableSocket, "https://private.example/F/feed/auth/sup3rs3cret/api/v3/index.json", "Socket error", true)]
     [InlineData(RetryFailureMode.Timeout, "https://private.example/v3/index.json?sig=sup3rs3cret", "request timeout", true)]
+    [InlineData(RetryFailureMode.NonRetryableSocket, "******private.example/v3/index.json", "error HostNotFound", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, " //user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
     [InlineData(RetryFailureMode.NonRetryableStatus, "\t//user:sup3rs3cret@private.example/v3/index.json", "(not retryable)", false)]
@@ -234,14 +235,23 @@ public class HttpRetryHelperTests
     }
 
     [Theory]
-    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "F\\feed\\auth\\REDACTED\\api")]
-    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "F\\auth\\REDACTED\\REDACTED\\api")]
-    public async Task FailureLogsRedactBackslashDelimitedRelativePath(
+    [InlineData(RetryFailureMode.NonRetryableStatus, "F\\feed\\auth\\sup3rs3cret\\api", "https://base.example/root/F/feed/auth/sup3rs3cret/api", "https://base.example/root/F/feed/auth/REDACTED/api", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "F\\auth\\auth\\sup3rs3cret\\api", "https://base.example/root/F/auth/auth/sup3rs3cret/api", "https://base.example/root/F/auth/REDACTED/REDACTED/api", "(not retryable)", false)]
+    [InlineData(RetryFailureMode.RetryableStatus, "auth/./sup3rs3cret/api", "https://base.example/root/auth/sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api", "503 (retryable)", true)]
+    [InlineData(RetryFailureMode.RetryableSocket, "auth/x/../sup3rs3cret/api", "https://base.example/root/auth/sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api", "Socket error", true)]
+    [InlineData(RetryFailureMode.Timeout, "auth\\.\\sup3rs3cret\\api", "https://base.example/root/auth/sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api", "request timeout", true)]
+    [InlineData(RetryFailureMode.NonRetryableStatus, "auth\\x\\..\\sup3rs3cret\\api", "https://base.example/root/auth/sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api", "(not retryable)", false)]
+    public async Task FailureLogsUseTheEffectiveUrlForRelativeRequests(
+        RetryFailureMode mode,
         string url,
-        string expectedUrl)
+        string expectedTransportUrl,
+        string expectedDisplayUrl,
+        string branchMessage,
+        bool exhaustsRetries)
     {
         var messages = new List<string>();
-        using var client = new HttpClient(new FailureHandler(RetryFailureMode.NonRetryableStatus))
+        using var handler = new FailureHandler(mode);
+        using var client = new HttpClient(handler)
         {
             BaseAddress = new Uri("https://base.example/root/")
         };
@@ -254,10 +264,24 @@ public class HttpRetryHelperTests
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(content);
+        Assert.Equal(expectedTransportUrl, handler.RequestUri?.ToString());
         string branchLog = Assert.Single(messages, message =>
-            message.Contains("(not retryable)", StringComparison.Ordinal));
+            message.Contains(branchMessage, StringComparison.Ordinal));
         Assert.DoesNotContain("sup3rs3cret", branchLog, StringComparison.Ordinal);
-        Assert.Contains(expectedUrl, branchLog, StringComparison.Ordinal);
+        Assert.Contains(expectedDisplayUrl, branchLog, StringComparison.Ordinal);
+        var exhaustedLogs = messages
+            .Where(message => message.Contains("Max retries", StringComparison.Ordinal))
+            .ToArray();
+        if (exhaustsRetries)
+        {
+            string exhaustedLog = Assert.Single(exhaustedLogs);
+            Assert.DoesNotContain("sup3rs3cret", exhaustedLog, StringComparison.Ordinal);
+            Assert.Contains(expectedDisplayUrl, exhaustedLog, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Empty(exhaustedLogs);
+        }
     }
 
     [Fact]
@@ -284,6 +308,76 @@ public class HttpRetryHelperTests
         Assert.Contains("user@private.example", branchLog, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ExceptionMessagesCannotInjectUrlsIntoLogs()
+    {
+        var messages = new List<string>();
+        using var client = new HttpClient(new FailureHandler(RetryFailureMode.Unsupported));
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://private.example/v3/index.json",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(content);
+        Assert.Equal("HTTP GET unsupported URL (not retryable)", Assert.Single(messages));
+        Assert.DoesNotContain("sup3rs3cret", Assert.Single(messages), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EachRetryUsesItsOwnEffectiveUrlAndRequest()
+    {
+        var messages = new List<string>();
+        using var handler = new RetryThenUnauthorizedHandler();
+        using var client = new HttpClient(handler);
+        var auth = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "credential");
+
+        var content = await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "https://original.example/v3/index.json",
+            retryCount: 1,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken,
+            auth: auth);
+
+        Assert.Null(content);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.NotSame(handler.Requests[0], handler.Requests[1]);
+        Assert.All(handler.AuthorizationParameters, value => Assert.Equal("credential", value));
+
+        string firstLog = Assert.Single(messages, message =>
+            message.Contains("503 (retryable)", StringComparison.Ordinal));
+        Assert.Contains(
+            "https://first.example/F/feed/auth/REDACTED/api",
+            firstLog,
+            StringComparison.Ordinal);
+        string secondLog = Assert.Single(messages, message =>
+            message.Contains("401 (not retryable)", StringComparison.Ordinal));
+        Assert.Contains(
+            "https://second.example/F/feed/auth/REDACTED/api",
+            secondLog,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(messages, message =>
+            message.Contains("sup3rs3cret", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SuccessfulResponseKeepsItsRequestUsable()
+    {
+        using var client = new HttpClient(new SuccessHandler());
+        using var response = await HttpRetryHelper.GetWithRetryAsync(
+            client,
+            "https://private.example/v3/index.json",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(response);
+        Assert.NotNull(response.RequestMessage);
+        response.RequestMessage.RequestUri = new Uri("https://after.example/");
+        Assert.Equal("after.example", response.RequestMessage.RequestUri.Host);
+    }
+
     private static void AssertRedactedUrl(string message)
     {
         Assert.DoesNotContain("sup3rs3cret", message, StringComparison.Ordinal);
@@ -293,30 +387,44 @@ public class HttpRetryHelperTests
     public enum RetryFailureMode
     {
         NonRetryableStatus,
+        NonRetryableSocket,
         RetryableStatus,
         RetryableSocket,
         Timeout,
+        Unsupported,
     }
 
     private sealed class FailureHandler(RetryFailureMode mode) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            mode switch
+            CancellationToken cancellationToken)
+        {
+            RequestUri = request.RequestUri;
+            return mode switch
             {
                 RetryFailureMode.NonRetryableStatus =>
                     Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)),
+                RetryFailureMode.NonRetryableSocket =>
+                    Task.FromException<HttpResponseMessage>(new HttpRequestException(
+                        "Failed https://user:sup3rs3cret@private.example/v3/index.json",
+                        new SocketException((int)SocketError.HostNotFound))),
                 RetryFailureMode.RetryableStatus =>
                     Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)),
                 RetryFailureMode.RetryableSocket =>
                     Task.FromException<HttpResponseMessage>(new HttpRequestException(
-                        "Connection reset",
+                        "Connection reset at https://user:sup3rs3cret@private.example/",
                         new SocketException((int)SocketError.ConnectionReset))),
                 RetryFailureMode.Timeout =>
                     Task.FromException<HttpResponseMessage>(new TaskCanceledException()),
+                RetryFailureMode.Unsupported =>
+                    Task.FromException<HttpResponseMessage>(new NotSupportedException(
+                        "Unsupported https://user:sup3rs3cret@private.example/")),
                 _ => throw new InvalidOperationException($"Unexpected failure mode: {mode}"),
             };
+        }
+
+        public Uri? RequestUri { get; private set; }
     }
 
     private sealed class SuccessHandler : HttpMessageHandler
@@ -341,6 +449,33 @@ public class HttpRetryHelperTests
         {
             RequestUri = request.RequestUri;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class RetryThenUnauthorizedHandler : HttpMessageHandler
+    {
+        private int _attempt;
+
+        public List<HttpRequestMessage> Requests { get; } = [];
+        public List<string?> AuthorizationParameters { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            AuthorizationParameters.Add(request.Headers.Authorization?.Parameter);
+            _attempt++;
+            request.RequestUri = new Uri(_attempt == 1
+                ? "https://first.example/F/feed/auth/sup3rs3cret/api"
+                : "https://second.example/F/feed/auth/sup3rs3cret/api");
+            return Task.FromResult(new HttpResponseMessage(
+                _attempt == 1
+                    ? HttpStatusCode.ServiceUnavailable
+                    : HttpStatusCode.Unauthorized)
             {
                 RequestMessage = request,
             });

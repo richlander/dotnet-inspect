@@ -240,9 +240,13 @@ public class FeedFailureTelemetryTests
     }
 
     [Theory]
-    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "F\\feed\\auth\\REDACTED\\api")]
-    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "F\\auth\\REDACTED\\REDACTED\\api")]
-    public async Task ABackslashDelimitedRelativePathTokenIsNeverStoredOrRendered(
+    [InlineData("F\\feed\\auth\\sup3rs3cret\\api", "https://base.example/root/F/feed/auth/REDACTED/api")]
+    [InlineData("F\\auth\\auth\\sup3rs3cret\\api", "https://base.example/root/F/auth/REDACTED/REDACTED/api")]
+    [InlineData("auth/./sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth/x/../sup3rs3cret/api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth\\.\\sup3rs3cret\\api", "https://base.example/root/auth/REDACTED/api")]
+    [InlineData("auth\\x\\..\\sup3rs3cret\\api", "https://base.example/root/auth/REDACTED/api")]
+    public async Task AResolvedRelativePathTokenIsNeverStoredOrRendered(
         string url,
         string expectedUrl)
     {
@@ -265,6 +269,28 @@ public class FeedFailureTelemetryTests
         var described = FeedFailureTelemetry.Current.DescribeFailure("markout");
         Assert.NotNull(described);
         Assert.DoesNotContain("sup3rs3cret", described.Value.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AConnectionFailureRecordsTheResolvedRequestUrl()
+    {
+        using var scope = FeedFailureTelemetry.Scope();
+        using var client = new HttpClient(new ThrowingHandler(SocketError.HostNotFound))
+        {
+            BaseAddress = new Uri("https://base.example/root/")
+        };
+
+        await HttpRetryHelper.GetStringWithRetryAsync(
+            client,
+            "auth/./sup3rs3cret/api",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken,
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "https://base.example/root/auth/REDACTED/api",
+            failure.Url.ToString());
     }
 
     [Fact]
