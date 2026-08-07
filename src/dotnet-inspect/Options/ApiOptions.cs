@@ -40,10 +40,10 @@ public partial record ApiOptions : IProjectionOptions
     /// <summary>
     /// Decompiler spelling options resolved from the tool-owned
     /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
-    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
-    /// shipped defaults; the render path treats null and
-    /// <see cref="PrinterOptions.Default"/> identically, keeping output
-    /// byte-for-byte unchanged when no config is present.
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). The CLI edge
+    /// supplies registry-derived product defaults even when no config file is
+    /// present. Null is reserved for low-level callers and selects the stable
+    /// <see cref="PrinterOptions.Default"/> rendering.
     /// </summary>
     public PrinterOptions? RenderOptions { get; init; }
 
