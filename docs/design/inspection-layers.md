@@ -208,10 +208,10 @@ Metadata-image inspection is the first vertical L1 canary:
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
-- Query planning, contract, and executor failures cross the production boundary
-  as `InspectionQueryException`; cancellation and cost-declaration failures
-  retain their specific exception types. The `ProductionQueryCatchBoundary_*`
-  tests gate this fail-visible boundary.
+- Query planning, contract, executor, and host result-application failures cross
+  the production boundary as `InspectionQueryException`; cancellation and
+  cost-declaration failures retain their specific exception types. The
+  `ProductionQueryCatchBoundary_*` tests gate this fail-visible boundary.
 - The query registry exposes each executor's maximum transitive
   `InspectionCost` to a host execution scope. The CLI adapter maps it to
   `SectionCost` and enforces body-index and drill-map acquisition through
