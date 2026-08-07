@@ -107,6 +107,14 @@ public sealed class NullabilityTests
         var enabled = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Enabled));
         var oblivious = FindMethod(reader, outer, nameof(NullableContextScopeFixture.Oblivious));
         var inheritedIndexer = FindMethod(reader, inherited, "get_Item");
+        var inheritedMaybe = FindField(
+            reader,
+            inherited,
+            nameof(NullableContextScopeFixture.InheritedNullableContext.Maybe));
+        var obliviousValue = FindField(
+            reader,
+            obliviousNested,
+            nameof(NullableContextScopeFixture.ObliviousNullableContext.Value));
 
         Assert.Equal((byte)2, NullabilityReader.GetNullableContext(reader, outer.GetCustomAttributes()));
         Assert.Null(NullabilityReader.GetNullableContext(reader, inherited.GetCustomAttributes()));
@@ -114,6 +122,11 @@ public sealed class NullabilityTests
         Assert.Null(NullabilityReader.GetNullableContext(reader, enabled.GetCustomAttributes()));
         Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, oblivious.GetCustomAttributes()));
         Assert.Equal((byte)0, NullabilityReader.GetNullableContext(reader, inheritedIndexer.GetCustomAttributes()));
+        Assert.Null(NullabilityReader.GetParameterNullableBytes(reader, enabled.GetParameters(), 1));
+        Assert.Null(NullabilityReader.GetParameterNullableBytes(reader, oblivious.GetParameters(), 1));
+        Assert.Null(NullabilityReader.GetParameterNullableBytes(reader, inheritedIndexer.GetParameters(), 1));
+        Assert.Null(NullabilityReader.GetNullableBytes(reader, inheritedMaybe.GetCustomAttributes()));
+        Assert.Null(NullabilityReader.GetNullableBytes(reader, obliviousValue.GetCustomAttributes()));
     }
 
     [Fact]
@@ -339,6 +352,14 @@ public sealed class NullabilityTests
         => type.GetMethods()
             .Select(reader.GetMethodDefinition)
             .Single(method => reader.GetString(method.Name) == name);
+
+    static FieldDefinition FindField(
+        MetadataReader reader,
+        TypeDefinition type,
+        string name)
+        => type.GetFields()
+            .Select(reader.GetFieldDefinition)
+            .Single(field => reader.GetString(field.Name) == name);
 
 }
 
