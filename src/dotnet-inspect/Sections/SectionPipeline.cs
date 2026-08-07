@@ -794,18 +794,26 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Returns the typed queries needed to satisfy all requested sections.
     /// </summary>
+    /// <param name="excludeUnbounded">
+    /// Keeps explicitly included unbounded sections from demanding their queries. Effective
+    /// discovery uses this because <c>-S</c> narrows the discovered rows but must not turn
+    /// discovery into execution of the selected section.
+    /// </param>
     public HashSet<InspectionQueryDefinition> GetRequiredQueries(
         Verbosity verbosity,
         HashSet<string>? include = null,
         bool fixedOverview = false,
         InspectionTrace? trace = null,
-        IReadOnlyList<(string Reason, InspectionQueryDefinition Query)>? commandDemand = null)
+        IReadOnlyList<(string Reason, InspectionQueryDefinition Query)>? commandDemand = null,
+        bool excludeUnbounded = false)
     {
         HashSet<InspectionQueryDefinition> queries = [];
         for (int i = 0; i < _entries.Count; i++)
         {
             SectionEntry<TModel> entry = _entries[i];
             if (entry.Query is not { } query)
+                continue;
+            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
                 continue;
             if (IsRequested(entry, i, verbosity, include, fixedOverview))
             {

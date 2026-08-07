@@ -335,7 +335,8 @@ public class LibraryCommand
             excludeUnbounded: effectiveDiscovery);
         var queries = pipeline.GetRequiredQueries(
             options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
-            effectiveDiscovery ? DiscoveryQueries : null);
+            effectiveDiscovery ? DiscoveryQueries : null,
+            excludeUnbounded: effectiveDiscovery);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&

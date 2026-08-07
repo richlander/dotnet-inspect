@@ -1411,6 +1411,49 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void GetRequiredQueries_ExcludeUnbounded_PreservesExplicitBoundedSelection()
+    {
+        var bounded = new InspectionQuery<int>("bounded", InspectionCost.NetworkFree);
+        var unbounded = new InspectionQuery<int>("unbounded", InspectionCost.Unbounded);
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseCuratedCatalog()
+            .UseQueryCosts(query => query.Cost)
+            .Add(new SectionEntry<TestModel>
+            {
+                Name = "Bounded",
+                IsExpensive = false,
+                SizeClass = SectionSizeClass.Terse,
+                Cost = SectionCost.NetworkFree,
+                ScannerKey = null,
+                Query = bounded,
+                IsApplicable = _ => true,
+                CanRender = _ => true,
+            })
+            .Add(new SectionEntry<TestModel>
+            {
+                Name = "Unbounded",
+                IsExpensive = false,
+                SizeClass = SectionSizeClass.Terse,
+                Cost = SectionCost.NetworkFree,
+                ScannerKey = null,
+                Query = unbounded,
+                IsApplicable = _ => true,
+                CanRender = _ => true,
+            });
+        var include = new HashSet<string> { "Bounded", "Unbounded" };
+
+        var renderQueries = pipeline.GetRequiredQueries(Verbosity.Detailed, include);
+        var discoveryQueries = pipeline.GetRequiredQueries(
+            Verbosity.Detailed,
+            include,
+            excludeUnbounded: true);
+
+        Assert.Contains(bounded, renderQueries);
+        Assert.Contains(unbounded, renderQueries);
+        Assert.Equal([bounded], discoveryQueries);
+    }
+
+    [Fact]
     public void TypedQueryRegistry_ExecutesPrerequisitesOnceInDeclaredOrder()
     {
         List<string> order = [];
