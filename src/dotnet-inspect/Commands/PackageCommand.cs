@@ -37,9 +37,6 @@ public class PackageCommand
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
         // can never fan out to unbounded @Hidden members as a group.
-        if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
-            return 1;
-
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
@@ -2188,8 +2185,9 @@ public class PackageCommand
                 ? $"{packageName}@{version}"
                 : packageName;
 
-        var pipeline = LibrarySections.CreatePipeline();
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var scannerRegistry = catalog.ScannerRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(

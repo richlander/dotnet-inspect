@@ -42,6 +42,9 @@ internal static class LibrarySourcePlans
 
     internal static ReadOnlySpan<LibrarySourceSectionPlan> Sections => s_sections;
 
+    internal static LibrarySourcePlan For(LibraryOptions options)
+        => For(options.UserVerbosity, options.UserIncludeSections);
+
     internal static LibrarySourcePlan For(
         Verbosity userVerbosity,
         HashSet<string>? include)

@@ -25,7 +25,9 @@ Key: Value | Key: Value
 | data   | data   |
 ```
 
-Selected package and library sections keep the H1 simple and move identity details into the compact context row. That preserves source/version/TFM context without repeating noisy default descriptions.
+Selected package and library sections render only the requested evidence beneath
+the H1. Compact identity fields belong to `-v:q`; select the relevant info
+section when identity details are needed.
 
 ## Query and limiter model
 
