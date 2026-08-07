@@ -61,9 +61,11 @@ ILInspector.Metadata   ILInspector.Analysis   ILInspector.Decompiler (Pipeline)
  SourceLink — on top)   own TypeRef on top)     own IR TypeRef on top)
 ```
 
-No layer gains a dependency on another layer; each gains only the lean,
-SRM-only primitives. The Decompiler `Pipeline` stays "SRM-only" because the
-helper is SRM-only. `Analysis` stays independent of `Metadata`.
+Adopting this helper would add only a dependency on the lean, SRM-only
+primitives; it would not add a new consumer-to-consumer edge. The Decompiler
+`Pipeline` stays "SRM-only" because the helper is SRM-only. Analysis separately
+references Metadata for acquisition, structured binding, and definition
+correspondence.
 
 ### What moves
 
@@ -161,9 +163,9 @@ move is reference-only (zero `using` churn). That leaves a namespace/assembly
 mismatch, acceptable as a transitional state but not the end goal. The decision
 to make once `Analysis` adopts the library (step 4): either give the primitives
 their own `ILInspector.MetadataPrimitives` namespace (consumers update `using`s,
-and `Analysis` no longer appears to "use Metadata"), or keep a deliberate shared
+so the namespace identifies the primitive owner), or keep a deliberate shared
 `ILInspector.Metadata` family namespace across the assemblies. The former is
-cleaner for the independence story; resolve it then, not now.
+cleaner ownership signaling; resolve it then, not now.
 
 ## Non-goals
 
@@ -175,8 +177,8 @@ cleaner for the independence story; resolve it then, not now.
 ## Decision (2026-06): stop after step 3
 
 **Steps 1–3 are complete (#578/#579/#580) and stand. Do not do step 4 (Analysis
-adopts) or step 5 (Pipeline adopts) now.** Keep `Analysis` at zero project
-references; keep the `ILInspector.Metadata` namespace on the moved primitives.
+adopts) or step 5 (Pipeline adopts) now.** Keep Analysis's structural decoder
+local; keep the `ILInspector.Metadata` namespace on the moved primitives.
 
 The migration sequence above was written without a real second consumer of
 `Analysis`, so step 4's payoff was a hypothesis. The memory-safety unsafe-mode
@@ -190,9 +192,10 @@ note is about. It turns the hypothesis into evidence:
   produces display **strings** and cannot answer "is there a pointer in this
   signature." `Analysis`'s own `TypeRefDecoder → TypeRef` is what makes the check
   possible. A shared model would have forced `Analysis` to keep its own anyway.
-- **`Analysis`'s independence is a product boundary.** The whole detector
-  shipped SRM-direct with no dependency negotiation. That is the property step
-  4 spends.
+- **Analysis's structural identity is a product boundary.** The whole detector
+  remains SRM-direct for signature shape even though Analysis now references
+  Metadata for acquisition, structured binding, and definition correspondence.
+  Adopting display-oriented primitives would not replace that local decoder.
 - **The real duplication is tiny and stable.** `Analysis` hand-rolled
   `AttributeTypeName` (ctor → declaring-type namespace+name, `MemberReference`
   vs `MethodDefinition`) — the same SRM walk as
@@ -201,9 +204,9 @@ note is about. It turns the hypothesis into evidence:
   `TryDecode`/`CustomAttributeValue` argument decode. The shareable slice is
   ~15 lines of mechanical SRM that does not churn.
 
-The trade-off, now concrete: sharing buys deleting ~15 stable lines; it costs
-`Analysis` its first project reference and the zero-dependency independence that
-just paid off. Tolerate the duplication.
+The trade-off, now concrete: sharing buys deleting ~15 stable lines while
+coupling Analysis's structural decoder to a display-oriented primitive surface
+that cannot replace it. Tolerate the duplication.
 
 **Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline` also
 needs attribute-name reads, that is rule-of-three across projects — at that point

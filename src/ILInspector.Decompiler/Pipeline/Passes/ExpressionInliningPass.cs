@@ -22,6 +22,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the interference scan keeps a value that reads a place from crossing a write
 /// to it.</para>
 ///
+/// <para>A third mode collapses a contiguous run of two or more synthetic
+/// stack-slot stores back into the direct arguments of a returned call. This is
+/// the multi-argument form of the same compiler spill: each stored value was
+/// evaluated in argument order and held on the evaluation stack until the call.
+/// The fold is all-or-nothing and uses
+/// <see cref="SpilledReceiverFold.RunPreservesEffectOrder"/> to require the
+/// direct argument loads to remain unconditional and in store order.</para>
+///
 /// <para><c>slotsOnly</c> restricts <see cref="InlineOnce"/> to synthetic stack
 /// slots (never user locals). This is the F2 mode (#2386): the pass runs a third
 /// time late in the pipeline — before <see cref="SlotMaterializationPass"/> — to
@@ -50,9 +58,64 @@ public sealed class ExpressionInliningPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        while (InlineOnce(function, context, _slotsOnly) || InlineLiveRangeOnce(function, context))
+        while (InlineReturnedCallArgumentRunOnce(function, context)
+            || InlineOnce(function, context, _slotsOnly)
+            || InlineLiveRangeOnce(function, context))
         {
         }
+    }
+
+    static bool InlineReturnedCallArgumentRunOnce(IrFunction function, PassContext context)
+    {
+        var usage = SpilledReceiverFold.CountPlaces(function);
+        var orderSensitiveArguments = SpilledReceiverFold.OrderSensitiveArguments(function);
+
+        foreach (var @return in function.Descendants.OfType<Return>())
+        {
+            if (@return is not { Parent: Block block, Value: Call call })
+                continue;
+
+            int runLength = 0;
+            bool directArgumentsOnly = true;
+            for (int i = @return.ChildIndex - 1; i >= 0; i--)
+            {
+                if (block.Children[i] is not StoreStackSlot store
+                    || SpilledReceiverFold.SpillLoadInside(store, call, usage) is not LoadStackSlot load)
+                {
+                    break;
+                }
+
+                runLength++;
+                // Direct arguments are stronger than the shared helper requires:
+                // no conditional or hidden-operation parent can sit between the
+                // call and the load, so moving the stored value crosses only the
+                // other arguments covered by RunPreservesEffectOrder.
+                if (!call.Arguments.Any(argument => ReferenceEquals(argument, load))
+                    || !Equals(store.Value.ResultType, load.ResultType))
+                {
+                    directArgumentsOnly = false;
+                    break;
+                }
+            }
+
+            // A single adjacent spill is already owned by InlineOnce. This mode
+            // exists for an ordered argument run that must fold as one unit.
+            if (runLength < 2 || !directArgumentsOnly)
+                continue;
+
+            if (SpilledReceiverFold.TryFold(
+                @return,
+                call,
+                usage,
+                context,
+                "inline ordered stack-slot run into returned call arguments",
+                stackSlotsOnly: true,
+                orderSensitiveArguments: orderSensitiveArguments))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool InlineOnce(IrFunction function, PassContext context, bool slotsOnly)

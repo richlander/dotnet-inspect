@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -40,7 +41,10 @@ sealed record ReturnToSenderSourceProbeResult(
     IReadOnlyList<string>? IlDiffLines = null,
     MemberAnchor? MemberAnchor = null,
     ReturnToSender.FaultIsolationKind? FaultIsolationKind = null,
-    ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null)
+    ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null,
+    bool UsedCompileBackFloor = false,
+    ReturnToSender.FaultIsolationKind? SupersededFaultIsolationKind = null,
+    ReturnToSender.FaultIsolationMethod? SupersededFaultIsolationMethod = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
@@ -288,7 +292,7 @@ static partial class ReturnToSenderSourceProbe
         {
             if (!rtsResults.TryGetValue(Key(target.Type, target.Method, target.Overload), out var result))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.UnsupportedTarget,
                     CompileBackStatus: null,
@@ -305,7 +309,7 @@ static partial class ReturnToSenderSourceProbe
             if (result.Status is FidelityCheck.CompileBackStatus.RecompileFail
                 or FidelityCheck.CompileBackStatus.ContextFail)
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.Invalid,
                     result.Status,
@@ -314,9 +318,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: sourceMember?.SourcePath,
                     ExpectedBody: sourceMember?.Body,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -325,7 +327,7 @@ static partial class ReturnToSenderSourceProbe
                 or FidelityCheck.CompileBackStatus.OpcodeDiff
                 or FidelityCheck.CompileBackStatus.OperandDiff))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -334,15 +336,13 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
             if (sourceIndex is null)
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -351,9 +351,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -366,7 +364,7 @@ static partial class ReturnToSenderSourceProbe
                     continue;
                 }
 
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.SourceUnavailable,
                     result.Status,
@@ -375,9 +373,7 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -390,7 +386,7 @@ static partial class ReturnToSenderSourceProbe
             string actual = result.TargetBody;
             if (NormalizeBody(expected) == NormalizeBody(actual))
             {
-                results.Add(new ReturnToSenderSourceProbeResult(
+                AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                     target,
                     ReturnToSenderSourceOutcome.ValidMatch,
                     result.Status,
@@ -399,9 +395,7 @@ static partial class ReturnToSenderSourceProbe
                     sourceMember.SourcePath,
                     expected,
                     actual,
-                    MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                    MemberAnchor: result.MemberAnchor));
                 continue;
             }
 
@@ -412,7 +406,7 @@ static partial class ReturnToSenderSourceProbe
                 result.Decisions ?? [],
                 out var classificationDetail);
             var fidelityEvidence = FidelityEvidence(result);
-            results.Add(new ReturnToSenderSourceProbeResult(
+            AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
                 target,
                 ReturnToSenderSourceOutcome.ValidDifferent,
                 result.Status,
@@ -424,9 +418,7 @@ static partial class ReturnToSenderSourceProbe
                 OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
                 RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
                 IlDiffLines: fidelityEvidence?.IlDiffLines,
-                MemberAnchor: result.MemberAnchor,
-                FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+                MemberAnchor: result.MemberAnchor));
         }
 
         return results;
@@ -599,6 +591,9 @@ static partial class ReturnToSenderSourceProbe
                 actual_body = result.ActualBody,
                 fault_isolation = result.FaultIsolationKind?.ToString(),
                 fault_isolation_method = result.FaultIsolationMethod?.ToString(),
+                used_compile_back_floor = result.UsedCompileBackFloor,
+                superseded_fault_isolation = result.SupersededFaultIsolationKind?.ToString(),
+                superseded_fault_isolation_method = result.SupersededFaultIsolationMethod?.ToString(),
                 original_opcodes = result.OriginalOpcodes,
                 recompiled_opcodes = result.RecompiledOpcodes,
                 il_diff = result.IlDiffLines,
@@ -607,14 +602,14 @@ static partial class ReturnToSenderSourceProbe
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    static void AddBodylessSourceResult(
+    internal static void AddBodylessSourceResult(
         List<ReturnToSenderSourceProbeResult> results,
         ReturnToSender.RequestedTarget target,
         ReturnToSender.Result result,
         string sourcePath)
     {
         var exact = result.Status == FidelityCheck.CompileBackStatus.Exact;
-        results.Add(new ReturnToSenderSourceProbeResult(
+        AddProbeResult(results, result, new ReturnToSenderSourceProbeResult(
             target,
             exact ? ReturnToSenderSourceOutcome.ValidMatch : ReturnToSenderSourceOutcome.Invalid,
             result.Status,
@@ -623,14 +618,57 @@ static partial class ReturnToSenderSourceProbe
             sourcePath,
             ExpectedBody: null,
             ActualBody: result.TargetBody,
-            MemberAnchor: result.MemberAnchor,
-            FaultIsolationKind: result.FaultIsolation?.Kind,
-                    FaultIsolationMethod: result.FaultIsolation?.Method));
+            MemberAnchor: result.MemberAnchor));
     }
+
+    /// <summary>
+    /// Adds a probe result, stamping every fact derived from the RTS
+    /// <see cref="ReturnToSender.Result"/>'s fault-isolation state.
+    /// </summary>
+    /// <remarks>
+    /// This is the single projection point for those fields: no call site supplies
+    /// them, so they cannot diverge per path (#3814). A compile-back floor
+    /// supersedes the RTS compile and clears
+    /// <see cref="ReturnToSender.Result.FaultIsolation"/> (#3783), so without
+    /// <see cref="ReturnToSenderSourceProbeResult.UsedCompileBackFloor"/> a
+    /// floor-rescued row is indistinguishable from one RTS handled unaided — which
+    /// is exactly the inventory of where RTS cannot yet stand alone.
+    /// <paramref name="result"/> is null only for an unsupported target, where RTS
+    /// produced no compile at all and every field below is correctly absent.
+    /// <para>
+    /// The projection is gated by
+    /// <c>CorpusFloorProvenanceTests.TheProbeProjectsFloorProvenanceOntoTheRow</c>,
+    /// and the separate bodyless producer by
+    /// <c>TheBodylessProducerAlsoCarriesFloorProvenance</c>. That every emission
+    /// path routes through here remains a structural property of this file rather
+    /// than a tested one: removing a call reverts to a plain <c>results.Add</c>,
+    /// which still compiles.
+    /// </para>
+    /// </remarks>
+    internal static void AddProbeResult(
+        List<ReturnToSenderSourceProbeResult> results,
+        ReturnToSender.Result? result,
+        ReturnToSenderSourceProbeResult probe)
+        => results.Add(probe with
+        {
+            FaultIsolationKind = result?.FaultIsolation?.Kind,
+            FaultIsolationMethod = result?.FaultIsolation?.Method,
+            UsedCompileBackFloor = result?.UsedCompileBackFloor ?? false,
+            SupersededFaultIsolationKind = result?.SupersededFaultIsolation?.Kind,
+            SupersededFaultIsolationMethod = result?.SupersededFaultIsolation?.Method,
+        });
 
 }
 
-internal sealed record ReturnToSenderSourceMember(string Type, string Method, int Overload, string Signature, string SourcePath, string? Body);
+internal sealed record ReturnToSenderSourceMember(
+    string Type,
+    string Method,
+    int Overload,
+    string Signature,
+    string SourcePath,
+    string? Body,
+    int? MetadataToken = null,
+    Guid? ModuleVersionId = null);
 
 internal sealed class ReturnToSenderSourceIndex
 {
@@ -638,17 +676,20 @@ internal sealed class ReturnToSenderSourceIndex
     readonly Dictionary<string, ReturnToSenderSourceMember> _membersBySignature;
     readonly HashSet<string> _ambiguousSignatures;
     readonly Dictionary<string, RecordSourceInfo> _recordSources;
+    readonly Dictionary<int, ReturnToSenderSourceMember> _correlatedMembersByToken;
 
     ReturnToSenderSourceIndex(
         Dictionary<string, ReturnToSenderSourceMember> members,
         Dictionary<string, ReturnToSenderSourceMember> membersBySignature,
         HashSet<string> ambiguousSignatures,
-        Dictionary<string, RecordSourceInfo> recordSources)
+        Dictionary<string, RecordSourceInfo> recordSources,
+        Dictionary<int, ReturnToSenderSourceMember>? correlatedMembersByToken = null)
     {
         _members = members;
         _membersBySignature = membersBySignature;
         _ambiguousSignatures = ambiguousSignatures;
         _recordSources = recordSources;
+        _correlatedMembersByToken = correlatedMembersByToken ?? [];
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
@@ -698,20 +739,48 @@ internal sealed class ReturnToSenderSourceIndex
     }
 
     /// <summary>
-    /// Builds an index directly from pre-snapshotted authored members (the vendored
-    /// authored-source corpus). Keys are derived exactly as <see cref="AddSourceFile"/>
-    /// does, so lookups from a <see cref="ReturnToSender.RequestedTarget"/> resolve
-    /// by signature when unambiguous and otherwise by (type, method, overload).
-    /// Members with no signature are indexed by overload key only.
+    /// Builds an index from authored members already correlated to exact metadata
+    /// method definitions, as in the vendored authored-source corpus.
     /// </summary>
-    public static ReturnToSenderSourceIndex FromMembers(IEnumerable<ReturnToSenderSourceMember> sourceMembers)
+    /// <remarks>
+    /// <para>
+    /// Each member's module version ID and metadata token must identify the same
+    /// logical module and exact method whose checksum-verified body was snapshotted.
+    /// This typed identity is the only source correspondence strong enough for
+    /// fault attribution. The module version ID is a non-hostile corpus identity,
+    /// not a cryptographic byte digest.
+    /// </para>
+    /// <para>
+    /// Raw syntax indexes created by <see cref="TryCreate(IReadOnlyList{string})"/>
+    /// retain normal source-probe lookup behavior, but cannot support attribution:
+    /// they lack the original build configuration and semantic identity. Fault
+    /// isolation is not attempted for those indexes; #3835 tracks restoring it
+    /// through exact PDB method spans.
+    /// </para>
+    /// </remarks>
+    public static ReturnToSenderSourceIndex FromCorrelatedMembers(
+        IEnumerable<ReturnToSenderSourceMember> sourceMembers,
+        MetadataReader reader)
     {
         var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
         var membersBySignature = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
         var ambiguousSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var correlatedMembersByToken = new Dictionary<int, ReturnToSenderSourceMember>();
+        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+            throw new InvalidDataException("The benchmark module has an empty module version ID.");
+
         foreach (var member in sourceMembers)
         {
-            members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+            ValidateCorrelatedMember(reader, moduleVersionId, member);
+            if (!members.TryAdd(Key(member.Type, member.Method, member.Overload), member))
+            {
+                throw new InvalidDataException(
+                    $"Duplicate correlated target {member.Type}::{member.Method}#{member.Overload}.");
+            }
+            int metadataToken = member.MetadataToken!.Value;
+            if (!correlatedMembersByToken.TryAdd(metadataToken, member))
+                throw new InvalidDataException($"Duplicate correlated MethodDef token 0x{metadataToken:x8}.");
 
             if (string.IsNullOrEmpty(member.Signature))
                 continue;
@@ -730,7 +799,60 @@ internal sealed class ReturnToSenderSourceIndex
             members,
             membersBySignature,
             ambiguousSignatures,
-            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal));
+            new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal),
+            correlatedMembersByToken);
+    }
+
+    static void ValidateCorrelatedMember(
+        MetadataReader reader,
+        Guid moduleVersionId,
+        ReturnToSenderSourceMember member)
+    {
+        if (member.ModuleVersionId is not { } memberModuleVersionId
+            || memberModuleVersionId == Guid.Empty
+            || memberModuleVersionId != moduleVersionId)
+        {
+            throw new InvalidDataException(
+                $"Correlated member {member.Type}::{member.Method}#{member.Overload} "
+                + "does not identify the benchmark module.");
+        }
+
+        if (member.MetadataToken is not { } metadataToken
+            || (metadataToken & unchecked((int)0xff000000)) != 0x06000000)
+        {
+            throw new InvalidDataException(
+                $"Correlated member {member.Type}::{member.Method}#{member.Overload} "
+                + "does not carry a MethodDef token.");
+        }
+
+        int rowNumber = metadataToken & 0x00ffffff;
+        if (rowNumber == 0 || rowNumber > reader.MethodDefinitions.Count)
+            throw new InvalidDataException($"Correlated MethodDef token 0x{metadataToken:x8} is out of range.");
+
+        var methodHandle = MetadataTokens.MethodDefinitionHandle(rowNumber);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var type = reader.GetTypeDefinition(method.GetDeclaringType());
+        string methodName = reader.GetString(method.Name);
+        string fullType = reader.GetFullTypeName(type);
+        int overload = ReturnToSenderSourceProbe.OverloadIndex(
+            reader,
+            type,
+            methodHandle,
+            methodName);
+        string? signature = ReturnToSenderSourceProbe.UniqueTargetSignature(
+            reader,
+            type,
+            methodName,
+            methodHandle);
+        if (!string.Equals(member.Type, fullType, StringComparison.Ordinal)
+            || !string.Equals(member.Method, methodName, StringComparison.Ordinal)
+            || member.Overload != overload
+            || !string.Equals(member.Signature, signature ?? "", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Correlated MethodDef token 0x{metadataToken:x8} does not match "
+                + $"{member.Type}::{member.Method}#{member.Overload}.");
+        }
     }
 
     static bool TryGetFixtureAssemblyPath(FixtureDefinition fixture, out string path)
@@ -774,6 +896,32 @@ internal sealed class ReturnToSenderSourceIndex
         }
 
         return _members.TryGetValue(Key(target.Type, target.Method, target.Overload), out member!);
+    }
+
+    /// <summary>
+    /// Resolves a source member for fault attribution by its exact metadata token.
+    /// </summary>
+    /// <remarks>
+    /// The redundant type, method, and overload check catches a malformed correlated
+    /// record rather than trusting a token from the wrong target. Raw syntax indexes
+    /// have no token map and therefore fail closed.
+    /// </remarks>
+    public bool TryFindForAttribution(
+        ReturnToSender.RequestedTarget target,
+        int metadataToken,
+        out ReturnToSenderSourceMember member)
+    {
+        member = null!;
+        if (!_correlatedMembersByToken.TryGetValue(metadataToken, out var correlated)
+            || !string.Equals(correlated.Type, target.Type, StringComparison.Ordinal)
+            || !string.Equals(correlated.Method, target.Method, StringComparison.Ordinal)
+            || correlated.Overload != target.Overload)
+        {
+            return false;
+        }
+
+        member = correlated;
+        return true;
     }
 
     public bool TryFindRecordSynthesizedMember(ReturnToSender.RequestedTarget target, out string sourcePath)
@@ -1043,7 +1191,7 @@ static partial class ReturnToSenderSourceProbe
         }
     }
 
-    static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)
+    internal static int OverloadIndex(MetadataReader reader, TypeDefinition typeDef, MethodDefinitionHandle target, string methodName)
     {
         int overload = 0;
         foreach (var handle in typeDef.GetMethods())
@@ -1063,7 +1211,7 @@ static partial class ReturnToSenderSourceProbe
     // Only carry a signature identity that unambiguously round-trips to this exact
     // metadata member. A lossy or ambiguous normalized signature is dropped so both
     // metadata resolution and source correlation fall back to the ordinal.
-    static string? UniqueTargetSignature(
+    internal static string? UniqueTargetSignature(
         MetadataReader reader,
         TypeDefinition typeDef,
         string methodName,

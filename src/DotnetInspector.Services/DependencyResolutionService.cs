@@ -124,6 +124,10 @@ public static class DependencyResolutionService
             var children = await ResolveDependencyTreeAsync(client, selection.Group.Dependencies, selection.TargetFramework ?? tfm, globalSeen, log).ConfigureAwait(false);
             return (children, nuspec.Authors);
         }
+        catch (NuspecParseException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             log?.Invoke($"Error resolving dependencies: {ex.Message}");

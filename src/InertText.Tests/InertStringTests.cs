@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text;
 
 using InertText.Encoding;
 
@@ -438,9 +439,292 @@ public class InertStringTests
     [Fact]
     public void ToString_DoesNotCopy()
     {
-        InertString value = new InertString(TextPolicy.Field, "nothing to encode");
+        string source = "nothing to encode";
+        InertString value = new InertString(TextPolicy.Field, source);
 
+        Assert.Same(source, value.ToString());
         Assert.Same(value.ToString(), value.ToString());
+    }
+
+    [Fact]
+    public void SpanInput_AllocatesOnlyTheRetainedString()
+    {
+        ReadOnlySpan<char> source = "nothing to encode".AsSpan();
+
+        InertString value = new InertString(TextPolicy.Field, source);
+
+        Assert.Equal(source, value.ToString());
+    }
+
+    [Fact]
+    public void SpanPayloadApis_MatchStringInputs()
+    {
+        ReadOnlySpan<char> hazard = Hazard.AsSpan();
+        InertString value = new InertString(TextPolicy.Field, hazard);
+        InertString bounded = new InertString(TextPolicy.Field, hazard, maxLength: 7);
+        InertString joined = InertString.Join(
+            ", ".AsSpan(),
+            TextPolicy.Field,
+            [value, new InertString(TextPolicy.Field, "tail")]);
+        InertString formatted = InertString.Format(TextPolicy.Field, $"[{hazard}]");
+
+        Assert.Equal("a\\u202Eb", value.ToString());
+        Assert.True(bounded.IsTruncated);
+        Assert.False(InertString.IsPermitted(TextPolicy.Field, hazard));
+        Assert.Equal("a\\u202Eb, tail", joined.ToString());
+        Assert.Equal("[a\\u202Eb]", formatted.ToString());
+    }
+
+    [Fact]
+    public void FromEncoded_StringRetainsTheValidatedInstance()
+    {
+        string encoded = new InertString(TextPolicy.Prose, "first\nvalue\u202Etail").ToString();
+
+        InertString restored = InertString.FromEncoded(TextPolicy.Prose, encoded);
+
+        Assert.Same(encoded, restored.ToString());
+        Assert.Equal(VisualForm.BmpHex, restored.Forms);
+        Assert.False(restored.IsTruncated);
+    }
+
+    [Fact]
+    public void FromEncoded_SpanAllocatesTheRetainedString()
+    {
+        const string Encoded = "first\nvalue\\u202Etail";
+
+        InertString restored = InertString.FromEncoded(
+            TextPolicy.Prose,
+            Encoded.AsSpan());
+
+        Assert.Equal(Encoded, restored.ToString());
+        Assert.Equal(VisualForm.BmpHex, restored.Forms);
+    }
+
+    [Fact]
+    public void FromEncoded_AcceptsStricterSpellingComposedIntoLaxerPolicy()
+    {
+        InertString field = new InertString(TextPolicy.Field, "first\nsecond");
+        InertString prose = InertString.Format(TextPolicy.Prose, $"{field}");
+
+        InertString restored = InertString.FromEncoded(
+            TextPolicy.Prose,
+            prose.ToString());
+
+        Assert.Equal("first\\^Jsecond", restored.ToString());
+        Assert.Equal(VisualForm.Caret, restored.Forms);
+    }
+
+    [Theory]
+    [InlineData("\\")]
+    [InlineData("\\x")]
+    [InlineData(@"C:\tmp\package")]
+    [InlineData(@"C:\Users\rich\.nuget\packages")]
+    [InlineData("\\u001F")]
+    [InlineData("\\U0000202E")]
+    public void FromEncoded_AcceptsUnambiguousLiteralBackslashes(string encoded)
+    {
+        InertString restored = InertString.FromEncoded(TextPolicy.Field, encoded);
+
+        Assert.Same(encoded, restored.ToString());
+        Assert.Equal(VisualForm.None, restored.Forms);
+        Assert.False(restored.RequiredContainment);
+        Assert.False(restored.NeedsRawDecoding);
+    }
+
+    [Theory]
+    [InlineData(TextPolicy.Field, "first\nsecond")]
+    [InlineData(TextPolicy.Prose, "value\u202Etail")]
+    [InlineData(TextPolicy.Field, "\\u0041")]
+    [InlineData(TextPolicy.Field, "\\U0001F600")]
+    public void FromEncoded_RejectsTextTheEncoderCannotProduce(
+        TextPolicy policy,
+        string encoded)
+    {
+        Assert.Throws<FormatException>(
+            () => InertString.FromEncoded(policy, encoded));
+    }
+
+    [Theory]
+    [InlineData(@"a\\b\")]
+    [InlineData(@"\q\u202E")]
+    [InlineData(@"\u202E\")]
+    [InlineData(@"\^[\q")]
+    public void FromEncoded_RejectsMixedRawAndEncodedBackslashes(string encoded)
+    {
+        Assert.Throws<FormatException>(
+            () => InertString.FromEncoded(TextPolicy.Field, encoded));
+    }
+
+    [Fact]
+    public void CompositionProtectsBackslashesThatBecomeSpellingPrefixes()
+    {
+        InertString slash = new(TextPolicy.Field, "\\");
+        InertString composed = InertString.Format(TextPolicy.Field, $"{slash}u202E");
+
+        Assert.Equal(@"\\u202E", composed.ToString());
+        Assert.Equal(VisualForm.Backslash, composed.Forms);
+        Assert.False(composed.RequiredContainment);
+        Assert.True(composed.NeedsRawDecoding);
+        Assert.True(VisualEncoder.TryDecode(composed.ToString(), out string? decoded));
+        Assert.Equal(@"\u202E", decoded);
+    }
+
+    [Fact]
+    public void CompositionReturnsToRawBackslashesWhenNoPrefixCollisionAppears()
+    {
+        InertString slash = new(TextPolicy.Field, "\\");
+        InertString composed = InertString.Format(TextPolicy.Field, $"[{slash}]");
+
+        Assert.Equal(@"[\]", composed.ToString());
+        Assert.Equal(VisualForm.None, composed.Forms);
+        Assert.False(composed.NeedsRawDecoding);
+    }
+
+    [Fact]
+    public void FromEncoded_FailureDoesNotEchoTheInvalidText()
+    {
+        const string Invalid = "SHOULD-NOT-REACH-DIAGNOSTIC\u202E";
+
+        FormatException exception = Assert.Throws<FormatException>(
+            () => InertString.FromEncoded(TextPolicy.Field, Invalid));
+
+        Assert.Equal(
+            -1,
+            exception.Message.IndexOf(
+                "SHOULD-NOT-REACH-DIAGNOSTIC",
+                StringComparison.Ordinal));
+        Assert.Equal(-1, exception.Message.IndexOf("\u202E", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FromEncoded_AcceptsComposedSurrogateEscapesAsBmpForms()
+    {
+        InertString restored = InertString.FromEncoded(
+            TextPolicy.Field,
+            "\\uD83D\\uDE00");
+
+        Assert.Equal("\\uD83D\\uDE00", restored.ToString());
+        Assert.Equal(VisualForm.BmpHex, restored.Forms);
+    }
+
+    [Fact]
+    public void FromEncoded_RestoresEveryScalarWithoutCopying()
+    {
+        foreach (TextPolicy policy in Enum.GetValues<TextPolicy>())
+        {
+            for (int codePoint = 0; codePoint <= 0x10FFFF; codePoint++)
+            {
+                if (!Rune.IsValid(codePoint))
+                    continue;
+
+                string original = new Rune(codePoint).ToString();
+                InertString inert = new InertString(policy, original);
+                string encoded = inert.ToString();
+
+                InertString restored = InertString.FromEncoded(policy, encoded);
+
+                Assert.True(
+                    restored.Equals(inert),
+                    $"U+{codePoint:X} did not restore under {policy}.");
+                Assert.Same(encoded, restored.ToString());
+            }
+        }
+    }
+
+    [Fact]
+    public void FromEncoded_RestoresEveryUnpairedSurrogate()
+    {
+        for (int codeUnit = 0xD800; codeUnit <= 0xDFFF; codeUnit++)
+        {
+            string original = new([(char)codeUnit]);
+            InertString inert = new InertString(TextPolicy.Field, original);
+            string encoded = inert.ToString();
+
+            InertString restored = InertString.FromEncoded(
+                TextPolicy.Field,
+                encoded);
+
+            Assert.True(
+                restored.Equals(inert),
+                $"U+{codeUnit:X4} did not restore.");
+            Assert.Same(encoded, restored.ToString());
+        }
+    }
+
+    [Fact]
+    public void SpanOverloads_CoverEveryPayloadStringInput()
+    {
+        var missing = new List<string>();
+
+        CheckConstructors(typeof(InertString));
+        CheckMethods(
+            typeof(InertString),
+            BindingFlags.Public | BindingFlags.Static,
+            ["FromEncoded", "IsPermitted", "Join"]);
+        CheckMethods(
+            typeof(InertStringHandler),
+            BindingFlags.Public | BindingFlags.Instance,
+            ["AppendFormatted", "AppendLiteral"],
+            static parameters => parameters.Length == 1);
+        CheckMethods(
+            typeof(VisualEncoder),
+            BindingFlags.Public | BindingFlags.Static,
+            ["Encode", "TryDecode"]);
+
+        Assert.Empty(missing);
+
+        void CheckConstructors(Type type)
+        {
+            foreach (ConstructorInfo constructor in type.GetConstructors(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                Check(type, ".ctor", constructor.GetParameters(), isConstructor: true);
+            }
+        }
+
+        void CheckMethods(
+            Type type,
+            BindingFlags flags,
+            string[] names,
+            Func<ParameterInfo[], bool>? include = null)
+        {
+            foreach (MethodInfo method in type.GetMethods(flags)
+                .Where(m => names.Contains(m.Name, StringComparer.Ordinal)))
+            {
+                ParameterInfo[] parameters = method.GetParameters();
+                if (include is null || include(parameters))
+                    Check(type, method.Name, parameters, isConstructor: false);
+            }
+        }
+
+        void Check(
+            Type type,
+            string name,
+            ParameterInfo[] parameters,
+            bool isConstructor)
+        {
+            for (int index = 0; index < parameters.Length; index++)
+            {
+                if (parameters[index].ParameterType != typeof(string))
+                    continue;
+
+                Type[] counterpart = parameters
+                    .Select((parameter, candidate) => candidate == index
+                        ? typeof(ReadOnlySpan<char>)
+                        : parameter.ParameterType)
+                    .ToArray();
+
+                bool exists = isConstructor
+                    ? type.GetConstructor(counterpart) is not null
+                    : type.GetMethod(name, counterpart) is not null;
+
+                if (!exists)
+                    missing.Add($"{type.Name}.{name}({Describe(parameters)})");
+            }
+        }
+
+        static string Describe(ParameterInfo[] parameters)
+            => string.Join(", ", parameters.Select(p => p.ParameterType.Name));
     }
 
     [Fact]
@@ -604,7 +888,9 @@ public class InertStringTests
     [Fact]
     public void TheDecoderLivesInTheCapabilityNamespace()
     {
-        MethodInfo? decode = typeof(VisualEncoder).GetMethod(nameof(VisualEncoder.TryDecode));
+        MethodInfo? decode = typeof(VisualEncoder).GetMethod(
+            nameof(VisualEncoder.TryDecode),
+            [typeof(string), typeof(string).MakeByRefType()]);
 
         Assert.NotNull(decode);
         Assert.Equal("InertText.Encoding", typeof(VisualEncoder).Namespace);
@@ -1069,6 +1355,37 @@ public class InertStringTests
                 + string.Join("; ", offenders));
     }
 
+    [Fact]
+    public void ProductionCapabilityReferences_AreAnExplicitAllowList()
+    {
+        const string Capability = "InertText.Encoding";
+        DirectoryInfo root = FindRepositoryRoot();
+        string source = Path.Combine(root.FullName, "src");
+
+        string[] actual =
+        [
+            .. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories)
+                .Where(file => !file.Contains(
+                    $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+                .Where(file => !Path.GetRelativePath(source, file)
+                    .Split(Path.DirectorySeparatorChar)
+                    .Any(segment => segment.EndsWith(".Tests", StringComparison.Ordinal)))
+                .Where(file => File.ReadAllText(file).Contains(Capability, StringComparison.Ordinal))
+                .Select(file => Path.GetRelativePath(root.FullName, file))
+                .Order(StringComparer.Ordinal)
+        ];
+
+        string[] expected =
+        [
+            Path.Combine("src", "DotnetInspector.MetadataRendering", "MetadataProjectionRenderer.cs"),
+            Path.Combine("src", "InertText", "InertString.cs"),
+            Path.Combine("src", "InertText", "VisualEncoder.cs"),
+        ];
+
+        Assert.Equal(expected.Order(StringComparer.Ordinal), actual);
+    }
+
     /// <summary>
     /// No public documentation in the currency namespace names the encoder type, so the
     /// currency type's use of it stays an implementation detail rather than an advertised one.
@@ -1158,5 +1475,18 @@ public class InertStringTests
                 + "makes an implementation detail look like part of the contract. Describe what "
                 + "the member guarantees instead, and leave where the capability lives to the "
                 + $"type-level remarks: {string.Join("; ", offenders)}");
+    }
+
+    private static DirectoryInfo FindRepositoryRoot()
+    {
+        DirectoryInfo? root = new(AppContext.BaseDirectory);
+        while (root is not null
+            && !File.Exists(Path.Combine(root.FullName, "dotnet-inspect.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        return root ?? throw new DirectoryNotFoundException(
+            "Could not locate the repository root from the test binary.");
     }
 }

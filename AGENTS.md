@@ -60,6 +60,7 @@ those documents exist.
 | Area | Read first |
 | --- | --- |
 | User-visible capabilities, commands, or examples | `README.md` |
+| Core workspace, query, cache, or safety architecture | `docs/inspection-space.md` |
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
@@ -107,8 +108,9 @@ for the generated skill listing.
 - Keep product paths SRM-only, NativeAOT-friendly, Roslyn-free, and free of
   inspected-assembly loading.
 - Preserve layer ownership. Metadata owns metadata facts, Analysis owns IL-body
-  evidence, CSharp owns C# spelling and type views, Research composes evidence,
-  and the CLI owns command and presentation concerns.
+  evidence, CSharpText owns model-free textual grammars, CSharp owns model-bound
+  C# spelling and type views, Research composes evidence, and the CLI owns command
+  and presentation concerns.
 - Reuse existing typed models, Finding contracts, section schemas, serializers,
   and resolution services before adding parallel abstractions.
 - Preserve behavior-safe defaults and progressive disclosure. Network,
@@ -247,10 +249,12 @@ commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 `--gate <preset>` flag (`--gate list` prints the table); the taxonomy and the
 per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
 
-Only `src/dotnet-inspect` and `src/runfaster` are packable, and internal
-libraries carry no versioning story or API-stability commitment: treat their
-public surface as an internal design constraint, not an external compatibility
-surface. `docs/release-workflow.md` owns the packaging mechanics.
+Only tool projects explicitly set `IsPackable=true`, and `IsTool` makes those
+same projects available to solution-level `dotnet publish`. Internal libraries
+carry no versioning story or API-stability commitment: treat their public
+surface as an internal design constraint, not an external compatibility
+surface. Packability and publishability control SDK commands; release workflow
+membership remains owned by `docs/release-workflow.md`.
 
 Changing `VersionPrefix` in `src/dotnet-inspect/dotnet-inspect.csproj` is a
 release, and `README.md` (packed as the package readme) and the shipped
