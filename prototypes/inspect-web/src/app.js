@@ -257,7 +257,7 @@ function applyView(view) {
       state.selectedOverloadIndex = index >= 0 && group.overloads.length > 1 ? index : null;
     } else if (group && Number.isInteger(view.selectedOverloadIndex)
       && view.selectedOverloadIndex >= 0 && view.selectedOverloadIndex < group.overloads.length) {
-      state.selectedOverloadIndex = view.selectedOverloadIndex;
+      state.selectedOverloadIndex = group.overloads.length > 1 ? view.selectedOverloadIndex : null;
     }
   }
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
@@ -516,7 +516,9 @@ function escapeHtml(value) {
 
 function selectedType() {
   if (!state.package) return null;
-  return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || null;
+  const selected = state.package.types.find(item => item.id === state.selectedTypeId);
+  if (selected && state.accessibilityFilter.has(accessBucket(selected.accessibility))) return selected;
+  return filteredTypes()[0] || null;
 }
 
 function filteredTypes() {
@@ -753,6 +755,13 @@ function toggleAccessibilityChip(bucket) {
   if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
   if (next.size === 0) next.add("public");
   state.accessibilityFilter = next;
+  const selected = state.package?.types.find(item => item.id === state.selectedTypeId);
+  if (!selected || !next.has(accessBucket(selected.accessibility))) {
+    state.selectedTypeId = filteredTypes()[0]?.id || "";
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    resetMemberSectionState();
+  }
 }
 
 // The accessibility selector for the type nav pane: a multi-select chip row
@@ -2931,8 +2940,7 @@ function drillToPerfMember(target) {
   state.lens = "api";
   const key = `${member.kind}:${member.name}`;
   state.selectedMemberKey = key;
-  const fullGroup = memberGroups(targetType, true).find(candidate => candidate.key === key);
-  revealMemberGroup(fullGroup);
+  revealMember(member);
   const group = memberGroups(targetType).find(candidate => candidate.key === key);
   const overloadIndex = group && group.overloads.length > 1
     ? group.overloads.findIndex(overload => overload.stableSelector === target.selector)
@@ -4947,8 +4955,6 @@ function pickSpotlightMember(result) {
   revealType(type);
   state.lens = "api";
   state.selectedMemberKey = result.memberKey;
-  const group = memberGroups(type, true).find(item => item.key === result.memberKey);
-  revealMemberGroup(group);
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -5255,7 +5261,7 @@ function applyDeepLink(deep) {
   state.selectedTypeId = restoreType ? deep.type : (defaultType?.id || "");
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
-  state.memberSection = "overview";
+  resetMemberSectionState();
   state.accessibilityFilter = new Set(["public"]);
   state.memberAccessibilityFilter = new Set(["public"]);
   if (restoreType && deep) {
@@ -5264,7 +5270,11 @@ function applyDeepLink(deep) {
     const groups = memberGroups(type, true);
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
-      revealMemberGroup(group);
+      const selectedOverload = deep.overloadSelector
+        ? group.overloads.find(overload => overload.stableSelector === deep.overloadSelector)
+        : null;
+      if (selectedOverload) revealMember(selectedOverload);
+      else if (new Set(group.overloads.map(memberAccessBucket)).size === 1) revealMember(group.overloads[0]);
       state.selectedMemberKey = deep.member;
       const visibleGroup = selectedMember(type);
       const selectorIndex = deep.overloadSelector && visibleGroup
@@ -5273,13 +5283,14 @@ function applyDeepLink(deep) {
       const overloadIndex = Number(deep.overload);
       if (selectorIndex >= 0) {
         state.selectedOverloadIndex = visibleGroup.overloads.length > 1 ? selectorIndex : null;
-      } else if (deep.overload != null && deep.overload !== ""
+      } else if (visibleGroup && deep.overload != null && deep.overload !== ""
         && Number.isInteger(overloadIndex) && overloadIndex >= 0
         && overloadIndex < visibleGroup.overloads.length
         && new Set(group.overloads.map(memberAccessBucket)).size === 1) {
-        state.selectedOverloadIndex = overloadIndex;
+        state.selectedOverloadIndex = visibleGroup.overloads.length > 1 ? overloadIndex : null;
       }
-      if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
+      if (!visibleGroup) state.selectedMemberKey = "";
+      else if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
@@ -5816,6 +5827,7 @@ async function renderTypeGraph() {
   const meta = state.typeMetadata;
   const definition = meta ? buildTypeGraphMermaid(meta) : null;
   if (!definition) return;
+  const graphAssembly = meta.assembly || selectedType()?.assembly || "";
   const fullNameOf = new Map((meta.graphNodes || []).map(node => [shortTypeName(node.displayName), node.id]));
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
@@ -5849,11 +5861,11 @@ async function renderTypeGraph() {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
       const fullName = fullNameOf.get(label);
       if (!fullName) return;
-      const target = state.package.types.find(candidate => candidate.id === fullName);
+      const target = findTypeByMetadataIdentity(fullName, graphAssembly);
       if (target) {
         node.classList.add("nav-node");
         node.style.cursor = "pointer";
-        node.addEventListener("click", () => navigateToTypeByName(fullName));
+        node.addEventListener("click", () => navigateToTypeByName(fullName, graphAssembly));
         return;
       }
       // Reported by metadata but not in the browsable surface (internal type or a
@@ -5871,8 +5883,15 @@ async function renderTypeGraph() {
   }
 }
 
-function navigateToTypeByName(fullName) {
-  const target = state.package.types.find(candidate => typeEngineName(candidate) === fullName);
+function findTypeByMetadataIdentity(fullName, preferredAssembly = selectedType()?.assembly) {
+  if (!state.package) return null;
+  const matches = state.package.types.filter(candidate => typeEngineName(candidate) === fullName);
+  return matches.find(candidate => candidate.assembly === preferredAssembly)
+    ?? (matches.length === 1 ? matches[0] : null);
+}
+
+function navigateToTypeByName(fullName, preferredAssembly) {
+  const target = findTypeByMetadataIdentity(fullName, preferredAssembly);
   if (!target) return;
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
@@ -5896,7 +5915,7 @@ function navigateToTypeByName(fullName) {
 // included (with an accessibility filter), so only types in OTHER assemblies
 // remain unbrowsable.
 function typeIsNavigable(fullName) {
-  return !!state.package && state.package.types.some(candidate => typeEngineName(candidate) === fullName);
+  return !!findTypeByMetadataIdentity(fullName);
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
@@ -6623,9 +6642,9 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   state.lens = "api";
   state.selectedTypeId = type.id;
   revealType(type);
-  revealMemberGroup(group);
+  revealMember(group.overloads[overloadIndex ?? 0] ?? group.overloads[0]);
   state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = overloadIndex ?? 0;
+  state.selectedOverloadIndex = group.overloads.length > 1 ? (overloadIndex ?? 0) : null;
   state.memberSection = "call-graph";
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -7522,7 +7541,7 @@ async function runCallGraphDemo() {
 
   state.selectedTypeId = type.id;
   state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
+  state.selectedOverloadIndex = member.overloads.length > 1 ? overloadIndex : null;
   state.memberSection = "call-graph";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
@@ -7826,10 +7845,22 @@ window.addEventListener("popstate", () => {
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    pendingDeepLink = {
+      type: loc.type,
+      member: loc.member,
+      overload: loc.overload,
+      overloadSelector: loc.overloadSelector,
+      section: loc.section
+    };
     restoreRuntimePackFromHistory(loc);
   } else {
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    pendingDeepLink = {
+      type: loc.type,
+      member: loc.member,
+      overload: loc.overload,
+      overloadSelector: loc.overloadSelector,
+      section: loc.section
+    };
     loadPackage(loc.package, loc.version || "latest", loc.framework || "");
   }
 });
