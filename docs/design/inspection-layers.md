@@ -49,6 +49,24 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
+## Implementation status
+
+`DotnetInspector.Queries` now implements the first L1 slice. The library CLI
+executes assembly information, assembly presence, and direct assembly-reference
+queries through a typed, content-shaped plan over a host-owned `PdbContext`.
+The `References` section binds to its concrete query definition rather than a
+string scanner key, and the CLI and package convenience route lower section
+selection into that same query.
+
+This is an incremental boundary, not the completed split. The remaining
+library scanners still use the transitional string-keyed `ScannerRegistry`,
+`LibraryMetadataService` still projects query results into the mutable
+`LibraryInspection` compatibility aggregate, and acquisition and transitive
+reference resolution remain host-owned. The initial assembly query catalog is
+network-free, so the current CLI adapter intentionally authorizes only
+`QueryExecutionPolicy.NetworkFree`; broader policy lowering starts with the
+first moderated or capability-bound query.
+
 ### L1 — `DotnetInspector.Queries`
 
 Owns typed inspection requests and their typed results, over the `ILInspector.*`
@@ -202,20 +220,25 @@ concentrated in the upper directories while the model and service directories ar
 essentially free of it. The boundary is largely drawn; what is missing is the
 project split and one structural fix.
 
-The structural fix is L1. Today it is neither typed nor demand-driven:
+The structural fix is L1. The first implemented slice proves the typed,
+demand-driven path for direct assembly references, but the residual collection
+path still has the original limitations:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
-  results, so a consumer cannot take one query without materializing everything.
+  results for most scanner families, so a consumer cannot yet take those
+  queries without materializing `LibraryInspection`.
 - The binding to that collection is a **nullable string key** that is null for
-  the large majority of sections, meaning "always collected" — so there is no
-  demand-driven seam to consume.
+  the remaining scanner-backed sections. `References` is the first section to
+  use a checked query-definition binding.
 - The collection context is **path-shaped**, so a consumer without a filesystem
-  cannot call it at all.
+  cannot call the residual `LibraryMetadataService` orchestration. The
+  implemented assembly queries themselves take a borrowed content owner and
+  caller-issued subject identity, not a path.
 
 Converting collection into typed, demand-driven, content-shaped queries is
-therefore the prerequisite for the split, not a follow-up to it. L2 is close to a
-project move once L1 exists; the descriptor contract is already Markout-free
-apart from its name binding.
+therefore the migration path for the split, not a follow-up to it. L2 is close
+to a project move as query coverage expands; the descriptor contract is already
+Markout-free apart from its name binding.
 
 ## Non-goals
 

@@ -2221,6 +2221,8 @@ public class PackageCommand
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
+        var queryCatalog = catalog.QueryCatalog;
+        var queryBindings = catalog.QueryBindings;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2238,6 +2240,9 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var queries = queryBindings.GetRequiredQueries(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
@@ -2251,7 +2256,9 @@ public class PackageCommand
                 version,
                 context.HttpClient,
                 scanners: scanners,
-                scannerRegistry: scannerRegistry);
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryCatalog: queryCatalog);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");

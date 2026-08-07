@@ -10,6 +10,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Queries;
 using ILInspector.Findings;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 using Analysis = ILInspector.Analysis;
@@ -36,6 +37,8 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         HashSet<string>? scanners = null,
         ScannerRegistry? scannerRegistry = null,
+        IReadOnlySet<QueryDefinition<AssemblyQueryContext>>? queries = null,
+        QueryCatalog<AssemblyQueryContext>? queryCatalog = null,
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
@@ -78,12 +81,32 @@ internal static class LibraryMetadataService
                 return nativeAudit;
             }
 
-            var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+            var needsAuditSignals =
+                requiredScanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
 
             AssemblySurfaceClassificationOutcome? surfaceClassification =
                 isPlatformAssembly
                     ? PlatformResolver.ClassifyAssemblySurface(path)
                     : null;
+            List<QueryDefinition<AssemblyQueryContext>> queryRoots =
+            [
+                AssemblyInfoQuery.Definition,
+                AssemblyPresenceQuery.Definition,
+            ];
+            if (queries is not null)
+                queryRoots.AddRange(queries);
+
+            var collectReferenceTree = options.CollectReferenceTree;
+            if (collectReferenceTree || needsAuditSignals)
+                queryRoots.Add(AssemblyReferencesQuery.Definition);
+
+            var queryPlan = (queryCatalog ?? AssemblyQueryCatalog.Default).Plan(queryRoots);
+            var queryResults = await queryPlan.ExecuteAsync(
+                new AssemblyQueryContext(pdbContext, FindingSubjectFor(path)),
+                QueryExecutionPolicy.NetworkFree);
+            var assemblyInfo = queryResults.RequireValue(AssemblyInfoQuery.Definition).Assembly;
+            var presenceFlags = queryResults.RequireValue(AssemblyPresenceQuery.Definition).Presence;
+
             var inspection = new LibraryInspection
             {
                 FileName = Path.GetFileName(path),
@@ -102,19 +125,16 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            var collectReferenceTree = options.CollectReferenceTree;
-            var collectReferences = options.CollectReferences
-                || collectReferenceTree || needsAuditSignals;
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(collectReferences);
-            if (inspection.AssemblyInfo?.References is { } references)
+            inspection.AssemblyInfo = assemblyInfo;
+            if (queryResults.Contains(AssemblyReferencesQuery.Definition))
             {
-                inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
-                    references,
-                    FindingSubjectFor(path));
+                var references = queryResults
+                    .RequireValue(AssemblyReferencesQuery.Definition);
+                inspection.AssemblyInfo.References = [.. references.References];
+                inspection.AssemblyReferenceInspection = references.Inspection;
             }
 
             // Populate cheap presence flags for fast -s discovery
-            var presenceFlags = pdbContext.ScanPresenceFlags();
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;
@@ -305,6 +325,13 @@ internal static class LibraryMetadataService
             return inspection;
         }
         catch (ScannerCostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (
+            ex is QueryPlanException
+                or QueryPolicyException
+                or QueryFailedException)
         {
             throw;
         }

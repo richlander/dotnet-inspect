@@ -9,11 +9,14 @@ It is built for both humans and agents. Markdown is the default output because h
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
-boundaries. Workspace contexts and typed query planning are not implemented
-yet. The components below are the current hosts, shared substrates, and
-inspection producers that will extend that space.
+boundaries. The first typed query-planning slice is implemented for library
+assembly information, presence, and direct references; workspace contexts and
+the remaining query families are not implemented yet. The components below are
+the current hosts, shared substrates, and inspection producers that will extend
+that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
+- `src/DotnetInspector.Queries/` contains host-neutral typed query definitions, deterministic sequential plans, cost/capability preflight, and the first content-shaped assembly queries. It has no Markout, console, or filesystem-path dependency.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.

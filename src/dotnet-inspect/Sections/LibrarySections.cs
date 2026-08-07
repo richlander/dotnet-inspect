@@ -1,15 +1,18 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
 public sealed record LibrarySectionCatalog(
     SectionPipeline<LibraryInspection> Pipeline,
-    ScannerRegistry ScannerRegistry);
+    ScannerRegistry ScannerRegistry,
+    QueryCatalog<AssemblyQueryContext> QueryCatalog,
+    SectionQueryBindings<LibraryInspection, AssemblyQueryContext> QueryBindings);
 
 /// <summary>
 /// Section descriptors for the library command.
-/// Each descriptor declares its name, cost classification, scanner key, and a
+/// Each descriptor declares its name, cost classification, query or scanner binding, and a
 /// <c>CanRender</c> check against <see cref="LibraryInspection"/>.
 /// </summary>
 public static class LibrarySections
@@ -35,15 +38,24 @@ public static class LibrarySections
     public const string ScannerMetadata = "Metadata";
 
     /// <summary>
-    /// Builds the library catalog from one scanner registry, so section costs and execution use
-    /// the same immutable declarations.
+    /// Builds the library catalog from one scanner registry and one typed query catalog, so
+    /// section costs, demand, and execution use the same immutable declarations.
     /// </summary>
     public static LibrarySectionCatalog CreateCatalog()
     {
         var scannerRegistry = CreateScannerRegistry();
+        var pipeline = CreatePipeline(scannerRegistry.CostOf);
+        var queryCatalog = AssemblyQueryCatalog.Default;
+        var queryBindings =
+            new SectionQueryBindings<LibraryInspection, AssemblyQueryContext>(
+                pipeline,
+                queryCatalog)
+            .Bind<References>();
         return new LibrarySectionCatalog(
-            CreatePipeline(scannerRegistry.CostOf),
-            scannerRegistry);
+            pipeline,
+            scannerRegistry,
+            queryCatalog,
+            queryBindings);
     }
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
@@ -554,11 +566,14 @@ public static class LibrarySections
 
     // ===== Normal sections (offline, cheap) =====
 
-    public sealed class References : ISectionDescriptor<LibraryInspection>
+    public sealed class References :
+        IQuerySectionDescriptor<LibraryInspection, AssemblyQueryContext>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static QueryDefinition<AssemblyQueryContext> Query =>
+            AssemblyReferencesQuery.Definition;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyReferenceInspection.HasFindings()

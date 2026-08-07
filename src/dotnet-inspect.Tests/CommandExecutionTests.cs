@@ -11872,6 +11872,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
+        Assert.Contains("| Dependencies | Direct assembly references |", output);
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("Legacy /unsafe", output);
         Assert.DoesNotContain("Tip:", error);
@@ -12060,6 +12061,27 @@ public partial class CommandExecutionTests
             Assert.Contains("# Test.Primary.dll", output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_SelectedReferencesCollectsDirectReferences()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "References");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## References", output);
+            Assert.Contains("System.Runtime", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally

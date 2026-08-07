@@ -7,6 +7,7 @@ using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using SignatureVerificationResult = DotnetInspector.Services.SignatureVerificationResult;
@@ -80,6 +81,8 @@ public class LibraryCommand
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
+        var queryCatalog = catalog.QueryCatalog;
+        var queryBindings = catalog.QueryBindings;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -437,6 +440,13 @@ public class LibraryCommand
             : pipeline.GetRequiredScanners(
                 options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace,
                 discoveryInspection ? DiscoveryScanners : null);
+        HashSet<QueryDefinition<AssemblyQueryContext>> queries =
+            discoveryInspection && !fullEffectiveDiscovery
+            ? [AssemblyReferencesQuery.Definition]
+            : queryBindings.GetRequiredQueries(
+                options.Verbosity,
+                discoveryExecutionScope,
+                options.FixedOverview);
         var inspectionOptions = fullEffectiveDiscovery
             && options.IncludeSections is not { Count: > 0 }
             ? options with { IncludeSections = discoveryExecutionScope }
@@ -447,7 +457,6 @@ public class LibraryCommand
             {
                 // Assembly references are a cheap metadata fact. Discovery never needs the
                 // transitive projection because References effectiveness is established directly.
-                CollectReferences = true,
                 CollectReferenceTree = false,
             };
         }
@@ -457,7 +466,6 @@ public class LibraryCommand
                 options.Verbosity, options.IncludeSections, options.FixedOverview);
             inspectionOptions = inspectionOptions with
             {
-                CollectReferences = candidates.Contains(SectionNames.References),
                 CollectReferenceTree = options.Tree
                     && candidates.Contains(SectionNames.References),
             };
@@ -533,6 +541,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
+                    queries: queries, queryCatalog: queryCatalog,
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -625,6 +634,7 @@ public class LibraryCommand
                 var inspections = await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
+                    queries, queryCatalog,
                     discoveryInspection && !fullEffectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
@@ -706,6 +716,7 @@ public class LibraryCommand
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
+                    queries: queries, queryCatalog: queryCatalog,
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -2206,6 +2217,8 @@ public class LibraryCommand
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
+        IReadOnlySet<QueryDefinition<AssemblyQueryContext>>? queries = null,
+        QueryCatalog<AssemblyQueryContext>? queryCatalog = null,
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
@@ -2214,7 +2227,11 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly, trace: trace);
+            var inspection = await LibraryMetadataService.InspectAsync(
+                targetPath, options, logger, packageName, version, httpClient,
+                scanners: scanners, scannerRegistry: scannerRegistry,
+                queries: queries, queryCatalog: queryCatalog,
+                discoveryOnly: discoveryOnly, trace: trace);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");

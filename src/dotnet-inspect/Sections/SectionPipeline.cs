@@ -207,6 +207,31 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
 
+    internal void RaiseSectionCost(string sectionName, SectionCost cost)
+    {
+        var index = _entries.FindIndex(
+            entry => entry.Name.Equals(sectionName, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            throw new InvalidOperationException($"Section '{sectionName}' is not registered.");
+
+        var entry = _entries[index];
+        if (cost <= entry.Cost)
+            return;
+
+        entry = entry with { Cost = cost };
+        if (!_curatedCatalog
+            && entry.Cost == SectionCost.Unbounded
+            && !entry.IsExpensive
+            && !entry.ExplicitOnly)
+        {
+            throw new InvalidOperationException(
+                $"{entry.Name} resolves to Cost=Unbounded and must also declare " +
+                "IsExpensive=true or ExplicitOnly=true, otherwise it joins the @All pole.");
+        }
+
+        _entries[index] = entry;
+    }
+
     /// <summary>
     /// Declares a topical category door over already-registered sections. Members are validated
     /// against the registered section names, so a rename that misses a membership list fails at

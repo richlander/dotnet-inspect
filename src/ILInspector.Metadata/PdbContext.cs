@@ -355,6 +355,10 @@ public class PdbContext : IDisposable
     public AssemblyInfo ExtractAssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_peReader, includeReferences);
 
+    /// <summary>Extracts direct assembly references without re-reading unrelated assembly facts.</summary>
+    public List<AssemblyReference> ExtractAssemblyReferences()
+        => AssemblyInspector.ExtractReferences(_peReader);
+
     /// <summary>Extracts full assembly info from the already-open PE image.</summary>
     public AssemblyInfo ExtractFullAssemblyInfo()
         => AssemblyInspector.ExtractFullAssemblyInfo(_peReader);

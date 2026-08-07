@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Typed, host-neutral inspection query planning and execution</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
+
+</Project>

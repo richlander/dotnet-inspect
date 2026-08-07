@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -17,6 +18,13 @@ public class SectionPipelineTests
 {
     // Simple test model
     private record TestModel(string? Name, int Count);
+
+    private static readonly QueryDefinition<TestModel, string> ModeratedQuery = new(
+        "test.moderated",
+        QueryCost.Moderated,
+        QueryCapabilities.None,
+        static (_, _, _) => ValueTask.FromResult(
+            QueryResult<string>.Succeeded("ok")));
 
     // Test descriptors
     private sealed class AlwaysSection : ISectionDescriptor<TestModel>
@@ -33,6 +41,16 @@ public class SectionPipelineTests
         public static bool IsExpensive => true;
         public static string? ScannerKey => "DetailedScanner";
         public static bool CanRender(TestModel model) => model.Count > 0;
+    }
+
+    private sealed class QueryBackedSection :
+        IQuerySectionDescriptor<TestModel, TestModel>
+    {
+        public static string Name => "Query-backed";
+        public static bool IsExpensive => false;
+        public static QueryDefinition<TestModel> Query => ModeratedQuery;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => true;
     }
 
     private sealed class NormalSection : ISectionDescriptor<TestModel>
@@ -1549,6 +1567,29 @@ public class SectionPipelineTests
             registry.RegisteredKeys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void LibraryReferencesSection_BindsTypedAssemblyReferencesQuery()
+    {
+        var catalog = LibrarySections.CreateCatalog();
+        HashSet<string> references =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.References,
+            };
+
+        var required = catalog.QueryBindings.GetRequiredQueries(
+            Verbosity.Minimal,
+            references);
+
+        Assert.Equal(
+            [AssemblyReferencesQuery.Definition],
+            catalog.QueryBindings.DeclaredQueries);
+        Assert.Equal([AssemblyReferencesQuery.Definition], required);
+        Assert.Equal(
+            ["assembly.references"],
+            catalog.QueryCatalog.Plan(required).Queries.Select(static query => query.Name));
+    }
+
     // ===== Scanner prerequisite tests =====
 
     [Fact]
@@ -1886,6 +1927,21 @@ public class SectionPipelineTests
 
         Assert.Throws<InvalidOperationException>(
             () => pipeline.UseScannerCosts(_ => SectionCost.Unbounded));
+    }
+
+    [Fact]
+    public void QueryBackedSection_InheritsQueryCost()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .Add<QueryBackedSection>();
+        var catalog = new QueryCatalogBuilder<TestModel>()
+            .Add(ModeratedQuery)
+            .Build();
+        _ = new SectionQueryBindings<TestModel, TestModel>(pipeline, catalog)
+            .Bind<QueryBackedSection>();
+
+        var section = Assert.Single(pipeline.SectionCosts);
+        Assert.Equal(SectionCost.Moderated, section.Cost);
     }
 
     [Fact]
