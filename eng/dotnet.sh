@@ -15,13 +15,18 @@ if [ ! -x "$dotnetup" ]; then
     command -v curl > /dev/null ||
         { echo "error: curl is required to install dotnetup." >&2; exit 1; }
     mkdir -p "$install_dir"
-    installer="$(mktemp "${TMPDIR:-/tmp}/get-dotnetup.XXXXXX.sh")"
-    trap 'rm -f "$installer"' EXIT
+    installer="$(mktemp "${TMPDIR:-/tmp}/get-dotnetup.XXXXXX")"
+    bootstrap_dir="$(mktemp -d "$install_dir/.dotnetup-bootstrap.XXXXXX")"
+    trap 'rm -f "$installer"; rm -rf "$bootstrap_dir"' EXIT
     curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o "$installer"
-    bash "$installer" --install-dir "$install_dir"
+    bash "$installer" --install-dir "$bootstrap_dir"
+    [ -x "$bootstrap_dir/dotnetup" ] ||
+        { echo "error: dotnetup installation did not produce an executable." >&2; exit 1; }
+    mv -f "$bootstrap_dir/dotnetup" "$dotnetup"
     rm -f "$installer"
+    rm -rf "$bootstrap_dir"
     trap - EXIT
 fi
 
 "$dotnetup" sdk install 11 --interactive false --no-progress
-exec "$dotnetup" dotnet "$@"
+exec "$dotnetup" dotnet -- "$@"
