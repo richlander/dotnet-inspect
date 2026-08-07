@@ -12685,6 +12685,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Count_WritesScalarAndMapToTheRequestedOutputFiles()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        var scalarPath = Path.Combine(tempDir, "scalar-count.txt");
+        var mapPath = Path.Combine(tempDir, "map-count.txt");
+        try
+        {
+            var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--count", "--out", scalarPath);
+
+            Assert.Equal(0, scalarExit);
+            Assert.Empty(scalarOutput);
+            Assert.Empty(scalarError);
+            Assert.Equal("1\n", File.ReadAllText(scalarPath));
+
+            var (mapExit, mapOutput, mapError) = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--count", "--out", mapPath);
+
+            Assert.Equal(0, mapExit);
+            Assert.Empty(mapOutput);
+            Assert.Empty(mapError);
+            var map = File.ReadAllText(mapPath);
+            Assert.StartsWith("| Section | Count |\n| ------- | ----- |\n", map);
+            Assert.Contains("| Package skill files | 0 |\n", map);
+            Assert.Contains("| Package nuspec file | 1 |\n", map);
+            Assert.Contains("| Package README file | 1 |\n", map);
+            Assert.EndsWith("\n", map, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();

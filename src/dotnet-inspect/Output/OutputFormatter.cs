@@ -366,11 +366,11 @@ public static class OutputFormatter
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             if (ordered != null)
             {
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
             }
             return;
         }
@@ -534,11 +534,11 @@ public static class OutputFormatter
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             if (ordered != null)
             {
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
             }
             return;
         }
