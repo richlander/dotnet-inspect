@@ -23,9 +23,25 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         bool prerelease = false,
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
+        => await SearchPageAsync(
+            query,
+            skip: 0,
+            take,
+            prerelease,
+            auth,
+            cancellationToken).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        CancellationToken cancellationToken)
     {
         string pre = prerelease ? "true" : "false";
-        string url = $"{_searchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={pre}";
+        string url =
+            $"{_searchUrl}?q={Uri.EscapeDataString(query)}&skip={skip}&take={take}&prerelease={pre}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (auth is not null)
@@ -57,11 +73,35 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<SearchResult> results = await SearchAsync(
-            prefix, take, prerelease, auth, cancellationToken).ConfigureAwait(false);
+        const int PageSize = 100;
+        List<SearchResult> matches = [];
+        int skip = 0;
 
-        return results
-            .Where(r => r.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        while (matches.Count < take)
+        {
+            IReadOnlyList<SearchResult> page = await SearchPageAsync(
+                prefix,
+                skip,
+                PageSize,
+                prerelease,
+                auth,
+                cancellationToken).ConfigureAwait(false);
+            foreach (SearchResult result in page)
+            {
+                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(result);
+                    if (matches.Count == take)
+                        break;
+                }
+            }
+
+            if (page.Count < PageSize)
+                break;
+
+            skip += page.Count;
+        }
+
+        return matches;
     }
 }

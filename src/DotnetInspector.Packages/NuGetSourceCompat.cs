@@ -350,13 +350,21 @@ public static class NuGetSearchService
         {
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
-            IReadOnlyList<SearchResult> results = await service.SearchAsync(query, take, prerelease);
+            IReadOnlyList<SearchResult> results = resultFilter is null
+                ? await service.SearchAsync(query, take, prerelease)
+                : await service.SearchByPrefixAsync(query, take, prerelease);
+            IEnumerable<NuGetSearchResult> projected = results
+                .Where(result => resultFilter?.Invoke(result) ?? true)
+                .Select(NuGetSearchResult.From);
+            if (resultFilter is not null)
+            {
+                projected = projected.DistinctBy(
+                    result => result.PackageId,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
             return new NuGetSearchOutcome(
-                results
-                    .Where(result => resultFilter?.Invoke(result) ?? true)
-                    .Select(NuGetSearchResult.From)
-                    .Take(take)
-                    .ToList(),
+                projected.Take(take).ToList(),
                 []);
         }
 
@@ -416,7 +424,13 @@ public static class NuGetSearchService
             try
             {
                 SearchService service = new(client, searchUrl);
-                found = await service.SearchAsync(query, take, prerelease, auth);
+                found = resultFilter is null
+                    ? await service.SearchAsync(query, take, prerelease, auth)
+                    : await service.SearchByPrefixAsync(
+                        query,
+                        take,
+                        prerelease,
+                        auth);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
             {
@@ -445,7 +459,15 @@ public static class NuGetSearchService
             throw new InvalidOperationException($"No configured NuGet source could be searched.{detail}");
         }
 
-        return new NuGetSearchOutcome(results.Take(take).ToList(), failures);
+        IEnumerable<NuGetSearchResult> limited = results;
+        if (resultFilter is not null)
+        {
+            limited = limited.DistinctBy(
+                result => result.PackageId,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
     }
 
     private static string DescribeServiceIndexFailure(

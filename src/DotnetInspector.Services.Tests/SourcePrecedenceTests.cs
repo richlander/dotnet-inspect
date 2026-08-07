@@ -105,6 +105,35 @@ public class SourcePrecedenceTests : IDisposable
     }
 
     [Fact]
+    public async Task LatestResolution_RetainsTransportAliasesForOneProducer()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.32.99"],
+            feedBVersions: null);
+        using var client = new HttpClient(handler);
+        var stale = new NuGetSource(
+            "stale",
+            $"https://{FeedAIndex}",
+            new PackageSourceCredential("user", "stale"));
+        var valid = new NuGetSource(
+            "valid",
+            $"https://{FeedAIndex}",
+            new PackageSourceCredential("user", "valid"));
+
+        PackageVersionResolution? resolution =
+            await PackageExtractor.ResolveLatestVersionAsync(
+                client,
+                "Markout",
+                [stale, valid],
+                log: null,
+                skipCache: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(resolution);
+        Assert.Equal([stale, valid], resolution.ReportingSources);
+    }
+
+    [Fact]
     public async Task GetLatestVersion_IsOrderIndependent()
     {
         var handler = CreateHandler(feedAVersions: ["0.31.0", "0.32.0"], feedBVersions: ["0.32.0", "0.32.99"]);

@@ -1019,9 +1019,7 @@ public static class PackageExtractor
         List<NuGetSource> reporters,
         NuGetSource source)
     {
-        string sourceKey = NuGetCache.GetSourceKey(source.Url);
-        if (!reporters.Any(
-                reporter => NuGetCache.GetSourceKey(reporter.Url) == sourceKey))
+        if (!reporters.Contains(source))
         {
             reporters.Add(source);
         }
@@ -1844,6 +1842,8 @@ public static class PackageExtractor
             sources,
             log).ConfigureAwait(false);
         if (perSource is null)
+            return null;
+        if (perSource.Any(candidate => !candidate.Authoritative))
             return null;
 
         var candidates = new Dictionary<

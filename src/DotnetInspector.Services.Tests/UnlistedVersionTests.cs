@@ -217,6 +217,29 @@ public class UnlistedVersionTests : IDisposable
     }
 
     [Fact]
+    public async Task VersionRange_FailsClosed_WhenRegistrationIsUnavailable()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            serveRegistration: false));
+        Assert.True(PackageVersionRange.TryParse(
+            "UnlistedPkg@1.0.0..3.0.0-beta.1",
+            out PackageVersionRange? range,
+            out _));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PackageVersionVector.ResolveAsync(
+                client,
+                range!,
+                new NuGetSourceOptions
+                {
+                    Sources = [NuGetOrgSource.Url],
+                },
+                includePrerelease: true));
+    }
+
+    [Fact]
     public async Task GetLatestVersion_ReturnsNull_WhenExternalRegistrationPageHasNoItems()
     {
         const string registration =

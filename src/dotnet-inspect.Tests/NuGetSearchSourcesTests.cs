@@ -716,6 +716,24 @@ public class NuGetSearchSourcesTests
     [Fact]
     public async Task SearchByPrefixAsync_FiltersBeforeAggregateLimit()
     {
+        const string index = "https://a.example/v3/index.json";
+        const string search = "https://a.example/v3/query";
+        var handler = new PrefixPagingHandler(index, search);
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_DeduplicatesPackageIdsAcrossSources()
+    {
         const string indexA = "https://a.example/v3/index.json";
         const string indexB = "https://b.example/v3/index.json";
         const string searchA = "https://a.example/v3/query";
@@ -724,19 +742,17 @@ public class NuGetSearchSourcesTests
         {
             [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
             [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
-            [searchA] = """{"data":[{"id":"Other.Package","version":"1.0.0"}]}""",
-            [searchB] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}"""
+            [searchA] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"contoso.tools","version":"2.0.0"}]}"""
         };
         using var client = new HttpClient(handler);
 
         List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
             client,
             "Contoso.",
-            take: 1,
             sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
 
-        NuGetSearchResult result = Assert.Single(results);
-        Assert.Equal("Contoso.Tools", result.PackageId);
+        Assert.Single(results);
     }
 
     [Fact]
@@ -970,6 +986,37 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class PrefixPagingHandler(
+        string indexUrl,
+        string searchUrl) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            bool takeOne = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&')
+                .Contains("take=1", StringComparer.Ordinal);
+            string body = url.StartsWith(indexUrl, StringComparison.Ordinal)
+                ? $$"""{"resources":[{"@id":"{{searchUrl}}","@type":"SearchQueryService"}]}"""
+                : takeOne
+                    ? """{"data":[{"id":"Other.Package","version":"1.0.0"}]}"""
+                    : """
+                        {"data":[
+                            {"id":"Other.Package","version":"1.0.0"},
+                            {"id":"Contoso.Tools","version":"1.0.0"}
+                        ]}
+                        """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request
+            });
         }
     }
 }
