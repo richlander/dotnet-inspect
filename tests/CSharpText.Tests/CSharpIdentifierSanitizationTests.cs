@@ -1,7 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace ILInspector.CSharp.Tests;
+namespace CSharpText.Tests;
 
 /// <summary>
 /// Gates the containment properties the identifier spellings assert (issue #3319).
