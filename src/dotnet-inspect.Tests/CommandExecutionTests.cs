@@ -12021,6 +12021,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiSectionColumns_AllMissReportsCleanError()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (normalExit, normalOutput, normalError) = await RunAppAsync(
+                "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
+
+            Assert.Equal(1, normalExit);
+            Assert.Empty(normalOutput);
+            Assert.Contains("No columns matched projection: TFM", normalError);
+            Assert.DoesNotContain("System.InvalidOperationException", normalError);
+
+            var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
+                "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
+
+            Assert.Equal(1, overviewExit);
+            Assert.Empty(overviewOutput);
+            Assert.Contains("No columns matched projection: Path", overviewError);
+            Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
     {
         var (exit, output, error) = await RunAppAsync("package", "-D", "Package Info", "--schema", "--tips", "q");

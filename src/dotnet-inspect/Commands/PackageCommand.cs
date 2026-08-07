@@ -174,19 +174,11 @@ public class PackageCommand
                     options = options with { Verbosity = requiredVerbosity };
             }
 
-            // Pre-render validation: check --fields/--columns names against every visible section
-            // the renderer can select. Without -S, IncludeSections is null, but Markout still
-            // projects the verbosity-selected document and throws when no name matches.
-            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 })
-                && !rendersOwnPayload
-                && (options.IncludeSections is { Count: > 0 } || packageArgs.Length > 0))
+            // Pre-render validation: check --fields/--columns names against the section schema
+            if ((options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 }) && options.IncludeSections is { Count: > 0 })
             {
-                var projectionSections = pipeline.GetCandidateSections(
-                    options.Verbosity, options.IncludeSections, options.FixedOverview);
-                projectionSections.IntersectWith(sectionNames);
                 var schemaMap = PackageDiscoverySchema();
-                if (!ValidatePackageProjection(
-                    schemaMap, projectionSections, options.Fields, options.Columns))
+                if (!ProjectionDiagnostics.ValidateProjection(schemaMap, options.IncludeSections, options.Fields, options.Columns))
                     return 1;
             }
         }
@@ -778,6 +770,13 @@ public class PackageCommand
             CommandError.WriteLine($"Failed to download package: {ex.Message}");
             return 1;
         }
+        catch (InvalidOperationException ex) when (
+            options.Columns is { Length: > 0 }
+            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+        {
+            CommandError.Write(ex.Message);
+            return 1;
+        }
         finally
         {
             // Only clean up temp directory if we created one (not using cache)
@@ -947,44 +946,6 @@ public class PackageCommand
 
     private static DocumentSchema PackageDiscoverySchema()
         => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
-
-    private static bool ValidatePackageProjection(
-        DocumentSchema schema,
-        IReadOnlyCollection<string> sectionNames,
-        string[]? fields,
-        string[]? columns)
-    {
-        var valid = true;
-        if (fields is { Length: > 0 })
-            valid &= ValidatePackageProjectionNames(schema, sectionNames, fields, fieldsRequested: true);
-        if (columns is { Length: > 0 })
-            valid &= ValidatePackageProjectionNames(schema, sectionNames, columns, fieldsRequested: false);
-        return valid;
-    }
-
-    private static bool ValidatePackageProjectionNames(
-        DocumentSchema schema,
-        IReadOnlyCollection<string> sectionNames,
-        string[] names,
-        bool fieldsRequested)
-    {
-        var kind = fieldsRequested ? "field" : "column";
-        var matchingSections = sectionNames
-            .Where(name => string.Equals(
-                schema.GetSection(name)?.ItemKind, kind, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (matchingSections.Length == 0)
-        {
-            CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
-            return false;
-        }
-
-        return ProjectionDiagnostics.ValidateProjection(
-            schema,
-            matchingSections,
-            fieldsRequested ? names : null,
-            fieldsRequested ? null : names);
-    }
 
     private static DocumentSchema AddPackageDynamicDiscoveryItems(DocumentSchema schema)
     {
