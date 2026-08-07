@@ -64,9 +64,8 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// The disclosure gate. No verbosity may surface a metadata section, because the tables are
-    /// unbounded and would swamp every default view. Covers the whole ladder plus <c>-S @All</c>,
-    /// rather than a single level, so promoting one verbosity or fanning out the all-selector
-    /// cannot slip through.
+    /// unbounded and would swamp every default view. Covers the whole ladder plus both base
+    /// category doors, so promoting one verbosity or broadening the base scope cannot slip through.
     ///
     /// Suppression is enforced twice over — <c>ExplicitOnly</c> and <c>SectionCost.Unbounded</c>
     /// were each measured to be sufficient alone — so this gate fails only when both are lost.
@@ -84,13 +83,14 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain(MetadataHeadingPrefix, output, StringComparison.Ordinal);
 
-        // @All is a separate door: it fans out to every section a verbosity would reach, so it is
-        // its own way for an unbounded table to arrive unasked-for.
-        var (allExit, allOutput, _) = await RunAppAsync(
-            "library", TestAssemblyPath, verbosity, "-S", "@All", "--tips", "q");
+        foreach (var category in new[] { SectionCategoryNames.Library, SectionCategoryNames.Surface })
+        {
+            var (categoryExit, categoryOutput, _) = await RunAppAsync(
+                "library", TestAssemblyPath, verbosity, "-S", category, "--tips", "q");
 
-        Assert.Equal(0, allExit);
-        Assert.DoesNotContain(MetadataHeadingPrefix, allOutput, StringComparison.Ordinal);
+            Assert.Equal(0, categoryExit);
+            Assert.DoesNotContain(MetadataHeadingPrefix, categoryOutput, StringComparison.Ordinal);
+        }
     }
 
     /// <summary>
@@ -113,6 +113,147 @@ public partial class CommandExecutionTests
             .Select(l => l.Trim())
             .ToArray();
         Assert.Equal(["## Metadata: TypeRef"], headings);
+    }
+
+    /// <summary>
+    /// The first L1 query is wired all the way through section demand, one execution, and the
+    /// existing metadata sink. This is deliberately asserted on the real command trace: a registry
+    /// unit test cannot prove the library command stopped using the legacy mutating scanner.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Trace_ExecutesTypedQueryOnce()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Metadata version |", output, StringComparison.Ordinal);
+
+        string[] lines = error.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        Assert.Contains("    Metadata: Image -> Metadata image", lines);
+        Assert.Single(
+            lines,
+            line => line.StartsWith("    Metadata image ", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("Metadata ->", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A native image is an explicit <see cref="DotnetInspector.Queries.MetadataImageResult.NoMetadata"/>
+    /// result, not a demanded query that silently never ran. Uses a native system image and skips
+    /// only when the platform does not expose the expected path.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_NativeImage_ExecutesTypedQueryAsNoMetadata()
+    {
+        string native = Path.Combine(
+            Path.GetTempPath(),
+            $"native-image-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(native, CreateNativePe());
+        try
+        {
+            using (var session = AssemblyInspectionSession.Open(native))
+            {
+                Assert.IsType<DotnetInspector.Queries.MetadataImageResult.NoMetadata>(
+                    DotnetInspector.Queries.MetadataImageQuery.Execute(session));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                native,
+                "-S",
+                MetadataSectionNames.Image,
+                "--trace",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.DoesNotContain("| Metadata version |", output, StringComparison.Ordinal);
+            Assert.Contains(
+                $"This section ({MetadataSectionNames.Image}) produced no output.",
+                error,
+                StringComparison.Ordinal);
+            string[] lines = error.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            Assert.Contains("    Metadata: Image -> Metadata image", lines);
+            Assert.Single(
+                lines,
+                line => line.StartsWith("    Metadata image ", StringComparison.Ordinal));
+            Assert.DoesNotContain("queries executed\n    (none)", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("failed to open", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(native);
+        }
+
+        static byte[] CreateNativePe()
+        {
+            // Minimal PE32+ image with one .text section and no CLI header.
+            var image = new byte[0x400];
+            using var stream = new MemoryStream(image, writable: true);
+            using var writer = new BinaryWriter(stream);
+
+            writer.Write((ushort)0x5A4D);
+            stream.Position = 0x3C;
+            writer.Write(0x80);
+            stream.Position = 0x80;
+            writer.Write(0x00004550u);
+
+            writer.Write((ushort)0x8664);
+            writer.Write((ushort)1);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write((ushort)0xF0);
+            writer.Write((ushort)0x2022);
+
+            writer.Write((ushort)0x20B);
+            writer.Write((byte)0);
+            writer.Write((byte)0);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0x1000u);
+            writer.Write(0x140000000ul);
+            writer.Write(0x1000u);
+            writer.Write(0x200u);
+            writer.Write((ushort)6);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write((ushort)6);
+            writer.Write((ushort)0);
+            writer.Write(0u);
+            writer.Write(0x2000u);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write((ushort)3);
+            writer.Write((ushort)0x8160);
+            writer.Write(0x100000ul);
+            writer.Write(0x1000ul);
+            writer.Write(0x100000ul);
+            writer.Write(0x1000ul);
+            writer.Write(0u);
+            writer.Write(16u);
+            for (int i = 0; i < 16; i++)
+            {
+                writer.Write(0u);
+                writer.Write(0u);
+            }
+
+            writer.Write(new byte[] { (byte)'.', (byte)'t', (byte)'e', (byte)'x', (byte)'t', 0, 0, 0 });
+            writer.Write(1u);
+            writer.Write(0x1000u);
+            writer.Write(0x200u);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write(0x60000020u);
+            image[0x200] = 0xC3;
+            return image;
+        }
     }
 
     /// <summary>
@@ -159,7 +300,8 @@ public partial class CommandExecutionTests
     public async Task MetadataLens_DiscoveryDrillIn_ListsOnlyTablesWithRows()
     {
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         var names = DiscoveryNames(output);
@@ -205,12 +347,11 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "Metadata: ExportedType", "--tips", "q");
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("## Metadata: ExportedType", output, StringComparison.Ordinal);
-        // Named explicitly, so "this table is empty" never reads the same as "the projection
-        // failed" or "the section was never requested".
-        Assert.Contains("no data", error, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Metadata: ExportedType", error, StringComparison.Ordinal);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "This section (Metadata: ExportedType) produced no output.",
+            error.Trim());
     }
 
     /// <summary>
@@ -554,17 +695,24 @@ public partial class CommandExecutionTests
     /// always listed satisfies the second.
     /// </summary>
     [Fact]
-    public async Task MetadataLens_HeapSection_IsDiscoverableOnlyWithItsCoordinate()
+    public async Task MetadataLens_HeapSection_StructuralAndEffectiveDiscoveryDiffer()
     {
-        var (withoutExit, withoutOutput, _) = await RunAppAsync(
+        var (structuralExit, structuralOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, structuralExit);
+        Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(structuralOutput));
+
+        var (withoutExit, withoutOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, withoutExit);
         Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(withoutOutput));
 
         var (withExit, withOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
-            "--heap", "#Strings:1", "--tsv", "--tips", "q");
+            "--heap", "#Strings:1", "--effective", "--tsv", "--tips", "q");
 
         Assert.Equal(0, withExit);
         Assert.Contains(MetadataSectionNames.Heap, DiscoveryNames(withOutput));
@@ -683,7 +831,7 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// The heap listings join the disclosure gate: they are the largest amplification surface in
-    /// the projection, so no verbosity and no <c>-S @All</c> may render one.
+    /// the projection, so no verbosity and no base-category selection may render one.
     /// </summary>
     [Theory]
     [InlineData("-v:q")]
@@ -693,7 +841,8 @@ public partial class CommandExecutionTests
         foreach (var args in new[]
                  {
                      new[] { "library", TestAssemblyPath, verbosity, "--tips", "q" },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", "@All", "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Library, "--tips", "q" },
+                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Surface, "--tips", "q" },
                  })
         {
             var (exit, output, _) = await RunAppAsync(args);

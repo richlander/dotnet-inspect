@@ -15,7 +15,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class UnlistedVersionTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategory = "versions-v5";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
 
     public UnlistedVersionTests()
@@ -103,6 +103,27 @@ public class UnlistedVersionTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSingleVersionListing_ReturnsNull_WhenRegistrationUnavailable()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            serveRegistration: false));
+
+        var result = await PackageExtractor.GetSingleVersionListingAsync(
+            client,
+            "UnlistedPkg",
+            includePrerelease: true,
+            log: null,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [NuGetOrgSource.Url],
+            });
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task GetVersions_FailsOpen_WhenRegistrationUnavailable()
     {
         // Registration index 404s → we cannot determine listed status → do not drop versions.
@@ -154,6 +175,87 @@ public class UnlistedVersionTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("""{"items":[{}]}""")]
+    [InlineData("""{"items":[{"@id":42}]}""")]
+    [InlineData("""{"items":[{"items":[{}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{"listed":false}}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{"listed":true}}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{}}]}]}""")]
+    public async Task GetLatestVersion_ReturnsNull_WhenRegistrationPageIsIncomplete(
+        string registration)
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: registration));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_ReturnsNull_WhenRegistrationOmitsFlatContainerVersions()
+    {
+        const string partialRegistration =
+            """
+            {"items":[{"items":[
+                {"catalogEntry":{"version":"1.0.0","listed":true}}
+            ]}]}
+            """;
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: partialRegistration));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task VersionRange_FailsClosed_WhenRegistrationIsUnavailable()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            serveRegistration: false));
+        Assert.True(PackageVersionRange.TryParse(
+            "UnlistedPkg@1.0.0..3.0.0-beta.1",
+            out PackageVersionRange? range,
+            out _));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PackageVersionVector.ResolveAsync(
+                client,
+                range!,
+                new NuGetSourceOptions
+                {
+                    Sources = [NuGetOrgSource.Url],
+                },
+                includePrerelease: true));
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_ReturnsNull_WhenExternalRegistrationPageHasNoItems()
+    {
+        const string registration =
+            """{"items":[{"@id":"https://api.nuget.org/registration/page.json"}]}""";
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: registration,
+            registrationPageBodyOverride: "{}"));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task GetVersions_FailOpenResult_IsNotCached()
     {
@@ -166,7 +268,13 @@ public class UnlistedVersionTests : IDisposable
             client, "UnlistedPkg", includePrerelease: false, limit: null, log: null);
 
         Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);   // fail-open, unfiltered
-        Assert.Null(CoreCache.TryGet(VersionCacheCategory, "unlistedpkg-all", TimeSpan.FromHours(1), extension: "txt"));
+        Assert.Null(CoreCache.TryGet(
+            VersionCacheCategory,
+            PackageExtractor.GetListingsVersionCacheKey(
+                "UnlistedPkg",
+                NuGetOrgSource),
+            TimeSpan.FromHours(1),
+            extension: "txt"));
     }
 
     [Fact]
@@ -209,7 +317,8 @@ public class UnlistedVersionTests : IDisposable
         (string Version, bool Listed)[] registry,
         bool serveRegistration = true,
         string? registrationBodyOverride = null,
-        bool failFlatContainerFirstCall = false)
+        bool failFlatContainerFirstCall = false,
+        string? registrationPageBodyOverride = null)
         : HttpMessageHandler
     {
         private int _flatContainerCalls;
@@ -244,6 +353,14 @@ public class UnlistedVersionTests : IDisposable
                             + (r.Listed ? "true" : "false") + "}}"));
                     body = "{\"items\":[{\"items\":[" + items + "]}]}";
                 }
+            }
+            else if (registrationPageBodyOverride != null
+                && string.Equals(
+                    url,
+                    "https://api.nuget.org/registration/page.json",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                body = registrationPageBodyOverride;
             }
             else if (url.StartsWith("https://azuresearch-usnc.nuget.org/query", StringComparison.OrdinalIgnoreCase))
             {

@@ -1,4 +1,4 @@
-namespace ILInspector.CSharp.Tests;
+namespace CSharpText.Tests;
 
 public sealed class CSharpExpressionBodyTests
 {
