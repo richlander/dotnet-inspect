@@ -251,6 +251,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public bool Count { get; init; }
 
+    /// <summary>
+    /// Path to write a projected payload to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
+
     public bool Print { get; init; }
 
     public bool Value { get; init; }
