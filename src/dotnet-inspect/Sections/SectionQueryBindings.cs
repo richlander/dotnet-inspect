@@ -38,8 +38,8 @@ public sealed class SectionQueryBindings<TModel, TQueryContext>
                 $"Section '{sectionName}' already has a query binding.");
         }
 
-        _catalog.Plan(TDescriptor.Query);
-        _pipeline.RaiseSectionCost(sectionName, ToSectionCost(TDescriptor.Query.Cost));
+        var plan = _catalog.Plan(TDescriptor.Query);
+        _pipeline.RaiseSectionCost(sectionName, ToSectionCost(plan.MaximumCost));
         _queriesBySection.Add(sectionName, TDescriptor.Query);
         return this;
     }

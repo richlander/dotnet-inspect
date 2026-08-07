@@ -19,9 +19,16 @@ public class SectionPipelineTests
     // Simple test model
     private record TestModel(string? Name, int Count);
 
-    private static readonly QueryDefinition<TestModel, string> ModeratedQuery = new(
-        "test.moderated",
+    private static readonly QueryDefinition<TestModel, string> ModeratedDependencyQuery = new(
+        "test.moderated-dependency",
         QueryCost.Moderated,
+        QueryCapabilities.None,
+        static (_, _, _) => ValueTask.FromResult(
+            QueryResult<string>.Succeeded("ok")));
+
+    private static readonly QueryDefinition<TestModel, string> QueryBackedRoot = new(
+        "test.query-backed-root",
+        QueryCost.NetworkFree,
         QueryCapabilities.None,
         static (_, _, _) => ValueTask.FromResult(
             QueryResult<string>.Succeeded("ok")));
@@ -48,7 +55,7 @@ public class SectionPipelineTests
     {
         public static string Name => "Query-backed";
         public static bool IsExpensive => false;
-        public static QueryDefinition<TestModel> Query => ModeratedQuery;
+        public static QueryDefinition<TestModel> Query => QueryBackedRoot;
         public static string? ScannerKey => null;
         public static bool CanRender(TestModel model) => true;
     }
@@ -1930,12 +1937,13 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void QueryBackedSection_InheritsQueryCost()
+    public void QueryBackedSection_InheritsDependencyClosureCost()
     {
         var pipeline = new SectionPipeline<TestModel>()
             .Add<QueryBackedSection>();
         var catalog = new QueryCatalogBuilder<TestModel>()
-            .Add(ModeratedQuery)
+            .Add(QueryBackedRoot, ModeratedDependencyQuery)
+            .Add(ModeratedDependencyQuery)
             .Build();
         _ = new SectionQueryBindings<TestModel, TestModel>(pipeline, catalog)
             .Bind<QueryBackedSection>();

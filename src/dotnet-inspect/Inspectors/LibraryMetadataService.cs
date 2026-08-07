@@ -130,7 +130,9 @@ internal static class LibraryMetadataService
             {
                 var references = queryResults
                     .RequireValue(AssemblyReferencesQuery.Definition);
-                inspection.AssemblyInfo.References = [.. references.References];
+                inspection.AssemblyInfo.References = references.References.IsEmpty
+                    ? null
+                    : [.. references.References];
                 inspection.AssemblyReferenceInspection = references.Inspection;
             }
 

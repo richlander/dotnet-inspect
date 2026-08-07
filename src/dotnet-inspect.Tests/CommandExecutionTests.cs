@@ -11879,6 +11879,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_ZeroReferences_PreservesOmittedJsonField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            "Signals",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\"references\":", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformSignals_DownloadsPdbByDefault()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S", "Signals");
