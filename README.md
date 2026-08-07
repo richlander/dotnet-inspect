@@ -48,8 +48,9 @@ The repository launchers install and track the latest .NET 11 SDK with dotnetup,
 then run the requested `dotnet` command through command isolation:
 
 ```powershell
-.\eng\dotnet.cmd --version
-.\eng\dotnet.cmd build dotnet-inspect.slnx -c Release
+& .\eng\dotnet.ps1 --version
+& .\eng\dotnet.ps1 build dotnet-inspect.slnx -c Release
+& .\eng\dotnet.ps1 run --project src\dotnet-inspect.Tests -c Release '--' '-v:q'
 ```
 
 ```bash
@@ -61,8 +62,9 @@ The launchers install `dotnetup` under `$HOME/.local/bin` by default. Set
 `DOTNETUP_INSTALL_DIR` to choose another location. They do not alter `PATH`,
 shell startup files, or the centrally installed SDK. CI continues to use
 `actions/setup-dotnet` because the runner is already an isolated environment.
-The Windows `.cmd` entry point delegates to `dotnet.ps1` while preserving the
-`--` separator used to pass arguments through `dotnet run`.
+On Windows, invoke `dotnet.ps1` directly from PowerShell. Quote the bare `--`,
+colon-form options such as `-v:q` or `-p:Value=x`, and values containing
+PowerShell metacharacters so PowerShell passes each one as a single argument.
 
 If dotnetup is already installed and you want a temporary shell/process
 override instead, evaluate its supported environment script:
