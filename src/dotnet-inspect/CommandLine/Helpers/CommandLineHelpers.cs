@@ -72,19 +72,26 @@ public static class CommandLineHelpers
     /// <summary>
     /// Resolves a package ID prefix and merges with existing packages.
     /// </summary>
-    public static async Task<string[]> MergeWithPrefixPackagesAsync(string[] packages, string? prefix, bool verbose)
+    public static async Task<string[]> MergeWithPrefixPackagesAsync(
+        string[] packages,
+        string? prefix,
+        bool verbose,
+        NuGetSourceOptions? sourceOptions)
     {
         if (prefix == null)
             return packages;
 
-        var prefixPackages = await ResolvePrefixPackagesAsync(prefix, verbose);
+        var prefixPackages = await ResolvePrefixPackagesAsync(prefix, verbose, sourceOptions);
         return [.. packages, .. prefixPackages];
     }
 
     /// <summary>
     /// Resolves a package ID prefix to a list of matching package names via NuGet search.
     /// </summary>
-    private static async Task<string[]> ResolvePrefixPackagesAsync(string prefix, bool verbose)
+    private static async Task<string[]> ResolvePrefixPackagesAsync(
+        string prefix,
+        bool verbose,
+        NuGetSourceOptions? sourceOptions)
     {
         Action<string>? log = CreateVerboseLogger(verbose);
         var client = HttpClientFactory.Shared;
@@ -94,7 +101,11 @@ public static class CommandLineHelpers
         List<NuGetSearchResult> results;
         try
         {
-            results = await NuGetSearchService.SearchByPrefixAsync(client, prefix, log: log);
+            results = await NuGetSearchService.SearchByPrefixAsync(
+                client,
+                prefix,
+                log: log,
+                sourceOptions: sourceOptions);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException
             or InvalidOperationException or TaskCanceledException)

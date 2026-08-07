@@ -81,24 +81,6 @@ public sealed class PackageStoreTests : IDisposable
 
         Assert.Null(store.TryGetCached("Foo.Bar", "2.0.0", [publicFeedKey]));
         Assert.NotNull(store.TryGetCached("Foo.Bar", "2.0.0", [publicFeedKey, privateFeedKey]));
-        Assert.Null(store.TryGetLatestCachedVersion("Foo.Bar", [publicFeedKey]));
-        Assert.Equal("2.0.0", store.TryGetLatestCachedVersion("Foo.Bar", [privateFeedKey]));
-    }
-
-    [Fact]
-    public async Task InMemoryPackageStore_TryGetLatestCachedVersion_IgnoresPrerelease()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var store = new InMemoryPackageStore();
-
-        foreach (var version in new[] { "2.0.0", "2.1.0", "3.0.0-beta" })
-        {
-            using var stream = new MemoryStream(MakeNupkg("Example"));
-            await store.CommitAsync("Foo.Bar", version, TestSourceKey, stream, ct);
-        }
-
-        Assert.Equal("2.1.0", store.TryGetLatestCachedVersion("Foo.Bar", [TestSourceKey]));
-        Assert.Null(store.TryGetLatestCachedVersion("Unknown.Package", [TestSourceKey]));
     }
 
     [Fact]
@@ -130,8 +112,6 @@ public sealed class PackageStoreTests : IDisposable
         Assert.NotNull(cached);
         Assert.Equal(committed.RootPath, cached!.RootPath);
         Assert.True(cached.FromCache);
-
-        Assert.Equal("1.0.0", store.TryGetLatestCachedVersion("example.package", [TestSourceKey]));
     }
 
     [Theory]

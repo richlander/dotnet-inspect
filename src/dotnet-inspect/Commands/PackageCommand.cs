@@ -298,7 +298,7 @@ public class PackageCommand
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
-                    Console.WriteLine(versionQueryPinned);
+                    WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -326,7 +326,7 @@ public class PackageCommand
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
                     else
-                        Console.WriteLine(versionQueryPinned);
+                        WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -335,25 +335,6 @@ public class PackageCommand
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
-            }
-
-            // Cache-first for bare --version (Limit==1 && !ForceLatest):
-            // check local caches before hitting NuGet, matching router behavior.
-            // Skipped under --include-unlisted: that flag requires the listing-aware path below
-            // (a locally-cached single version carries no listed/unlisted status column).
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
-                && !options.IncludeUnlisted)
-            {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
-                    normalizedName,
-                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
-                if (cachedVersion != null)
-                {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
-                        return cachedLatestExit;
-                    Console.WriteLine(cachedVersion);
-                    return 0;
-                }
             }
 
             if (options.Limit == 1 && options.ForceLatest)
@@ -385,7 +366,45 @@ public class PackageCommand
                     return 0;
                 }
 
-                Console.WriteLine(latest);
+                WriteSingleVersion(latest, options);
+                return 0;
+            }
+
+            if (versionQueryPinned is null
+                && options.Limit == 1
+                && !options.IncludeUnlisted
+                && !options.ListVersionsWithFeed)
+            {
+                List<string>? singleVersions =
+                    await PackageExtractor.GetSingleVersionListingAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    options.IncludePrerelease,
+                    logger.Log,
+                    options.SourceOptions);
+                if (singleVersions is null)
+                {
+                    CommandError.Write(
+                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        singleVersions.Count,
+                        out var cachedLatestExit))
+                {
+                    return cachedLatestExit;
+                }
+
+                OutputFormatter.WriteStringList(
+                    singleVersions,
+                    "Version",
+                    "Version",
+                    options.Tsv,
+                    options.Jsonl,
+                    Console.Out);
                 return 0;
             }
 
@@ -766,6 +785,17 @@ public class PackageCommand
             }
         }
     }
+
+    private static void WriteSingleVersion(
+        string version,
+        InspectionOptions options)
+        => OutputFormatter.WriteStringList(
+            [version],
+            "Version",
+            "Version",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out);
 
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
@@ -2979,7 +3009,12 @@ public class PackageCommand
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client, group.Dependencies, tfm, globalSeen, logger.Log);
+            client,
+            group.Dependencies,
+            tfm,
+            globalSeen,
+            logger.Log,
+            options.SourceOptions);
 
         var view = new PackageDependenciesView
         {
