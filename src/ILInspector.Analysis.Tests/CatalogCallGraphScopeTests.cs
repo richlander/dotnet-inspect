@@ -201,7 +201,7 @@ public class CatalogCallGraphScopeTests
                 GraphCorrespondenceKind.Incomplete,
                 evidence.Kind));
         Assert.Equal(
-            GraphCorrespondenceKind.Indeterminate,
+            GraphCorrespondenceKind.Incomplete,
             callers.GraphEvidence?.Kind);
         Assert.DoesNotContain(
             Flatten(callers),

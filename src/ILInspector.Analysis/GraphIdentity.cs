@@ -178,6 +178,14 @@ public sealed class GraphNodeEvidence
     public GraphCorrespondenceKind Kind => Correspondence switch
     {
         CatalogMemberJoinProjection.Issued issued
+            when issued.Evidence.Any(static evidence =>
+                evidence
+                    is MemberCorrespondenceEvidence.UnresolvedBinding
+                    {
+                        Outcome: TypeResolutionOutcome.Unavailable,
+                    }) =>
+            GraphCorrespondenceKind.Incomplete,
+        CatalogMemberJoinProjection.Issued issued
             when issued.Key.Kind == CatalogMemberCorrespondenceKind.Exact =>
             GraphCorrespondenceKind.Exact,
         CatalogMemberJoinProjection.Issued =>

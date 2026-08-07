@@ -120,6 +120,43 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void AssemblyGroup_VersionSkewedRootRequiresIdentityPolicy()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        ResolvedAssemblyReference root =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "VersionSkewed.Library",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    null),
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "version-skewed group binding test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(root, (IAssemblyBindingPolicy)MissingPolicy.Instance)]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    root.Identity.Name,
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)),
+            AssemblyBindingOrigin.FromAssembly(root),
+            AssemblyResolutionScope.Any);
+
+        var unavailable = Assert.IsType<
+            AssemblyBindingSelection.Unavailable>(
+                group.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+    }
+
+    [Fact]
     public void Resolve_PlatformReference_RollsForwardToInstalledAssembly()
     {
         var current = typeof(System.Data.Common.DbDataReader).Assembly.GetName();
@@ -169,6 +206,17 @@ public class AssemblyDependencyResolverTests
             SelectionCount++;
             return AssemblyBindingSelection.Found(selected);
         }
+    }
+
+    sealed class MissingPolicy : IAssemblyBindingPolicy
+    {
+        internal static MissingPolicy Instance { get; } = new();
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.NotFound();
     }
 
     [Fact]

@@ -84,8 +84,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             return intrinsicSelection.Value;
         }
 
-        if (request.Target
-            is AssemblyBindingTarget.AssemblyReference reference)
+        AssemblyBindingTarget.AssemblyReference? reference =
+            request.Target as AssemblyBindingTarget.AssemblyReference;
+        if (reference is not null)
         {
             ImmutableArray<ResolvedAssemblyReference> matches =
             [
@@ -99,6 +100,14 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         AssemblyBindingSelection selection = policy.Select(request);
+        if (selection is AssemblyBindingSelection.Missing
+            && reference is not null
+            && IdentityMismatchSelection(reference.Identity)
+                is { } mismatch)
+        {
+            selection = mismatch;
+        }
+
         switch (selection)
         {
             case AssemblyBindingSelection.Selected selected:
@@ -114,6 +123,27 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
         }
 
         return selection;
+    }
+
+    AssemblyBindingSelection? IdentityMismatchSelection(
+        AssemblyReferenceIdentity requested)
+    {
+        ImmutableArray<ResolvedAssemblyReference> candidates =
+        [
+            .. _roots.Where(root =>
+                string.Equals(
+                    root.Identity.Name,
+                    requested.Name,
+                    StringComparison.OrdinalIgnoreCase)),
+        ];
+        return candidates.Length switch
+        {
+            0 => null,
+            1 => AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.IdentityPolicyRequired)),
+            _ => AssemblyBindingSelection.Multiple(candidates),
+        };
     }
 
     Lazy<AssemblyBindingSelection> AddIntrinsicSelection(

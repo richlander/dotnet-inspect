@@ -114,6 +114,7 @@ into a display string or a durable identifier.
 | `GraphNodeStorageKey` | One physical graph occurrence | Total definition or call-site storage identity from acquisition registration, MVID, metadata token, and call-site coordinates | Logical member correspondence, display, or persistence |
 | `GraphNodeIdentity` | One graph projection domain | A closed choice of physical storage, catalog correspondence, or typed structural fallback identity | A string key, cross-generation persistence, or permission to mix domains |
 | `GraphNodeEvidence` and `GraphEdgeEvidence` | One retained graph generation | Which physical occurrences support a logical node/edge and whether correspondence was exact, indeterminate, or incomplete | A reason to discard unavailable evidence or count call sites as logical nodes |
+| `CatalogCallGraphDiagnostics` | One catalog graph snapshot | Stable incomplete-node and incomplete-edge counts that may outlive a temporary graph generation | Catalog currency, failure fabrication, or a replacement for retained physical evidence |
 | `CatalogCallGraphScope` | One fixed assembly group and catalog generation | One unioned correspondence acquisition and one physical graph shared by caller, callee, and format-neutral projection queries | Assembly discovery, presentation, or reuse after release/disposal |
 
 #### Current `ILInspector.Metadata` single-image declaration

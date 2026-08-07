@@ -48,7 +48,11 @@ public enum CallGraphTier
 public sealed record MemberCallGraphView(
     CallGraphTier Tier,
     Analysis.CallTreeNode? CalleeRoot,
-    Analysis.CallTreeNode? CallerRoot);
+    Analysis.CallTreeNode? CallerRoot)
+{
+    public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
+        Analysis.CatalogCallGraphDiagnostics.Empty;
+}
 
 /// <summary>
 /// Progressive acquisition seam for a single member's call graph (issue #3266). Serves the graph in
@@ -211,7 +215,13 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
             scope,
             maxDepth: _depth,
             maxNodes: _maxNodes);
-        return new MemberCallGraphView(CallGraphTier.CrossLibrary, calleeRoot, callerRoot);
+        return new MemberCallGraphView(
+            CallGraphTier.CrossLibrary,
+            calleeRoot,
+            callerRoot)
+        {
+            Diagnostics = scope.Diagnostics,
+        };
     }
 
     /// <summary>

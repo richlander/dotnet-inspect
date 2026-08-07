@@ -165,15 +165,28 @@ public sealed class MethodBodyInspectionSession
     /// an empty list therefore preserves the requested catalog identity and ordering domain
     /// without adding another assembly.
     /// </summary>
-    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession>? scopes)
+    public Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes) =>
+        CallerTree(methodToken, scopes, out _);
+
+    public Analysis.CallTreeNode CallerTree(
+        int methodToken,
+        IReadOnlyList<MethodBodyInspectionSession>? scopes,
+        out Analysis.CatalogCallGraphDiagnostics diagnostics)
     {
         if (scopes is null)
+        {
+            diagnostics = Analysis.CatalogCallGraphDiagnostics.Empty;
             return BodyIndex.BuildCallerTree(methodToken);
+        }
 
         using Analysis.CatalogCallGraphScope scope =
             CreateCallGraphScope([this, .. scopes]);
-        return WithoutGraphEvidence(
-            BodyIndex.BuildCallerTree(methodToken, scope));
+        Analysis.CallTreeNode tree =
+            BodyIndex.BuildCallerTree(methodToken, scope);
+        diagnostics = scope.Diagnostics;
+        return WithoutGraphEvidence(tree);
     }
 
     internal Analysis.CallTreeNode CallerTree(

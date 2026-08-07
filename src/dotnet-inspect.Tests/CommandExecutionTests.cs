@@ -6553,6 +6553,47 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-version-skew-").FullName;
+        try
+        {
+            string caller =
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+            File.Copy(
+                caller,
+                Path.Combine(directory, Path.GetFileName(caller)));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath(),
+                "-m",
+                "Api.Ping",
+                "--index",
+                "1",
+                "-S",
+                "Call Graph",
+                "--bin",
+                directory,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Call Graph", output);
+            Assert.DoesNotContain("Shared.Entry.Run", output);
+            Assert.Contains(
+                "Warning: Call graph results are incomplete because one or more caller-scope assembly references could not be fully resolved.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Member_BareNameCallersWithCallerScope_AutoSelectsSingleOverload()
     {
         var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;

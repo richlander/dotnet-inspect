@@ -1217,6 +1217,15 @@ public static class ApiOutputFormatter
             [.. degraded.Select(signature => $"- {signature}")]);
     }
 
+    internal static void WriteCallGraphWarning(TypeView view)
+    {
+        if (!view.CallGraphIncomplete)
+            return;
+
+        CommandError.WriteWarning(
+            "Call graph results are incomplete because one or more caller-scope assembly references could not be fully resolved.");
+    }
+
     private static string? SignatureDecodeMarker(ApiMember member)
         => member.SignatureDecodeStatus is SignatureDecodeStatus.Degraded
             ? "degraded"
@@ -1577,8 +1586,12 @@ public static class ApiOutputFormatter
             // One bidirectional graph: inbound callers and outbound callees around the selected
             // member. The projection collapses the two trees onto shared node identity, so a member
             // that is both a caller and a callee is one node rather than two unrelated subtrees.
+            Analysis.CallTreeNode callerTree =
+                analysisInspection.BuildCallerTree(graphToken);
+            view.CallGraphIncomplete =
+                analysisInspection.CallGraphDiagnostics.IsIncomplete;
             var projection = ILInspector.CallGraph.CallGraphProjection.Create(
-                analysisInspection.BuildCallerTree(graphToken),
+                callerTree,
                 analysisInspection.BuildCallTree(graphToken));
             // A lone focus node with no edges is the empty state, not a graph.
             if (projection.Edges.Length > 0)

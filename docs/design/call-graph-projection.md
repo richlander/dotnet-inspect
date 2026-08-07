@@ -175,9 +175,12 @@ the outbound half immediately and fill in the expensive tiers as they land:
 The layer names name the tier that was unlocked, not a direction: at `depth > 1`
 the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
-`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`), so a host renders
-them with its own per-section tree rendering *or* projects them with
+`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
+host renders them with its own per-section tree rendering *or* projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
+`Diagnostics` is a stable count summary distilled before any temporary catalog
+scope is released. A host can therefore disclose incomplete correspondence
+without retaining generation-bound graph evidence or rebuilding the graph.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library

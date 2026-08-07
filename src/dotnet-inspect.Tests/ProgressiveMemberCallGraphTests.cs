@@ -19,6 +19,7 @@ public class ProgressiveMemberCallGraphTests
 {
     static string CallerPath => FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
     static string TargetPath => FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+    static string TargetV2Path => FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
 
     static readonly Func<string, IAssemblyReferenceResolver?> NullResolver = _ => null;
     static readonly Func<string, IAssemblyReferenceResolver?> Resolver =
@@ -110,6 +111,26 @@ public class ProgressiveMemberCallGraphTests
 
         // Full intra-assembly build surfaces Run's own caller.
         Assert.Contains(view.CallerRoot!.Children, child => child.Member.Name == "RunOuter");
+    }
+
+    [Fact]
+    public void CrossLibrary_VersionSkewRetainsIncompleteDiagnostics()
+    {
+        int ping = MemberToken(TargetV2Path, "Api", "Ping");
+        using var graph = ProgressiveMemberCallGraph.Open(
+            TargetV2Path,
+            ping,
+            NullResolver,
+            [CallerPath]);
+
+        MemberCallGraphView view = graph.CrossLibrary();
+
+        Assert.Equal(CallGraphTier.CrossLibrary, view.Tier);
+        Assert.DoesNotContain(
+            view.CallerRoot!.Children,
+            child => child.Member.Name == "Run");
+        Assert.True(view.Diagnostics.IsIncomplete);
+        Assert.True(view.Diagnostics.IncompleteEdgeCount > 0);
     }
 
     // Once the full build has landed, requesting the callee tier reuses it (no second build) and the

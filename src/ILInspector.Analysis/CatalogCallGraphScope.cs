@@ -46,6 +46,20 @@ public sealed class GraphEdgeEvidence
 }
 
 /// <summary>
+/// Stable counts of graph evidence that could not establish complete catalog
+/// correspondence.
+/// </summary>
+public sealed record CatalogCallGraphDiagnostics(
+    int IncompleteNodeCount,
+    int IncompleteEdgeCount)
+{
+    public static CatalogCallGraphDiagnostics Empty { get; } = new(0, 0);
+
+    public bool IsIncomplete =>
+        IncompleteNodeCount > 0 || IncompleteEdgeCount > 0;
+}
+
+/// <summary>
 /// Catalog-owned identity and storage domain for one fixed assembly group.
 /// Signature plans, resolution, physical graph storage, and both traversal
 /// directions are built once and reused until the scope is released.
@@ -152,6 +166,7 @@ public sealed class CatalogCallGraphScope : IDisposable
 
     public int StorageNodeCount => Graph.StorageNodeCount;
     public int StorageEdgeCount => Graph.StorageEdgeCount;
+    public CatalogCallGraphDiagnostics Diagnostics => Graph.Diagnostics;
 
     public CallTreeNode BuildCallerTree(
         LibraryBodyIndex root,
@@ -258,6 +273,9 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly ImmutableArray<StoredDefinition> _definitions;
         readonly ImmutableArray<StoredCallSite> _callSites;
         readonly ImmutableArray<StoredEdge> _edges;
+        readonly ImmutableArray<GraphNodeEvidence> _incompleteNodes;
+        readonly ImmutableArray<GraphEdgeEvidence> _incompleteEdges;
+        readonly CatalogCallGraphDiagnostics _diagnostics;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredDefinition>>
             _definitionsByIdentity;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
@@ -281,6 +299,31 @@ public sealed class CatalogCallGraphScope : IDisposable
             _definitions = definitions;
             _callSites = callSites;
             _edges = edges;
+            _incompleteNodes =
+            [
+                .. definitions
+                    .Select(definition => definition.Evidence)
+                    .Concat(callSites.Select(callSite => callSite.Evidence))
+                    .Where(evidence =>
+                        evidence.Kind == GraphCorrespondenceKind.Incomplete),
+            ];
+            _incompleteEdges =
+            [
+                .. edges
+                    .Where(edge =>
+                        edge.Caller.Evidence.Kind
+                            == GraphCorrespondenceKind.Incomplete
+                        || edge.Callee.Evidence.Kind
+                            == GraphCorrespondenceKind.Incomplete)
+                    .Select(edge => new GraphEdgeEvidence(
+                        edge.Caller.Evidence,
+                        edge.Callee.Evidence,
+                        edge.Call.Kind,
+                        edge.Call.InLoop)),
+            ];
+            _diagnostics = new(
+                _incompleteNodes.Length,
+                _incompleteEdges.Length);
             _definitionByLocation = definitions.ToDictionary(
                 definition =>
                     (definition.Participant.Index, definition.Method.MetadataToken));
@@ -320,28 +363,11 @@ public sealed class CatalogCallGraphScope : IDisposable
         internal int StorageNodeCount =>
             _definitions.Length + _callSites.Length;
         internal int StorageEdgeCount => _edges.Length;
+        internal CatalogCallGraphDiagnostics Diagnostics => _diagnostics;
         internal ImmutableArray<GraphNodeEvidence> IncompleteNodes =>
-        [
-            .. _definitions
-                .Select(definition => definition.Evidence)
-                .Concat(_callSites.Select(callSite => callSite.Evidence))
-                .Where(evidence =>
-                    evidence.Kind == GraphCorrespondenceKind.Incomplete),
-        ];
+            _incompleteNodes;
         internal ImmutableArray<GraphEdgeEvidence> IncompleteEdges =>
-        [
-            .. _edges
-                .Where(edge =>
-                    edge.Caller.Evidence.Kind
-                        == GraphCorrespondenceKind.Incomplete
-                    || edge.Callee.Evidence.Kind
-                        == GraphCorrespondenceKind.Incomplete)
-                .Select(edge => new GraphEdgeEvidence(
-                    edge.Caller.Evidence,
-                    edge.Callee.Evidence,
-                    edge.Call.Kind,
-                    edge.Call.InLoop)),
-        ];
+            _incompleteEdges;
 
         internal static ScopeGraph Create(
             TypeResolutionCatalog catalog,

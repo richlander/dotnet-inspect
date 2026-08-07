@@ -1,4 +1,5 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Fixtures;
 using ILInspector.CallGraph;
 using Analysis = ILInspector.Analysis;
 
@@ -153,5 +154,31 @@ public class MethodBodyInspectionSessionTests
 
         Assert.Equal(method.Name, projection.Focus.Member.Name);
         Assert.True(projection.Focus.Member.HasThis);
+    }
+
+    [Fact]
+    public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
+    {
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        Analysis.MethodIdentity ping =
+            target.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name == "Api"
+                && method.Name == "Ping"
+                && method.ParameterTypes.Length == 0);
+
+        Analysis.CallTreeNode tree = target.CallerTree(
+            ping.MetadataToken,
+            [caller],
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+        Assert.Empty(tree.Children);
+        Assert.True(diagnostics.IsIncomplete);
+        Assert.True(diagnostics.IncompleteNodeCount > 0);
+        Assert.True(diagnostics.IncompleteEdgeCount > 0);
     }
 }
