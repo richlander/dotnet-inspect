@@ -44,24 +44,26 @@ it or prepend another `dotnet` to PATH unless that is intentional for your
 machine. Use dotnetup in command-isolation mode, or ask your system
 administrator which setup is appropriate.
 
-Install and track the latest preview SDK with dotnetup:
+The repository launchers install and track the latest .NET 11 SDK with dotnetup,
+then run the requested `dotnet` command through command isolation:
 
-```bash
-curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
-bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-dotnetup sdk install preview --interactive false
+```powershell
+.\eng\dotnet.ps1 --version
+.\eng\dotnet.ps1 build dotnet-inspect.slnx -c Release
 ```
 
-Then run repo commands through dotnetup when you want the preview SDK without
-making it your shell default:
-
 ```bash
-dotnetup dotnet build dotnet-inspect.slnx -c Release
-dotnetup dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+eng/dotnet.sh --version
+eng/dotnet.sh build dotnet-inspect.slnx -c Release
 ```
 
-For a temporary shell/process override, evaluate dotnetup's supported
-environment script before running repo commands:
+The launchers install `dotnetup` under `$HOME/.local/bin` by default. Set
+`DOTNETUP_INSTALL_DIR` to choose another location. They do not alter `PATH`,
+shell startup files, or the centrally installed SDK. CI continues to use
+`actions/setup-dotnet` because the runner is already an isolated environment.
+
+If dotnetup is already installed and you want a temporary shell/process
+override instead, evaluate its supported environment script:
 
 ```bash
 eval "$(dotnetup print-env-script --shell bash)"
