@@ -339,6 +339,12 @@ public class ApiInventoryQueryTests
         Assert.Equal("method", staticConstructor.Kind);
 
         var result = ApiInventoryQuery.Members(type);
+        var allAccessibilities = result.AccessibilityFacets
+            .Select(facet => facet.Id)
+            .ToList();
+        result = ApiInventoryQuery.Members(
+            type,
+            new ApiMemberInventoryRequest(AccessibilityFacetIds: allAccessibilities));
         var constructorFacet = Assert.Single(
             result.KindFacets,
             facet => facet.SingularLabel == "constructor");
@@ -349,13 +355,17 @@ public class ApiInventoryQueryTests
         Assert.Contains(
             ApiInventoryQuery.Members(
                 type,
-                new ApiMemberInventoryRequest([constructorFacet.Id]))
+                new ApiMemberInventoryRequest(
+                    [constructorFacet.Id],
+                    allAccessibilities))
             .Members,
             member => ReferenceEquals(member, staticConstructor));
         Assert.DoesNotContain(
             ApiInventoryQuery.Members(
                 type,
-                new ApiMemberInventoryRequest([methodFacet.Id]))
+                new ApiMemberInventoryRequest(
+                    [methodFacet.Id],
+                    allAccessibilities))
             .Members,
             member => ReferenceEquals(member, staticConstructor));
     }
