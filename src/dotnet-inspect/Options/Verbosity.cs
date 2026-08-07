@@ -11,7 +11,7 @@ public enum Verbosity
     Quiet,
 
     /// <summary>
-    /// Summary + key metadata (compact columns).
+    /// The command's primary information section.
     /// </summary>
     Minimal,
 

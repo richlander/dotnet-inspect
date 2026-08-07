@@ -1,6 +1,8 @@
 # Bare `-S` default view
 
-Bare `-S` renders a curated high-density view. It is not discovery; use `-D` to discover effective sections and columns.
+Bare `-S` renders a curated high-density view. It is not discovery; use `-D`
+for fast orientation and `-D --effective` when actual producer-backed
+effectiveness is required.
 
 This view is a high-density preset for the question an agent or human is most likely asking after the default output is too thin but before exhaustive inspection is warranted. It should answer one bullseye question with a small set of stable sections.
 
@@ -14,10 +16,12 @@ A default preset should:
 - prefer local or bounded work;
 - prefer summary variants when they answer the question;
 - avoid exhaustive inventories unless they are the point of the question;
-- avoid compact context rows; focused `-S Section` owns that framing;
-- stay distinct from `-S @All`, which is the exhaustive document view.
+- avoid compact context rows outside `-v:q`;
+- stay distinct from explicitly selected domain categories.
 
-Sections are stable content units. Presets decide where those sections appear. The same section can appear in the default view, focused selection, `-S @All`, and discovery output.
+Sections are stable content units. Presets decide where those sections appear.
+The same section can appear in the default view, focused selection, an authored
+category, and discovery output.
 
 ## Current presets
 
@@ -47,8 +51,9 @@ Some commands or contexts should not get a default preset until there is a clear
 | default / `-v:m` | What is the quickest useful answer? |
 | bare `-S` | What is the best dense evidence bundle? |
 | `-D` | What can I select or project? |
+| `-D --effective` | Which base sections actually have data after full probing? |
 | `-S Section` | Show this specific evidence. |
-| `-S @All` | Show the exhaustive document coherently. |
+| `-S @Category` | Show one authored evidence domain. |
 
 ## Maintenance guidance
 
