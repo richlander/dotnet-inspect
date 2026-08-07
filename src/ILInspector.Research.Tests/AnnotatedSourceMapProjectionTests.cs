@@ -297,6 +297,16 @@ public class AnnotatedSourceMapProjectionTests
             map.UnplacedAnnotations,
             annotation => annotation.Descriptor == "test.header.\\uDC00"
                 && annotation.Detail == "header.\\uD800");
+        Assert.Contains(
+            map.UnplacedAnnotations,
+            annotation => annotation.Descriptor == "test.body.\\\\uD800"
+                && annotation.Detail == "literal.\\\\uD800");
+        Assert.Equal(
+            map.UnplacedAnnotations.Count,
+            map.UnplacedAnnotations
+                .Select(annotation => (annotation.Descriptor, annotation.Detail))
+                .Distinct()
+                .Count());
         var placed = map.Lines
             .SelectMany(line => line.Annotations)
             .Where(annotation => annotation.Descriptor == "test.placed.\\uD800")
@@ -592,17 +602,20 @@ public class AnnotatedSourceMapProjectionTests
             new("test.body.\uD800", AnnotationCategory.Cost, "body");
         static readonly AnnotationDescriptor Placed =
             new("test.placed.\uD800", AnnotationCategory.Cost, "placed");
+        static readonly AnnotationDescriptor Literal =
+            new("test.body.\\uD800", AnnotationCategory.Cost, "literal");
         static readonly AnnotationDescriptor Header =
             new("test.header.\uDC00", AnnotationCategory.Cost, "header");
 
         public string Name => "malformed-text";
-        public IReadOnlyList<string> Produces => [Body.Id, Placed.Id, Header.Id];
+        public IReadOnlyList<string> Produces => [Body.Id, Placed.Id, Literal.Id, Header.Id];
         public IReadOnlyList<string> DependsOn => [];
         public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
             =>
             [
                 new Annotation(Body, SourceOffset: -1, Detail: "body.😀\uDC00"),
                 new Annotation(Placed, SourceOffset: 0, Detail: "placed.😀\uDC00"),
+                new Annotation(Literal, SourceOffset: -1, Detail: "literal.\\uD800"),
             ];
         public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
             => [new ResearchHeaderFact(Header, "header.\uD800")];

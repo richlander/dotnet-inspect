@@ -379,6 +379,8 @@ an explicit raw-map request reports the diagnostic and fails. IL string operands
 unpaired UTF-16 surrogates so JSON replay preserves every code unit rather than
 silently substituting U+FFFD. Portable fact identifiers and details apply the
 same containment, including values supplied by custom fact producers.
+Literal backslashes are escaped too, keeping that encoding distinct from a
+contained surrogate and therefore reversible.
 Production is opt-in and uses
 an isolated import: printing and style lenses mutate IR, so sharing that graph
 would let selecting the payload alter sibling projections.

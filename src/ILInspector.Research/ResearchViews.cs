@@ -634,7 +634,11 @@ public static partial class ResearchViews
         for (int i = 0; i < value.Length; i++)
         {
             char current = value[i];
-            if (char.IsHighSurrogate(current)
+            if (current == '\\')
+            {
+                result.Append("\\\\");
+            }
+            else if (char.IsHighSurrogate(current)
                 && i + 1 < value.Length
                 && char.IsLowSurrogate(value[i + 1]))
             {
