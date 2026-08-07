@@ -67,6 +67,9 @@ public static class MethodCorrespondenceResolver
                 new StructuralSignatureBuilder(targetReader);
             var matchingDeclaringTypes =
                 new Dictionary<TypeDefinitionHandle, bool>();
+            var matchingSignatures =
+                new Dictionary<StructuralEncodedSignature, bool>(
+                    ReferenceEqualityComparer.Instance);
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod = targetReader.GetMethodDefinition(targetHandle);
@@ -87,7 +90,19 @@ public static class MethodCorrespondenceResolver
 
                 StructuralMethodKey targetKey =
                     targetSignatures.BuildMethodKey(targetMethod);
-                if (sourceKey.Component.Equals(targetKey.Component))
+                if (!matchingSignatures.TryGetValue(
+                        targetKey.Component.Signature,
+                        out bool signatureMatches))
+                {
+                    signatureMatches = sourceKey.Component.Signature.Equals(
+                        targetKey.Component.Signature);
+                    matchingSignatures.Add(
+                        targetKey.Component.Signature,
+                        signatureMatches);
+                }
+                if (signatureMatches
+                    && sourceKey.Component.LocalKey.Equals(
+                        targetKey.Component.LocalKey))
                 {
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
                 }

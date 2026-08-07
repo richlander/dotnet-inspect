@@ -272,19 +272,29 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 continue;
             }
 
-            foreach (var (component, handle) in oldGroup.Methods)
+            foreach (var (signature, oldSignatureGroup) in oldGroup.Signatures)
             {
-                if (oldGroup.AmbiguousMethods.Contains(component)
-                    || newGroup.AmbiguousMethods.Contains(component)
-                    || !newGroup.Methods.TryGetValue(
-                        component,
-                        out var counterpart))
+                if (!newGroup.Signatures.TryGetValue(
+                        signature,
+                        out var newSignatureGroup))
                 {
                     continue;
                 }
 
-                oldMethods[handle] = oldIndex.MethodNames[handle];
-                newMethods[counterpart] = newIndex.MethodNames[counterpart];
+                foreach (var (localKey, handle) in oldSignatureGroup.Methods)
+                {
+                    if (oldSignatureGroup.AmbiguousMethods.Contains(localKey)
+                        || newSignatureGroup.AmbiguousMethods.Contains(localKey)
+                        || !newSignatureGroup.Methods.TryGetValue(
+                            localKey,
+                            out var counterpart))
+                    {
+                        continue;
+                    }
+
+                    oldMethods[handle] = oldIndex.MethodNames[handle];
+                    newMethods[counterpart] = newIndex.MethodNames[counterpart];
+                }
             }
         }
 
@@ -773,10 +783,19 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                         group = new MethodGroup();
                         methodGroups.Add(key.DeclaringType, group);
                     }
+                    if (!group.Signatures.TryGetValue(
+                            key.Component.Signature,
+                            out var signatureGroup))
+                    {
+                        signatureGroup = new SignatureGroup();
+                        group.Signatures.Add(
+                            key.Component.Signature,
+                            signatureGroup);
+                    }
                     Add(
-                        group.Methods,
-                        group.AmbiguousMethods,
-                        key.Component,
+                        signatureGroup.Methods,
+                        signatureGroup.AmbiguousMethods,
+                        key.Component.LocalKey,
                         methodHandle);
                 }
 
@@ -839,10 +858,16 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         internal sealed class MethodGroup
         {
-            internal Dictionary<StructuralMethodComponent, MethodDefinitionHandle>
+            internal Dictionary<StructuralEncodedSignature, SignatureGroup>
+                Signatures { get; } = [];
+        }
+
+        internal sealed class SignatureGroup
+        {
+            internal Dictionary<StructuralMethodLocalKey, MethodDefinitionHandle>
                 Methods { get; } = [];
 
-            internal HashSet<StructuralMethodComponent> AmbiguousMethods { get; } = [];
+            internal HashSet<StructuralMethodLocalKey> AmbiguousMethods { get; } = [];
         }
 
         /// <summary>
