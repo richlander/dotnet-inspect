@@ -294,8 +294,9 @@ inherits the leak:
   `ReturnType`; invoked *late* from `MetadataFindings.CreateMemberFindingKey`, so
   its key **must be persisted at extraction** or the tuple leaks into the soft key
   and element renames break pairing (both reviewers, round 2, blocking).
-- `TryGetXmlDocMemberIdentity` / `NormalizeXmlDocParameterType` — **NRT erased**,
-  XML-doc `@`/`{…}` syntax; has an NRT strip today but **no** tuple parser. Its
+- `ApiMemberIdentity.TryGetXmlDocMemberIdentity` /
+  `XmlDocumentationNotation.NormalizeParameterType` — **NRT erased**, XML-doc
+  `@`/`{…}` syntax; has an NRT strip today but **no** tuple parser. Its
   persisted projection differs from the Member Index projection (NRT erased vs
   preserved) — they are not the same string.
 - Conversion-operator `~ReturnType` suffix (`NormalizeDynamicToObject(ReturnType)`).
@@ -314,9 +315,10 @@ refinement (NRT `?`, `dynamic`, tuples):
   `== "OpenTelemetry.Trace.TracerProviderBuilder"`, etc.
 - `MethodClassificationScanner` — pointer return detected via
   `ReturnType.Contains('*')`.
-- `NormalizeXmlDocParameterType` — an entire mini type-parser (arrays `[]`,
-  pointers `*`, generic `{…}`, attribute stripping, dynamic scrub) reconstructing
-  structure from the display string; reused by the CLI `XmlDocFileParser`.
+- `XmlDocumentationNotation.NormalizeParameterType` — an entire mini
+  type-parser (arrays `[]`, pointers `*`, generic `{…}`, attribute stripping,
+  dynamic scrub) reconstructing structure from the display string; reused by
+  the CLI `XmlDocFileParser`.
 
 The fix these share is the same one identity needs: a durable, presentation-
 independent **structural type view**, asked structural questions directly instead
