@@ -1,5 +1,6 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Services;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -18,8 +19,16 @@ public class ProgressiveMemberCallGraphTests
 {
     static string CallerPath => FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
     static string TargetPath => FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+    static string TargetV2Path => FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
 
     static readonly Func<string, IAssemblyReferenceResolver?> NullResolver = _ => null;
+    static readonly Func<string, IAssemblyReferenceResolver?> Resolver =
+        path => new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
 
     static int MemberToken(string assemblyPath, string typeName, string methodName)
     {
@@ -41,7 +50,11 @@ public class ProgressiveMemberCallGraphTests
     public void Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
     {
         int run = MemberToken(CallerPath, "Entry", "Run");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, run, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            run,
+            Resolver,
+            [TargetPath]);
 
         MethodBodyInspectionSession.OpenCountForTests = 0;
         var view = graph.Callees();
@@ -64,7 +77,11 @@ public class ProgressiveMemberCallGraphTests
     public void Callees_ScopedFirstPaint_MarksInAssemblyCalleeBounded()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         var view = graph.Callees();
 
@@ -78,7 +95,11 @@ public class ProgressiveMemberCallGraphTests
     public void Callers_RequestedDirectly_BuildsExactlyOneFullIndex()
     {
         int run = MemberToken(CallerPath, "Entry", "Run");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, run, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            run,
+            Resolver,
+            [TargetPath]);
 
         MethodBodyInspectionSession.OpenCountForTests = 0;
         var view = graph.Callers();
@@ -92,13 +113,37 @@ public class ProgressiveMemberCallGraphTests
         Assert.Contains(view.CallerRoot!.Children, child => child.Member.Name == "RunOuter");
     }
 
+    [Fact]
+    public void CrossLibrary_VersionSkewRetainsIncompleteDiagnostics()
+    {
+        int ping = MemberToken(TargetV2Path, "Api", "Ping");
+        using var graph = ProgressiveMemberCallGraph.Open(
+            TargetV2Path,
+            ping,
+            Resolver,
+            [CallerPath]);
+
+        MemberCallGraphView view = graph.CrossLibrary();
+
+        Assert.Equal(CallGraphTier.CrossLibrary, view.Tier);
+        Assert.DoesNotContain(
+            view.CallerRoot!.Children,
+            child => child.Member.Name == "Run");
+        Assert.True(view.Diagnostics.IsIncomplete);
+        Assert.True(view.Diagnostics.IncompleteEdgeCount > 0);
+    }
+
     // Once the full build has landed, requesting the callee tier reuses it (no second build) and the
     // callee tree deepens past the scoped depth-1 bound to the configured depth.
     [Fact]
     public void Callees_AfterFullBuild_ReusesFullIndex_DeepensChain()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         MethodBodyInspectionSession.OpenCountForTests = 0;
         _ = graph.Callers();
@@ -119,7 +164,11 @@ public class ProgressiveMemberCallGraphTests
     public void CrossLibrary_ExpandsCalleeChainAcrossBoundary_TagsSource()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         MethodBodyInspectionSession.OpenCountForTests = 0;
         var view = graph.CrossLibrary();
@@ -140,7 +189,11 @@ public class ProgressiveMemberCallGraphTests
     public void Tiers_StreamInOrder_WithoutDuplicateBuilds()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         MethodBodyInspectionSession.OpenCountForTests = 0;
         var views = graph.Tiers().ToList();
@@ -159,7 +212,10 @@ public class ProgressiveMemberCallGraphTests
     public void Tiers_NoCrossLibraryScope_StopsAtCallers()
     {
         int run = MemberToken(CallerPath, "Entry", "Run");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, run, NullResolver);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            run,
+            NullResolver);
 
         Assert.False(graph.HasCrossLibraryScope);
         Assert.Equal(
@@ -172,7 +228,11 @@ public class ProgressiveMemberCallGraphTests
     public void Roots_RoundTripThroughCallGraphProjection()
     {
         int run = MemberToken(CallerPath, "Entry", "Run");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, run, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            run,
+            Resolver,
+            [TargetPath]);
 
         var view = graph.CrossLibrary();
         var projection = CallGraphProjection.Create(view.CallerRoot, view.CalleeRoot);
@@ -186,7 +246,11 @@ public class ProgressiveMemberCallGraphTests
     public async Task RunAsync_RaisesLayerReadyPerTier_ThenCompleted()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         var layers = new List<CallGraphTier>();
         int completed = 0;
@@ -207,7 +271,11 @@ public class ProgressiveMemberCallGraphTests
     public void RunAsync_CancelInFirstLayer_DoesNotBuildNextTier()
     {
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+        using var graph = ProgressiveMemberCallGraph.Open(
+            CallerPath,
+            runOuter,
+            Resolver,
+            [TargetPath]);
 
         using var cts = new CancellationTokenSource();
         var layers = new List<CallGraphTier>();
