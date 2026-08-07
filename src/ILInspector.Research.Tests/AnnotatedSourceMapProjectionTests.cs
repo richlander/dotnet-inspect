@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
@@ -277,6 +278,38 @@ public class AnnotatedSourceMapProjectionTests
     }
 
     [Fact]
+    public void MalformedFactTextRemainsReplayable()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            Registry: new ResearchFactRegistry(new MalformedTextProducer()),
+            SourceMap: true));
+        var map = Assert.IsType<AnnotatedSourceMap>(projection.SourceMap);
+
+        Assert.Contains(
+            map.UnplacedAnnotations,
+            annotation => annotation.Descriptor == "test.body.\\uD800"
+                && annotation.Detail == "body.😀\\uDC00");
+        Assert.Contains(
+            map.UnplacedAnnotations,
+            annotation => annotation.Descriptor == "test.header.\\uDC00"
+                && annotation.Detail == "header.\\uD800");
+        var placed = map.Lines
+            .SelectMany(line => line.Annotations)
+            .Where(annotation => annotation.Descriptor == "test.placed.\\uD800")
+            .ToArray();
+        Assert.Equal(2, placed.Length);
+        Assert.All(placed, annotation => Assert.Equal("placed.😀\\uDC00", annotation.Detail));
+
+        string json = JsonSerializer.Serialize(map);
+        var replayed = JsonSerializer.Deserialize<AnnotatedSourceMap>(json);
+        Assert.Equal(map, replayed);
+    }
+
+    [Fact]
     public void EmptyPrintedBodyStillCarriesItsIl()
     {
         var map = Map(nameof(AnnotatedTasteFixture.Noop), options: null);
@@ -551,5 +584,27 @@ public class AnnotatedSourceMapProjectionTests
         public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
         public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
             => throw new InvalidOperationException("header failed");
+    }
+
+    sealed class MalformedTextProducer : IResearchFactProducer
+    {
+        static readonly AnnotationDescriptor Body =
+            new("test.body.\uD800", AnnotationCategory.Cost, "body");
+        static readonly AnnotationDescriptor Placed =
+            new("test.placed.\uD800", AnnotationCategory.Cost, "placed");
+        static readonly AnnotationDescriptor Header =
+            new("test.header.\uDC00", AnnotationCategory.Cost, "header");
+
+        public string Name => "malformed-text";
+        public IReadOnlyList<string> Produces => [Body.Id, Placed.Id, Header.Id];
+        public IReadOnlyList<string> DependsOn => [];
+        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context)
+            =>
+            [
+                new Annotation(Body, SourceOffset: -1, Detail: "body.😀\uDC00"),
+                new Annotation(Placed, SourceOffset: 0, Detail: "placed.😀\uDC00"),
+            ];
+        public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
+            => [new ResearchHeaderFact(Header, "header.\uD800")];
     }
 }

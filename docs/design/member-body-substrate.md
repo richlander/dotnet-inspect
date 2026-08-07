@@ -377,7 +377,9 @@ an error rather than a successful empty envelope. Map failure remains scoped to
 that section when it is co-selected, so sibling member sections still render;
 an explicit raw-map request reports the diagnostic and fails. IL string operands escape
 unpaired UTF-16 surrogates so JSON replay preserves every code unit rather than
-silently substituting U+FFFD. Production is opt-in and uses
+silently substituting U+FFFD. Portable fact identifiers and details apply the
+same containment, including values supplied by custom fact producers.
+Production is opt-in and uses
 an isolated import: printing and style lenses mutate IR, so sharing that graph
 would let selecting the payload alter sibling projections.
 

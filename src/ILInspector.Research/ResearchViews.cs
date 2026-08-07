@@ -547,7 +547,7 @@ public static partial class ResearchViews
         {
             if (annotation.Extent is not { } extent)
                 continue;
-            var rebased = annotation with { Extent = Rebase(extent) };
+            var rebased = MakePortable(annotation) with { Extent = Rebase(extent) };
             annotationsByLine[rebased.Extent!.Value.StartLine].Add(rebased);
         }
 
@@ -562,12 +562,12 @@ public static partial class ResearchViews
             foreach (var annotation in line.Annotations)
             {
                 var portable = new PrintedAnnotationSpan(
-                    annotation.Descriptor.Id,
+                    MakePortableText(annotation.Descriptor.Id),
                     annotation.Descriptor.Category.ToString(),
                     annotation.Conditionality,
                     "Instruction",
                     extent,
-                    annotation.Detail,
+                    annotation.Detail is null ? null : MakePortableText(annotation.Detail),
                     annotation.SourceOffset);
                 annotationsByLine[streamLine].Add(portable);
                 var identity = FactIdentity.From(portable);
@@ -580,21 +580,22 @@ public static partial class ResearchViews
         {
             if (annotation.Extent is not null)
                 continue;
-            var identity = FactIdentity.From(annotation);
+            var portable = MakePortable(annotation);
+            var identity = FactIdentity.From(portable);
             if (ilPlacements.GetValueOrDefault(identity) > 0)
                 ilPlacements[identity]--;
             else
-                unplaced.Add(annotation);
+                unplaced.Add(portable);
         }
         foreach (var fact in headerFacts)
         {
             unplaced.Add(new PrintedAnnotationSpan(
-                fact.Descriptor.Id,
+                MakePortableText(fact.Descriptor.Id),
                 fact.Descriptor.Category.ToString(),
                 AnnotationConditionality.Always,
                 "MemberHeader",
                 Extent: null,
-                fact.Detail,
+                fact.Detail is null ? null : MakePortableText(fact.Detail),
                 SourceOffset: -1));
         }
         unplaced.Sort(CompareAnnotations);
@@ -618,6 +619,37 @@ public static partial class ResearchViews
             .Select(region => region with { Extent = Rebase(region.Extent) })
             .ToArray();
         return new AnnotatedSourceMap(lines, nodes, regions, unplaced);
+    }
+
+    static PrintedAnnotationSpan MakePortable(PrintedAnnotationSpan annotation)
+        => annotation with
+        {
+            Descriptor = MakePortableText(annotation.Descriptor),
+            Detail = annotation.Detail is null ? null : MakePortableText(annotation.Detail),
+        };
+
+    static string MakePortableText(string value)
+    {
+        var result = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            char current = value[i];
+            if (char.IsHighSurrogate(current)
+                && i + 1 < value.Length
+                && char.IsLowSurrogate(value[i + 1]))
+            {
+                result.Append(current).Append(value[++i]);
+            }
+            else if (char.IsSurrogate(current))
+            {
+                result.Append("\\u").Append(((int)current).ToString("X4"));
+            }
+            else
+            {
+                result.Append(current);
+            }
+        }
+        return result.ToString();
     }
 
     static int CompareAnnotations(PrintedAnnotationSpan left, PrintedAnnotationSpan right)
