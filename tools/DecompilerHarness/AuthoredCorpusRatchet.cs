@@ -130,7 +130,8 @@ static class AuthoredCorpusRatchet
                 run.MethodologyVersion is not null,
                 run.PoolSha256 is not null || run.CorpusSha256 is not null);
 
-        public int InvalidAttributionMethodology => Methodology >= 2 ? 2 : 1;
+        public int? InvalidAttributionLineage
+            => AuthoredCorpusMethodology.InvalidAttributionLineage(Methodology);
     }
 
     /// <summary>
@@ -266,6 +267,22 @@ static class AuthoredCorpusRatchet
         return null;
     }
 
+    internal static string? RefuseUnknownMethodologies(IReadOnlyList<HistoryRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        foreach (var run in runs)
+        {
+            if (run.MethodologyVersion is { } methodology
+                && !AuthoredCorpusMethodology.IsKnownVersion(methodology))
+            {
+                return $"{run.Date ?? "(undated)"}: methodologyVersion {methodology} is not defined";
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Whether a row's buckets actually account for every evaluated target, at every
     /// level, with counts that could describe a real run.
@@ -333,6 +350,13 @@ static class AuthoredCorpusRatchet
         // the comparison to an older, weaker threshold.
         if (RefuseMalformedIdentities(baselines) is { } malformed)
             return Comparison.Skip($"baseline is malformed ({malformed})");
+        if (RefuseUnknownMethodologies(baselines) is { } unknown)
+            return Comparison.Skip($"baseline is malformed ({unknown})");
+        if (!AuthoredCorpusMethodology.IsKnownVersion(current.Methodology))
+        {
+            return Comparison.Skip(
+                $"current methodologyVersion {current.Methodology} is not defined");
+        }
 
         HistoryRun? baseline = null;
         string? newestMismatch = null;
@@ -416,9 +440,10 @@ static class AuthoredCorpusRatchet
         // and omitting the metric is malformed, not historical. Only rows recorded
         // before the metric existed — which carry no methodologyVersion at all — may
         // omit it, and that is a structural fact about the row rather than a value it
-        // chose. Comparing methodology *values* instead let a reviewer shed the metric
-        // by writing an arbitrary version (999) into an otherwise comparable baseline;
-        // a narrower value comparison would still admit the same trick one version down.
+        // chose. Before unknown methodologies were rejected at the file boundary,
+        // comparing methodology *values* let a reviewer shed the metric by writing an
+        // arbitrary version (999) into an otherwise comparable baseline; a narrower
+        // value comparison would still admit the same trick one version down.
         //
         // The rule holds for *both* rows. Guarding only the baseline left the shorter
         // path open: a reviewer dropped invalidBreakdown from the appended row itself,
@@ -468,12 +493,10 @@ static class AuthoredCorpusRatchet
             metrics.Insert(0, new("valid", baselineValid, currentValid, HigherIsBetter: true));
 
         // Product-defect counts are lower bounds and ratchet only when both sides
-        // measured that specific metric under the same attribution lineage. v3 adds
-        // frontier attribution without changing v2 invalid attribution, so the latter
-        // remains comparable across the v2 -> v3 boundary.
+        // measured that specific metric under the same explicit attribution lineage.
         if (baseline.ProductBodyDefect is { } baselineDefects
             && current.ProductBodyDefect is { } currentDefects
-            && baseline.InvalidAttributionMethodology == current.InvalidAttributionMethodology)
+            && baseline.InvalidAttributionLineage == current.InvalidAttributionLineage)
         {
             metrics.Add(new("productBodyDefect", baselineDefects, currentDefects, HigherIsBetter: false));
         }

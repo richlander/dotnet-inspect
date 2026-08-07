@@ -232,7 +232,7 @@ public class AuthoredCorpusRatchetTests
     }
 
     [Fact]
-    public void Ratchet_V2ToV3KeepsTheUnchangedInvalidMetricComparable()
+    public void Ratchet_V2ToV3RetiresTheChangedInvalidMetric()
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(),
@@ -241,9 +241,9 @@ public class AuthoredCorpusRatchetTests
                 methodology: 3),
             [Row(methodology: 2, productBodyDefect: 326)]);
 
-        Assert.Equal(
-            ["productBodyDefect"],
-            comparison.Regressions.Select(metric => metric.Name));
+        Assert.DoesNotContain(
+            comparison.Metrics,
+            metric => metric.Name == "productBodyDefect");
         Assert.DoesNotContain(
             comparison.Metrics,
             metric => metric.Name == "frontierProductBodyDefect");
@@ -1295,17 +1295,11 @@ public class AuthoredCorpusRatchetTests
         var expected = new List<string> { "valid", "correct", "invalid" };
         var newestMetrics = AuthoredCorpusRatchet.RunMetrics.From(newest);
         var baselineMetrics = AuthoredCorpusRatchet.RunMetrics.From(baseline);
-        if (newestMetrics.InvalidAttributionMethodology == baselineMetrics.InvalidAttributionMethodology)
+        if (newestMetrics.InvalidAttributionLineage == baselineMetrics.InvalidAttributionLineage)
             expected.Add("productBodyDefect");
-        // That gap is now closed. The invalid product metric keeps its v2 lineage
-        // when v3 adds the independent frontier control. The frontier partition is
-        // recorded and charted, but is not a raw-count ratchet: rows can move among
-        // its product, shell, floor, and unclassified buckets without quality
-        // changing. Nothing can re-open the omission path: an unstamped newest row
-        // is refused by
-        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces, and a newest row
-        // that dropped its identity would land in the branch above as a skip, which
-        // this test fails on.
+        // The frontier partition is recorded and charted, but is not a raw-count
+        // ratchet. A newest row that drops its identity lands as a skip, which this
+        // test fails on.
         Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
     }
 
@@ -1756,43 +1750,94 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The tracked store's rows are copied verbatim from a run, and a run stamps the
-    /// methodology constant the code was built with (<c>AuthoredCorpusBenchmark</c>'s
-    /// constant is <see cref="AuthoredCorpusMethodology.Version"/>) — so a row may
-    /// not claim a methodology the code never produced, and may not go unstamped.
-    ///
-    /// <para>Without this, the ratchet's one legitimate reason to drop a metric becomes
-    /// an escape hatch: a reviewer regressed <c>productBodyDefect</c> by 1,000 and hid
-    /// it simply by writing a higher <c>methodologyVersion</c> into the appended row.
-    /// The comparison then read that as a methodology bump, shed the metric, and
-    /// reported no regressions.</para>
+    /// Trend rows must name commits on <c>main</c>, so a methodology-bump PR cannot
+    /// append its own row. The store may trail the code by one version until the
+    /// post-merge evidence follow-up, but it may never claim an unknown/newer version
+    /// or fall multiple revisions behind.
     /// </summary>
     [Fact]
-    public void TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces()
+    public void TrackedHistory_NewestRowIsCurrentOrAwaitingOneMainFollowUp()
     {
         var newest = AuthoredCorpusHistoryCardTests.TrackedHistory()[^1];
 
-        Assert.Equal(AuthoredCorpusMethodology.Version, newest.Methodology);
+        Assert.InRange(
+            newest.Methodology,
+            AuthoredCorpusMethodology.Version - 1,
+            AuthoredCorpusMethodology.Version);
+    }
+
+    [Fact]
+    public void TrackedHistory_MethodologyNeverMovesBackwardOrAheadOfTheCode()
+    {
+        var runs = AuthoredCorpusHistoryCardTests.TrackedHistory();
+
+        Assert.All(
+            runs,
+            run => Assert.InRange(run.Methodology, 1, AuthoredCorpusMethodology.Version));
+        for (int i = 1; i < runs.Count; i++)
+            Assert.True(runs[i - 1].Methodology <= runs[i].Methodology);
+    }
+
+    [Fact]
+    public void CurrentMethodology_HasAnExplicitInvalidAttributionLineage()
+    {
+        Assert.NotNull(
+            AuthoredCorpusMethodology.InvalidAttributionLineage(AuthoredCorpusMethodology.Version));
+        Assert.Null(AuthoredCorpusMethodology.InvalidAttributionLineage(999));
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 3)]
+    public void InvalidAttributionLineages_AreExplicit(int methodology, int expectedLineage)
+    {
+        Assert.Equal(
+            expectedLineage,
+            AuthoredCorpusMethodology.InvalidAttributionLineage(methodology));
+    }
+
+    [Fact]
+    public void Ratchet_CompleteUnknownMethodologyBaselineIsRefused()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 3),
+            [Row(methodology: 999)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("methodologyVersion 999 is not defined", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ratchet_UnknownCurrentMethodologyIsRefused()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 999),
+            [Row(methodology: 3)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("current methodologyVersion 999 is not defined", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
     /// The same escape hatch, closed from the product side for live runs. A row that
-    /// states any <c>methodologyVersion</c> came from a run that measured
+    /// states any known <c>methodologyVersion</c> came from a run that measured
     /// <c>productBodyDefect</c>, so omitting the metric makes it malformed rather than
     /// historical — whichever version it claims, above, at, or below the run's.
     ///
     /// <para>Two reviewers reached this from opposite directions: one shed the metric
     /// by claiming a <em>newer</em> methodology, the other by claiming an arbitrary
-    /// 999. Both worked because the rule compared methodology <em>values</em>. Only
-    /// rows recorded before the metric existed may omit it, and those state no version
-    /// at all, so the rule is now structural.</para>
+    /// 999. Unknown versions are now refused before comparison. Among known versions,
+    /// only rows recorded before the metric existed may omit it, and those state no
+    /// version at all, so the rule is structural.</para>
     /// </summary>
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    [InlineData(999)]
-    public void Ratchet_BaselineCannotShedAMetricByClaimingAnyMethodology(int claimed)
+    public void Ratchet_BaselineCannotShedAMetricByClaimingAKnownMethodology(int claimed)
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: claimed)]);

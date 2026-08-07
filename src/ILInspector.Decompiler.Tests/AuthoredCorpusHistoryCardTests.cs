@@ -172,6 +172,18 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void ParseHistory_RejectsUnknownMethodologyVersion()
+    {
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                """{"date":"2026-08-02","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"methodologyVersion":999}""",
+            ]));
+
+        Assert.Contains("methodologyVersion 999 is not defined", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Render_RunsTableReportsMethodologyVersionColumn()
     {
         string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 0);
@@ -215,8 +227,8 @@ public class AuthoredCorpusHistoryCardTests
         string card = AuthoredCorpusHistoryCard.Render(runs, window: 0);
 
         Assert.Contains("| Frontier product defects (attributed) | - | 200 |", card, StringComparison.Ordinal);
-        Assert.Contains("| Product defects \u2193 | 325 | 325", card, StringComparison.Ordinal);
-        Assert.DoesNotContain("Product defects (v3", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v2 span-measured lower bound) \u2193 | 325 | - |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v3 final-shell lower bound) \u2193 | - | 325 |", card, StringComparison.Ordinal);
     }
 
     [Fact]

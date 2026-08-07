@@ -71,6 +71,8 @@ static class AuthoredCorpusHistoryCard
         // left for a consumer to walk past.
         if (AuthoredCorpusRatchet.RefuseMalformedIdentities(runs) is { } malformed)
             throw new JsonException($"History row records an identity no run could produce: {malformed}");
+        if (AuthoredCorpusRatchet.RefuseUnknownMethodologies(runs) is { } unknown)
+            throw new JsonException($"History row records an unknown methodology: {unknown}");
 
         return runs;
     }
@@ -188,41 +190,52 @@ static class AuthoredCorpusHistoryCard
     // product-defect signal stays honest (no fabricated zero) and Markout's pairwise chain skips them
     // rather than charting a bogus step.
     //
-    // productBodyDefect is also computed differently across methodology versions (v1 = substitution
-    // control only; v2 = substitution control plus span attribution). Both are lower bounds, but a
-    // tighter rule counts strictly more rows, so the two are not comparable. When the window straddles
-    // a version boundary the metric is split into one row per version — each populated only for its own
-    // columns — so Markout never charts a step across the boundary. When every populated run shares a
-    // version, a single "Product defects" row is emitted (unchanged output for uniform history).
+    // productBodyDefect is computed under an explicit invalid-attribution lineage.
+    // When the window straddles a lineage boundary the metric is split into one row
+    // per lineage, so Markout never charts an incomparable step.
     static IEnumerable<MultiSourceRow> ProductDefectRows(IReadOnlyList<HistoryRun> window, string[] cols)
     {
-        bool hasV1 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology <= 1);
-        bool hasV2 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology >= 2);
-        if (hasV1 && hasV2)
+        int[] lineages = window
+            .Where(run => run.InvalidBreakdown is not null)
+            .Select(run => AuthoredCorpusMethodology.InvalidAttributionLineage(run.Methodology))
+            .OfType<int>()
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (lineages.Length > 1)
         {
-            yield return ProductDefectRow("Product defects (v1 substitution lower bound)", window, cols, version: 1);
-            yield return ProductDefectRow("Product defects (v2 span-measured lower bound)", window, cols, version: 2);
+            foreach (int lineage in lineages)
+                yield return ProductDefectRow(ProductDefectLabel(lineage), window, cols, lineage);
         }
         else
         {
-            yield return ProductDefectRow("Product defects", window, cols, version: null);
+            yield return ProductDefectRow("Product defects", window, cols, lineage: null);
         }
     }
 
-    static MultiSourceRow ProductDefectRow(string label, IReadOnlyList<HistoryRun> window, string[] cols, int? version)
+    static MultiSourceRow ProductDefectRow(string label, IReadOnlyList<HistoryRun> window, string[] cols, int? lineage)
     {
         var sources = new Source[window.Count];
         for (int i = 0; i < window.Count; i++)
         {
-            bool inVersion = version is null
-                || (version == 1 ? window[i].Methodology <= 1 : window[i].Methodology >= 2);
-            sources[i] = inVersion && window[i].InvalidBreakdown is { } breakdown
+            bool inLineage = lineage is null
+                || AuthoredCorpusMethodology.InvalidAttributionLineage(window[i].Methodology) == lineage;
+            sources[i] = inLineage && window[i].InvalidBreakdown is { } breakdown
                 ? new Source(cols[i], breakdown.ProductBodyDefect)
                 : new Source(cols[i], (IMarkoutCell?)null);
         }
 
         return new MultiSourceRow(label, sources) { Goal = Goal.Lower };
     }
+
+    static string ProductDefectLabel(int lineage)
+        => lineage switch
+        {
+            1 => "Product defects (v1 substitution lower bound)",
+            2 => "Product defects (v2 span-measured lower bound)",
+            3 => "Product defects (v3 final-shell lower bound)",
+            _ => $"Product defects (lineage {lineage})",
+        };
 
     // Column keys are the run dates (the pivoted table's headers). Disambiguate a repeated date with its
     // commit so each run stays a distinct column even when two runs share a day.

@@ -122,8 +122,9 @@ Each row contains these fields:
   the prose above forbids. v1 and v2 counts are not directly comparable, and the
   progress card never diffs `productBodyDefect` across the boundary.
 
-  **v3** keeps the v2 invalid-row rule unchanged and adds the authored-body
-  fidelity control for unaided RTS `ValidDifferent` IL-diff rows. The exact
+  **v3** preserves the final target constructor-chain and modifier metadata in
+  the shared authored-body substitution, and adds the authored-body fidelity
+  control for unaided RTS `ValidDifferent` IL-diff rows. The exact
   checksum-verified authored body replaces only the target body in the final RTS
   shell, compiles with the same references and options, and is compared to the
   original method under the same Full-fidelity IL contract:
@@ -138,7 +139,9 @@ Each row contains these fields:
   The control runs only for unaided RTS `OpcodeDiff`/`OperandDiff` results.
   IL-exact source differences have no semantic IL fault to isolate, and
   CompileBack-floor rows stay in their own explicit bucket so the older oracle
-  does not become load-bearing.   The v2 invalid product count remains comparable across the v2-to-v3 boundary.
+  does not become load-bearing. The shared substitution-shell change gives the
+  invalid product count a new lineage, so v2 and v3
+  `invalidBreakdown.productBodyDefect` values are not compared.
   The frontier partition is recorded and charted, but its raw sub-counts are not
   ratcheted: a row can move among product, shell, floor, and unclassified
   attribution without a quality change, so treating any one raw count as
@@ -151,7 +154,10 @@ Each row contains these fields:
    from the recorded commit; a feature-branch commit is not, and it carries
    whatever product state the branch happened to be based on. Measuring a
    methodology or product change against its own base is a valid experiment —
-   it just belongs in the PR that makes the change, not in this series.
+   it belongs in that PR's evidence, not in this series.
+   A methodology-bump PR therefore leaves the newest stored methodology one
+   version behind while it is under review. After the change lands, append its
+   first row from the resulting `main` commit in a follow-up.
 2. Prepare or reuse the EVIL pool:
 
    ```bash
@@ -274,8 +280,8 @@ cannot silently retarget the ratchet at an incomparable baseline.
 attribution lineage governs `productBodyDefect`, while `valid`, `correct`, and
 raw `invalid` remain comparable. Folding the global stamp into the key discarded
 those independent metrics at every version bump and made the tracked-store gate
-a permanent skip. Attribution lineage is applied per metric: v1 and v2 invalid
-attribution do not compare, while v3 keeps the v2 invalid lineage comparable.
+a permanent skip. Attribution lineage is applied per metric: v1, v2, and v3
+invalid attribution are separate lineages and do not compare with one another.
 
 Both identity hashes compare **symmetrically, absence included** — unknown never
 equals known, in either direction. Two weaker rules were tried and both were
