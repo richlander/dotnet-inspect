@@ -7271,7 +7271,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
+        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
         Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 
@@ -7293,7 +7293,7 @@ public partial class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
+        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
         Assert.Matches(@"decompile\.method<br/>SerializeToElement \(\w+, pdb:\w+\)", mermaid);
     }
 

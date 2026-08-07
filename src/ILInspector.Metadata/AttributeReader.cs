@@ -1,4 +1,4 @@
-using ILInspector.CSharp;
+using CSharpText;
 using System.Buffers;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -748,7 +748,7 @@ public static class AttributeReader
     /// </para>
     /// <para>
     /// It is deliberately narrower than
-    /// <see cref="CSharp.CSharpIdentifierCore.IsRenderingHazard"/>. That
+    /// <see cref="CSharpIdentifierCore.IsRenderingHazard"/>. That
     /// predicate answers "must this be escaped before rendering?", which is
     /// true of bidi controls; this one answers "did a blob that is not a string
     /// just get decoded as one?", which bidi controls are no evidence of, since

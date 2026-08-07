@@ -1,4 +1,4 @@
-namespace ILInspector.CSharp;
+namespace CSharpText;
 
 using System.Globalization;
 using System.Linq;
@@ -10,10 +10,7 @@ using System.Text;
 /// body-position callers get the same sanitization over their own keyword rules.
 /// </summary>
 /// <remarks>
-/// This is <c>internal</c> and source-linked (like <see cref="CSharpKeywords"/>)
-/// rather than referenced, because <c>ILInspector.Metadata</c> emits C# declaration
-/// spellings but cannot reference <c>ILInspector.CSharp</c> — that reference runs
-/// the other way. Public callers use <see cref="CSharpIdentifier"/>.
+/// This is <c>internal</c>; public callers use <see cref="CSharpIdentifier"/>.
 /// </remarks>
 internal static class CSharpIdentifierCore
 {
@@ -95,7 +92,7 @@ internal static class CSharpIdentifierCore
     /// <remarks>
     /// This exists so that a caller which must react to a respelling asks the same
     /// question <see cref="ContainIdentifier"/> asks, rather than restating it.
-    /// <see cref="ApiMemberIdentity"/> has to persist a canonical identity for every
+    /// <c>ApiMemberIdentity</c> has to persist a canonical identity for every
     /// respelled name, because the text fallback locates the name inside the display
     /// signature by search and a respelling makes that search miss. When it
     /// approximated this predicate with <see cref="IsRenderingHazard"/> alone it
