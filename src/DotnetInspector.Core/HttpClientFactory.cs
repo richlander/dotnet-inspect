@@ -155,12 +155,13 @@ public static class HttpClientFactory
     /// </summary>
     public static HttpClient CreateClient()
     {
+        HttpClientFactoryOptions options = _options;
         HttpMessageHandler handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.All
         };
 
-        if (_options.Offline)
+        if (options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
@@ -177,7 +178,7 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = _options.DefaultTimeout;
+        client.Timeout = options.DefaultTimeout;
         return client;
     }
 

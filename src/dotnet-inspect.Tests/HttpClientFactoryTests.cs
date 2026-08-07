@@ -74,6 +74,58 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
     }
 
+    [Fact]
+    public async Task CreateClient_CapturesOneOptionsSnapshot()
+    {
+        const string ClosedPort = "http://127.0.0.1:1/";
+        using var decoratorEntered = new ManualResetEventSlim();
+        using var continueCreation = new ManualResetEventSlim();
+
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            Offline = false,
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(handler =>
+        {
+            decoratorEntered.Set();
+            if (!continueCreation.Wait(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken))
+                throw new TimeoutException("Timed out waiting to continue client creation.");
+            return handler;
+        });
+
+        Task<HttpClient> creation = Task.Run(
+            DotnetInspector.Core.HttpClientFactory.CreateClient,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(decoratorEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken));
+
+            DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+            {
+                Offline = true,
+                DefaultTimeout = TimeSpan.FromSeconds(9),
+            });
+            continueCreation.Set();
+
+            using HttpClient client = await creation;
+            Assert.Equal(TimeSpan.FromSeconds(45), client.Timeout);
+            Exception? failure = await Record.ExceptionAsync(
+                () => client.GetAsync(ClosedPort, TestContext.Current.CancellationToken));
+            Assert.NotNull(failure);
+            Assert.Null(FindOffline(failure));
+        }
+        finally
+        {
+            continueCreation.Set();
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(null);
+        }
+    }
+
     /// <summary>
     /// The SSRF-hardened client visits URLs that come from untrusted artifacts, so its timeout
     /// is containment rather than a feed-performance knob and must not follow the configured
