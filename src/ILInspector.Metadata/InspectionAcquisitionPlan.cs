@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 internal sealed record InspectionAcquisitionPlanOptions
 {
     internal const int DefaultMaxCandidates = 4_096;
-    internal const long DefaultMaxRetainedImageBytes = 512L * 1024 * 1024;
+    internal const long DefaultMaxRetainedImageBytes =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
     internal const int DefaultMaxConcurrentSourceOpens = 8;
 
     internal int MaxCandidates { get; init; } = DefaultMaxCandidates;
@@ -205,8 +206,11 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         _sourceOpenGate.Enter();
         try
         {
-            using Stream stream = OpenSource(entry.Candidate.Assembly);
-            long imageSize = ReadRemainingLength(stream);
+            using Stream stream =
+                AssemblyImageSnapshot.OpenSource(
+                    entry.Candidate.Assembly);
+            long imageSize =
+                AssemblyImageSnapshot.ReadRemainingLength(stream);
             using var peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata);
@@ -349,11 +353,14 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         long reservedBytes = 0;
         try
         {
-            Stream? stream = OpenSource(entry.Candidate.Assembly);
+            Stream? stream =
+                AssemblyImageSnapshot.OpenSource(
+                    entry.Candidate.Assembly);
             AssemblyInspectionSession? session = null;
             try
             {
-                long imageSize = ReadRemainingLength(stream);
+                long imageSize =
+                    AssemblyImageSnapshot.ReadRemainingLength(stream);
                 if (!TryReserveImage(imageSize))
                 {
                     return new CandidateSessionResult.Rejected(
@@ -417,30 +424,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         {
             _sourceOpenGate.Exit();
         }
-    }
-
-    static Stream OpenSource(ResolvedAssemblyReference assembly)
-    {
-        Stream? stream = assembly.OpenRead();
-        if (stream is null || !stream.CanRead)
-        {
-            stream?.Dispose();
-            throw new IOException("The assembly opener did not return a readable stream.");
-        }
-
-        return stream;
-    }
-
-    static long ReadRemainingLength(Stream stream)
-    {
-        if (!stream.CanSeek)
-            throw new NotSupportedException(
-                "Assembly streams must support seeking for bounded inspection.");
-
-        long length = checked(stream.Length - stream.Position);
-        if (length <= 0)
-            throw new BadImageFormatException("The selected image is empty.");
-        return length;
     }
 
     bool TryReserveImage(long imageSize)

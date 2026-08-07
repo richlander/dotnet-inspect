@@ -26,6 +26,9 @@ internal abstract class AssemblyImageSnapshotResult
 
 internal sealed class AssemblyImageSnapshot
 {
+    internal const long DefaultMaxRetainedImageBytes =
+        512L * 1024 * 1024;
+
     AssemblyImageSnapshot(
         ImmutableArray<byte> content,
         AssemblyReferenceIdentity identity,
@@ -50,36 +53,8 @@ internal sealed class AssemblyImageSnapshot
 
         try
         {
-            Stream? openedStream = assembly.OpenRead();
-            if (openedStream is null)
-            {
-                return Reject(
-                    CandidateOpenFailureKind.Unreadable,
-                    "The assembly opener returned no stream.");
-            }
-
-            using Stream stream = openedStream;
-            if (!stream.CanRead)
-            {
-                return Reject(
-                    CandidateOpenFailureKind.Unreadable,
-                    "The assembly opener did not return a readable stream.");
-            }
-
-            if (!stream.CanSeek)
-            {
-                return Reject(
-                    CandidateOpenFailureKind.Unreadable,
-                    "Assembly streams must support seeking for bounded inspection.");
-            }
-
-            long length = checked(stream.Length - stream.Position);
-            if (length <= 0)
-            {
-                return Reject(
-                    CandidateOpenFailureKind.InvalidImage,
-                    "The selected image is empty.");
-            }
+            using Stream stream = OpenSource(assembly);
+            long length = ReadRemainingLength(stream);
 
             if (length > maxBytes || length > int.MaxValue)
             {
@@ -136,6 +111,34 @@ internal sealed class AssemblyImageSnapshot
                 CandidateOpenFailureKind.InvalidImage,
                 "The selected image contains invalid metadata.");
         }
+    }
+
+    internal static Stream OpenSource(
+        ResolvedAssemblyReference assembly)
+    {
+        Stream? stream = assembly.OpenRead();
+        if (stream is null || !stream.CanRead)
+        {
+            stream?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        return stream;
+    }
+
+    internal static long ReadRemainingLength(Stream stream)
+    {
+        if (!stream.CanSeek)
+        {
+            throw new NotSupportedException(
+                "Assembly streams must support seeking for bounded inspection.");
+        }
+
+        long length = checked(stream.Length - stream.Position);
+        if (length <= 0)
+            throw new BadImageFormatException("The selected image is empty.");
+        return length;
     }
 
     internal static bool IdentityMatches(

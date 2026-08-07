@@ -28,7 +28,7 @@ public sealed class AssemblyContextParticipant
 public sealed record AssemblyContextGroupOptions
 {
     public const long DefaultMaxRetainedImageBytes =
-        512L * 1024 * 1024;
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
 
     public long MaxRetainedImageBytes { get; init; } =
         DefaultMaxRetainedImageBytes;
@@ -141,7 +141,6 @@ public readonly ref struct AssemblyImageSpanResult
 public sealed class AssemblyContextGroup : IDisposable
 {
     readonly object _lifetimeGate = new();
-    readonly object _imageLoadGate = new();
     readonly ImmutableArray<AssemblyContextParticipant> _participants;
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
@@ -302,23 +301,16 @@ public sealed class AssemblyContextGroup : IDisposable
 
     SnapshotAccess GetSnapshot(ParticipantState participant)
     {
-        lock (_imageLoadGate)
+        lock (participant.ImageLoadGate)
         {
             if (participant.Initialized)
                 return participant.Access;
 
-            long remaining;
-            lock (_lifetimeGate)
-            {
-                remaining =
-                    _maxRetainedImageBytes - _retainedImageBytes;
-            }
-
             AssemblyImageSnapshotResult result =
                 AssemblyImageSnapshot.Open(
                     participant.Participant.Assembly,
-                    remaining);
-            participant.Access = result switch
+                    _maxRetainedImageBytes);
+            SnapshotAccess access = result switch
             {
                 AssemblyImageSnapshotResult.Ready ready =>
                     new SnapshotAccess(ready.Snapshot, Failure: null),
@@ -329,15 +321,31 @@ public sealed class AssemblyContextGroup : IDisposable
                 _ => throw new InvalidOperationException(
                     "Unknown assembly image acquisition result."),
             };
-            participant.Initialized = true;
 
-            if (participant.Access.Snapshot is { } snapshot)
+            if (access.Snapshot is { } snapshot)
             {
                 lock (_lifetimeGate)
-                    _retainedImageBytes += snapshot.Length;
+                {
+                    if (snapshot.Length
+                        > _maxRetainedImageBytes
+                            - _retainedImageBytes)
+                    {
+                        access = new SnapshotAccess(
+                            Snapshot: null,
+                            new CandidateOpenFailure(
+                                CandidateOpenFailureKind.ResourceBudget,
+                                "The retained-image budget was exhausted."));
+                    }
+                    else
+                    {
+                        _retainedImageBytes += snapshot.Length;
+                    }
+                }
             }
 
-            return participant.Access;
+            participant.Access = access;
+            participant.Initialized = true;
+            return access;
         }
     }
 
@@ -388,17 +396,14 @@ public sealed class AssemblyContextGroup : IDisposable
 
     void ReleaseSnapshots()
     {
-        lock (_imageLoadGate)
+        foreach (ParticipantState participant
+            in _participantByRegistration.Values)
         {
-            foreach (ParticipantState participant
-                in _participantByRegistration.Values)
-            {
-                participant.Release();
-            }
-
-            lock (_lifetimeGate)
-                _retainedImageBytes = 0;
+            participant.Release();
         }
+
+        lock (_lifetimeGate)
+            _retainedImageBytes = 0;
     }
 
     sealed class ParticipantState(
@@ -406,6 +411,7 @@ public sealed class AssemblyContextGroup : IDisposable
     {
         internal AssemblyContextParticipant Participant { get; } =
             participant;
+        internal object ImageLoadGate { get; } = new();
         internal bool Initialized { get; set; }
         internal SnapshotAccess Access { get; set; }
 

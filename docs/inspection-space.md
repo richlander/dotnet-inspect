@@ -265,8 +265,9 @@ prevents new access and releases its retained references after active callbacks
 complete, but it never attempts to revoke or recycle an already returned span.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
-and typed acquisition failures. Catalogs, producer sessions, authorization, and
-command migration remain later slices.
+per-participant single-flight acquisition, and typed acquisition failures.
+Catalogs, producer sessions, authorization, and command migration remain later
+slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

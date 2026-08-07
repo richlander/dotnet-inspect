@@ -167,6 +167,55 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task BlockedParticipant_DoesNotBlockAnotherParticipant()
+    {
+        TestAssembly blocked = TestAssembly.Create();
+        TestAssembly available = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [blocked.Participant, available.Participant]);
+        using var entered = new ManualResetEventSlim();
+        using var resume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        blocked.BeforeOpen = () =>
+        {
+            entered.Set();
+            resume.Wait(cancellationToken);
+        };
+
+        Task<AssemblyImageAccessResult<int>> first = Task.Run(
+            () => group.UseAssemblyImage(
+                blocked.Assembly,
+                static image => image.Content.Length));
+
+        Assert.True(
+            entered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+        Task<AssemblyImageAccessResult<int>> second = Task.Run(
+            () => group.UseAssemblyImage(
+                available.Assembly,
+                static image => image.Content.Length));
+        try
+        {
+            await second.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                cancellationToken);
+        }
+        finally
+        {
+            resume.Set();
+        }
+
+        Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(await first);
+        Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(await second);
+    }
+
+    [Fact]
     public void ImageBudgetFailure_IsTypedAndCached()
     {
         TestAssembly source = TestAssembly.Create();
@@ -298,6 +347,62 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task ConcurrentAcquisition_RespectsCumulativeBudget()
+    {
+        TestAssembly first = TestAssembly.Create();
+        TestAssembly second = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [first.Participant, second.Participant],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes = first.Bytes.Length,
+                });
+        using var entered = new CountdownEvent(2);
+        using var resume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        first.BeforeOpen = WaitForBoth;
+        second.BeforeOpen = WaitForBoth;
+
+        Task<AssemblyImageAccessResult<int>> firstAccess =
+            Task.Run(() => Access(first));
+        Task<AssemblyImageAccessResult<int>> secondAccess =
+            Task.Run(() => Access(second));
+        Assert.True(
+            entered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+        resume.Set();
+
+        AssemblyImageAccessResult<int>[] results =
+            await Task.WhenAll(firstAccess, secondAccess);
+
+        Assert.Single(
+            results.OfType<
+                AssemblyImageAccessResult<int>.Available>());
+        var rejected = Assert.Single(
+            results.OfType<
+                AssemblyImageAccessResult<int>.Rejected>());
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            rejected.Failure.Kind);
+        Assert.Equal(first.Bytes.Length, group.RetainedImageBytes);
+
+        void WaitForBoth()
+        {
+            entered.Signal();
+            resume.Wait(cancellationToken);
+        }
+
+        AssemblyImageAccessResult<int> Access(TestAssembly source) =>
+            group.UseAssemblyImage(
+                source.Assembly,
+                static image => image.Content.Length);
+    }
+
+    [Fact]
     public void GroupRejectsAssemblyOutsideItsParticipantSet()
     {
         TestAssembly source = TestAssembly.Create();
@@ -374,6 +479,7 @@ public sealed class InspectionWorkspaceTests
         internal byte[] Bytes { get; }
         internal ResolvedAssemblyReference Assembly { get; }
         internal AssemblyContextParticipant Participant { get; }
+        internal Action? BeforeOpen { get; set; }
         internal int OpenCount =>
             System.Threading.Volatile.Read(ref _openCount);
 
@@ -395,6 +501,7 @@ public sealed class InspectionWorkspaceTests
                     {
                         Interlocked.Increment(
                             ref source!._openCount);
+                        source.BeforeOpen?.Invoke();
                         return new MemoryStream(
                             source.Bytes,
                             writable: false);
