@@ -45,11 +45,12 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 ```
 
 `@` names a category of sections: `-S @All`, `-S @Source`, `-S @SourceLink`,
-`-S @Audit`, `-S @Integrations`, `-S @Switches`, `-S @Performance`, and
-`-S @Metadata`. Some large families expose only their category door in the
-top-level catalog; drill in with `-D @Performance` or `-D @Metadata`. Row
-formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section;
-supported grouped categories add a self-identifying leading column.
+`-S @Audit`, `-S @Integrations`, `-S @Performance`, and `-S @Metadata`.
+`Switches` is a plain section, not a category. Some large families expose only
+their category door in the top-level catalog; drill in with `-D @Performance`
+or `-D @Metadata`. Row formats (`--tsv`/`--jsonl`/`--table`) work best with one
+concrete section; supported grouped categories add a self-identifying leading
+column.
 
 ## Filter and order performance rows
 

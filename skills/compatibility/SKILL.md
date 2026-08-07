@@ -105,9 +105,9 @@ rows as implementation evidence, not semantic-equivalence proof.
 
 ## What can be configured? (feature switches)
 
-`-S Switches` (alias `-S @Switches`) on `library` or `package --library` reports
-the behavior and trim/AOT knobs: `[FeatureSwitchDefinition]`s, runtime host
-configuration options, and `AppContext` switches.
+`-S Switches` on `library` or `package --library` reports the behavior and
+trim/AOT knobs: `[FeatureSwitchDefinition]`s, runtime host configuration
+options, and `AppContext` switches.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -S Switches
