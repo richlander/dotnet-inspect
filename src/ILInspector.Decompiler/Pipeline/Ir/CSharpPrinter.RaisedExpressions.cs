@@ -179,9 +179,26 @@ public sealed partial class CSharpPrinter
             StoreLocal store when ReferenceEquals(store.Value, lambda) => store.Type.Equals(lambda.DelegateType),
             StoreField store when ReferenceEquals(store.Value, lambda) => store.Field.Type.Equals(lambda.DelegateType),
             Return returnStatement when ReferenceEquals(returnStatement.Value, lambda)
-                => _function.Signature.ReturnType.Equals(lambda.DelegateType),
+                => ReturnContextPinsDelegateType(returnStatement, lambda.DelegateType),
             _ => false,
         };
+
+    bool ReturnContextPinsDelegateType(Return returnStatement, TypeRef delegateType)
+    {
+        for (IrNode? current = returnStatement.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Lambda enclosingLambda:
+                    return LambdaReturnType(enclosingLambda)?.Equals(delegateType) == true;
+                case LocalFunctionStatement localFunction:
+                    return localFunction.ReturnType.Equals(delegateType);
+                case IrFunction function:
+                    return function.Signature.ReturnType.Equals(delegateType);
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// Renders a multi-statement lambda block body expanded across lines, the

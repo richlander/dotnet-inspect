@@ -240,6 +240,16 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void NestedWeakReturn_UsesEnclosingLambdaReturnType()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.NestedWeakReturn),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("() => (Action<int>)(x => Console.WriteLine(x))", output);
+    }
+
+    [Fact]
     public void AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport()
     {
         string output = PrintRaised(
@@ -637,6 +647,13 @@ public static class VoidLambdaRaisingSamples
 
     public static void ActionOverloadArgument()
         => Pick((System.Action<int>)(x => System.Console.WriteLine(x)));
+
+    public static System.Action<int> NestedWeakReturn(System.Action<System.Func<object>> consume)
+    {
+        System.Func<object> callback = () => (System.Action<int>)(x => System.Console.WriteLine(x));
+        consume(callback);
+        return null!;
+    }
 
     static void Pick(System.Action<int> action) { }
     static void Pick(System.Action<long> action) { }
