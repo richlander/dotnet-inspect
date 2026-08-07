@@ -309,7 +309,8 @@ public sealed class AssemblyContextGroup : IDisposable
             AssemblyImageSnapshotResult result =
                 AssemblyImageSnapshot.Open(
                     participant.Participant.Assembly,
-                    _maxRetainedImageBytes);
+                    TryReserveImage,
+                    ReleaseImage);
             SnapshotAccess access = result switch
             {
                 AssemblyImageSnapshotResult.Ready ready =>
@@ -322,31 +323,31 @@ public sealed class AssemblyContextGroup : IDisposable
                     "Unknown assembly image acquisition result."),
             };
 
-            if (access.Snapshot is { } snapshot)
-            {
-                lock (_lifetimeGate)
-                {
-                    if (snapshot.Length
-                        > _maxRetainedImageBytes
-                            - _retainedImageBytes)
-                    {
-                        access = new SnapshotAccess(
-                            Snapshot: null,
-                            new CandidateOpenFailure(
-                                CandidateOpenFailureKind.ResourceBudget,
-                                "The retained-image budget was exhausted."));
-                    }
-                    else
-                    {
-                        _retainedImageBytes += snapshot.Length;
-                    }
-                }
-            }
-
             participant.Access = access;
             participant.Initialized = true;
             return access;
         }
+    }
+
+    bool TryReserveImage(long imageSize)
+    {
+        lock (_lifetimeGate)
+        {
+            if (imageSize
+                > _maxRetainedImageBytes - _retainedImageBytes)
+            {
+                return false;
+            }
+
+            _retainedImageBytes += imageSize;
+            return true;
+        }
+    }
+
+    void ReleaseImage(long imageSize)
+    {
+        lock (_lifetimeGate)
+            _retainedImageBytes -= imageSize;
     }
 
     void BeginCallback()

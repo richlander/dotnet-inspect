@@ -318,6 +318,52 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void RejectedAcquisition_ReleasesReservedBudget()
+    {
+        TestAssembly invalidSource = TestAssembly.Create();
+        TestAssembly validSource = TestAssembly.Create();
+        ResolvedAssemblyReference invalidAssembly =
+            ResolvedAssemblyReference.Create(
+                invalidSource.Assembly.Identity with
+                {
+                    Name =
+                        invalidSource.Assembly.Identity.Name
+                        + ".Other",
+                },
+                path: null,
+                () => new MemoryStream(
+                    invalidSource.Bytes,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "workspace reservation-release test"));
+        var invalidParticipant =
+            new AssemblyContextParticipant(
+                invalidAssembly,
+                MissingBindingPolicy.Instance);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [invalidParticipant, validSource.Participant],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes =
+                        validSource.Bytes.Length,
+                });
+
+        AssemblyImageSpanResult rejected =
+            group.GetAssemblyImageSpan(invalidAssembly);
+
+        Assert.False(rejected.IsAvailable);
+        Assert.Equal(0, group.RetainedImageBytes);
+        Assert.True(
+            group.GetAssemblyImageSpan(
+                validSource.Assembly).IsAvailable);
+        Assert.Equal(
+            validSource.Bytes.Length,
+            group.RetainedImageBytes);
+    }
+
+    [Fact]
     public void ImageBudget_IsCumulativeAcrossParticipants()
     {
         TestAssembly first = TestAssembly.Create();

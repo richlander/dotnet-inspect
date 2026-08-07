@@ -46,23 +46,27 @@ internal sealed class AssemblyImageSnapshot
 
     internal static AssemblyImageSnapshotResult Open(
         ResolvedAssemblyReference assembly,
-        long maxBytes)
+        Func<long, bool> tryReserveBytes,
+        Action<long> releaseBytes)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        ArgumentNullException.ThrowIfNull(tryReserveBytes);
+        ArgumentNullException.ThrowIfNull(releaseBytes);
 
+        long reservedBytes = 0;
         try
         {
             using Stream stream = OpenSource(assembly);
             long length = ReadRemainingLength(stream);
 
-            if (length > maxBytes || length > int.MaxValue)
+            if (length > int.MaxValue || !tryReserveBytes(length))
             {
                 return Reject(
                     CandidateOpenFailureKind.ResourceBudget,
                     "The retained-image budget was exhausted.");
             }
 
+            reservedBytes = length;
             var bytes = GC.AllocateUninitializedArray<byte>((int)length);
             stream.ReadExactly(bytes);
             ImmutableArray<byte> content =
@@ -86,11 +90,13 @@ internal sealed class AssemblyImageSnapshot
                     "The opened image identity does not match its descriptor.");
             }
 
-            return new AssemblyImageSnapshotResult.Ready(
+            var result = new AssemblyImageSnapshotResult.Ready(
                 new AssemblyImageSnapshot(
                     content,
                     identity,
                     reader.GetGuid(reader.GetModuleDefinition().Mvid)));
+            reservedBytes = 0;
+            return result;
         }
         catch (Exception ex) when (
             ex is IOException
@@ -110,6 +116,11 @@ internal sealed class AssemblyImageSnapshot
             return Reject(
                 CandidateOpenFailureKind.InvalidImage,
                 "The selected image contains invalid metadata.");
+        }
+        finally
+        {
+            if (reservedBytes != 0)
+                releaseBytes(reservedBytes);
         }
     }
 
