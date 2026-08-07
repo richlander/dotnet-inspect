@@ -1286,10 +1286,18 @@ public class ApiCommand
         }
 
         if (options.Print)
-            return await PrintApiProjectionAsync(view, options);
+        {
+            int result = await PrintApiProjectionAsync(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Value || options.Urls || options.Paths)
-            return WriteApiShapeProjection(view, options);
+        {
+            int result = WriteApiShapeProjection(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Count)
         {
@@ -1301,6 +1309,7 @@ public class ApiCommand
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1315,6 +1324,7 @@ public class ApiCommand
             // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
             // it with LF too so --bare stays byte-stable for machine consumers.
             OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1378,6 +1388,7 @@ public class ApiCommand
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
+        ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
     }
 

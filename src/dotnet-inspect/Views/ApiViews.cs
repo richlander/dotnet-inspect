@@ -49,6 +49,10 @@ public class TypeView
     [JsonIgnore]
     public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool CallGraphIncomplete { get; set; }
+
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
