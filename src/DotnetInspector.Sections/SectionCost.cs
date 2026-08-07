@@ -27,7 +27,7 @@ public enum SectionCost
     Unbounded,
 }
 
-internal static class InspectionCostMapping
+public static class InspectionCostMapping
 {
     public static SectionCost ToSectionCost(
         this InspectionCost cost,
