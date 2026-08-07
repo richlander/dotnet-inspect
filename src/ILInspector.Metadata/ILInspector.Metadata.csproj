@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
+    <InternalsVisibleTo Include="DotnetInspector.Queries" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
     <!-- Crosses a subsystem boundary, unlike the two above, so it is worth
          saying why. The renderer tests build projection fixtures, and a fixture

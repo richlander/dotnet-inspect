@@ -14,10 +14,14 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace or typed query plan
-today. Existing foundations include shared image and inspection session
-ownership, catalog generations, `CoreCache`, typed provenance and resolution
-currencies, and `InertString`; the workspace and query-plan model describes how
+govern its migration. No command runs through a typed query plan today.
+`DotnetInspector.Queries` contains the first workspace foundation: an ephemeral
+workspace can own binding-consistent assembly context groups, and a group
+retains lazily acquired immutable assembly snapshots behind callback-scoped and
+stack-only access. Existing commands have not migrated to that owner yet.
+Other foundations include shared image and inspection session ownership,
+catalog generations, `CoreCache`, typed provenance and resolution currencies,
+and `InertString`; the remaining workspace and query-plan model describes how
 those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
@@ -249,6 +253,18 @@ for the current query plan, not a permanent property of the group.
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
+
+The first implemented group contract owns typed
+`ResolvedAssemblyReference` participants paired with their binding-policy
+snapshots. Every participant in a group must carry the same binding-policy
+version identity. The group acquires each selected image lazily, validates it
+against its descriptor, and retains one immutable, non-pooled byte snapshot
+under a group budget. Callback access receives a scoped stack-only image view;
+direct access returns a stack-only read-only span result. Disposing the group
+prevents new access and releases its retained references after active callbacks
+complete, but it never attempts to revoke or recycle an already returned span.
+Catalogs, producer sessions, authorization, and command migration remain later
+slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

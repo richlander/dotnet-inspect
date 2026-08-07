@@ -13,6 +13,8 @@
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />

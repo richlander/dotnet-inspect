@@ -216,7 +216,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             MetadataReader reader = peReader.GetMetadataReader();
             AssemblyReferenceIdentity actual =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!IdentityMatches(entry.Candidate.Assembly.Identity, actual))
+            if (!AssemblyImageSnapshot.IdentityMatches(
+                    entry.Candidate.Assembly.Identity,
+                    actual))
             {
                 return RejectInvalid(
                     entry,
@@ -366,7 +368,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 var inventory =
                     (CandidateRegistrationResult.Ready)entry.Inventory.Value;
                 if (!session.HasMetadata
-                    || !IdentityMatches(
+                    || !AssemblyImageSnapshot.IdentityMatches(
                         entry.Candidate.Assembly.Identity,
                         session.AssemblyIdentity())
                     || session.ModuleVersionId()
@@ -468,28 +470,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             if (_activeOperations == 0)
                 Monitor.PulseAll(_gate);
         }
-    }
-
-    static bool IdentityMatches(
-        AssemblyReferenceIdentity expected,
-        AssemblyReferenceIdentity actual) =>
-        StringComparer.OrdinalIgnoreCase.Equals(expected.Name, actual.Name)
-        && expected.Version == actual.Version
-        && CultureMatches(expected.Culture, actual.Culture)
-        && StringComparer.OrdinalIgnoreCase.Equals(
-            expected.PublicKeyToken ?? "",
-            actual.PublicKeyToken ?? "");
-
-    static bool CultureMatches(string? left, string? right)
-    {
-        static string Normalize(string? value) =>
-            string.IsNullOrEmpty(value)
-                || value.Equals("neutral", StringComparison.OrdinalIgnoreCase)
-                    ? ""
-                    : value;
-        return StringComparer.OrdinalIgnoreCase.Equals(
-            Normalize(left),
-            Normalize(right));
     }
 
     static CandidateRegistrationResult.Rejected RejectInvalid(
