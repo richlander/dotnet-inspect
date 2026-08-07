@@ -1,7 +1,6 @@
 using System.Text;
-using ILInspector.Text;
 
-namespace ILInspector.CSharp;
+namespace CSharpText;
 
 /// <summary>
 /// Lays out one decompiled member or accessor from a declaration head plus
@@ -11,7 +10,7 @@ namespace ILInspector.CSharp;
 /// </summary>
 /// <remarks>
 /// This is intentionally <em>not</em> unified with
-/// <see cref="CSharpTypePrinter"/>: that composer is block-only and drops blank
+/// <c>CSharpTypePrinter</c>: that composer is block-only and drops blank
 /// lines, whereas decompiled bodies are expression-capable and preserve blank
 /// lines. The two encode different policies on purpose.
 /// </remarks>
@@ -48,7 +47,7 @@ public static class CSharpMemberLayout
         string pad = new(' ', indent);
         if (body is null)
         {
-            sb.AppendLf(LayOutHead(pad, head, ";", ";", disableSignatureWrapping));
+            sb.Append(LayOutHead(pad, head, ";", ";", disableSignatureWrapping)).Append('\n');
             return;
         }
         if (bodyIsSingleExpressionBody
@@ -61,19 +60,19 @@ public static class CSharpMemberLayout
         {
             if (wrapExpressionBodyArrow)
             {
-                sb.AppendLf(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
-                sb.AppendLf($"{pad}    => {expression};");
+                sb.Append(LayOutHead(pad, head, "", " =>", disableSignatureWrapping)).Append('\n');
+                sb.Append($"{pad}    => {expression};").Append('\n');
             }
             else
             {
-                sb.AppendLf(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping));
+                sb.Append(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping)).Append('\n');
             }
             return;
         }
-        sb.AppendLf(LayOutHead(pad, head, "", " {", disableSignatureWrapping));
-        sb.AppendLf($"{pad}{{");
+        sb.Append(LayOutHead(pad, head, "", " {", disableSignatureWrapping)).Append('\n');
+        sb.Append($"{pad}{{").Append('\n');
         AppendIndentedBody(sb, body, indent + 4);
-        sb.AppendLf($"{pad}}}");
+        sb.Append($"{pad}}}").Append('\n');
     }
 
     /// <summary>
@@ -95,12 +94,12 @@ public static class CSharpMemberLayout
         string valueLine = expressionLines[0];
         if (wrapExpressionBodyArrow)
         {
-            sb.AppendLf(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
-            sb.AppendLf($"{pad}    => {valueLine}");
+            sb.Append(LayOutHead(pad, head, "", " =>", disableSignatureWrapping)).Append('\n');
+            sb.Append($"{pad}    => {valueLine}").Append('\n');
         }
         else
         {
-            sb.AppendLf(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping));
+            sb.Append(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping)).Append('\n');
         }
 
         string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
@@ -110,13 +109,13 @@ public static class CSharpMemberLayout
             bool last = i == expressionLines.Count - 1;
             if (line.Length == 0)
             {
-                sb.AppendLf();
+                sb.Append('\n');
                 continue;
             }
             sb.Append(continuationPad).Append(line);
             if (last)
                 sb.Append(';');
-            sb.AppendLf();
+            sb.Append('\n');
         }
     }
 
@@ -397,7 +396,7 @@ public static class CSharpMemberLayout
     /// Appends <paramref name="body"/> content at <paramref name="indent"/>
     /// spaces, trimming trailing whitespace and preserving blank lines (an empty
     /// line stays an empty line). This blank-line-preserving policy is the
-    /// deliberate difference from <see cref="CSharpTypePrinter"/>, which drops
+    /// deliberate difference from <c>CSharpTypePrinter</c>, which drops
     /// empty lines.
     /// </summary>
     public static void AppendIndentedBody(StringBuilder sb, string body, int indent)
@@ -410,9 +409,9 @@ public static class CSharpMemberLayout
         {
             string trimmed = line.TrimEnd();
             if (trimmed.Length == 0)
-                sb.AppendLf();
+                sb.Append('\n');
             else
-                sb.AppendLf($"{pad}{trimmed}");
+                sb.Append($"{pad}{trimmed}").Append('\n');
         }
     }
 }
