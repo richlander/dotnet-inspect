@@ -91,7 +91,7 @@ public sealed class ByteNeutralityGateTests
     /// <see cref="Emits"/> distinguishes a value the printer actually consumes today (the
     /// render changes, so the value is compiled back) from one that renders identically to
     /// the default — either a catalog value not yet wired into emission (the deferred var
-    /// buckets) or a knob that is inert on this corpus (readable-local-names, whose
+    /// buckets) or a knob that is inert on this corpus (slot-local-names, whose
     /// synthesis a present PDB source name suppresses). The inert values are pinned as
     /// no-ops on an input they <em>would</em> govern once active, so the day emission
     /// lands (or a name-less local appears) the pin flips and forces an emitting specimen.
@@ -138,10 +138,10 @@ public sealed class ByteNeutralityGateTests
         new("var-spelling-style", "var-elsewhere",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NotApparent),
             "() -> corelib:System.Int32", Emits: false),
-        // Synthesis: readable-local-names renames a local, and a name lives in the PDB,
-        // not the IL. It is inert here (the embedded PDB names this local), so it is
-        // pinned as a no-op; when a name-less local makes it fire, the pin flips.
-        new("readable-local-names", "true",
+        // Synthesis: slot-local-names replaces a synthesized readable name with
+        // V_index, and a name lives in the PDB, not the IL. It is inert here (the
+        // embedded PDB names this local), so it is pinned as a no-op.
+        new("slot-local-names", "true",
             typeof(FormattingSynthesisSpecimen), nameof(FormattingSynthesisSpecimen.ReadableLocal),
             "() -> corelib:System.Int32", Emits: false),
         // Formatting: whitespace-only knobs, each on a specimen it wraps or flattens.
@@ -169,7 +169,7 @@ public sealed class ByteNeutralityGateTests
     // The knob's non-default state, built through the catalog descriptor (never a raw
     // property set) so the gate exercises the same value-domain plumbing a host uses.
     static PrinterOptions On(ValueSpecimen specimen) =>
-        Knob(specimen.KnobId).WithValue(PrinterOptions.Default, specimen.ValueToken);
+        Knob(specimen.KnobId).WithValue(StyleOptionCatalog.DefaultOptions, specimen.ValueToken);
 
     static string Render(System.Type declaringType, string member, PrinterOptions? options)
     {
@@ -245,7 +245,7 @@ public sealed class ByteNeutralityGateTests
         // equality breaks and this test forces it into the emitting set.
         foreach (var specimen in Specimens)
         {
-            var offText = Render(specimen.DeclaringType, specimen.Method, options: null);
+            var offText = Render(specimen.DeclaringType, specimen.Method, StyleOptionCatalog.DefaultOptions);
             var onText = Render(specimen.DeclaringType, specimen.Method, On(specimen));
             if (specimen.Emits)
                 Assert.NotEqual(offText, onText);
@@ -282,13 +282,13 @@ public sealed class ByteNeutralityGateTests
         // (qualification x var), while each method's site is governed by exactly one
         // value, so the per-method verdict still isolates that value's neutrality.
         var emitting = Specimens.Where(s => s.Emits).ToArray();
-        var off = CompileBackAll(emitting, options: null);
+        var off = CompileBackAll(emitting, StyleOptionCatalog.DefaultOptions);
 
         foreach (var group in emitting.GroupBy(s => s.DeclaringType))
         {
             var groupSpecimens = group.ToArray();
             var onOptions = groupSpecimens.Aggregate(
-                PrinterOptions.Default, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
+                StyleOptionCatalog.DefaultOptions, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
             var on = CompileBackAll(groupSpecimens, onOptions);
 
             foreach (var specimen in groupSpecimens)

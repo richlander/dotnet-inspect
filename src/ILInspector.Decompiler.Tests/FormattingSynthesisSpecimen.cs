@@ -12,9 +12,9 @@ public sealed class FormattingSynthesisSpecimen
 {
     // Synthesis: a method with ordinary source-named locals. The test assembly carries
     // an embedded PDB, so ProduceMember binds the real names (sum, i) even with
-    // pdbPath:null and readable-local-names stays inert here — its synthesis only fires
-    // for a local the PDB does not name (a compiler temporary). The gate pins that inert
-    // state; see ByteNeutralityGateTests for the structural byte-neutrality rationale.
+    // pdbPath:null, so slot-local-names stays inert here. Synthesis only fires for a
+    // local the PDB does not name (a compiler temporary). The gate pins that inert state;
+    // see ByteNeutralityGateTests for the structural byte-neutrality rationale.
     public static int ReadableLocal()
     {
         int sum = 0;

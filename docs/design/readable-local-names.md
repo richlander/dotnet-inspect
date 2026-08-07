@@ -27,8 +27,10 @@ experience:
   inheriting a CLI presentation policy.
 
 Therefore `PrinterOptions.Default` remains off, preserving those paths.
-`dotnet-inspect` applies `ReadableLocalNames = true` at its CLI configuration
-edge for ordinary Decompiled and Annotated Source rendering. An explicit
+The shared taste registry exposes the inverse `slot-local-names` option, off by
+default, and derives user-facing defaults with `ReadableLocalNames = true`.
+`dotnet-inspect` consumes those defaults for ordinary Decompiled and Annotated
+Source rendering. An explicit
 `dotnet_inspect_style_readable_local_names = false` restores slot names; the
 `--readable-names` gesture overrides that configuration for one invocation.
 
@@ -64,8 +66,9 @@ fabricating — honest degradation, same as the rest of the pipeline.
 
 Of the fork below, **option A (printer option)** was taken. The library carries
 `PrinterOptions.ReadableLocalNames` (default off) and consumes it in
-`CSharpPrinter.LocalName`; the CLI enables it by default for `member` and `type`
-source rendering. `ApiOptions.RequestReadableLocalNames` remains the explicit
+`CSharpPrinter.LocalName`; the registry represents the user choice with the
+inverse, default-off `slot-local-names` knob, so every registry-driven host gets
+the readable product default. `ApiOptions.RequestReadableLocalNames` remains the explicit
 one-run override for a config that disabled synthesis. The setting is
 orthogonal to the style axes (a name synthesis, not a byte-divergent lens), so
 it leaves the Annotated view's interleaved IL intact. For a persistent form the

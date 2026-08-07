@@ -205,16 +205,18 @@ public sealed record StyleOptionDescriptor
     public required bool ByteDivergent { get; init; }
 
     /// <summary>
-    /// The token of the shipped-default value — the value in effect on
-    /// <see cref="PrinterOptions.Default"/>. <see cref="GetValue"/> returns this
-    /// when no non-default value is selected.
+    /// The token of the user-facing product-default value — the value in effect on
+    /// <see cref="StyleOptionCatalog.DefaultOptions"/>. This may differ from the
+    /// low-level <see cref="PrinterOptions.Default"/> used by fidelity and harness
+    /// consumers. <see cref="GetValue"/> returns this when no value is selected.
     /// </summary>
     public required string DefaultValue { get; init; }
 
     /// <summary>
     /// The value domain this knob ranges over, in presentation order. The first
-    /// entry is the default/off value; later entries are the selectable
-    /// alternatives. For a multi-value axis the order is also the resolution
+    /// entry is conventionally the off value for a boolean axis; the declared
+    /// <see cref="DefaultValue"/> identifies the product default independently.
+    /// For a multi-value axis the order is also the resolution
     /// precedence <see cref="GetValue"/> reports when more than one value is set at
     /// once (the earlier, oracle-endorsed value wins — matching the printer).
     /// </summary>
@@ -297,7 +299,7 @@ public sealed record StyleOptionDescriptor
 }
 
 /// <summary>
-/// The catalog of every opt-in <see cref="PrinterOptions"/> knob, exposed as the
+/// The catalog of every configurable <see cref="PrinterOptions"/> knob, exposed as the
 /// shared source of truth for hosts (CLI config resolution, a Wasm UI, the "full
 /// taste" aggregate) so option metadata lives in exactly one place and cannot
 /// drift between the library and its consumers. Most knobs are two-state
@@ -389,15 +391,15 @@ public static class StyleOptionCatalog
     public static IReadOnlyList<StyleOptionDescriptor> Options { get; } =
     [
         Boolean(
-            id: "readable-local-names",
-            title: "Readable local names",
-            summary: "Synthesize a readable name for a local that has no PDB source name instead of V_index.",
+            id: "slot-local-names",
+            title: "Use IL slot local names",
+            summary: "Keep V_index for a local that has no PDB source name instead of synthesizing a readable name.",
             tier: StyleOptionTier.Synthesis,
             byteDivergent: false,
             oracleEndorsed: false,
-            configKey: "dotnet_inspect_style_readable_local_names",
-            get: static o => o.ReadableLocalNames,
-            with: static (o, v) => o with { ReadableLocalNames = v }),
+            configKey: "dotnet_inspect_style_slot_local_names",
+            get: static o => !o.ReadableLocalNames,
+            with: static (o, v) => o with { ReadableLocalNames = !v }),
         Boolean(
             id: "wrap-splittable-expressions",
             title: "Wrap long boolean chains",
@@ -482,6 +484,14 @@ public static class StyleOptionCatalog
             get: static o => o.PreferLongLiteralSuffix,
             with: static (o, v) => o with { PreferLongLiteralSuffix = v }),
     ];
+
+    /// <summary>
+    /// User-facing product defaults derived from the catalog. Hosts that present
+    /// normal source output or initialize a style picker use this value; fidelity,
+    /// corpus, and harness paths use <see cref="PrinterOptions.Default"/> directly
+    /// to retain stable slot names and other low-level defaults.
+    /// </summary>
+    public static PrinterOptions DefaultOptions { get; } = ApplyDefaults();
 
     /// <summary>
     /// The oracle-endorsed subset of <see cref="Options"/> — the knobs whose axis
@@ -577,6 +587,14 @@ public static class StyleOptionCatalog
                 },
             ],
         };
+
+    private static PrinterOptions ApplyDefaults()
+    {
+        var options = PrinterOptions.Default;
+        foreach (var knob in Options)
+            options = knob.WithValue(options, knob.DefaultValue);
+        return options;
+    }
 
     // The guarded-boolean-return family as one multi-value axis. Its two non-default
     // values map onto the two independent byte-divergent lens properties, so config

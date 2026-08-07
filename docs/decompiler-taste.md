@@ -637,7 +637,8 @@ gates, and `--skip-pdb` harness path retain slot names by default, so stable
 evidence does not churn. Set
 `dotnet_inspect_style_readable_local_names = false` to restore slot names in CLI
 source views; `--readable-names` overrides that configuration for one run. The
-setting is byte-preserving (names do not affect IL), so it is not part of the
+registry presents the inverse `Use IL slot local names` choice, off by default.
+The setting is byte-preserving (names do not affect IL), so it is not part of the
 oracle-endorsed [taste](#style-configuration) aggregate and carries its own
 tool-owned key.
 

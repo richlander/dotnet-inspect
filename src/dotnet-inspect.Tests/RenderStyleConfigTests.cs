@@ -472,9 +472,7 @@ public class RenderStyleConfigTests
             Assert.Same(RenderStyleResolution.None, resolution);
             Assert.Null(resolution.Origin);
             Assert.True(resolution.Options.ReadableLocalNames);
-            Assert.Equal(
-                PrinterOptions.Default with { ReadableLocalNames = true },
-                resolution.Options);
+            Assert.Equal(StyleOptionCatalog.DefaultOptions, resolution.Options);
         }
         finally
         {
@@ -954,8 +952,8 @@ public class RenderStyleConfigTests
     {
         // Knobs with no config key (formatting) are API-only and must not be
         // reachable through the file vocabulary; a made-up key still warns. The
-        // whitespace-only wrappers are the standing API-only examples (synthesis's
-        // readable-local-names is now file-reachable under a tool-owned key).
+        // whitespace-only wrappers are the standing API-only examples (the
+        // synthesis tier's slot-local-names is file-reachable under a tool-owned key).
         var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
         Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
         Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
@@ -978,6 +976,15 @@ public class RenderStyleConfigTests
         var off = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = false", origin: "cfg");
         Assert.Empty(off.Warnings);
         Assert.False(off.Options.ReadableLocalNames);
+
+        // The registry exposes the inverse default-off choice for picker hosts.
+        var slotOn = RenderStyleConfig.Parse("dotnet_inspect_style_slot_local_names = true", origin: "cfg");
+        Assert.Empty(slotOn.Warnings);
+        Assert.False(slotOn.Options.ReadableLocalNames);
+
+        var slotOff = RenderStyleConfig.Parse("dotnet_inspect_style_slot_local_names = false", origin: "cfg");
+        Assert.Empty(slotOff.Warnings);
+        Assert.True(slotOff.Options.ReadableLocalNames);
 
         // The aggregate must not change it (it is not oracle-endorsed).
         var taste = RenderStyleConfig.Parse(

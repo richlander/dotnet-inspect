@@ -20,7 +20,7 @@ internal sealed record RenderStyleResolution(
 {
     /// <summary>No config file found: CLI defaults, no origin, no warnings.</summary>
     public static RenderStyleResolution None { get; } = new(
-        PrinterOptions.Default with { ReadableLocalNames = true },
+        StyleOptionCatalog.DefaultOptions,
         null,
         []);
 }
@@ -75,6 +75,7 @@ internal static class RenderStyleConfig
     // aggregate with no editorconfig equivalent. Applied in file order like every
     // other key, so a later explicit per-knob line overrides it (last write wins).
     private const string FullTasteKey = "dotnet_inspect_style_full_taste";
+    private const string ReadableLocalNamesKey = "dotnet_inspect_style_readable_local_names";
 
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
@@ -196,6 +197,14 @@ internal static class RenderStyleConfig
                     // subset shares no conflict group.
                     if (TryParseBool(value, out var fullTaste))
                         options = StyleOptionCatalog.ApplyFullTaste(options, fullTaste);
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case ReadableLocalNamesKey:
+                    // Compatibility spelling from the original opt-in option. The
+                    // registry now exposes the inverse, default-off slot-name knob.
+                    if (TryParseBool(value, out var readableLocalNames))
+                        options = options with { ReadableLocalNames = readableLocalNames };
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
