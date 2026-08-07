@@ -95,10 +95,13 @@ columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
-  -S "Implementation Diff" --authored-source -t MyType -m HotPath
+  -S "Implementation Diff" --authored-source --repo ../Foo \
+  -t MyType -m HotPath
 ```
 
-Treat these rows as implementation evidence, not semantic-equivalence proof.
+`--repo` reads the committed blob at the SourceLink commit from a local clone
+and verifies it against the PDB checksum before any network fetch. Treat these
+rows as implementation evidence, not semantic-equivalence proof.
 
 ## What can be configured? (feature switches)
 
@@ -112,11 +115,14 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Switches
 
 ## Which versions to compare
 
-Version resolution is cache-first (local cache in milliseconds; nuget.org
-~1–4s). Use `Foo --version` for the cached version a bare inspection will use,
-`Foo --latest-version` for the newest on nuget.org, and `Foo --versions [N]`
-(add `--preview`) to list published versions. Pin with `@`: `Foo@9.0.0`,
-`Foo@latest`.
+Version resolution is cache-first. Use `Foo --version` for the version a bare
+inspection will use, `Foo --latest-version` to refresh the newest version across
+all eligible configured sources, and `Foo --versions [N]` (add `--preview`) to
+list published versions. Unlisted versions are hidden unless
+`--include-unlisted` is explicit. `--versions-with-feed` retains each
+version/feed pair when source identity matters. Source declaration order is not
+precedence; load the `private-feeds` skill for source and credential workflows.
+Pin with `@`: `Foo@9.0.0`, `Foo@latest`.
 
 For caller-driven onset or bisect work, resolve an inclusive addressable vector,
 then probe only the cells you choose:

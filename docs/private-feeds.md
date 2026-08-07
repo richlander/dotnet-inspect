@@ -48,8 +48,9 @@ Then use `dotnet-inspect` normally:
 dotnet-inspect package MyCompany.Widgets
 ```
 
-On a desktop machine the first run signs you in interactively and caches the token; later runs
-reuse it. On a headless machine, supply a token through the environment as shown under
+dotnet-inspect requests credentials noninteractively, matching `dotnet restore` without
+`--interactive`: it can reuse a warm provider cache or an environment-supplied token, but it never
+opens a sign-in prompt. Authenticate the provider separately or supply a token as shown under
 [Unattended and CI](#unattended-and-ci).
 
 ## Unattended and CI
@@ -162,16 +163,10 @@ Two practical consequences:
 - `--source` and `--add-source` take part in this. A run that replaces your sources will not read
   content cached under the sources it replaced.
 
-The NuGet global folder (`~/.nuget/packages`) is the exception, and it is read eagerly: a package
-found there is used whatever your sources say. That folder is not a feed dotnet-inspect fetched
-from — it is a local store you populated, mostly by `dotnet restore`. Its content is treated as
-yours, and reading it is what makes inspecting a package you have already restored both fast and
-faithful to the bytes your build actually used.
-
-The consequence is worth stating plainly: if a private package is in your global folder, a run
-configured only for nuget.org will still inspect it. `--source` chooses which feeds are consulted
-for a download; it does not hide content already in the global folder. To inspect strictly what
-your configured sources serve, add `--no-nuget-cache`:
+The NuGet global folder (`~/.nuget/packages`) is a read-only payload cache, not a source of version
+candidates. An exact package there participates only when its `.nupkg.metadata` records a producer
+eligible under the active source configuration. Missing, ambiguous, or mismatched provenance is a
+cache miss. To exclude the global payload layer even for active sources, add `--no-nuget-cache`:
 
 ```bash
 dotnet-inspect package MyCompany.Widgets --source https://example.com/index.json --no-nuget-cache

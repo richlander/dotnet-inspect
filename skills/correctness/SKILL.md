@@ -18,18 +18,20 @@ dnx dotnet-inspect -y -- <command>
 ## What can it throw? (exception surface)
 
 There is no dedicated "Exceptions" section; exception behavior comes from
-method-body analysis. Project the exception signals as graph fields, or read the
-method's hidden facts:
+method-body analysis. `Exception Regions` shows the exact catch/filter/finally
+layout; graph fields and hidden facts summarize behavior:
 
 ```bash
+dnx dotnet-inspect -y -- member Type Method:1 -S "Exception Regions"
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,ThrowSites,ExceptionTypes,ConstructedExceptions,Catch,Finally"
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,Catch,Finally"
 dnx dotnet-inspect -y -- member Type Method:1 -S Facts --tsv
 ```
 
 `Throws`/`ThrowSites` count throw sites; `ExceptionTypes`/`ConstructedExceptions`
-name the exception types; `Catch`/`Finally` show handling. `-S Facts` (member,
-single method) lists the hidden facts in the body and supports `--tsv`.
+name the exception types; `Catch`/`Finally` show handling. `Exception Regions`
+retains IL ranges and caught types. `-S Facts` (member, single method) lists the
+hidden facts in the body and supports `--tsv`.
 
 ## Is it memory-safe? (unsafe operations)
 
@@ -40,6 +42,10 @@ dnx dotnet-inspect -y -- member Type Method:1 --library MyLib.dll -S "Unsafe Ope
 `-S "Unsafe Operations"` shows the unsafe operations in a single method body,
 with IL evidence. For the library-wide safety *surface* (unsafe members, P/Invoke
 methods) and provenance/supply-chain signals, see the `signals` skill.
+
+For one crash or profiler coordinate, use `library --il-offset
+0x06000001+0x5` to compose `Context: Exception`, `Context: Safety`, and the
+other applicable coordinate sections without inferring from display text.
 
 To confirm whether one definite unsafe operation appeared at an adjacent
 version boundary, first correlate caller-selected package cells:

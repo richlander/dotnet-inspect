@@ -8,9 +8,9 @@ description: Output formats, -D/-S section discovery and selection, value projec
 
 The query system is like Go templates, without a DSL: every command emits the
 same structured sections, and you discover, select, and project them with the
-same cross-command flags — on `find`, `type`, `member`, `package`, `library`,
-`diff`, and the relationship commands. Discover the shape first, then select and
-project.
+same cross-command flags — on `find`, `type`, `member`, `package`, `project`,
+`library`, `diff`, `timeline`, and relationship commands. Discover the shape
+first, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -43,9 +43,23 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index" --columns "Selector;Stable;Canonical Signature" --tsv
 ```
 
-`@` names a category of sections: `-S @All`, `-S @Source`, `-S @Audit`,
-`-S @Integrations`, `-S @Switches`. Row formats (`--tsv`/`--jsonl`/`--table`)
-work best with one concrete section, not a category.
+`@` names a category of sections: `-S @All`, `-S @Source`, `-S @SourceLink`,
+`-S @Audit`, `-S @Integrations`, `-S @Switches`, `-S @Performance`, and
+`-S @Metadata`. Some large families expose only their category door in the
+top-level catalog; drill in with `-D @Performance` or `-D @Metadata`. Row
+formats (`--tsv`/`--jsonl`/`--table`) work best with one concrete section;
+supported grouped categories add a self-identifying leading column.
+
+## Filter and order performance rows
+
+On `@Performance` and `Performance Triage`, use `--where` with a discovered
+field name and repeat it to combine predicates. Use
+`--order-by "Field desc,Other asc"` before applying output limits.
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S @Performance \
+  --where "Finding=analysis.allocation" --order-by "RootReach desc" --jsonl
+```
 
 ## Limit output
 
@@ -53,8 +67,9 @@ Prefer built-in limits to shell pipes:
 
 - `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
 - `--tail` takes the same count from the end, like `tail`.
-- `--rows N` caps Markdown table data rows instead of output lines; `--rows 2..10` names the rows to keep.
-- With `--print`, `--value`, `--urls`, or `--paths`, `--row N` chooses the projected row; `-n N` still limits output lines.
+- `--rows N` caps table data rows; `2..10` is inclusive, `2+10` is start plus count, and `10..` is open-ended.
+- `--tail --rows N` takes table rows from the end; otherwise row windows start at the beginning.
+- With `--print`, `--value`, `--urls`, or `--paths`, `--row N|first|last` chooses the projected row; `-n N` still limits output lines.
 - `--count` counts rows in one selected table.
 
 Command-specific caps: `-t N` for type/find rows, `-m N` for members, and

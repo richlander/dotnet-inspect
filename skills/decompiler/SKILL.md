@@ -37,6 +37,20 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Dec
 dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S @Source
 ```
 
+### Readability and taste
+
+`--readable-names` replaces compiler-style local names such as `V_0` where the
+body provides a stable readable alternative. It is independent of C# taste
+options. A tool-owned `.dotnet-inspectconfig`, discovered by walking up from the
+working directory, selects configured spellings; `--taste` requests the full
+supported taste set for one invocation. `Applied Taste` reports which choices
+actually changed the rendered body.
+
+```bash
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll \
+  -S "Decompiled Source,Applied Taste" --taste --readable-names
+```
+
 ### Focusing annotations
 
 By default every hidden fact renders as a trailing `//` comment. A fact with a
@@ -64,8 +78,8 @@ degradation. `Decompiled Source` is lowered C#; raw/annotated `IL` is highest
 fidelity.
 
 If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
-Source`, `Original Source` (via the `sourcelink` skill), and `IL` together;
-maintainers diagnose pipeline state with DecompilerHarness.
+Source`, `Original Source`, `Source Diff` (via the `sourcelink` skill), and `IL`
+together; maintainers diagnose pipeline state with DecompilerHarness.
 
 Select `Fidelity Causes` for the typed `DEC####` cause census behind that
 fidelity grade. It distinguishes a Full method (complete, no causes), a method
@@ -82,5 +96,7 @@ dnx dotnet-inspect -y -- library Foo --il-offset 0x06000001+0x5
 ```
 
 Use `library Foo --il-offset 0x06000001+0x5` (MethodDef token plus IL offset) to
-map a crash location back to the method and source. For call edges (what a method
+compose applicable `Context: *` sections: member, instruction, source location,
+exception, callsite, return address, allocation, safety, and cost. Use
+`--il-offsets coordinates.txt` for a sparse batch. For call edges (what a method
 calls, who calls it), see the `relationships` skill.

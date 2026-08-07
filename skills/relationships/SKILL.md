@@ -62,6 +62,16 @@ dnx dotnet-inspect -y -- member Type Method:1 -S Calls
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
+`Call Graph` is the bounded bidirectional view centered on one member: inbound
+callers toward entry points plus outbound calls. For a type-level dependency
+summary, `Called Types` groups direct calls by target type, assembly, members,
+and call kinds.
+
+```bash
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
+```
+
 ## What does it integrate with? (ecosystem)
 
 `-S @Integrations` on `library` or `package --library` rolls up the ecosystem

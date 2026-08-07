@@ -30,12 +30,16 @@ Add `--all` to include non-public members.
 
 ## Triage against rewrite shapes
 
-`Performance Triage` re-ranks the same leverage against actionable rewrite
-shapes — small non-escaping arrays, temporary or span-to-array copies, capturing
-delegates, stateless instance methods — so hot, fixable members surface first.
+Library triage is split into kind-scoped sections under `@Performance`
+(`Performance: Boxing`, `Performance: Arrays`, `Performance: Closures and
+delegates`, and more). Start with discovery or counts, then select the group or
+one concrete kind. Type/member scope keeps the focused `Performance Triage`
+lens.
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance Triage"
+dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
+dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
 dnx dotnet-inspect -y -- library MyLib.dll --loop --min-confidence high --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
   --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop \
@@ -49,9 +53,10 @@ devirtualization, bounds-check elimination, null-check folding).
 
 Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
 confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
-curated ranked prefix. Supplying any of those flags selects `Performance Triage`
-automatically on `library`, `type`, and `member`. `--top` narrows the ranked data
-before rendering; `--rows N` is a generic rendered-row cap applied afterward.
+curated ranked prefix. Supplying any of those flags selects the applicable
+performance lens automatically. In library tabular output, `@Performance`
+flattens the kind sections into one table with a leading `Kind` column. `--top`
+narrows ranked data before rendering; `--rows N` caps rendered rows afterward.
 Common shapes include `capturing-delegate`, `box-value-type`, `small-array`,
 `linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
 from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
@@ -102,7 +107,7 @@ A once-per-call allocation can still be repeated by an upstream caller's loop.
 Select rows with an exact direct invocation receipt:
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance Triage" \
+dnx dotnet-inspect -y -- library MyLib.dll -S @Performance \
   --where "CallerLoop=direct" --jsonl
 ```
 
