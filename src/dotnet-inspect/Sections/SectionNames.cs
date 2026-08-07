@@ -281,9 +281,6 @@ public static class SectionNames
     /// <summary>Section for direct assembly references.</summary>
     public const string References = "References";
 
-    /// <summary>Section for transitive assembly dependencies.</summary>
-    public const string Dependencies = "Dependencies";
-
     /// <summary>Section for P/Invoke declarations.</summary>
     public const string PInvokeMethods = "P/Invoke Methods";
 

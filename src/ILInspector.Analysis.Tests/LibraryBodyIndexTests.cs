@@ -832,44 +832,98 @@ public class LibraryBodyIndexTests
             => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
     }
 
-    // #3331: the scoped and unscoped builders key the reverse graph differently (structural member
-    // identity vs assembly-local tokens) and do not produce the same tree. Prefiltering scope
-    // assemblies on assembly identity therefore must not be allowed to decide which builder runs,
-    // or narrowing a scope to nothing would silently change the answer instead of just costing
-    // less. An empty-but-supplied scope list means "cross-assembly walk requested, nothing
-    // survived"; only a null list means "no scope requested".
-    //
-    // The catalog graph owns cross-assembly identity and deterministic ordering. Prefiltering
-    // every additional assembly away must still select that requested domain.
+    // #3351: requesting a catalog scope that contributes no callers must not change the
+    // same-assembly tree. The catalog graph remains selected for a scoped request, but its local
+    // node identity, ordering, revisit, and budget behavior must agree with the cheap token graph.
     [Fact]
-    public void BuildCallerTree_PrefilteringScopeAssembliesNeverChangesTheTree()
+    public void BuildCallerTree_NonContributingCatalogScopeMatchesSameAssemblyTree()
     {
         var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
 
         // A fixture that does not reference the analysis assembly, so it can never contribute a
         // caller. Opening it and prefiltering it away must be indistinguishable.
         var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        using CatalogCallGraphScope scopeOpened =
+            CatalogCallGraphTestExtensions.CreateScope(index, [nonContributing]);
+        using CatalogCallGraphScope scopePrefilteredAway =
+            CatalogCallGraphTestExtensions.CreateScope(index, []);
 
-        int discriminating = 0;
         int visited = 0;
-        foreach (var method in index.Methods.Take(60))
+        int alreadyShown = 0;
+        int truncated = 0;
+        int loopEdges = 0;
+        var mismatches = new List<string>();
+        (int MaxDepth, int MaxNodes)[] traversals =
+            [(2, 50), (3, 5)];
+        foreach (var method in index.DeclaredMethods)
         {
-            var noScopeRequested = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, callerScopes: null, maxDepth: 2, maxNodes: 50));
-            var scopeOpened = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, new[] { nonContributing }, maxDepth: 2, maxNodes: 50));
-            var scopePrefilteredAway = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+            foreach ((int maxDepth, int maxNodes) in traversals)
+            {
+                CallTreeNode tokenTree = index.BuildCallerTree(
+                    method.MetadataToken,
+                    maxDepth,
+                    maxNodes);
+                var noScopeRequested = FlattenCallTree(
+                    tokenTree,
+                    includePerf: true);
+                var opened = FlattenCallTree(
+                    scopeOpened.BuildCallerTree(
+                        index,
+                        method.MetadataToken,
+                        maxDepth,
+                        maxNodes),
+                    includePerf: true);
+                var prefilteredAway = FlattenCallTree(
+                    scopePrefilteredAway.BuildCallerTree(
+                        index,
+                        method.MetadataToken,
+                        maxDepth,
+                        maxNodes),
+                    includePerf: true);
 
-            Assert.Equal(scopeOpened, scopePrefilteredAway);
+                Assert.Equal(opened, prefilteredAway);
+                if (!noScopeRequested.SequenceEqual(prefilteredAway))
+                {
+                    mismatches.Add(
+                        $"{method.DeclaringType.Name}.{method.Name} "
+                        + $"(depth {maxDepth}, nodes {maxNodes})"
+                        + $"{Environment.NewLine}same assembly:"
+                        + $"{Environment.NewLine}{string.Join(Environment.NewLine, noScopeRequested)}"
+                        + $"{Environment.NewLine}catalog:"
+                        + $"{Environment.NewLine}{string.Join(Environment.NewLine, prefilteredAway)}");
+                }
 
-            visited++;
-            if (!noScopeRequested.SequenceEqual(scopePrefilteredAway))
-                discriminating++;
+                alreadyShown += CountStatus(
+                    tokenTree,
+                    CallTreeStatus.AlreadyShown);
+                truncated += CountStatus(
+                    tokenTree,
+                    CallTreeStatus.Truncated);
+                loopEdges += CountLoopEdges(tokenTree);
+                visited++;
+            }
         }
 
         Assert.True(visited > 0, "expected to visit methods");
+        Assert.True(alreadyShown > 0, "expected to compare revisit placement");
+        Assert.True(truncated > 0, "expected to compare budget truncation");
+        Assert.True(loopEdges > 0, "expected to compare loop-edge retention");
         Assert.True(
-            discriminating > 0,
-            "no method distinguished the catalog graph from the same-assembly graph, "
-                + "so this test cannot gate the prefilter's identity-domain choice");
+            mismatches.Count == 0,
+            $"{mismatches.Count} mismatches:{Environment.NewLine}"
+                + string.Join(
+                    $"{Environment.NewLine}---{Environment.NewLine}",
+                    mismatches));
+
+        static int CountStatus(
+            CallTreeNode node,
+            CallTreeStatus status) =>
+            (node.Status == status ? 1 : 0)
+                + node.Children.Sum(child => CountStatus(child, status));
+
+        static int CountLoopEdges(CallTreeNode node) =>
+            (node.Perf?.InLoop == true ? 1 : 0)
+                + node.Children.Sum(CountLoopEdges);
     }
 
     // #3331: the same claim against the cross-assembly fixtures the matcher tests use — an assembly
@@ -1281,17 +1335,45 @@ public class LibraryBodyIndexTests
         Assert.Equal(2, tree.Perf?.Fanout);
     }
 
-    static List<string> FlattenCallTree(CallTreeNode root)
+    static List<string> FlattenCallTree(
+        CallTreeNode root,
+        bool includePerf = false)
     {
         var lines = new List<string>();
         void Walk(CallTreeNode node, int depth)
         {
-            lines.Add($"{depth}|{node.Member.Name}|{node.Status}|{node.Perf?.Source ?? ""}");
+            lines.Add(includePerf
+                ? $"{depth}|{MemberIdentity(node.Member)}"
+                    + $"|kind={node.Kind}"
+                    + $"|status={node.Status}"
+                    + $"|fanin={node.Perf?.Fanin}"
+                    + $"|max-depth={node.Perf?.MaxDepth}"
+                    + $"|in-loop={node.Perf?.InLoop}"
+                    + $"|root-kind={node.Perf?.RootKind}"
+                    + $"|source={node.Perf?.Source}"
+                : $"{depth}|{node.Member.Name}|{node.Status}|"
+                    + $"{node.Perf?.Source ?? ""}");
             foreach (var child in node.Children)
                 Walk(child, depth + 1);
         }
         Walk(root, 0);
         return lines;
+
+        static string MemberIdentity(MemberRef member) =>
+            $"{GenericMemberIdentity.KeyFragment(member.DeclaringType)}"
+            + $"::{member.Name}"
+            + $"|arity={member.GenericArity}"
+            + $"|parameters={TypeKeys(member.ParameterTypes)}"
+            + $"|return={GenericMemberIdentity.KeyFragment(member.ReturnType)}"
+            + $"|type-arguments={TypeKeys(member.TypeArguments)}"
+            + $"|has-this={member.HasThis}"
+            + $"|signature-header={member.SignatureHeader}"
+            + $"|required-parameters={member.RequiredParameterCount}"
+            + $"|open-parameters={TypeKeys(member.OpenParameterTypes)}"
+            + $"|open-return={GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
+
+        static string TypeKeys(IEnumerable<TypeRef> types) =>
+            string.Join(",", types.Select(GenericMemberIdentity.KeyFragment));
     }
 
     // #1741 (unit): the key fragment for a type includes its assembly, so same-FQN types

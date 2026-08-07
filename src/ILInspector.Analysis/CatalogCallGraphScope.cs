@@ -1049,20 +1049,13 @@ public sealed class CatalogCallGraphScope : IDisposable
 
         static IOrderedEnumerable<StoredEdge> OrderReverseEdges(
             IEnumerable<StoredEdge> edges) =>
-            edges
-                .OrderBy(
+            CallTreeOrdering.OrderCallers(
+                    edges,
                     edge => edge.Caller.Participant.Assembly.Identity.Name,
-                    StringComparer.Ordinal)
-                .ThenBy(
                     edge => edge.Caller.Member.ToQualifiedDisplayString(),
-                    StringComparer.Ordinal)
-                .ThenBy(
-                    edge => edge.Caller.Member.ParameterTypes.Length)
-                .ThenBy(
-                    edge => edge.Caller.Evidence.Storage.ModuleVersionId)
-                .ThenBy(
-                    edge => edge.Caller.Evidence.Storage.MethodToken)
-                .ThenBy(
+                    edge => edge.Caller.Member.ParameterTypes.Length,
+                    edge => edge.Caller.Evidence.Storage.ModuleVersionId,
+                    edge => edge.Caller.Evidence.Storage.MethodToken,
                     edge => edge.Callee.Evidence.Storage.ILOffset);
 
         sealed class PlanEntry(

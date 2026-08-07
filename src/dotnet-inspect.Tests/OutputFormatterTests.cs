@@ -2377,7 +2377,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void LibrarySelectedSection_IncludesCompactContext()
+    public void LibrarySelectedSection_OmitsCompactContext()
     {
         var inspection = CreateTestAudit("Test.dll", "net9.0");
         inspection.Source = "NuGet";
@@ -2389,18 +2389,17 @@ public class OutputFormatterTests
         var output = SerializeWithInclude(
             inspection,
             includeSections: ["Signals"],
-            topFieldsOnly: true);
+            topFieldsOnly: false);
 
-        Assert.StartsWith("# Test.dll", output.TrimStart());
-        Assert.DoesNotContain("# Test.dll (net9.0)", output);
-        Assert.Contains("Name: Test", output);
-        Assert.Contains("Version: 1.2.3", output);
-        Assert.Contains("Source: NuGet", output);
+        Assert.StartsWith("# Test.dll (net9.0)", output.TrimStart());
+        Assert.DoesNotContain("Name: Test", output);
+        Assert.DoesNotContain("Version: 1.2.3", output);
+        Assert.DoesNotContain("Source: NuGet", output);
         Assert.Contains("## Signals", output);
     }
 
     [Fact]
-    public void LibrarySelectedSection_FormatterUsesCompactContext()
+    public void LibrarySelectedSection_FormatterOmitsCompactContext()
     {
         var options = new LibraryOptions
         {
@@ -2409,7 +2408,7 @@ public class OutputFormatterTests
             Format = OutputFormat.Markdown
         };
 
-        Assert.True(OutputFormatter.ShouldRenderLibraryContext(options));
+        Assert.False(OutputFormatter.ShouldRenderLibraryContext(options));
     }
 
     [Fact]
@@ -2445,7 +2444,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void PackageSelectedSection_IncludesCompactContextWithoutDescriptionOrTitleVersion()
+    public void PackageSelectedSection_OmitsCompactContextAndDescription()
     {
         var result = CreateTestPackageResult();
         result.Description = new InertText.InertString(
@@ -2466,22 +2465,10 @@ public class OutputFormatterTests
 
         Assert.StartsWith("# TestPackage", output.TrimStart());
         Assert.DoesNotContain("# TestPackage (1.0.0)", output);
-        Assert.Contains("Version: 1.0.0", output);
-        Assert.Contains("Source: NuGet", output);
+        Assert.DoesNotContain("Version: 1.0.0", output);
+        Assert.DoesNotContain("Source: NuGet", output);
         Assert.DoesNotContain(result.Description.Value.ToString(), output);
         Assert.Contains("## Signals", output);
-    }
-
-    [Fact]
-    public void PackageSelectedSection_FormatterUsesCompactContext()
-    {
-        var options = new InspectionOptions
-        {
-            Verbosity = Verbosity.Minimal,
-            IncludeSections = [PackageSections.Signals]
-        };
-
-        Assert.True(OutputFormatter.ShouldRenderPackageContext(options));
     }
 
     [Fact]
