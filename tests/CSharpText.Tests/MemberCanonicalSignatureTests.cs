@@ -1,6 +1,4 @@
-using ILInspector.Metadata;
-
-namespace ILInspector.Metadata.Tests;
+namespace CSharpText.Tests;
 
 public class MemberCanonicalSignatureTests
 {
