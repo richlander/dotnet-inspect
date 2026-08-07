@@ -12021,11 +12021,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiSectionColumns_AllMissReportsCleanError()
+    public async Task Package_MultiSectionPartialMatchReportsCleanRenderError()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
+            // Markout applies the projection to each table independently, so a column that
+            // matches one section can still abort on an earlier heterogeneous section.
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
                 "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
 
@@ -12041,6 +12043,73 @@ public partial class CommandExecutionTests
             Assert.Empty(overviewOutput);
             Assert.Contains("No columns matched projection: Path", overviewError);
             Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonIgnoresColumnProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--json", "--columns", "Package", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var _ = JsonDocument.Parse(output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultFieldsWithoutDataRemainNonFatal()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.EmptyFieldProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "package", packagePath, "--fields", "Downloads", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Note: 1 field has no data: Downloads", error);
+            Assert.DoesNotContain("No fields matched projection", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiPackageFormatRefusalPrecedesProjectionHandling()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath, "--columns", "Missing", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Multiple package output requires --json or a row format", error);
+            Assert.DoesNotContain("No columns matched projection", error);
         }
         finally
         {
