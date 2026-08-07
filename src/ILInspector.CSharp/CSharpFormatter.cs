@@ -136,37 +136,16 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(invoke);
         if (type.Kind != "delegate")
             throw new ArgumentException($"Type '{type.FullName}' is not a delegate.", nameof(type));
-        if (invoke.SignatureModel is not { } signature)
+        if (invoke.SignatureModel is null)
         {
             throw new NotSupportedException(
                 $"Delegate '{type.FullName}' requires a structured Invoke signature.");
         }
 
-        string attributes = _declarationOptions.IncludeCustomAttributes && type.Attributes.Count > 0
-            ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
-            : "";
-        string unsafeText = invoke.IsUnsafe ? " unsafe" : "";
-        string parameters = FormatParameterList(signature.Parameters);
-        string declaration =
-            $"{attributes}{CSharpDeclarationWriter.TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeName(type, includeVariance: true)}{parameters}";
-        foreach (var typeParameter in type.TypeParameters)
-        {
-            if (typeParameter.Constraints.Count > 0)
-            {
-                declaration +=
-                    $" where {CSharpIdentifier.ContainIdentifierForDeclaration(typeParameter.Name)} : "
-                    + CSharpDeclarationWriter.FormatConstraintList(
-                        typeParameter,
-                        type.TypeParameters.Select(parameter => parameter.Name));
-            }
-        }
-
-        return CSharpDeclarationWriter.ApplyTypeNamePlan(
+        return CSharpDeclarationWriter.RenderTypeDeclaration(
             type,
-            [invoke],
-            declaration + ";",
             _declarationOptions,
-            preserveReferenceQualification: true);
+            delegateInvoke: invoke);
     }
 
     public CSharpFormattedDeclaration FormatTypeUnit(

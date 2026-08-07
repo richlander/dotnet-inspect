@@ -23,9 +23,10 @@ internal sealed record CSharpDeclarationOptions
     public CSharpTypeNameMode TypeNameMode { get; init; } = CSharpTypeNameMode.Qualified;
     public string? ContainingNamespace { get; init; }
     public IReadOnlyCollection<string> Usings { get; init; } = [];
-    public IReadOnlyCollection<string> AdditionalShadowingNames { get; init; } = [];
-    public IReadOnlyCollection<string> AdditionalRootShadowingNames { get; init; } = [];
-    public IReadOnlyCollection<string> AdditionalKnownNamespaces { get; init; } = [];
+    // Fields avoid shifting the MethodDef tokens pinned by AuthoredCorpusHarnessProcessTests.
+    public IReadOnlyCollection<string> AdditionalShadowingNames = [];
+    public IReadOnlyCollection<string> AdditionalRootShadowingNames = [];
+    public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
     public bool TerminateMemberDeclaration { get; init; }
@@ -50,10 +51,6 @@ internal sealed record CSharpRenderedDeclaration(
     string Source,
     IReadOnlyList<string> Usings,
     IReadOnlyList<string> Diagnostics);
-
-internal sealed record CSharpTypeNameContext(
-    IReadOnlyList<string> SafeUsings,
-    IReadOnlyList<string> KnownNamespaces);
 
 /// <summary>
 /// Cheap C# declaration and signature composition over the API metadata model.
@@ -108,33 +105,6 @@ internal static class CSharpDeclarationWriter
             : declaration;
     }
 
-    public static string ApplyTypeNamePlan(
-        ApiType type,
-        IEnumerable<ApiMember> members,
-        string declaration,
-        CSharpDeclarationOptions? options = null,
-        bool preserveReferenceQualification = false)
-    {
-        options ??= new CSharpDeclarationOptions();
-        var memberList = members.ToList();
-        var attributeReferences = CollectAttributeTypeReferences(type.Attributes)
-            .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(member.Attributes)))
-            .ToHashSet(StringComparer.Ordinal);
-        var references = CollectTypeReferences(type)
-            .Concat(memberList.SelectMany(CollectMemberTypeReferences))
-            .Concat(attributeReferences)
-            .ToList();
-        var plan = TypeNamePlan.Create(
-            references,
-            options,
-            CollectShadowingNames(type, memberList),
-            CSharpFormatter.StripArity(type.Name),
-            preserveReferenceQualification
-                ? references.ToHashSet(StringComparer.Ordinal)
-                : attributeReferences);
-        return plan.Apply(declaration);
-    }
-
     public static CSharpRenderedDeclaration RenderTypeUnit(
         ApiType type,
         IEnumerable<ApiMember>? members = null,
@@ -185,10 +155,41 @@ internal static class CSharpDeclarationWriter
     public static string RenderTypeDeclaration(
         ApiType type,
         CSharpDeclarationOptions? options = null,
-        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null,
+        ApiMember? delegateInvoke = null)
     {
         options ??= new CSharpDeclarationOptions();
         var parameters = primaryConstructorParameters ?? [];
+        if (delegateInvoke is not null)
+        {
+            if (delegateInvoke.SignatureModel is not { } signature)
+            {
+                throw new NotSupportedException(
+                    $"Delegate '{type.FullName}' requires a structured Invoke signature.");
+            }
+
+            var delegateAttributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
+            var references = CollectTypeReferences(type)
+                .Concat(CollectMemberTypeReferences(delegateInvoke))
+                .Concat(delegateAttributeReferences)
+                .ToList();
+            var delegatePlan = TypeNamePlan.Create(
+                references,
+                options,
+                CollectShadowingNames(type, [delegateInvoke]),
+                CSharpFormatter.StripArity(type.Name),
+                references.ToHashSet(StringComparer.Ordinal));
+            string attributes = options.IncludeCustomAttributes && type.Attributes.Count > 0
+                ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
+                : "";
+            string unsafeText = delegateInvoke.IsUnsafe ? " unsafe" : "";
+            string parameterList = CSharpFormatter.FormatParameterList(signature.Parameters);
+            string delegateDeclaration =
+                $"{attributes}{TypeAccessibility(type)}{unsafeText} delegate {signature.ReturnType ?? "void"} {FormatTypeDisplayName(type.Name, type.TypeParameters)}{parameterList}";
+            delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
+            return delegatePlan.Apply(delegateDeclaration + ";");
+        }
+
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
         var plan = TypeNamePlan.Create(
             CollectTypeReferences(type)
@@ -239,7 +240,9 @@ internal static class CSharpDeclarationWriter
             .SafeUsings;
     }
 
-    internal static CSharpTypeNameContext DeriveTypeNameContext(
+    internal static (
+        IReadOnlyList<string> SafeUsings,
+        IReadOnlyList<string> KnownNamespaces) DeriveTypeNameContext(
         IEnumerable<(
             ApiType Type,
             IEnumerable<ApiMember> Members,
@@ -329,7 +332,7 @@ internal static class CSharpDeclarationWriter
             usings.Add(ns);
         }
 
-        return new CSharpTypeNameContext(usings.ToList(), knownNamespaces);
+        return (usings.ToList(), knownNamespaces);
     }
 
     static IEnumerable<string> CollectParameterTypeReferences(ApiParameter parameter)

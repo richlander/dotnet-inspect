@@ -110,7 +110,9 @@ public sealed class CSharpTypePrinter
     /// Derives collision-safe namespaces and the namespace identities known to the
     /// complete output unit.
     /// </summary>
-    static CSharpTypeNameContext ComputeTypeNameContext(
+    static (
+        IReadOnlyList<string> SafeUsings,
+        IReadOnlyList<string> KnownNamespaces) ComputeTypeNameContext(
         IReadOnlyList<PreparedType> preparedTypes,
         CSharpTypePrintOptions options)
     {
