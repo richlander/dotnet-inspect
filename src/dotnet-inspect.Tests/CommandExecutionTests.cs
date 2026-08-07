@@ -5224,6 +5224,59 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
+    {
+        const string legacyCategory = "effective-v19";
+        const string currentCategory = "effective-v20";
+        string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Instructions.dll");
+        File.Copy(typeof(InstructionProducer).Assembly.Location, assemblyPath);
+
+        string hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assemblyPath)));
+        string[] keys =
+        [
+            LibraryCommand.BuildEffectiveCacheKey(assemblyPath, hash, hasSourceLink: false),
+            LibraryCommand.BuildEffectiveCacheKey(assemblyPath, hash, hasSourceLink: true),
+        ];
+
+        try
+        {
+            foreach (string key in keys)
+            {
+                CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
+                Assert.NotNull(CoreCache.TryGet(legacyCategory, key, extension: "tsv"));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "-D",
+                "--tree",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(SectionNames.UnsafeMembers, output);
+        }
+        finally
+        {
+            foreach (string key in keys)
+            {
+                DeleteIfPresent(CoreCache.GetFilePath(legacyCategory, key, extension: "tsv"));
+                DeleteIfPresent(CoreCache.GetFilePath(currentCategory, key, extension: "tsv"));
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+
+        static void DeleteIfPresent(string path)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
     {
         // Effective discovery renders discovered rows, but the command's own --count branch sat

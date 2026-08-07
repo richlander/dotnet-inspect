@@ -1697,9 +1697,9 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
-    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
-    private const string EffectiveCategory = "effective-v19";
+    // Bumped to v20: v19 catalogs predate structural Unsafe Members applicability and can omit
+    // body-only unsafe evidence indefinitely.
+    private const string EffectiveCategory = "effective-v20";
 
     static LibraryCommand()
     {
@@ -1810,7 +1810,7 @@ public class LibraryCommand
         }
     }
 
-    private static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
+    internal static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
     {
         // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
         // (which flips whether the SourceLink section family is effective) busts a stale -D
