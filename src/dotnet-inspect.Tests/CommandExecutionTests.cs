@@ -10402,6 +10402,33 @@ public partial class CommandExecutionTests
         Assert.Contains("IL coordinate sections require --il-offset", error);
     }
 
+    [Theory]
+    [InlineData("@Context")]
+    [InlineData("Context:*")]
+    public async Task LibraryCommand_IlOffsetOnlySelectionWithoutValue_DoesNotBecomeDefaultView(
+        string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", selector, "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("IL coordinate sections require --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_HeapOnlyWildcardWithoutValue_DoesNotBecomeDefaultView()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "Metadata: H*", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("\"Metadata: Heap\" requires --heap", error);
+    }
+
     [Fact]
     public async Task LibraryCommand_IlOffsetParameterizedSectionSelector_IsRejected()
     {

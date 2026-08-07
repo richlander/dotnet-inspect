@@ -202,16 +202,25 @@ public class LibraryCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
+            const string ilCoordinateRequired =
+                "IL coordinate sections require --il-offset <token>+<offset>.";
+            var heapCoordinateRequired =
+                $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+            var removedILCoordinateSections = false;
+            var removedHeapSection = false;
+
             if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
                 if (!HasExactILCoordinateSelection(options.Select))
                 {
+                    var count = selectResult.Sections.Count;
                     selectResult.Sections.ExceptWith(ILCoordinateSections);
+                    removedILCoordinateSections = selectResult.Sections.Count != count;
                 }
                 else if (options.Discover == null)
                 {
-                    CommandError.Write("IL coordinate sections require --il-offset <token>+<offset>.");
+                    CommandError.Write(ilCoordinateRequired);
                     return 1;
                 }
             }
@@ -225,13 +234,23 @@ public class LibraryCommand
                 // asked for a specific section that cannot exist without its coordinate.
                 if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
                 {
-                    selectResult.Sections.Remove(MetadataSectionNames.Heap);
+                    removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
                 }
                 else if (options.Discover == null)
                 {
-                    CommandError.Write($"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    CommandError.Write(heapCoordinateRequired);
                     return 1;
                 }
+            }
+
+            if (selectResult.Sections.Count == 0
+                && (removedILCoordinateSections || removedHeapSection))
+            {
+                if (removedILCoordinateSections)
+                    CommandError.Write(ilCoordinateRequired);
+                else if (removedHeapSection)
+                    CommandError.Write(heapCoordinateRequired);
+                return 1;
             }
 
             options = options with { IncludeSections = selectResult.Sections };
