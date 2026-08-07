@@ -609,6 +609,12 @@ function afterLibraryScopeChange() {
   render();
 }
 
+function afterAccessibilityChange() {
+  const visible = filteredTypes();
+  state.typeCursor = Math.max(0, visible.findIndex(item => item.id === state.selectedTypeId));
+  render();
+}
+
 // The Library selector for the type nav pane. Mirrors the framework controls:
 // chips (multi-select, all on by default — the inverse of the single-select
 // framework chips) for a handful of libraries, a single-select dropdown once a
@@ -1293,7 +1299,7 @@ function render() {
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
           </header>
           <article class="detail-scroll">
-            ${current
+            ${state.atPackageRoot || current
               ? renderLens(current)
               : '<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public types</h2><p>This package has no types in its public API surface. Enable a non-public accessibility filter in the type pane to browse its implementation types.</p></section>'}
           </article>
@@ -2923,7 +2929,8 @@ function ensureExplorerResizeListener() {
 // its overload, and its declaring type are all resolvable client-side.
 function drillToPerfMember(target) {
   const targetType = state.package.types.find(type =>
-    type.assembly === target.assembly && typeEngineName(type) === target.type);
+    assemblyKey(type.assembly) === assemblyKey(target.assembly)
+      && typeEngineName(type) === target.type);
   if (!targetType) return;
   const member = targetType.api.find(candidate => candidate.stableSelector === target.selector);
   if (!member) return;
@@ -3789,7 +3796,7 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
     toggleAccessibilityChip(button.dataset.accessChip);
-    afterLibraryScopeChange();
+    afterAccessibilityChange();
   }));
   const libraryJump = document.getElementById("library-jump");
   if (libraryJump) libraryJump.addEventListener("change", () => {
@@ -6488,19 +6495,28 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
         });
         return;
       }
-      const target = resolveWorkspaceNode(label, node) ?? resolveNodeLabel(label);
-      const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
+      const resolved = resolveWorkspaceNode(node);
+      const target = resolved.identity ? resolved.selection : resolveNodeLabel(label);
+      const source = target
+        ? null
+        : (resolved.identity
+            ? resolveStructuredNodeSource(resolved.identity)
+            : resolveNodeForSource(label, node.classList.contains("differentAssembly")));
       // A node with no workspace target and no source is a platform (BCL / cross-library)
       // callee: resolvable identity lives on the active graph's tree, so we can descend
       // into its implementation IL by range-fetching the owning assembly on demand.
-      const platform = (target || source) ? null : resolvePlatformNode(label);
+      const platform = (target || source)
+        ? null
+        : (resolved.identity && !workspacePackageForAssembly(resolved.identity.assembly)
+            ? resolved.identity
+            : resolvePlatformNode(label));
       if (!target && !source && !platform) return;
       node.classList.add("nav-node");
       if (platform) node.classList.add("platform-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
         if (moved) return;
-        if (target) navigateToMember(target.pkg, target.type, target.group, target.overloadIndex);
+        if (target) navigateToMember(target.pkg, target.type, target.group, target.overloadSelector);
         else if (source) openGraphSource(source.request, source.title);
         else navigateOrDrillPlatform(platform);
       });
@@ -6629,37 +6645,36 @@ async function navigateOrDrillPlatform(node) {
     await drillPlatformNode(node);
     return;
   }
-  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex);
+  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadSelector);
 }
 
 // Enter the resident runtime pack focused on one member's call graph. Mirrors
 // navigateToMember but targets the call-graph section (the reason the user clicked a graph
 // node) and clears any active platform descent so the new member's graph loads fresh.
-function navigateToRuntimeMember(pack, type, group, overloadIndex) {
+function navigateToRuntimeMember(pack, type, group, overloadSelector) {
   state.package = pack;
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
   revealType(type);
-  revealMember(group.overloads[overloadIndex ?? 0] ?? group.overloads[0]);
+  const overload = group.overloads.find(item => item.stableSelector === overloadSelector)
+    ?? group.overloads[0];
+  state.memberAccessibilityFilter = new Set([memberAccessBucket(overload)]);
   state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = group.overloads.length > 1 ? (overloadIndex ?? 0) : null;
-  state.memberSection = "call-graph";
+  const visibleGroup = memberGroups(type).find(item => item.key === group.key);
+  const visibleIndex = visibleGroup?.overloads.findIndex(item =>
+    item.stableSelector === overload.stableSelector) ?? -1;
+  state.selectedOverloadIndex = visibleGroup && visibleGroup.overloads.length > 1 && visibleIndex >= 0
+    ? visibleIndex
+    : null;
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  state.memberSource = null;
-  state.memberSourceError = "";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberCallGraphExpanding = false;
-  state.memberFacts = null;
-  state.memberFactsError = "";
-  state.memberAnnotated = null;
-  state.memberAnnotatedError = "";
+  resetMemberSectionState();
+  state.memberSection = "call-graph";
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
   loadSelectedMemberCallGraph();
 }
@@ -6681,13 +6696,17 @@ function findRuntimeMemberSelection(pack, node) {
     for (let i = 0; i < group.overloads.length; i++) {
       const params = group.overloads[i].parameters ?? [];
       if (params.length !== want.length) continue;
-      if (!arityMatch) arityMatch = { type, group, overloadIndex: i };
+      if (!arityMatch) arityMatch = { type, group, overloadSelector: group.overloads[i].stableSelector };
       if (params.every((parameter, idx) => simpleTypeName(parameter.type) === want[idx])) {
-        return { type, group, overloadIndex: i };
+        return { type, group, overloadSelector: group.overloads[i].stableSelector };
       }
     }
   }
-  return arityMatch ?? { type, group: named[0], overloadIndex: 0 };
+  return arityMatch ?? {
+    type,
+    group: named[0],
+    overloadSelector: named[0].overloads[0].stableSelector,
+  };
 }
 
 function paramNamesFromSig(sig) {
@@ -6776,6 +6795,32 @@ function findMemberGroup(groups, memberName) {
     if (group) return group;
   }
   return null;
+}
+
+function workspacePackageForAssembly(assembly) {
+  const wanted = assemblyKey(assembly);
+  return state.packages.find(pkg =>
+    pkg.types.some(type => assemblyKey(type.assembly) === wanted)) ?? null;
+}
+
+function resolveStructuredNodeSource(identity) {
+  const pkg = workspacePackageForAssembly(identity.assembly);
+  if (!pkg || /^(get|set|add|remove)_/.test(identity.memberName)) return null;
+  const type = pkg.types.find(candidate =>
+    assemblyKey(candidate.assembly) === assemblyKey(identity.assembly)
+    && typeEngineName(candidate) === identity.typeFullName);
+  if (!type) return null;
+  return {
+    title: `${typeDisplayName(type)}.${identity.memberName}`,
+    request: {
+      packageId: pkg.id,
+      version: pkg.version,
+      framework: pkg.activeFramework,
+      assembly: type.assembly,
+      type: identity.typeFullName,
+      member: identity.memberName,
+    },
+  };
 }
 
 function resolveNodeForSource(label, external = false) {
@@ -7193,11 +7238,15 @@ function parameterTypeKey(typeName) {
   };
   return String(typeName || "")
     .replace(/global::/g, "")
-    .replace(/(?:[A-Za-z_]\w*\.)+([A-Za-z_]\w*)/g, "$1")
-    .replace(/\b(Boolean|Byte|SByte|Char|Decimal|Double|Single|Int16|UInt16|Int32|UInt32|Int64|UInt64|Object|String)\b/g,
-      name => aliases[name])
-    .replace(/&/g, "")
+    .replace(/\+/g, ".")
+    .replace(/\bSystem\.(Boolean|Byte|SByte|Char|Decimal|Double|Single|Int16|UInt16|Int32|UInt32|Int64|UInt64|Object|String)\b/g,
+      (_, name) => aliases[name])
     .replace(/\s+/g, "");
+}
+
+function browserParameterTypeKey(parameter) {
+  const modifier = parameter.modifier ? `${parameter.modifier} ` : "";
+  return parameterTypeKey(`${modifier}${parameter.type || ""}`);
 }
 
 function findWorkspaceMemberSelection(node) {
@@ -7210,52 +7259,71 @@ function findWorkspaceMemberSelection(node) {
     const group = findMemberGroup(memberGroups(type, true), node.memberName);
     if (!group) continue;
 
-    const wantedParameters = splitParameterSignature(node.paramSig);
+    const wantedParameters = node.parameterTypes ?? splitParameterSignature(node.paramSig);
     const sameArity = group.overloads
-      .map((overload, index) => ({ overload, index }))
-      .filter(candidate => (candidate.overload.parameters || []).length === wantedParameters.length);
+      .filter(overload =>
+        (overload.parameters || []).length === wantedParameters.length
+        && (overload.genericArity ?? 0) === (node.genericArity ?? 0));
     const exact = sameArity.find(candidate =>
-      candidate.overload.parameters.every((parameter, index) =>
-        parameterTypeKey(parameter.type) === parameterTypeKey(wantedParameters[index])));
-    const match = exact ?? (sameArity.length === 1 ? sameArity[0] : null);
-    if (match) return { pkg, type, group, overloadIndex: match.index };
+      candidate.parameters.every((parameter, index) =>
+        browserParameterTypeKey(parameter) === parameterTypeKey(wantedParameters[index]))
+      && parameterTypeKey(candidate.returnType) === parameterTypeKey(node.returnType));
+    const parameterMatch = sameArity.filter(candidate =>
+      candidate.parameters.every((parameter, index) =>
+        browserParameterTypeKey(parameter) === parameterTypeKey(wantedParameters[index])));
+    const match = exact ?? (parameterMatch.length === 1 ? parameterMatch[0] : null);
+    if (match) {
+      return {
+        pkg,
+        type,
+        group,
+        overloadSelector: match.stableSelector,
+      };
+    }
+    if (/^(get|set|add|remove)_/.test(node.memberName) && group.overloads.length === 1) {
+      return {
+        pkg,
+        type,
+        group,
+        overloadSelector: group.overloads[0].stableSelector,
+      };
+    }
   }
   return null;
 }
 
-function resolveWorkspaceNode(label, element = null) {
+function resolveWorkspaceNode(element) {
   const mermaidId = element?.id?.match(/(?:^|-)n(\d+)(?:-|$)/);
-  if (mermaidId) {
-    const identity = currentCallGraph()?.nodes?.find(node => node.id === Number(mermaidId[1]));
-    const selection = identity && findWorkspaceMemberSelection(identity);
-    if (selection) return selection;
-  }
-
-  const dot = label.lastIndexOf(".");
-  if (dot < 0) return null;
-  let typeName = label.slice(0, dot);
-  const memberName = label.slice(dot + 1);
-  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
-  const wantedType = stripArity(typeName);
-  for (const node of flattenGraphNodes(currentCallGraph())) {
-    if (!node.assembly || !node.typeFullName || node.memberName !== memberName) continue;
-    const simpleType = stripArity(node.typeFullName.split(".").pop() ?? "");
-    if (simpleType !== wantedType) continue;
-    const selection = findWorkspaceMemberSelection(node);
-    if (selection) return selection;
-  }
-  return null;
+  if (!mermaidId) return { identity: null, selection: null };
+  const identity = currentCallGraph()?.nodes?.find(node => node.id === Number(mermaidId[1])) ?? null;
+  return {
+    identity,
+    selection: identity ? findWorkspaceMemberSelection(identity) : null,
+  };
 }
 
-function navigateToMember(pkg, type, group, overloadIndex = null) {
+function navigateToMember(pkg, type, group, overloadSelector = null) {
   state.package = pkg;
   state.lens = "api";
   state.selectedTypeId = type.id;
   revealType(type);
-  const overload = overloadIndex == null ? null : group.overloads[overloadIndex];
-  if (overload) revealMember(overload); else revealMemberGroup(group);
+  const overload = group.overloads.find(item => item.stableSelector === overloadSelector) ?? null;
+  if (overload) {
+    state.memberAccessibilityFilter = new Set([memberAccessBucket(overload)]);
+  } else {
+    revealMemberGroup(group);
+  }
   state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = overload && group.overloads.length > 1 ? overloadIndex : null;
+  const visibleGroup = memberGroups(type).find(item => item.key === group.key);
+  const visibleIndex = overload
+    ? visibleGroup?.overloads.findIndex(item => item.stableSelector === overload.stableSelector) ?? -1
+    : -1;
+  state.selectedOverloadIndex = overload
+    && visibleGroup
+    && visibleGroup.overloads.length > 1
+    && visibleIndex >= 0
+      ? visibleIndex
+      : null;
   resetMemberSectionState();
   state.memberSection = "overview";
   loadSelectedMemberDocumentation();

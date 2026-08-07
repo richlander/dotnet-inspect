@@ -74,6 +74,7 @@ public sealed record BrowserMemberSurface(
     int? MetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
+    int GenericArity,
     string? DocumentationId,
     string? Summary,
     string? Returns,
@@ -119,7 +120,10 @@ public sealed record BrowserCallGraphIdentity(
     string Assembly,
     string TypeFullName,
     string MemberName,
-    string ParamSig);
+    string ParamSig,
+    string[] ParameterTypes,
+    string ReturnType,
+    int GenericArity);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -2742,14 +2746,20 @@ public static partial class BrowserInspectionEngine
     {
         var definition = RootDefinition(node.Member.DeclaringType);
         var typeFullName = definition.Namespace.Length == 0
-            ? definition.Name
-            : $"{definition.Namespace}.{definition.Name}";
+            ? definition.Name.Replace('+', '.')
+            : $"{definition.Namespace}.{definition.Name.Replace('+', '.')}";
+        var parameterTypes = node.Member.OpenSignatureParameters
+            .Select(type => type.ToQualifiedDisplayString())
+            .ToArray();
         return new(
             node.Id,
             definition.Assembly,
             typeFullName,
             node.Member.Name,
-            string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+            string.Join(", ", parameterTypes),
+            parameterTypes,
+            node.Member.OpenSignatureReturn.ToQualifiedDisplayString(),
+            node.Member.GenericArity);
     }
 
     // The declaring type of a callee may be a constructed generic instance or an array/
@@ -3531,6 +3541,7 @@ public static partial class BrowserInspectionEngine
                     parameter.HasDefault,
                     parameter.DefaultValueText,
                     null)).ToArray() ?? [],
+                member.SignatureModel?.TypeParameters.Count ?? 0,
                 documentationId,
                 null,
                 null,
