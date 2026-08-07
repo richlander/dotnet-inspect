@@ -169,16 +169,17 @@ public sealed partial class CSharpPrinter
 
     string LambdaConversionText(Lambda lambda, string text)
         => !lambda.ReturnsVoid
-            || LambdaReturnType(lambda) is not null
             || LambdaContextPinsDelegateType(lambda)
             ? text
             : $"({TypeText(lambda.DelegateType)})({text})";
 
-    static bool LambdaContextPinsDelegateType(Lambda lambda)
+    bool LambdaContextPinsDelegateType(Lambda lambda)
         => lambda.Parent switch
         {
             StoreLocal store when ReferenceEquals(store.Value, lambda) => store.Type.Equals(lambda.DelegateType),
             StoreField store when ReferenceEquals(store.Value, lambda) => store.Field.Type.Equals(lambda.DelegateType),
+            Return returnStatement when ReferenceEquals(returnStatement.Value, lambda)
+                => _function.Signature.ReturnType.Equals(lambda.DelegateType),
             _ => false,
         };
 

@@ -224,6 +224,22 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void ActionInObjectSink_PreservesDelegateIdentityAndTargetTyping()
+        => Assert.Equal(
+            "return (Action<int>)(x => Console.WriteLine(x));",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.ActionInObjectSink), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void ActionOverloadArgument_PreservesExactDelegateType()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.ActionOverloadArgument),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("Pick((Action<int>)(x => Console.WriteLine(x)));", output);
+    }
+
+    [Fact]
     public void AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport()
     {
         string output = PrintRaised(
@@ -616,6 +632,14 @@ public static class VoidLambdaRaisingSamples
     public static System.Action DiscardedPropertyRead() => () => { _ = System.Environment.ProcessId; };
 
     public static object CustomDelegateInObjectSink() => (VoidCallback)(() => { });
+
+    public static object ActionInObjectSink() => (System.Action<int>)(x => System.Console.WriteLine(x));
+
+    public static void ActionOverloadArgument()
+        => Pick((System.Action<int>)(x => System.Console.WriteLine(x)));
+
+    static void Pick(System.Action<int> action) { }
+    static void Pick(System.Action<long> action) { }
 
     public static System.Action<System.Threading.Tasks.Task> AsyncVoidLambda()
         => async task => await task;
