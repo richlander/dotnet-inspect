@@ -342,6 +342,70 @@ public class AnnotatedSourceMapProjectionTests
     }
 
     [Fact]
+    public void BodylessMemberMapFailureKeepsSiblingProjection()
+    {
+        using var source = MetadataSource.Open(typeof(Action<>).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(Action<>).FullName!,
+            nameof(Action<int>.Invoke),
+            AnnotatedSource: true,
+            SourceMap: true));
+
+        Assert.Null(projection.SourceMap);
+        Assert.NotNull(projection.SourceMapFailure);
+        Assert.Contains(
+            projection.SourceMapFailure.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("has no IL body", StringComparison.Ordinal));
+        Assert.NotNull(projection.AnnotatedSource);
+        Assert.False(projection.AnnotatedSource.Succeeded);
+    }
+
+    [Fact]
+    public void MapOnlyHeaderFailureKeepsSiblingProjection()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            AnnotatedSource: true,
+            Registry: new ResearchFactRegistry(new ThrowingHeaderProducer()),
+            SourceMap: true));
+
+        Assert.Null(projection.SourceMap);
+        Assert.NotNull(projection.SourceMapFailure);
+        Assert.Contains(
+            projection.SourceMapFailure.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("header failed", StringComparison.Ordinal));
+        Assert.True(projection.AnnotatedSource?.Succeeded);
+    }
+
+    [Fact]
+    public void CostHeaderFailureStaysOutOfUnrelatedSiblingProjections()
+    {
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.BoxInt),
+            AnnotatedSource: true,
+            CostOverlay: true,
+            SemanticsOverlay: true,
+            Registry: new ResearchFactRegistry(new ThrowingHeaderProducer()),
+            SourceMap: true));
+
+        Assert.True(projection.AnnotatedSource?.Succeeded);
+        Assert.True(projection.SemanticsOverlay?.Succeeded);
+        Assert.False(projection.CostOverlay?.Body.Succeeded);
+        Assert.Null(projection.SourceMap);
+        Assert.NotNull(projection.SourceMapFailure);
+    }
+
+    [Fact]
     public void SilentConstructorProloguePrecedesTheFirstPrintedStatement()
     {
         using var source = MetadataSource.Open(typeof(ResearchConstructorFixture).Assembly.Location);
@@ -477,5 +541,15 @@ public class AnnotatedSourceMapProjectionTests
         public IReadOnlyList<string> Produces => [.. markers.Select(marker => marker.Descriptor.Id)];
         public IReadOnlyList<string> DependsOn => [];
         public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => markers;
+    }
+
+    sealed class ThrowingHeaderProducer : IResearchFactProducer
+    {
+        public string Name => "throwing-header";
+        public IReadOnlyList<string> Produces => [];
+        public IReadOnlyList<string> DependsOn => [];
+        public IReadOnlyList<IAnnotation> Produce(ResearchFactContext context) => [];
+        public IReadOnlyList<ResearchHeaderFact> ProduceHeaderFacts(ResearchFactContext context)
+            => throw new InvalidOperationException("header failed");
     }
 }

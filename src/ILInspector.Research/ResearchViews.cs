@@ -92,9 +92,25 @@ public static partial class ResearchViews
             var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
             var context = new ResearchFactContext(request.Source, imported, assembly);
             var facts = effectiveRegistry.Collect(context);
-            var headerFacts = request.CostOverlay || request.FactRows || request.SourceMap
-                ? effectiveRegistry.CollectHeaderFacts(context)
-                : [];
+            IReadOnlyList<ResearchHeaderFact> headerFacts = [];
+            DecompilerResult? headerFactsFailure = null;
+            if (request.FactRows)
+            {
+                headerFacts = effectiveRegistry.CollectHeaderFacts(context);
+            }
+            else if (request.CostOverlay)
+            {
+                try
+                {
+                    headerFacts = effectiveRegistry.CollectHeaderFacts(context);
+                }
+                catch (Exception ex)
+                {
+                    headerFactsFailure = DecompilerResult.Failure(
+                        DiagnosticIds.InternalError,
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
 
             AnnotatedSourceMap? sourceMap = null;
             DecompilerResult? sourceMapFailure = null;
@@ -107,13 +123,21 @@ public static partial class ResearchViews
                 {
                     var mapFunction = ImportFunction()
                         ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                    if (headerFactsFailure is not null)
+                        throw new InvalidOperationException(
+                            string.Join(
+                                "; ",
+                                headerFactsFailure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+                    var mapHeaderFacts = request.FactRows || request.CostOverlay
+                        ? headerFacts
+                        : effectiveRegistry.CollectHeaderFacts(context);
                     return BuildAnnotatedSourceMap(
                         request.Source,
                         request.Type,
                         request.Method,
                         mapFunction,
                         facts,
-                        headerFacts,
+                        mapHeaderFacts,
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly,
@@ -154,16 +178,25 @@ public static partial class ResearchViews
             CostOverlayResult? costOverlay = null;
             if (request.CostOverlay)
             {
-                var costAnnotations = facts
-                    .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
-                    .ToList();
-                var costHeaderFacts = headerFacts
-                    .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
-                    .ToList();
-                var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
-                    request.Source);
-                costOverlay = new CostOverlayResult(body, costHeaderFacts);
+                if (headerFactsFailure is not null)
+                {
+                    costOverlay = new CostOverlayResult(
+                        WithTrace(headerFactsFailure, request.Source),
+                        []);
+                }
+                else
+                {
+                    var costAnnotations = facts
+                        .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
+                        .ToList();
+                    var costHeaderFacts = headerFacts
+                        .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
+                        .ToList();
+                    var body = WithTrace(
+                        RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
+                        request.Source);
+                    costOverlay = new CostOverlayResult(body, costHeaderFacts);
+                }
             }
 
             DecompilerResult? semanticsOverlay = null;
@@ -193,7 +226,7 @@ public static partial class ResearchViews
         }
         catch (Exception ex)
         {
-            if (request.FactRows || request.SourceMap)
+            if (request.FactRows)
                 throw;
 
             var failure = DecompilerResult.Failure(
@@ -206,7 +239,8 @@ public static partial class ResearchViews
                 request.CostOverlay ? new CostOverlayResult(failure, []) : null,
                 request.SemanticsOverlay ? failure : null,
                 request.FactRows ? [] : null,
-                failure.Trace);
+                failure.Trace,
+                SourceMapFailure: request.SourceMap ? failure : null);
         }
     }
 
