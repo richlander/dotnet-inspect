@@ -899,10 +899,11 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
-    public void GetCachedVersions_RejectsInvalidPackageName()
+    public void GetCachedVersions_InvalidPackageName_HasNoSuggestions()
     {
-        Assert.Throws<ArgumentException>(() =>
-            NuGetCache.GetCachedVersions("../outside", [TestSourceKey]));
+        Assert.Empty(NuGetCache.GetCachedVersions(
+            "../outside",
+            [TestSourceKey]));
     }
 
     [Fact]

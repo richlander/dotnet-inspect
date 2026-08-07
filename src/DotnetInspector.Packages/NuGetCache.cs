@@ -66,17 +66,20 @@ public static class NuGetCache
     /// </summary>
     internal static void ValidatePathComponent(string value, string name)
     {
-        if (string.IsNullOrWhiteSpace(value)
+        if (!IsValidPathComponent(value))
+        {
+            throw new ArgumentException($"Invalid {name}: '{value}'");
+        }
+    }
+
+    private static bool IsValidPathComponent(string value) =>
+        !(string.IsNullOrWhiteSpace(value)
             || value.Contains("..")
             || value.Contains('/')
             || value.Contains('\\')
             || value.Contains(':')
             || value.Contains('\0')
-            || Path.IsPathRooted(value))
-        {
-            throw new ArgumentException($"Invalid {name}: '{value}'");
-        }
-    }
+            || Path.IsPathRooted(value));
 
     /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
@@ -479,7 +482,9 @@ public static class NuGetCache
         bool includePrerelease = true,
         int? limit = null)
     {
-        ValidatePathComponent(packageName, "package name");
+        if (!IsValidPathComponent(packageName))
+            return [];
+
         var normalizedName = packageName.ToLowerInvariant();
         var versions = new Dictionary<NuGetVersion, string>();
 

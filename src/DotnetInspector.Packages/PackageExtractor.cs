@@ -1764,6 +1764,8 @@ public static class PackageExtractor
                     log).ConfigureAwait(false);
             if (perSource is null)
                 continue;
+            if (!perSource[0].Authoritative)
+                return null;
 
             sawMetadata = true;
             foreach (PackageVersionInfo listing in perSource[0].Listings)

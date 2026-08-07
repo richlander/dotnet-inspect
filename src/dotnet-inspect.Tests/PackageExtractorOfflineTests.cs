@@ -36,6 +36,18 @@ public sealed class PackageExtractorOfflineTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_OfflineMalformedBarePackage_ReportsCacheMiss()
+    {
+        var outcome = await PackageExtractor.ExtractPackageAsync(
+            Core.HttpClientFactory.Shared,
+            "some/pkg");
+
+        Assert.False(outcome.IsSuccess);
+        Assert.Contains("not available offline", outcome.ErrorMessage);
+        Assert.DoesNotContain("Invalid package name", outcome.ErrorMessage);
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_OfflineUncachedVersion_ReportsCacheMiss()
     {
         var packageName = $"Definitely.Uncached.{Guid.NewGuid():N}";

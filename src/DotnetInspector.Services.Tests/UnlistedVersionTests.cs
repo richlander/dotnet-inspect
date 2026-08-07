@@ -103,6 +103,27 @@ public class UnlistedVersionTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSingleVersionListing_ReturnsNull_WhenRegistrationUnavailable()
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            serveRegistration: false));
+
+        var result = await PackageExtractor.GetSingleVersionListingAsync(
+            client,
+            "UnlistedPkg",
+            includePrerelease: true,
+            log: null,
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [NuGetOrgSource.Url],
+            });
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task GetVersions_FailsOpen_WhenRegistrationUnavailable()
     {
         // Registration index 404s → we cannot determine listed status → do not drop versions.
