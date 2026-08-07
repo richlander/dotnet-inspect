@@ -29,13 +29,14 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 
 ## Safety and interop surface
 
-`-S @Audit` drills the safety surface of a library: `Unsafe Members`, `P/Invoke
-Methods`, and `Switches`. (For unsafe operations inside one method, see the
-`correctness` skill; for what switches mean across versions, see
-`compatibility`.)
+`-S @Audit` includes `Unsafe Members` and `P/Invoke Methods` alongside library
+signals, symbols, and path audit evidence. `Switches` is a separate section;
+select it explicitly for feature-switch and trim/AOT knobs. (For unsafe
+operations inside one method, see the `correctness` skill; for what switches
+mean across versions, see `compatibility`.)
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
+dnx dotnet-inspect -y -- library MyLib.dll -S "@Audit,Switches"
 dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
 ```
 
