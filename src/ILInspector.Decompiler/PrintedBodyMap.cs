@@ -557,6 +557,29 @@ public sealed record AnnotatedSourceMap
         /// <summary>An empty annotated source map.</summary>
         public static AnnotatedSourceMap Empty { get; } = new([], [], [], []);
 
+        /// <inheritdoc/>
+        public bool Equals(AnnotatedSourceMap? other)
+            => other is not null
+                && Lines.SequenceEqual(other.Lines)
+                && Nodes.SequenceEqual(other.Nodes)
+                && Regions.SequenceEqual(other.Regions)
+                && UnplacedAnnotations.SequenceEqual(other.UnplacedAnnotations);
+
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            foreach (var line in Lines)
+                hash.Add(line);
+            foreach (var node in Nodes)
+                hash.Add(node);
+            foreach (var region in Regions)
+                hash.Add(region);
+            foreach (var annotation in UnplacedAnnotations)
+                hash.Add(annotation);
+            return hash.ToHashCode();
+        }
+
         static void ValidateCSharpExtent(
             PrintedExtent extent,
             IReadOnlyList<AnnotatedSourceLine> lines,

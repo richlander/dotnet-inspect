@@ -2156,20 +2156,25 @@ public class ApiCommand
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
            && sections.Contains(SectionNames.AnnotatedSourceMap)
-           && options.Select is [var selected]
-           && selected.Equals(
-               SectionNames.AnnotatedSourceMap,
-               StringComparison.OrdinalIgnoreCase);
+           && HasOnlyExplicitAnnotatedSourceMapSelectors(options);
 
     private static bool IsInvalidAnnotatedSourceMapJsonSelection(ApiOptions options)
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
-           && options.IncludeSections is { Count: > 1 } sections
+           && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceMap)
-           && options.Select?.Any(value => value.Equals(
-               SectionNames.AnnotatedSourceMap,
-               StringComparison.OrdinalIgnoreCase)) == true;
+           && options.Select?.Any(IsExplicitAnnotatedSourceMapSelector) == true
+           && !HasOnlyExplicitAnnotatedSourceMapSelectors(options);
+
+    private static bool HasOnlyExplicitAnnotatedSourceMapSelectors(ApiOptions options)
+        => options.Select is { Length: > 0 } selectors
+           && selectors.All(IsExplicitAnnotatedSourceMapSelector);
+
+    private static bool IsExplicitAnnotatedSourceMapSelector(string selector)
+        => selector.Equals(
+            SectionNames.AnnotatedSourceMap,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

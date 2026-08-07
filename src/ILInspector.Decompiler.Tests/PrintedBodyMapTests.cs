@@ -215,6 +215,8 @@ public class PrintedBodyMapTests
         string json = JsonSerializer.Serialize(map);
         var replayed = JsonSerializer.Deserialize<AnnotatedSourceMap>(json);
         Assert.NotNull(replayed);
+        Assert.Equal(map, replayed);
+        Assert.Equal(map.GetHashCode(), replayed!.GetHashCode());
         Assert.Equal(map.Lines, replayed!.Lines);
         Assert.Equal(map.Nodes, replayed.Nodes);
         Assert.Equal(map.Regions, replayed.Regions);

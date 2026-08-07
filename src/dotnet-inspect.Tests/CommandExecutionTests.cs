@@ -6749,6 +6749,23 @@ public partial class CommandExecutionTests
         Assert.Contains("must be the only selected section under --json", error);
     }
 
+    [Fact]
+    public async Task Member_DuplicateAnnotatedSourceMapSelectors_UseStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1",
+            "-S", "Annotated Source Map",
+            "-S", "annotated source map",
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("lines", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
+    }
+
     [Theory]
     [InlineData("@all")]
     [InlineData("Annotated*")]
