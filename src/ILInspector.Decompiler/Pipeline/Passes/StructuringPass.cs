@@ -488,7 +488,7 @@ public sealed class StructuringPass : IIrPass
                     if (target > stop)
                     {
                         if (CanClonePastRegionTerminatorInLeaveRetryLoop(ctx, continueTarget, target)
-                            || CanInlinePastRegionTarget(ctx, target))
+                            || CanInlinePastRegionTarget(ctx, target, i))
                         {
                             i++;
                             break;
@@ -878,10 +878,11 @@ public sealed class StructuringPass : IIrPass
         return true;
     }
 
-    static bool CanInlinePastRegionTarget(Ctx ctx, int target)
+    static bool CanInlinePastRegionTarget(Ctx ctx, int target, int owningGuard)
         => !ctx.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
             && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
-            && TryBuildPastRegionTarget(ctx, target, out _, out _);
+            && TryBuildPastRegionTarget(ctx, target, out var body, out int inlinedStop)
+            && CanDuplicatePastRegionBody(ctx, target, inlinedStop, owningGuard, body);
 
     static bool CanClonePastRegionTerminator(Ctx ctx, int target)
         => TryClonePastRegionTerminator(ctx, target, out _);
@@ -939,6 +940,22 @@ public sealed class StructuringPass : IIrPass
 
     static bool EndsWithTerminator(Block block)
         => block.Children.Count > 0 && block.Children[^1] is Return or Throw;
+
+    static bool CanDuplicatePastRegionBody(
+        Ctx ctx,
+        int rangeStart,
+        int rangeEnd,
+        int owningGuard,
+        Block body)
+    {
+        bool originalIsNeeded = Enumerable.Range(rangeStart, rangeEnd - rangeStart).Any(blockIndex =>
+            ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors)
+            && predecessors.Any(index =>
+                index != owningGuard
+                && (index < rangeStart || index >= rangeEnd)));
+        return !originalIsNeeded
+            || !body.Descendants.Any(node => node is Branch or ConditionalBranch or SwitchBranch or Leave);
+    }
 
     static List<int> BackwardOrSelfLeaveTargetIndices(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex)
     {
@@ -1233,18 +1250,6 @@ public sealed class StructuringPass : IIrPass
             && (index < rangeStart || index >= rangeEnd));
     }
 
-    static bool CloneOwnersConsumeEveryJumpPredecessor(Ctx ctx, int blockIndex)
-    {
-        if (!ctx.CloneOwnerIndices.TryGetValue(blockIndex, out var owners)
-            || !ctx.ClonePredecessorIndices.TryGetValue(ctx.Blocks[blockIndex].StartOffset, out var predecessors))
-        {
-            return false;
-        }
-        return predecessors.All(index =>
-            owners.Contains(index)
-            || ctx.DroppableBlocks.Contains(index));
-    }
-
     /// <summary>
     /// Whether the conditional predecessors of a shared return are scattered
     /// across nesting levels (a <c>return</c>/<c>throw</c> dispatch arm sits
@@ -1489,8 +1494,7 @@ public sealed class StructuringPass : IIrPass
         while (i < stop)
         {
             // Mirrors Validate: dropped blocks were already cloned/inlined.
-            if (ctx.DroppableBlocks.Contains(i)
-                || CloneOwnersConsumeEveryJumpPredecessor(ctx, i))
+            if (ctx.DroppableBlocks.Contains(i))
             {
                 i++;
                 continue;
@@ -1676,9 +1680,12 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (target > stop && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop))
+                    if (target > stop
+                        && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop)
+                        && CanDuplicatePastRegionBody(ctx, target, inlinedStop, i, pastRegionArm))
                     {
                         result.Add(new IfStatement(condition, pastRegionArm, null));
+                        var clonedOriginals = new List<int>(inlinedStop - target);
                         for (int drop = target; drop < inlinedStop; drop++)
                         {
                             // A scattered switch-expression default (issue #2973)
@@ -1694,9 +1701,20 @@ public sealed class StructuringPass : IIrPass
                             // owns its target clone; every other external entry
                             // still needs the original block in the linear walk.
                             RecordCloneOwner(ctx, drop, i);
-                            if (HasUnconsumedExternalJumpPredecessor(ctx, drop, target, inlinedStop, i))
-                                continue;
-                            ctx.DroppableBlocks.Add(drop);
+                            clonedOriginals.Add(drop);
+                        }
+                        // Retain or drop the cloned region as a unit. Retaining
+                        // only its externally entered head while dropping an
+                        // internal loop body or fallthrough return leaves a
+                        // mangled subgraph in the linear walk.
+                        bool retainOriginals = clonedOriginals.Any(drop =>
+                            HasUnconsumedExternalJumpPredecessor(ctx, drop, target, inlinedStop, i));
+                        foreach (int drop in clonedOriginals)
+                        {
+                            if (retainOriginals)
+                                ctx.DroppableBlocks.Remove(drop);
+                            else
+                                ctx.DroppableBlocks.Add(drop);
                         }
                         i++;
                         break;
