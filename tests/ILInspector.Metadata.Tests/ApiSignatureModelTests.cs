@@ -136,7 +136,7 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("TSource", member.SignatureModel.TypeParameters[0].Name);
         Assert.Equal(["unmanaged"], member.SignatureModel.TypeParameters[0].Constraints);
         Assert.Equal("TResult", member.SignatureModel.TypeParameters[1].Name);
-        Assert.Equal(["notnull", "System.IComparable<TResult>", "new()"], member.SignatureModel.TypeParameters[1].Constraints);
+        Assert.Equal(["System.IComparable<TResult>", "new()"], member.SignatureModel.TypeParameters[1].Constraints);
     }
 
     [Fact]

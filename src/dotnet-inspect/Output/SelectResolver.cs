@@ -54,6 +54,7 @@ public static class SelectResolver
         ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
         ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
         ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Dependencies"] = SectionNames.References,
         ["Source Files"] = SectionNames.SourceLinkFiles,
         ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
         ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
@@ -102,6 +103,44 @@ public static class SelectResolver
     /// </summary>
     public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
         => selectDefault && includeSections is { Count: > 0 };
+
+    internal static bool TryResolveCategory(
+        string value,
+        IReadOnlyDictionary<string, string[]>? categories,
+        IReadOnlyCollection<string> knownSections,
+        out string category,
+        out string[] sections)
+    {
+        category = "";
+        sections = [];
+        if (categories == null)
+            return false;
+
+        var exactCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (exactCategory != null)
+        {
+            category = exactCategory;
+            sections = categories[exactCategory];
+            return true;
+        }
+
+        if (knownSections.Any(section =>
+                section.Equals(value, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (!CategoryAliases.TryGetValue(value, out var alias))
+            return false;
+
+        var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(alias, StringComparison.OrdinalIgnoreCase));
+        if (aliasedCategory == null)
+            return false;
+
+        category = aliasedCategory;
+        sections = categories[aliasedCategory];
+        return true;
+    }
 
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
@@ -216,6 +255,22 @@ public static class SelectResolver
                     continue;
                 }
 
+                if (!miss.IsGlob)
+                {
+                    var suggestions = GetSuggestions(
+                        value,
+                        [.. knownSections, .. categories.Keys]);
+                    if (suggestions.Count > 0)
+                    {
+                        unresolved.Add(miss with
+                        {
+                            Suggestions = suggestions,
+                            ListsAllSections = false
+                        });
+                        continue;
+                    }
+                }
+
                 unresolved.Add(miss);
             }
         }
@@ -239,23 +294,29 @@ public static class SelectResolver
     private static List<string> GetSuggestions(string value, string[] allNames, int maxResults = 6)
     {
         var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var valueKey = SuggestionKey(value);
 
         foreach (var name in allNames)
-            if (name.StartsWith(value, StringComparison.OrdinalIgnoreCase))
+            if (SuggestionKey(name).StartsWith(valueKey, StringComparison.OrdinalIgnoreCase))
                 suggestions.Add(name);
 
-        var valueLower = value.ToLowerInvariant();
+        var valueLower = valueKey.ToLowerInvariant();
         foreach (var name in allNames)
         {
-            var score = StringDistance.Similarity(valueLower, name.ToLowerInvariant());
+            var score = StringDistance.Similarity(
+                valueLower,
+                SuggestionKey(name).ToLowerInvariant());
             if (score >= 0.5)
                 suggestions.Add(name);
         }
 
         return suggestions
             .OrderByDescending(s => StringDistance.Similarity(
-                value.ToLowerInvariant(), s.ToLowerInvariant()))
+                valueLower, SuggestionKey(s).ToLowerInvariant()))
             .Take(maxResults)
             .ToList();
     }
+
+    private static string SuggestionKey(string value)
+        => value.StartsWith('@') ? value[1..] : value;
 }

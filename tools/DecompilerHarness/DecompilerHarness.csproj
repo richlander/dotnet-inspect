@@ -13,7 +13,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Using Include="CSharpText" />
     <Using Include="ILInspector.SourceLink" />
+    <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <ProjectReference Include="../../src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <ProjectReference Include="../../src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
