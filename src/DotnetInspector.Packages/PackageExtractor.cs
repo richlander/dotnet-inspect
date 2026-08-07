@@ -1416,9 +1416,14 @@ public static class PackageExtractor
                     if (pageJson == null)
                         return null;
                     using var pageDoc = System.Text.Json.JsonDocument.Parse(pageJson);
-                    if (pageDoc.RootElement.TryGetProperty("items", out var pageItems))
-                        CollectUnlisted(pageItems, unlisted);
+                    if (!pageDoc.RootElement.TryGetProperty("items", out var pageItems))
+                        throw new InvalidOperationException(
+                            "Registration page does not contain items.");
+                    CollectUnlisted(pageItems, unlisted);
                 }
+                else
+                    throw new InvalidOperationException(
+                        "Registration page contains neither inline items nor a page URL.");
             }
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException)
@@ -1440,7 +1445,8 @@ public static class PackageExtractor
         foreach (var item in items.EnumerateArray())
         {
             if (!item.TryGetProperty("catalogEntry", out var entry))
-                continue;
+                throw new InvalidOperationException(
+                    "Registration item does not contain a catalog entry.");
             if (!entry.TryGetProperty("listed", out var listedElement))
                 continue; // absent -> listed by default (matches NuGet's own default)
             if (listedElement.ValueKind == System.Text.Json.JsonValueKind.True)
@@ -1456,12 +1462,13 @@ public static class PackageExtractor
                 throw new InvalidOperationException(
                     $"Unexpected 'listed' value kind '{listedElement.ValueKind}' in registration entry");
             }
-            if (entry.TryGetProperty("version", out var versionElement)
-                && versionElement.GetString() is string version
-                && NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
-            {
-                unlisted.Add(parsed);
-            }
+            if (!entry.TryGetProperty("version", out var versionElement)
+                || versionElement.GetString() is not string version
+                || !NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+                throw new InvalidOperationException(
+                    "Unlisted registration entry does not contain a valid version.");
+
+            unlisted.Add(parsed);
         }
     }
 

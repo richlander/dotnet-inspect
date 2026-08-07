@@ -328,7 +328,7 @@ public static class NuGetSearchService
         // path on that host is a different endpoint the user named deliberately, and answering it
         // from the well-known search endpoint would report results the requested URL never served.
         if (sources is [{ Credential: null } only]
-            && NuGetCredentialScope.IsSameEndpoint(only.Url, NuGetSource.NuGetOrg.Url))
+            && only.IsNuGetOrg)
         {
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
@@ -432,13 +432,35 @@ public static class NuGetSearchService
     }
 
     public static async Task<List<NuGetSearchResult>> SearchByPrefixAsync(
-        HttpClient client, string prefix, int take = 100, bool prerelease = false, Action<string>? log = null)
+        HttpClient client,
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
-        log?.Invoke($"Searching NuGet by prefix: {prefix}");
-        SearchService service = new(client);
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
-        IReadOnlyList<SearchResult> results = await service.SearchByPrefixAsync(prefix, take, prerelease);
-        return results.Select(NuGetSearchResult.From).ToList();
+        log?.Invoke($"Searching packages by prefix: {prefix}");
+        NuGetSearchOutcome outcome = await SearchAsync(
+            client,
+            prefix,
+            take,
+            prerelease,
+            log,
+            sourceOptions).ConfigureAwait(false);
+        if (outcome.Failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Could not search every configured NuGet source."
+                + Environment.NewLine
+                + "  "
+                + string.Join(Environment.NewLine + "  ", outcome.Failures));
+        }
+
+        return
+        [
+            .. outcome.Results.Where(result =>
+                result.PackageId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)),
+        ];
     }
 
     public static List<NuGetSearchResult> ParseSearchResponse(string json)

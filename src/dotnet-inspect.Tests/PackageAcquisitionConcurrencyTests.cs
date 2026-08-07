@@ -974,6 +974,14 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public void GetSourceKey_TreatsAFragmentAsPartOfSourceIdentity()
+    {
+        Assert.NotEqual(
+            NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+            NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json#custom"));
+    }
+
+    [Fact]
     public void GetSourceKey_DerivesWebSourceIdentityFromTheSharedCanonicalizer()
     {
         // The cache identity and the credential-scope comparison must agree
@@ -990,6 +998,7 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             "https://pkgs.invalid/FeedA/v3/index.json",
             "https://pkgs.invalid/v3/index.json?feed=a/",
             "https://pkgs.invalid/v3/index.json?feed=a",
+            "https://pkgs.invalid/v3/index.json#custom",
         ];
 
         foreach (var left in urls)

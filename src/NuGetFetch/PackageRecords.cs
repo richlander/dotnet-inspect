@@ -45,9 +45,8 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
         && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
         && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
         && uri.Port == 443
-        && uri.AbsolutePath.TrimEnd('/').Equals(
-            "/v3/index.json",
-            StringComparison.Ordinal)
+        && (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.Ordinal)
+            || uri.AbsolutePath.Equals("/v3/index.json/", StringComparison.Ordinal))
         && string.IsNullOrEmpty(uri.Query)
         && string.IsNullOrEmpty(uri.Fragment)
         && string.IsNullOrEmpty(uri.UserInfo);

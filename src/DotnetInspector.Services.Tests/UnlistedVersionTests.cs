@@ -175,6 +175,42 @@ public class UnlistedVersionTests : IDisposable
         Assert.Null(result);
     }
 
+    [Theory]
+    [InlineData("""{"items":[{}]}""")]
+    [InlineData("""{"items":[{"@id":42}]}""")]
+    [InlineData("""{"items":[{"items":[{}]}]}""")]
+    [InlineData("""{"items":[{"items":[{"catalogEntry":{"listed":false}}]}]}""")]
+    public async Task GetLatestVersion_ReturnsNull_WhenRegistrationPageIsIncomplete(
+        string registration)
+    {
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: registration));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_ReturnsNull_WhenExternalRegistrationPageHasNoItems()
+    {
+        const string registration =
+            """{"items":[{"@id":"https://api.nuget.org/registration/page.json"}]}""";
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg",
+            Registry,
+            registrationBodyOverride: registration,
+            registrationPageBodyOverride: "{}"));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
     [Fact]
     public async Task GetVersions_FailOpenResult_IsNotCached()
     {
@@ -236,7 +272,8 @@ public class UnlistedVersionTests : IDisposable
         (string Version, bool Listed)[] registry,
         bool serveRegistration = true,
         string? registrationBodyOverride = null,
-        bool failFlatContainerFirstCall = false)
+        bool failFlatContainerFirstCall = false,
+        string? registrationPageBodyOverride = null)
         : HttpMessageHandler
     {
         private int _flatContainerCalls;
@@ -271,6 +308,14 @@ public class UnlistedVersionTests : IDisposable
                             + (r.Listed ? "true" : "false") + "}}"));
                     body = "{\"items\":[{\"items\":[" + items + "]}]}";
                 }
+            }
+            else if (registrationPageBodyOverride != null
+                && string.Equals(
+                    url,
+                    "https://api.nuget.org/registration/page.json",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                body = registrationPageBodyOverride;
             }
             else if (url.StartsWith("https://azuresearch-usnc.nuget.org/query", StringComparison.OrdinalIgnoreCase))
             {

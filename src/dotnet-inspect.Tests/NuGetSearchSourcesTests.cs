@@ -684,6 +684,35 @@ public class NuGetSearchSourcesTests
                 $"unexpected request to {url}"));
     }
 
+    [Fact]
+    public async Task SearchByPrefixAsync_UsesSelectedSourcesAndFiltersTheirResults()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """
+                {"data":[
+                    {"id":"Contoso.Tools","version":"1.0.0"},
+                    {"id":"Other.Contoso","version":"1.0.0"}
+                ]}
+                """
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+        Assert.All(handler.Requested, url =>
+            Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Regression: source resolution ran only when a source option was passed, so a NuGet.Config
     /// discovered from the working directory was ignored and search silently went to nuget.org —
@@ -776,19 +805,22 @@ public class NuGetSearchSourcesTests
     /// requested URL never served — the same "searched the wrong feed" failure this change exists
     /// to remove.
     /// </summary>
-    [Fact]
-    public async Task SearchAsync_NuGetOrgHostButNotServiceIndex_DoesNotUseWellKnownEndpoint()
+    [Theory]
+    [InlineData("https://api.nuget.org/definitely-not-a-service-index")]
+    [InlineData("https://api.nuget.org/v3/index.json//")]
+    [InlineData("https://api.nuget.org/v3/index.json#custom")]
+    public async Task SearchAsync_NoncanonicalNuGetOrgSource_DoesNotUseWellKnownEndpoint(
+        string odd)
     {
-        const string odd = "https://api.nuget.org/definitely-not-a-service-index";
-
         var handler = new RouteHandler();
         using var client = new HttpClient(handler);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
             client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
 
-        // The named endpoint was consulted; nuget.org's well-known search endpoint was not.
-        Assert.Contains(handler.Requested, url => url.StartsWith(odd, StringComparison.Ordinal));
+        // The source was consulted through ordinary service-index discovery; nuget.org's
+        // well-known search endpoint was not substituted for it.
+        Assert.NotEmpty(handler.Requested);
         Assert.DoesNotContain(
             handler.Requested,
             url => url.Contains("api.nuget.org/v3/query", StringComparison.Ordinal));

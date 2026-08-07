@@ -3011,7 +3011,12 @@ public class PackageCommand
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client, group.Dependencies, tfm, globalSeen, logger.Log);
+            client,
+            group.Dependencies,
+            tfm,
+            globalSeen,
+            logger.Log,
+            options.SourceOptions);
 
         var view = new PackageDependenciesView
         {
