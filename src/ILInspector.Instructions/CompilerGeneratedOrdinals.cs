@@ -685,6 +685,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     typeNames[typeHandle] = elidedType;
             }
 
+            var structuralKeys =
+                new StructuralSignatureBuilder(reader, typeNames);
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
@@ -694,7 +696,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Add(
                         types,
                         ambiguousTypes,
-                        TypeStructuralSignature.Build(reader, typeHandle, typeNames),
+                        structuralKeys.BuildType(typeHandle),
                         typeHandle);
                 }
 
@@ -756,11 +758,7 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     Add(
                         methods,
                         ambiguousMethods,
-                        MethodStructuralSignature.Build(
-                            reader,
-                            method,
-                            elided,
-                            typeNames),
+                        structuralKeys.BuildMethod(method, elided),
                         methodHandle);
                 }
 

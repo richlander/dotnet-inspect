@@ -21,11 +21,7 @@ public static class MethodStructuralSignature
     public static string Build(
         MetadataReader reader,
         MethodDefinition method)
-        => Build(
-            reader,
-            method,
-            methodName: null,
-            typeNameOverrides: null);
+        => new StructuralSignatureBuilder(reader).BuildMethod(method);
 
     /// <summary>
     /// Builds the key with name substitutions for correspondences whose source
@@ -36,39 +32,8 @@ public static class MethodStructuralSignature
         MethodDefinition method,
         string? methodName,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides)
-        => StructuralSignatureKey.Build(reader, () =>
-        {
-            var provider = new StructuralSignatureTypeProvider();
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    reader,
-                    method.Signature,
-                    SignatureBlobGuard.Kind.Method))
-            {
-                throw new BadImageFormatException(
-                    "The method signature exceeds the structural safety limit.");
-            }
-
-            MethodSignature<string> signature =
-                method.DecodeSignature(provider, null);
-            var builder = new StringBuilder("M");
-            StructuralSignatureKey.AppendPart(
-                builder,
-                TypeStructuralSignature.BuildCore(
-                    reader,
-                    method.GetDeclaringType(),
-                    typeNameOverrides,
-                    provider));
-            StructuralSignatureKey.AppendPart(
-                builder,
-                methodName ?? reader.GetString(method.Name));
-            StructuralSignatureKey.AppendGenericParameters(
-                builder,
-                reader,
-                method.GetGenericParameters(),
-                provider);
-            StructuralSignatureKey.AppendMethodSignature(builder, signature);
-            return builder.ToString();
-        });
+        => new StructuralSignatureBuilder(reader, typeNameOverrides)
+            .BuildMethod(method, methodName);
 }
 
 /// <summary>
@@ -85,18 +50,15 @@ public static class TypeStructuralSignature
         MetadataReader reader,
         TypeDefinitionHandle handle,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides = null)
-        => StructuralSignatureKey.Build(reader, () =>
-            BuildCore(
-                reader,
-                handle,
-                typeNameOverrides,
-                new StructuralSignatureTypeProvider()));
+        => new StructuralSignatureBuilder(reader, typeNameOverrides)
+            .BuildType(handle);
 
     internal static string BuildCore(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
-        StructuralSignatureTypeProvider provider)
+        StructuralSignatureTypeProvider provider,
+        Dictionary<TypeDefinitionHandle, string> segmentKeys)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -120,20 +82,111 @@ public static class TypeStructuralSignature
         StructuralSignatureKey.AppendNumber(builder, consumed);
         for (int i = 0; i < consumed; i++)
         {
-            var segment = reader.GetTypeDefinition(chain[i]);
-            string name = typeNameOverrides is not null
-                && typeNameOverrides.TryGetValue(chain[i], out var replacement)
-                    ? replacement
-                    : reader.GetString(segment.Name);
-            StructuralSignatureKey.AppendPart(builder, name);
-            StructuralSignatureKey.AppendGenericParameters(
-                builder,
-                reader,
-                segment.GetGenericParameters(),
-                provider);
+            if (!segmentKeys.TryGetValue(chain[i], out string? segmentKey))
+            {
+                var segment = reader.GetTypeDefinition(chain[i]);
+                string name = typeNameOverrides is not null
+                    && typeNameOverrides.TryGetValue(chain[i], out var replacement)
+                        ? replacement
+                        : reader.GetString(segment.Name);
+                var segmentBuilder = new StringBuilder();
+                StructuralSignatureKey.AppendPart(segmentBuilder, name);
+                StructuralSignatureKey.AppendGenericParameters(
+                    segmentBuilder,
+                    reader,
+                    segment.GetGenericParameters(),
+                    provider);
+                segmentKey = segmentBuilder.ToString();
+                segmentKeys.Add(chain[i], segmentKey);
+            }
+            builder.Append(segmentKey);
         }
 
         return builder.ToString();
+    }
+}
+
+/// <summary>
+/// Builds structural keys for one metadata module and one stable type-name
+/// substitution policy.
+/// </summary>
+public sealed class StructuralSignatureBuilder
+{
+    readonly MetadataReader _reader;
+    readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
+    readonly StructuralSignatureTypeProvider _provider = new();
+    readonly Dictionary<TypeDefinitionHandle, string> _typeKeys = [];
+    readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
+
+    /// <summary>
+    /// Creates a reusable builder. The override map must remain unchanged for
+    /// the builder's lifetime.
+    /// </summary>
+    public StructuralSignatureBuilder(
+        MetadataReader reader,
+        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides = null)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        _reader = reader;
+        _typeNameOverrides = typeNameOverrides;
+    }
+
+    /// <summary>Builds a method key, optionally substituting its name.</summary>
+    public string BuildMethod(
+        MethodDefinition method,
+        string? methodName = null)
+        => StructuralSignatureKey.Build(_reader, () =>
+        {
+            if (!SignatureBlobGuard.IsSafeToDecode(
+                    _reader,
+                    method.Signature,
+                    SignatureBlobGuard.Kind.Method))
+            {
+                throw new BadImageFormatException(
+                    "The method signature exceeds the structural safety limit.");
+            }
+
+            MethodSignature<string> signature =
+                method.DecodeSignature(_provider, null);
+            var builder = new StringBuilder("M");
+            StructuralSignatureKey.AppendPart(
+                builder,
+                BuildTypeCore(method.GetDeclaringType()));
+            StructuralSignatureKey.AppendPart(
+                builder,
+                methodName ?? _reader.GetString(method.Name));
+            StructuralSignatureKey.AppendGenericParameters(
+                builder,
+                _reader,
+                method.GetGenericParameters(),
+                _provider);
+            StructuralSignatureKey.AppendMethodSignature(builder, signature);
+            return builder.ToString();
+        });
+
+    /// <summary>Builds a type key.</summary>
+    public string BuildType(TypeDefinitionHandle handle)
+        => StructuralSignatureKey.Build(
+            _reader,
+            () => BuildTypeCore(handle));
+
+    string BuildTypeCore(TypeDefinitionHandle handle)
+    {
+        if (_typeKeys.TryGetValue(handle, out string? key))
+            return key;
+
+        // A declaring chain may carry many constraint rows. Reuse its encoded
+        // key across every method on that type so artifact-controlled method and
+        // constraint counts cannot multiply. Gated by
+        // BuildMethod_ReusesDeclaringTypeKeyAcrossMethods.
+        key = TypeStructuralSignature.BuildCore(
+            _reader,
+            handle,
+            _typeNameOverrides,
+            _provider,
+            _typeSegments);
+        _typeKeys.Add(handle, key);
+        return key;
     }
 }
 

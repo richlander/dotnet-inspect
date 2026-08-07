@@ -280,6 +280,41 @@ public sealed class MethodStructuralSignatureTests
     }
 
     [Fact]
+    public void BuildMethod_ReusesDeclaringTypeKeyAcrossMethods()
+    {
+        using var image = new MetadataImage(
+            typeof(MethodStructuralSignatureTests).Assembly.Location);
+        var type = FindType(
+            image.Reader,
+            nameof(StructuralSignatureFixture));
+        var overrides = new CountingReadOnlyDictionary<TypeDefinitionHandle, string>(
+            new Dictionary<TypeDefinitionHandle, string>
+            {
+                [type] = "Fixture",
+            });
+        var builder = new StructuralSignatureBuilder(
+            image.Reader,
+            overrides);
+
+        builder.BuildMethod(
+            image.Reader.GetMethodDefinition(
+                FindMethod(
+                    image.Reader,
+                    type,
+                    nameof(StructuralSignatureFixture.ByValue))));
+        int lookupsAfterFirstMethod = overrides.LookupCount;
+        builder.BuildMethod(
+            image.Reader.GetMethodDefinition(
+                FindMethod(
+                    image.Reader,
+                    type,
+                    nameof(StructuralSignatureFixture.ByValueAgain))));
+
+        Assert.True(lookupsAfterFirstMethod > 0);
+        Assert.Equal(lookupsAfterFirstMethod, overrides.LookupCount);
+    }
+
+    [Fact]
     public void Build_TypeNameOverridesApplyOnlyToTheDeclaringChain()
     {
         using var image = new MetadataImage(
@@ -433,6 +468,34 @@ public sealed class MethodStructuralSignatureTests
             _pe.Dispose();
             _stream.Dispose();
         }
+    }
+
+    sealed class CountingReadOnlyDictionary<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> inner)
+        : IReadOnlyDictionary<TKey, TValue>
+        where TKey : notnull
+    {
+        public int LookupCount { get; private set; }
+
+        public TValue this[TKey key] => inner[key];
+        public IEnumerable<TKey> Keys => inner.Keys;
+        public IEnumerable<TValue> Values => inner.Values;
+        public int Count => inner.Count;
+
+        public bool ContainsKey(TKey key)
+            => inner.ContainsKey(key);
+
+        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+            => inner.GetEnumerator();
+
+        public bool TryGetValue(TKey key, out TValue value)
+        {
+            LookupCount++;
+            return inner.TryGetValue(key, out value!);
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+            => GetEnumerator();
     }
 }
 

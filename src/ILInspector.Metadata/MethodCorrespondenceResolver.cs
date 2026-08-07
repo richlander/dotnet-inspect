@@ -57,13 +57,17 @@ public static class MethodCorrespondenceResolver
             // carries generic constraints in addition to the structural signature,
             // while representing generic parameters positionally so renaming one
             // cannot break a real cross-build match.
-            string sourceKey = MethodStructuralSignature.Build(sourceReader, sourceMethod);
+            var sourceSignatures =
+                new StructuralSignatureBuilder(sourceReader);
+            string sourceKey = sourceSignatures.BuildMethod(sourceMethod);
 
             List<MetadataMethodAddress> candidates = [];
+            var targetSignatures =
+                new StructuralSignatureBuilder(targetReader);
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod = targetReader.GetMethodDefinition(targetHandle);
-                string targetKey = MethodStructuralSignature.Build(targetReader, targetMethod);
+                string targetKey = targetSignatures.BuildMethod(targetMethod);
                 if (string.Equals(sourceKey, targetKey, StringComparison.Ordinal))
                 {
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
