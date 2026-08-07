@@ -116,6 +116,147 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
+    /// The first L1 query is wired all the way through section demand, one execution, and the
+    /// existing metadata sink. This is deliberately asserted on the real command trace: a registry
+    /// unit test cannot prove the library command stopped using the legacy mutating scanner.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Trace_ExecutesTypedQueryOnce()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--trace", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Metadata version |", output, StringComparison.Ordinal);
+
+        string[] lines = error.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        Assert.Contains("    Metadata: Image -> Metadata image", lines);
+        Assert.Single(
+            lines,
+            line => line.StartsWith("    Metadata image ", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, line => line.Contains("Metadata ->", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A native image is an explicit <see cref="DotnetInspector.Queries.MetadataImageResult.NoMetadata"/>
+    /// result, not a demanded query that silently never ran. Uses a native system image and skips
+    /// only when the platform does not expose the expected path.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_NativeImage_ExecutesTypedQueryAsNoMetadata()
+    {
+        string native = Path.Combine(
+            Path.GetTempPath(),
+            $"native-image-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(native, CreateNativePe());
+        try
+        {
+            using (var session = AssemblyInspectionSession.Open(native))
+            {
+                Assert.IsType<DotnetInspector.Queries.MetadataImageResult.NoMetadata>(
+                    DotnetInspector.Queries.MetadataImageQuery.Execute(session));
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                native,
+                "-S",
+                MetadataSectionNames.Image,
+                "--trace",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.DoesNotContain("| Metadata version |", output, StringComparison.Ordinal);
+            Assert.Contains(
+                $"This section ({MetadataSectionNames.Image}) produced no output.",
+                error,
+                StringComparison.Ordinal);
+            string[] lines = error.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            Assert.Contains("    Metadata: Image -> Metadata image", lines);
+            Assert.Single(
+                lines,
+                line => line.StartsWith("    Metadata image ", StringComparison.Ordinal));
+            Assert.DoesNotContain("queries executed\n    (none)", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("failed to open", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(native);
+        }
+
+        static byte[] CreateNativePe()
+        {
+            // Minimal PE32+ image with one .text section and no CLI header.
+            var image = new byte[0x400];
+            using var stream = new MemoryStream(image, writable: true);
+            using var writer = new BinaryWriter(stream);
+
+            writer.Write((ushort)0x5A4D);
+            stream.Position = 0x3C;
+            writer.Write(0x80);
+            stream.Position = 0x80;
+            writer.Write(0x00004550u);
+
+            writer.Write((ushort)0x8664);
+            writer.Write((ushort)1);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write((ushort)0xF0);
+            writer.Write((ushort)0x2022);
+
+            writer.Write((ushort)0x20B);
+            writer.Write((byte)0);
+            writer.Write((byte)0);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write(0x1000u);
+            writer.Write(0x140000000ul);
+            writer.Write(0x1000u);
+            writer.Write(0x200u);
+            writer.Write((ushort)6);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write((ushort)6);
+            writer.Write((ushort)0);
+            writer.Write(0u);
+            writer.Write(0x2000u);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write((ushort)3);
+            writer.Write((ushort)0x8160);
+            writer.Write(0x100000ul);
+            writer.Write(0x1000ul);
+            writer.Write(0x100000ul);
+            writer.Write(0x1000ul);
+            writer.Write(0u);
+            writer.Write(16u);
+            for (int i = 0; i < 16; i++)
+            {
+                writer.Write(0u);
+                writer.Write(0u);
+            }
+
+            writer.Write(new byte[] { (byte)'.', (byte)'t', (byte)'e', (byte)'x', (byte)'t', 0, 0, 0 });
+            writer.Write(1u);
+            writer.Write(0x1000u);
+            writer.Write(0x200u);
+            writer.Write(0x200u);
+            writer.Write(0u);
+            writer.Write(0u);
+            writer.Write((ushort)0);
+            writer.Write((ushort)0);
+            writer.Write(0x60000020u);
+            image[0x200] = 0xC3;
+            return image;
+        }
+    }
+
+    /// <summary>
     /// The category door selects the whole family. Asserted through <c>--count</c> because that
     /// reports the per-section row counts without printing a hundred thousand rows.
     /// </summary>
