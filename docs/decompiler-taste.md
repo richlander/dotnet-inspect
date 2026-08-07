@@ -715,11 +715,12 @@ dotnet_style_prefer_conditional_expression_over_return = true
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
 
-Config warnings are emitted at the point styled decompiled source is actually
-shown, exactly once: a decompiled-source or source-diff render reads the resolved
-`PrinterOptions` and flushes any pending warnings to stderr there. Every other run
-stays silent, and the rule is exact — the config is *consumed* precisely when its
-styling is user-visible:
+Config warnings are emitted at the point styled C# is actually shown, exactly
+once: Decompiled Source, source diff, Annotated Source, Cost Overlay, and
+Semantics Overlay read the resolved local-name policy and flush any pending
+warnings to stderr when they produce visible C#. Every other run stays silent,
+and the rule is exact — the config is *consumed* precisely when its styling is
+user-visible:
 
 - A metadata projection (`--json`, `--count`, tabular, `--value`/`--urls`) returns
   before any source render.
@@ -744,9 +745,11 @@ Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is no
 read. Configuration is resolved once at the CLI edge and threaded into the render
 as explicit `PrinterOptions`; the decompiler library itself stays a pure function
 of the assembly and the options it is handed, so the config surface never changes
-what the library computes for a given `PrinterOptions`. The knobs affect the
-primary decompiled-source view; the Annotated Source and IR-stage views stay on
-the shipped default so they remain aligned with the IL.
+what the library computes for a given `PrinterOptions`. Decompiled and Annotated
+Source consume the resolved options. Cost and Semantics overlays consume only the
+local-name axis, keeping names consistent within one document without admitting
+byte-divergent lenses or unrelated spelling knobs. IR-stage and fidelity views
+stay on `PrinterOptions.Default`.
 
 ### Option catalog
 
@@ -760,8 +763,8 @@ guarded-boolean-return knob is a single multi-value axis
 (`flat` / `conditional-expression` / `branchless`). Each `StyleOptionValue`
 carries its stable token, optional title, whether that value is `OracleEndorsed`
 (declared) and `CorpusEndorsed` (revealed),
-its `.dotnet-inspectconfig` key (`null` for the off/default value and for API-only
-formatting/synthesis knobs), and NativeAOT-safe `IsSelected`/`SetSelected`
+its `.dotnet-inspectconfig` key (`null` for values without a persistent CLI
+spelling), and NativeAOT-safe `IsSelected`/`SetSelected`
 delegates that read and drive that value's backing state without reflection. The
 descriptor reads and single-selects the whole axis through
 `GetValue`/`WithValue`.
