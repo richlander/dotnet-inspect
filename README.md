@@ -356,8 +356,8 @@ second lookup. The `#` column is the real metadata row id, so
 position in the rendered page.
 
 These sections are **opt-in only**. A table such as `MethodDef` grows without a
-meaningful bound, so no verbosity renders one — not even `-v:d`, and not
-`-S @All`. They are reachable by exact name (`-S "Metadata: TypeRef"`) or
+meaningful bound, so no verbosity renders one — not even `-v:d`. They are
+reachable by exact name (`-S "Metadata: TypeRef"`) or
 through the `@Metadata` category door, and they are catalog-hidden like the
 `@Performance` kinds: the top-level `-D` catalog lists `@Metadata` as their
 single entrypoint. Drill in with `-D @Metadata` to list the tables that
@@ -452,7 +452,7 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
 ## Common examples
 
