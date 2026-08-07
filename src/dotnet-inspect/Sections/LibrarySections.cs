@@ -1,11 +1,13 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
 public sealed record LibrarySectionCatalog(
     SectionPipeline<LibraryInspection> Pipeline,
-    ScannerRegistry ScannerRegistry);
+    ScannerRegistry ScannerRegistry,
+    InspectionQueryRegistry<ScannerContext> QueryRegistry);
 
 /// <summary>
 /// Section descriptors for the library command.
@@ -32,7 +34,6 @@ public static class LibrarySections
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
-    public const string ScannerMetadata = "Metadata";
 
     /// <summary>
     /// Builds the library catalog from one scanner registry, so section costs and execution use
@@ -41,21 +42,29 @@ public static class LibrarySections
     public static LibrarySectionCatalog CreateCatalog()
     {
         var scannerRegistry = CreateScannerRegistry();
+        var queryRegistry = CreateQueryRegistry();
         return new LibrarySectionCatalog(
-            CreatePipeline(scannerRegistry.CostOf),
-            scannerRegistry);
+            CreatePipeline(scannerRegistry.CostOf, queryRegistry.CostOf),
+            scannerRegistry,
+            queryRegistry);
     }
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
-        => CreatePipeline(CreateScannerRegistry().CostOf);
+    {
+        var scannerRegistry = CreateScannerRegistry();
+        var queryRegistry = CreateQueryRegistry();
+        return CreatePipeline(scannerRegistry.CostOf, queryRegistry.CostOf);
+    }
 
     private static SectionPipeline<LibraryInspection> CreatePipeline(
-        Func<string, SectionCost> scannerCost)
+        Func<string, SectionCost> scannerCost,
+        Func<InspectionQueryDefinition, InspectionCost> queryCost)
     {
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
             .UseScannerCosts(scannerCost)
+            .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>()
             .Add<InspectionFailures>()
@@ -217,8 +226,31 @@ public static class LibrarySections
                     session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
-            .Add(ScannerMetadata, SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+            ;
+    }
+
+    /// <summary>Builds the typed query registry used by library sections.</summary>
+    public static InspectionQueryRegistry<ScannerContext> CreateQueryRegistry()
+    {
+        return new InspectionQueryRegistry<ScannerContext>(
+            static (context, query, cost) =>
+                context.EnterQuery(query.Name, cost.ToSectionCost(query)))
+            .Add(MetadataImageQuery.Definition, ctx =>
+                ctx.Scan(
+                    MetadataImageQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return MetadataImageQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new MetadataImageResult.Failed(ex);
+                        }
+                    }));
     }
 
     // ===== Primary section =====

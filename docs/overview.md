@@ -10,9 +10,10 @@ The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. `DotnetInspector.Queries` now contains the first workspace context
-foundation, but commands have not migrated to it and typed query planning is
-not implemented yet. The components below are the current hosts, shared
-substrates, and inspection producers that will extend that space.
+foundation and typed metadata-query canary. Commands have not migrated to the
+workspace owner, and broader query planning remains future work. The components
+below are the current hosts, shared substrates, and inspection producers that
+will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.

@@ -8,7 +8,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Typed inspection workspace and query contracts for dotnet-inspect hosts</Description>
+    <Description>Typed inspection queries, workspace, and result contracts for dotnet-inspect consumers</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

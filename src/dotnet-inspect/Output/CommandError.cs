@@ -6,6 +6,7 @@
 
 using System.Text;
 using ILInspector.CSharp;
+using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -229,6 +230,10 @@ internal static class CommandError
     /// </remarks>
     public static void WriteLine(string text)
         => Console.Error.WriteLine(CSharpIdentifier.ContainRenderedText(text));
+
+    /// <summary>Writes text that has already entered the query-to-sink currency.</summary>
+    public static void WriteLine(InertString text)
+        => WriteLine(text.EnsurePermitted(TextPolicy.Field).ToString());
 
     /// <summary>
     /// Writes a contained, indented continuation line, for the items of a

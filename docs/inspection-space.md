@@ -14,15 +14,18 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a typed query plan today.
-`DotnetInspector.Queries` contains the first workspace foundation: an ephemeral
-workspace can own binding-consistent assembly context groups, and a group
-retains lazily acquired immutable assembly snapshots behind callback-scoped and
-stack-only access. Existing commands have not migrated to that owner yet.
-Other foundations include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
-and `InertString`; the remaining workspace and query-plan model describes how
-those pieces will be composed.
+govern its migration. No command runs through a workspace today. Library
+metadata inspection is the first typed-query canary: its section catalog plans
+typed metadata demand and executes it through a prerequisite-aware registry,
+while the command still owns orchestration. `DotnetInspector.Queries` also
+contains the first workspace foundation: an ephemeral workspace can own
+binding-consistent assembly context groups, and a group retains lazily acquired
+immutable assembly snapshots behind callback-scoped and stack-only access.
+Existing commands have not migrated to that workspace owner yet. Other
+foundations include shared image and inspection session ownership, catalog
+generations, `CoreCache`, typed provenance and resolution currencies, and
+`InertString`; the remaining workspace model describes how those pieces will be
+composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:

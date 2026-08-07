@@ -587,7 +587,7 @@ Research overlay bridge, and the application layer:
 │  DotnetInspector.Queries (L1 inspection coordination)       │
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
-│  Typed query contracts and producer coordination (planned)  │
+│  Typed query contracts and metadata-query coordination       │
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
