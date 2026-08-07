@@ -32,7 +32,8 @@ public sealed record ApiTypeInventoryRequest(
 /// </summary>
 public sealed record ApiTypeInventoryResult(
     IReadOnlyList<ApiType> Types,
-    IReadOnlyList<ApiFacetDescriptor> KindFacets);
+    IReadOnlyList<ApiFacetDescriptor> KindFacets,
+    IReadOnlyList<ApiSurfaceInspectionFailure> InspectionFailures);
 
 /// <summary>
 /// Selects member-kind facets. Null or empty means the producer-declared defaults.
@@ -77,7 +78,7 @@ public static class ApiInventoryQuery
     static readonly IReadOnlyList<FacetDefinition<ApiMember>> MemberKindFacets =
     [
         new("api.member-kind.constructor", "constructor", "constructors", 100, true,
-            member => member.Kind == "constructor"),
+            IsConstructor),
         new("api.member-kind.finalizer", "finalizer", "finalizers", 200, true,
             member => member.Kind == "finalizer"),
         new("api.member-kind.constant", "constant", "constants", 300, true,
@@ -87,7 +88,7 @@ public static class ApiInventoryQuery
         new("api.member-kind.property", "property", "properties", 500, true,
             member => member.Kind == "property"),
         new("api.member-kind.method", "method", "methods", 600, true,
-            member => member.Kind == "method" && !member.IsExtension),
+            member => member.Kind == "method" && !member.IsExtension && !IsStaticConstructor(member)),
         new("api.member-kind.operator", "operator", "operators", 700, true,
             member => member.Kind == "operator"),
         new("api.member-kind.extension-method", "extension method", "extension methods", 800, true,
@@ -114,7 +115,7 @@ public static class ApiInventoryQuery
         var types = surface.Types
             .Where(type => selected.Contains(Classify(type, TypeKindFacets, "type")))
             .ToList();
-        return new ApiTypeInventoryResult(types, descriptors);
+        return new ApiTypeInventoryResult(types, descriptors, [.. surface.InspectionFailures]);
     }
 
     /// <summary>
@@ -206,4 +207,10 @@ public static class ApiInventoryQuery
             ?? throw new InvalidOperationException(
                 $"The product-owned facet catalog does not classify this {subject}.");
     }
+
+    static bool IsConstructor(ApiMember member)
+        => member.Kind == "constructor" || IsStaticConstructor(member);
+
+    static bool IsStaticConstructor(ApiMember member)
+        => member is { Kind: "method", Name: ".cctor" };
 }

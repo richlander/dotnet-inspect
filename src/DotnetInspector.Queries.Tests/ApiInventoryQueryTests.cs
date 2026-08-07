@@ -131,6 +131,84 @@ public class ApiInventoryQueryTests
                 new ApiMemberInventoryRequest([operatorFacet.Id]))
             .Members,
             member => member.Name == "op_Addition");
+
+        var targetType = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(InventoryFixture).FullName);
+        var projected = Assert.Single(
+            targetType.Members,
+            member => member.Name == "op_Addition"
+                && member.DeclaringType == typeof(InventoryExtensions).FullName);
+        Assert.Equal("extension-method", projected.Kind);
+
+        var targetResult = ApiInventoryQuery.Members(targetType);
+        var extensionFacet = Assert.Single(
+            targetResult.KindFacets,
+            facet => facet.SingularLabel == "extension method");
+        Assert.Contains(
+            ApiInventoryQuery.Members(
+                targetType,
+                new ApiMemberInventoryRequest([extensionFacet.Id]))
+            .Members,
+            member => ReferenceEquals(member, projected));
+    }
+
+    [Fact]
+    public void Members_StaticConstructorUsesConstructorFacet()
+    {
+        using var inspection = AssemblyInspectionSession.Open(
+            typeof(ApiInventoryQueryTests).Assembly.Location);
+        var surface = inspection.ApiSurface(includeAll: true);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(InventoryFixture).FullName);
+        var staticConstructor = Assert.Single(
+            type.Members,
+            member => member.Name == ".cctor");
+
+        Assert.Equal("method", staticConstructor.Kind);
+
+        var result = ApiInventoryQuery.Members(type);
+        var constructorFacet = Assert.Single(
+            result.KindFacets,
+            facet => facet.SingularLabel == "constructor");
+        var methodFacet = Assert.Single(
+            result.KindFacets,
+            facet => facet.SingularLabel == "method");
+
+        Assert.Contains(
+            ApiInventoryQuery.Members(
+                type,
+                new ApiMemberInventoryRequest([constructorFacet.Id]))
+            .Members,
+            member => ReferenceEquals(member, staticConstructor));
+        Assert.DoesNotContain(
+            ApiInventoryQuery.Members(
+                type,
+                new ApiMemberInventoryRequest([methodFacet.Id]))
+            .Members,
+            member => ReferenceEquals(member, staticConstructor));
+    }
+
+    [Fact]
+    public void Types_PreservesPartialInspectionFailures()
+    {
+        var failure = new ApiSurfaceInspectionFailure(
+            "relationship",
+            0x02000001,
+            MetadataTypeNameFailureMechanism.Relationship,
+            "base-type",
+            "cycle");
+        var surface = new ApiSurface
+        {
+            Types = [new ApiType { Name = "C", Kind = "class" }],
+            InspectionFailures = [failure]
+        };
+
+        var result = ApiInventoryQuery.Types(surface);
+
+        Assert.Equal([failure], result.InspectionFailures);
+        Assert.NotSame(surface.InspectionFailures, result.InspectionFailures);
     }
 
     [Fact]
@@ -181,6 +259,8 @@ public sealed class InventoryFixture : IInventoryFixture
     public event EventHandler? Changed;
 
     public InventoryFixture() { }
+
+    static InventoryFixture() { }
 
     ~InventoryFixture() { }
 
