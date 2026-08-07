@@ -303,7 +303,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;
 
-                IrPasses.Run(body, IrPasses.Default, context);
+                importScope.Run(body, IrPasses.Default);
 
                 if (HasOtherLocalFunctionCall(body, method))
                     continue;

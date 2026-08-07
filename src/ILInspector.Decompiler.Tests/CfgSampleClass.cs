@@ -6634,6 +6634,20 @@ public static class DuplicateLocalFunctionNameSamples
             return Pick(x);
         }
     }
+
+    public static int BothRaiseWithIfBodies(bool b, int x)
+    {
+        if (b)
+        {
+            int Pick(int n) { if (n > 0) return n + 1; return n; }
+            return Pick(x);
+        }
+        else
+        {
+            int Pick(int n) { if (n > 0) return n * 2; return n; }
+            return Pick(x);
+        }
+    }
 }
 
 // A local function converted to a delegate lowers to `ldftn` with NO call site, so
