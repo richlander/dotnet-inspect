@@ -120,9 +120,10 @@ The three production tiers are:
 An unbounded section remains reachable through exact selection, explicit
 category selection, or effective category discovery.
 
-`LibrarySectionCatalog` constructs one registry and one cost-bound pipeline.
-Commands use that pair for planning and execution so the pipeline cannot
-snapshot costs from one registry while another registry performs the work.
+`LibrarySectionCatalog` constructs one scanner registry, one typed-query
+registry, and one cost-bound pipeline. Commands use that catalog for planning
+and execution so the pipeline cannot snapshot costs from one registry while
+another registry performs the work.
 
 ## Resource declarations
 
@@ -134,9 +135,15 @@ scanner that calls one throws at the acquisition boundary. The production
 scanner catch boundary does not convert that declaration violation into a
 success-shaped result.
 
-The declaration is scoped to one registry run and cannot leak into later work.
-This is a correctness mechanism for product-owned scanner wiring, not an
-in-process security boundary.
+Typed queries use the same host-side resource guard. The query registry enters
+an execution scope with each query's maximum transitive `InspectionCost`; the
+CLI adapter maps that cost to `SectionCost`. Query planning, contract, and
+executor failures remain fail-visible, while cancellation and cost-declaration
+failures retain their specific exception types.
+
+Declarations are scoped to one registry run and cannot leak into later work.
+This is a correctness mechanism for well-behaved product-owned scanner and query
+wiring, not an in-process security boundary.
 
 Metadata scanners share the command's open inspection session. They do not
 reopen the target independently, and they continue to observe the image the
@@ -162,9 +169,9 @@ Explicit effective discovery may request unbounded work. In particular,
 `-D @Performance` does not build the body index, while
 `-D @Performance --effective` does.
 
-Some command facts are not expressed by a section scanner. The command passes
-those keys to `GetRequiredScanners` as attributed command demand so the same
-closure and trace machinery still owns execution.
+Some command facts are not expressed by a section producer. The command passes
+those scanners or typed queries as attributed command demand so the same closure
+and trace machinery still owns execution.
 
 `References` is core metadata rather than scanner work:
 
@@ -225,6 +232,9 @@ The test suite names the properties that enforce this architecture:
 - `CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure`
 - `Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost`
 - `Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost`
+- `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `ProductionQueryCatchBoundary_DoesNotSwallowExecutorFailure`
 - `PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt`
 - `SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor`
 - `SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened`
@@ -238,9 +248,10 @@ fail.
 Library `--trace` records:
 
 - section-to-scanner demand;
+- section-to-query demand;
 - command-level demand;
 - prerequisite expansion;
-- scanner execution time and failure;
+- scanner and query execution time and failure;
 - body-index and drill-map acquisition;
 - shared metadata-session use.
 
