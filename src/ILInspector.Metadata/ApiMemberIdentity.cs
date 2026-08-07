@@ -1,5 +1,4 @@
 using CSharpText;
-using ILInspector.CSharp;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using ILInspector.MetadataPrimitives;
