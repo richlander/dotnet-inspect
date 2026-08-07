@@ -79,6 +79,75 @@ public class ScatteredReturnDispatchStructuringTests
         Assert.DoesNotContain("goto", output);
     }
 
+    [Fact]
+    public void FallthroughArmAndCoalescedFallback_RetainSharedReturn()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.ConditionalWithCoalescedFallback));
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+    }
+
+    [Fact]
+    public void RealForLoopIncrementText_RetainsNonNullReturn()
+    {
+        string output = Print(typeof(CSharpPrinter), "ForLoopIncrementText");
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void RealMemberBodyProducer_RetainsFallbackReturn()
+    {
+        string output = Print(typeof(MemberBodyProducer), "DecompileBody");
+
+        Assert.Equal(2, output.Split("return DecompileMethod(", StringSplitOptions.None).Length - 1);
+        Assert.EndsWith("printerOptions);", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void FullyConsumedClone_DoesNotRetainUnreachableTail()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Buffers.AhoCorasickNode")!;
+        string output = Print(type, "TryGetChild");
+
+        Assert.EndsWith("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);", output);
+        Assert.DoesNotContain("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);\nindex = 0;", output);
+    }
+
+    [Fact]
+    public void PartiallyOwnedClone_RetainsOriginalLoopBody()
+    {
+        string output = Print(typeof(System.Data.DataSet), "set_RemotingFormat");
+
+        Assert.Equal(2, output.Split("_remotingFormat = value;", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, output.Split("Tables[V_0].RemotingFormat = value;", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("while (V_0 < Tables.Count)\n{\n}", output);
+    }
+
+    [Fact]
+    public void PartiallyOwnedClone_RetainsOriginalThrowArm()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Reflection.Emit.RuntimeTypeBuilder")!;
+        string output = Print(type, "VerifyTypeAttributes");
+
+        Assert.Equal(3, output.Split("throw new ArgumentException(SR.Argument_BadTypeAttrReservedBitsSet);", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("if ((attr & TypeAttributes.ReservedMask) != 0)\n{\n}", output);
+    }
+
+    [Fact]
+    public void BranchBearingCloneWithExternalEntry_DeclinesInsteadOfDuplicatingLabels()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Globalization.DateTimeFormatInfo")!;
+        string output = Print(type, "InsertHash");
+
+        Assert.Equal(1, output.Split("V_2 = Culture.TextInfo.ToLower(str[0]);", StringSplitOptions.None).Length - 1);
+        Assert.Contains("IL_007E:", output);
+    }
+
     // ── Compiler-backed negatives (the #640 canary) ────────────────────────
 
     [Fact]
