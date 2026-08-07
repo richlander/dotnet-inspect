@@ -3018,7 +3018,8 @@ public sealed class Lambda : IrExpression
         => Body.Blocks switch
         {
             [{ Children: [Return { Value: { } value }] }] => value,
-            [{ Children: [ExpressionStatement { Expression: var expression }] }] when ReturnsVoid => expression,
+            [{ Children: [ExpressionStatement { Expression: var expression }] }]
+                when ReturnsVoid && expression.ResultType is { Namespace: "System", Name: "Void" } => expression,
             _ => null,
         };
 

@@ -357,6 +357,9 @@ public sealed class LambdaRaisingPass : IIrPass
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
+        if (body.RequiresAsyncBodyModifier
+            || body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef))
+            return null;
         if (body.Descendants.OfType<UnsupportedNode>().Any())
             return null;
         if (!IsPrintableBody(body, allowLocals))

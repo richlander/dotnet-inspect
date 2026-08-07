@@ -201,6 +201,51 @@ public class LambdaRaisingPassTests
             PrintRaised(nameof(VoidLambdaRaisingSamples.EmptyVoidLambda), typeof(VoidLambdaRaisingSamples)));
 
     [Fact]
+    public void DiscardedNonVoidCall_StaysBlockBodied()
+        => Assert.Equal(
+            "return () => { Value(); };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.DiscardedNonVoidCall), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void DiscardedPropertyRead_StaysBlockBodiedAndExplicit()
+        => Assert.Equal(
+            "return () => { _ = Environment.ProcessId; };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.DiscardedPropertyRead), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void CustomDelegateInObjectSink_PreservesDelegateIdentity()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CustomDelegateInObjectSink),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("return (VoidCallback)(() => { });", output);
+        Assert.DoesNotContain("new VoidCallback", output);
+    }
+
+    [Fact]
+    public void AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.AsyncVoidLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Action", output);
+    }
+
+    [Fact]
+    public void ByRefVoidLambda_StaysLoweredUntilRefKindsCanPrint()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.ByRefVoidLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new RefCallback", output);
+    }
+
+    [Fact]
     public void VoidBodyWithNestedControlFlow_StaysLowered()
     {
         string output = PrintRaised(
@@ -544,6 +589,9 @@ public class LambdaRaisingPassTests
 
 public static class VoidLambdaRaisingSamples
 {
+    public delegate void VoidCallback();
+    public delegate void RefCallback(ref int value);
+
     // The captured parameter is also consumed by the outer body, keeping the
     // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
     public static void CapturingVoidExpressionLambda(
@@ -562,6 +610,19 @@ public static class VoidLambdaRaisingSamples
         };
 
     public static System.Action EmptyVoidLambda() => () => { };
+
+    public static System.Action DiscardedNonVoidCall() => () => { Value(); };
+
+    public static System.Action DiscardedPropertyRead() => () => { _ = System.Environment.ProcessId; };
+
+    public static object CustomDelegateInObjectSink() => (VoidCallback)(() => { });
+
+    public static System.Action<System.Threading.Tasks.Task> AsyncVoidLambda()
+        => async task => await task;
+
+    public static RefCallback ByRefVoidLambda() => (ref int value) => System.Console.WriteLine(value);
+
+    static int Value() => 1;
 
     // A close negative: the current lambda slice admits straight-line bodies,
     // not nested control flow.
