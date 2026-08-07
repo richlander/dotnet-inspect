@@ -45,6 +45,8 @@ public sealed record AssemblyContextGroupOptions
 /// The view is stack-only and its <see cref="Content"/> cannot be captured by
 /// ordinary managed code. The callback may return only materialized values;
 /// it cannot return this view or its span as <typeparamref name="TResult"/>.
+/// Enforced by the C# <c>ref struct</c> and <c>scoped</c> escape rules and
+/// gated by <c>ImageViewAndSpanResult_AreStackOnly</c>.
 /// </remarks>
 public readonly ref struct AssemblyImageView
 {
@@ -101,7 +103,9 @@ public abstract class AssemblyImageAccessResult<TResult>
 /// A successful span remains memory-safe after its group is disposed. The
 /// backing array is immutable and never returned to a pool; the span itself
 /// keeps that array alive for its stack lifetime. Disposal only prevents new
-/// access and releases the group's retained reference.
+/// access and releases the group's retained reference. Gated by
+/// <c>ReturnedSpan_RemainsSafeAfterWorkspaceDisposal</c> and
+/// <c>Snapshot_IsIsolatedFromTheMutableSource</c>.
 /// </remarks>
 public readonly ref struct AssemblyImageSpanResult
 {
@@ -130,6 +134,9 @@ public readonly ref struct AssemblyImageSpanResult
 /// retained as immutable, non-pooled snapshots. Disposal closes the group to
 /// new access immediately. Active callbacks keep their local snapshot alive;
 /// the group releases its retained references after the final callback exits.
+/// Gated by <c>ConcurrentDisposal_DoesNotRevokeActiveView</c>,
+/// <c>DisposalInsideCallback_DoesNotRevokeActiveView</c>, and
+/// <c>GroupRejectsMixedBindingPolicySnapshots</c>.
 /// </remarks>
 public sealed class AssemblyContextGroup : IDisposable
 {

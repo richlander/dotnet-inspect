@@ -263,8 +263,10 @@ under a group budget. Callback access receives a scoped stack-only image view;
 direct access returns a stack-only read-only span result. Disposing the group
 prevents new access and releases its retained references after active callbacks
 complete, but it never attempts to revoke or recycle an already returned span.
-Catalogs, producer sessions, authorization, and command migration remain later
-slices.
+`InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
+isolation, callback and span lifetimes, concurrent disposal, bounded retention,
+and typed acquisition failures. Catalogs, producer sessions, authorization, and
+command migration remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
