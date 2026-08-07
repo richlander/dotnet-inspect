@@ -1,5 +1,4 @@
 using ILInspector.Metadata;
-using DotnetInspector.Options;
 
 namespace DotnetInspector.Sections;
 
@@ -509,7 +508,7 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Any(IsMethodLike);
     }
 
-    internal static bool IsMethodLike(ApiMember member) =>
+    public static bool IsMethodLike(ApiMember member) =>
         member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
 
     /// <summary>
@@ -520,14 +519,21 @@ public static class ApiMemberSectionDescriptors
     /// its accessor method(s) (issue #3265). Fields carry no accessor token and stay
     /// body-less.
     /// </summary>
-    internal static bool IsBodyBacked(ApiMember member) =>
+    public static bool IsBodyBacked(ApiMember member) =>
         IsMethodLike(member) || HasAccessorTokens(member);
+
+    /// <summary>
+    /// True when a body-backed member can carry executable IL. Abstract declarations keep their
+    /// method identity for explicit CLI diagnostics but do not advertise body-dependent views.
+    /// </summary>
+    public static bool HasExecutableBody(ApiMember member) =>
+        !member.IsAbstract && IsBodyBacked(member);
 
     /// <summary>
     /// True when a property/event member records at least one accessor method token
     /// (get/set/init for a property or indexer, add/remove for an event).
     /// </summary>
-    internal static bool HasAccessorTokens(ApiMember member) =>
+    public static bool HasAccessorTokens(ApiMember member) =>
         member.Kind is "property" or "event"
         && (member.GetterToken is not null
             || member.SetterToken is not null
@@ -545,31 +551,6 @@ public static class ApiMemberSectionDescriptors
 
     private static bool HasExtensionMethods(ApiType model)
         => model.Members.Any(m => m.Kind == "extension-method");
-}
-
-/// <summary>
-/// Selects the appropriate member pipeline for list/detail contexts.
-/// </summary>
-public static class ApiMemberSectionPipelines
-{
-    public static SectionPipeline<ApiType> Create(ApiOptions options)
-        => UsesDetailPipeline(options)
-            ? ApiMemberDetailSectionDescriptors.CreatePipeline()
-            : UsesOverloadInventoryPipeline(options)
-                ? ApiMemberOverloadSectionDescriptors.CreatePipeline()
-            : ApiMemberSectionDescriptors.CreatePipeline();
-
-    public static bool UsesDetailPipeline(ApiOptions options)
-        => options is MemberOptions { OverloadIndex: not null }
-           || options is MemberOptions { MemberDigest: not null };
-
-    public static bool UsesOverloadInventoryPipeline(ApiOptions options)
-        => options is MemberOptions
-           {
-              OverloadIndex: null,
-              MemberDigest: null,
-              MemberFilter.Count: > 0
-           };
 }
 
 /// <summary>
@@ -600,24 +581,52 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.Calls>()
-            .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
-            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.SafetyFacts>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.Callers>()
-            .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
-            .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
-            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.Facts>()
+            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.Calls>(
+                isViewApplicable: HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>(
+                isViewApplicable: HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.SafetyFacts>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.CostFacts>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.Callers>(
+                isViewApplicable: HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.CallGraph>(
+                isViewApplicable: HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>(
+                isViewApplicable: HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.TopLeverage>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.CostOverlay>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.ILBody>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
+            .Add<ApiMemberSectionDescriptors.Facts>(
+                isViewApplicable: HasSingleExecutableBodyMember)
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
@@ -628,6 +637,10 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    private static bool HasSingleExecutableBodyMember(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
@@ -654,25 +667,26 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<DecompiledSource>()
             .Add<FidelityCauses>()
             .Add<AppliedTaste>()
-            .Add<AnnotatedSource>()
-            .Add<AnnotatedSourceDocument>()
-            .Add<CostOverlay>()
-            .Add<SemanticsOverlay>()
+            .Add<AnnotatedSource>(isViewApplicable: HasExecutableBody)
+            .Add<AnnotatedSourceDocument>(isViewApplicable: HasExecutableBody)
+            .Add<CostOverlay>(isViewApplicable: HasExecutableBody)
+            .Add<SemanticsOverlay>(isViewApplicable: HasExecutableBody)
             .Add<OriginalSource>()
-            .Add<SourceDiff>()
-            .Add<SourceLocations>()
-            .Add<Calls>()
-            .Add<ExceptionRegions>()
-            .Add<ApiMemberSectionDescriptors.AllocationFacts>()
-            .Add<ApiMemberSectionDescriptors.SafetyFacts>()
-            .Add<ApiMemberSectionDescriptors.CostFacts>()
-            .Add<Callers>()
-            .Add<CallGraph>()
-            .Add<UnsafeOperations>()
-            .Add<ApiMemberSectionDescriptors.TopLeverage>()
-            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
-            .Add<Facts>()
-            .Add<ILBody>()
+            .Add<SourceDiff>(isViewApplicable: HasExecutableBody)
+            .Add<SourceLocations>(isViewApplicable: HasExecutableBody)
+            .Add<Calls>(isViewApplicable: HasExecutableBody)
+            .Add<ExceptionRegions>(isViewApplicable: HasExecutableBody)
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>(isViewApplicable: HasExecutableBody)
+            .Add<ApiMemberSectionDescriptors.SafetyFacts>(isViewApplicable: HasExecutableBody)
+            .Add<ApiMemberSectionDescriptors.CostFacts>(isViewApplicable: HasExecutableBody)
+            .Add<Callers>(isViewApplicable: HasExecutableBody)
+            .Add<CallGraph>(isViewApplicable: HasExecutableBody)
+            .Add<UnsafeOperations>(isViewApplicable: HasExecutableBody)
+            .Add<ApiMemberSectionDescriptors.TopLeverage>(isViewApplicable: HasExecutableBody)
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(
+                isViewApplicable: HasExecutableBody)
+            .Add<Facts>(isViewApplicable: HasExecutableBody)
+            .Add<ILBody>(isViewApplicable: HasExecutableBody)
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
@@ -680,6 +694,10 @@ public static class ApiMemberDetailSectionDescriptors
                 SectionNames.SourceDiff,
                 SectionNames.IL);
     }
+
+    private static bool HasExecutableBody(ApiType model)
+        => model.Members.Count == 1
+           && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
     public sealed class Summary : ISectionDescriptor<ApiType>
     {

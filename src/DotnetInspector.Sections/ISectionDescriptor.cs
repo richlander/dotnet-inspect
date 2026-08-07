@@ -1,7 +1,7 @@
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Metadata descriptor for a named section. Declares the section's name,
+/// Host-neutral metadata descriptor for a named section. Declares the section's name,
 /// whether it requires expensive operations (network or heavy computation),
 /// scanner dependency, and a static check for whether the model has data
 /// that the section can render.

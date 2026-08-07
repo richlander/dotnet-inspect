@@ -3,7 +3,7 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Declared latency/output budget for a section. Governs which curated verbosity views may
+/// Host-neutral latency/output budget for a section. Governs which curated verbosity views may
 /// auto-run the section. Independent of <see cref="SectionSizeClass"/> (how many rows) — this
 /// axis is about how costly the section is to produce.
 /// </summary>

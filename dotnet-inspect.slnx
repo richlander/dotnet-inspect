@@ -16,6 +16,7 @@
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
+    <Project Path="src/DotnetInspector.Sections/DotnetInspector.Sections.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />

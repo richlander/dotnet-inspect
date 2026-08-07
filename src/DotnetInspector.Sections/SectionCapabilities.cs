@@ -1,7 +1,7 @@
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Optional work a section may perform to enrich itself. These are independent of a section's
+/// Host-neutral declaration of optional work a section may perform to enrich itself.
 /// render behavior (<see cref="ISectionDescriptor{TModel}.IsExpensive"/> /
 /// <see cref="ISectionDescriptor{TModel}.ExplicitOnly"/>): a section can render cheaply yet still
 /// declare a capability used to fill in extra rows when authorized.

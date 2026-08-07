@@ -1,7 +1,7 @@
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Declared <b>growth</b> class for a section — how its row count behaves across the entire
+/// Host-neutral <b>growth</b> class for a section — how its row count behaves across the entire
 /// universe of packages, not the count for any one target. This is a stable, package-independent
 /// declaration chosen by the section author: it lets the curated verbosity ladder decide
 /// membership structurally (so a section's absence always means "not applicable", never "too long

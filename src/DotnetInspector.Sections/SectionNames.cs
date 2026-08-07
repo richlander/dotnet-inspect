@@ -1,7 +1,7 @@
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Constants for section names used in the api command output.
+/// Constants for section names used in inspection output.
 /// </summary>
 public static class SectionNames
 {

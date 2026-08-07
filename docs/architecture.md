@@ -598,6 +598,11 @@ Research overlay bridge, and the application layer:
 │  Inspectors/      App-specific inspection logic             │
 │  Options/         CLI option types                          │
 ├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Sections (Inspection view selection)       │
+│                                                             │
+│  SectionPipeline             shared descriptor catalog      │
+│  InspectionViewDescriptor   target-effective view facets    │
+├─────────────────────────────────────────────────────────────┤
 │  DotnetInspector.Queries (L1 inspection coordination)       │
 │                                                             │
 │  Workspace and binding-consistent assembly context groups   │
@@ -674,6 +679,10 @@ Research overlay bridge, and the application layer:
 ### Layer rules
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
+- **Sections** owns host-neutral descriptor catalogs, target applicability,
+  disclosure costs, and selection. Descriptor listing and application use the
+  same `SectionPipeline` registration; consumers round-trip descriptor IDs
+  rather than reconstructing selection from labels.
 - **Queries** owns content-shaped workspace lifetimes and typed inspection
   request/result contracts. It coordinates domain providers without taking
   filesystem paths or presentation dependencies.
@@ -824,6 +833,7 @@ src/dotnet-inspect/
 src/DotnetInspector.Services/   # Shared, app-agnostic services
 src/DotnetInspector.Packages/   # NuGet domain provider
 src/DotnetInspector.Queries/    # Typed inspection requests and results
+src/DotnetInspector.Sections/   # Inspection view descriptors and selection
 src/ILInspector.Metadata/       # PE/assembly domain provider
 src/ILInspector.CSharp/         # C# spelling and namespace/type views
 src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels

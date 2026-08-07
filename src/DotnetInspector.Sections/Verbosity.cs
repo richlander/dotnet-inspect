@@ -1,7 +1,7 @@
 namespace DotnetInspector.Options;
 
 /// <summary>
-/// Output verbosity levels following the Height × Width model.
+/// Host-neutral output verbosity levels following the Height × Width model.
 /// </summary>
 public enum Verbosity
 {

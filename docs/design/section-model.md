@@ -341,6 +341,21 @@ Verbosity is an automatic preset over the base-category union.
 Domain categories do not enter the ladder automatically. Users select them
 explicitly.
 
+Non-CLI consumers use the same catalog through
+`SectionPipeline.GetInspectionViews`. Each `InspectionViewDescriptor` carries
+the stable selection ID and label, producer weight, applicability and
+availability, renderability, default and high-value status, cost, size, and
+capabilities. Network, source-content, and exhaustive-work flags are
+projections of those typed declarations. Consumers pass one or more returned IDs to
+`ResolveInspectionViews`; the pipeline validates applicability and returns the
+section set used by execution. Empty selection resolves to the catalog's
+target-effective defaults. No consumer should rebuild these rules from labels
+or maintain a parallel list. A descriptor may declare a narrower
+`IsViewApplicable` gate when an explicit CLI selection must remain executable
+to render an unavailable-state diagnostic. The gate is
+`InspectionViewDescriptorTests.MemberViewSelection_RoundTripsThroughOwningPipeline`,
+with target cases in the rest of that test class.
+
 ## Counts and empty sections
 
 `--count` reports the selected candidate set, including zero-row sections. This

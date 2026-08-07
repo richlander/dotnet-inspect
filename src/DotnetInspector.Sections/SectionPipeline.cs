@@ -5,7 +5,7 @@ using DotnetInspector.Queries;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Non-generic descriptor for storage in collections.
+/// Runtime descriptor for storage in section catalogs.
 /// Created from <see cref="ISectionDescriptor{TModel}"/> implementations.
 /// A record so the pipeline can raise <see cref="Cost"/> with <c>with</c>: a hand-written copy
 /// would silently drop any property added later, and this type is never compared or used as a
@@ -27,6 +27,7 @@ public sealed record SectionEntry<TModel>
     public ImmutableArray<InspectionQueryDefinition> Queries { get; init; } = [];
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
+    public Func<TModel, bool>? IsViewApplicable { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
 }
 
@@ -168,18 +169,20 @@ public sealed class SectionPipeline<TModel>
     /// only its static members are accessed.
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
-        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
-        => AddDescriptor<TDescriptor>(queries: [], isApplicable);
+        Func<TModel, bool>? isApplicable = null,
+        Func<TModel, bool>? isViewApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+        => AddDescriptor<TDescriptor>(queries: [], isApplicable, isViewApplicable);
 
     /// <summary>
     /// Registers a section descriptor whose data is supplied by a typed query.
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         InspectionQueryDefinition query,
-        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+        Func<TModel, bool>? isApplicable = null,
+        Func<TModel, bool>? isViewApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
         ArgumentNullException.ThrowIfNull(query);
-        return AddDescriptor<TDescriptor>([query], isApplicable);
+        return AddDescriptor<TDescriptor>([query], isApplicable, isViewApplicable);
     }
 
     /// <summary>
@@ -187,18 +190,20 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         IReadOnlyList<InspectionQueryDefinition> queries,
-        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+        Func<TModel, bool>? isApplicable = null,
+        Func<TModel, bool>? isViewApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
         ArgumentNullException.ThrowIfNull(queries);
         foreach (InspectionQueryDefinition query in queries)
             ArgumentNullException.ThrowIfNull(query);
 
-        return AddDescriptor<TDescriptor>(queries, isApplicable);
+        return AddDescriptor<TDescriptor>(queries, isApplicable, isViewApplicable);
     }
 
     private SectionPipeline<TModel> AddDescriptor<TDescriptor>(
         IReadOnlyList<InspectionQueryDefinition> queries,
-        Func<TModel, bool>? isApplicable) where TDescriptor : ISectionDescriptor<TModel>
+        Func<TModel, bool>? isApplicable,
+        Func<TModel, bool>? isViewApplicable) where TDescriptor : ISectionDescriptor<TModel>
     {
         return Add(new SectionEntry<TModel>
         {
@@ -216,6 +221,7 @@ public sealed class SectionPipeline<TModel>
             Queries = [.. queries],
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
+            IsViewApplicable = isViewApplicable,
             CanRender = TDescriptor.CanRender,
         });
     }
@@ -425,6 +431,101 @@ public sealed class SectionPipeline<TModel>
         .Where(IsSelectable)
         .Select(e => e.Name)
         .ToArray();
+
+    /// <summary>
+    /// Describes the selectable inspection views for <paramref name="model"/> from the same
+    /// catalog used by rendering and section selection.
+    /// </summary>
+    /// <param name="model">The target whose applicability and availability are projected.</param>
+    /// <param name="includeInapplicable">
+    /// Whether to retain views that do not apply to this target. The default returns only views a
+    /// consumer can offer for the target; retaining them is useful for diagnostics and tests.
+    /// </param>
+    public IReadOnlyList<InspectionViewDescriptor> GetInspectionViews(
+        TModel model,
+        bool includeInapplicable = false)
+    {
+        List<InspectionViewDescriptor> result = [];
+
+        for (int index = 0; index < _entries.Count; index++)
+        {
+            SectionEntry<TModel> entry = _entries[index];
+            if (!IsSelectable(entry))
+                continue;
+
+            bool isApplicable = (entry.IsViewApplicable ?? entry.IsApplicable)(model);
+            if (!isApplicable && !includeInapplicable)
+                continue;
+
+            result.Add(new InspectionViewDescriptor(
+                Id: entry.Name,
+                Label: entry.Name,
+                Weight: index,
+                IsApplicable: isApplicable,
+                IsAvailable: isApplicable,
+                CanRender: entry.CanRender(model),
+                RenderProbeDeferred: !entry.ProbeEffectiveness,
+                IsDefault: isApplicable
+                    && IsRequested(
+                        entry,
+                        index,
+                        Verbosity.Normal,
+                        include: null,
+                        fixedOverview: false),
+                IsHighValue: entry.Info,
+                IsExpensive: entry.IsExpensive,
+                IsExplicitOnly: entry.ExplicitOnly,
+                IsListed: entry.ListedInCatalog,
+                SizeClass: entry.SizeClass,
+                Cost: entry.Cost,
+                Capabilities: entry.Capabilities));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Validates opaque view IDs and resolves them to the section names this pipeline consumes.
+    /// Null or empty input selects the target's default views.
+    /// </summary>
+    public InspectionViewSelection ResolveInspectionViews(
+        TModel model,
+        IEnumerable<string>? viewIds)
+    {
+        InspectionViewDescriptor[] catalog = [.. GetInspectionViews(model, includeInapplicable: true)];
+        Dictionary<string, InspectionViewDescriptor> byId = catalog.ToDictionary(
+            view => view.Id,
+            StringComparer.OrdinalIgnoreCase);
+        string[] requestedIds = viewIds?
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+
+        InspectionViewDescriptor[] selected;
+        if (requestedIds.Length == 0)
+        {
+            selected = [.. catalog.Where(view => view.IsDefault)];
+        }
+        else
+        {
+            List<InspectionViewDescriptor> requested = [];
+            foreach (string id in requestedIds)
+            {
+                if (!byId.TryGetValue(id, out InspectionViewDescriptor? view))
+                    throw new ArgumentException($"Unknown inspection view ID '{id}'.", nameof(viewIds));
+                if (!view.IsAvailable)
+                    throw new InvalidOperationException(
+                        $"Inspection view '{id}' does not apply to this target.");
+                requested.Add(view);
+            }
+
+            selected = [.. requested.OrderBy(view => view.Weight)];
+        }
+
+        return new InspectionViewSelection(
+            selected,
+            selected.Select(view => view.Id).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
 
     /// <summary>Sections in the curated default preset, in registration order.</summary>
     public string[] InfoSectionNames => _entries
@@ -736,16 +837,6 @@ public sealed class SectionPipeline<TModel>
                 empty.Add(entry.Name);
         }
         return (empty, requested);
-    }
-
-    /// <summary>
-    /// Lists sections that have content at <see cref="Verbosity.Detailed"/>.
-    /// Used by bare <c>-S</c> with input to discover which sections have data.
-    /// </summary>
-    public void ListEffectiveSections(TModel model)
-    {
-        foreach (var name in GetEffectiveSections(model, Verbosity.Detailed))
-            Console.WriteLine(name);
     }
 
     /// <summary>

@@ -6,12 +6,12 @@ using InertText;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// One scanner that <see cref="ScannerRegistry.RunScanners"/> actually invoked.
+/// One scanner that an inspection pipeline actually invoked.
 /// </summary>
 /// <param name="Key">The scanner key.</param>
 /// <param name="IsBundle">
 /// True when the key does no work of its own and exists only to pull in prerequisites
-/// (<see cref="ScannerRegistry.AddBundle"/>). A bundle's elapsed time is its own dispatch only —
+/// through a bundle declaration. A bundle's elapsed time is its own dispatch only —
 /// the work is attributed to the prerequisites it named.
 /// </param>
 /// <param name="Elapsed">Wall time spent inside the scanner body.</param>

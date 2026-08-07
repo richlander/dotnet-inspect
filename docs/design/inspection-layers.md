@@ -140,6 +140,14 @@ that surface it, the disclosure ladder that decides when it appears, and the
 **shape ladder** that narrows a result to what was asked for. L2 is where results
 are integrated with Markout serialization.
 
+`SectionPipeline<TModel>` is the L2 catalog and selection engine.
+`GetInspectionViews` projects target-effective descriptors from that catalog,
+including applicability, availability, producer order, defaults, cost, size,
+capabilities, renderability, and whether its render probe is deferred.
+`ResolveInspectionViews` validates the returned opaque IDs against the same
+registrations and produces the section names consumed by execution. Listing and
+application therefore cannot drift into separate vocabularies.
+
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
 affordances. The browser prototype independently grew category-shaped UI — kind
@@ -395,7 +403,11 @@ the L2 project split still need migration.
 The structural fix is completing L1. Outside the metadata, direct-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, switch, SourceLink, and type/member inventory canaries, collection
-is still neither typed nor demand-driven:
+neither typed nor demand-driven. The first L2 seam also exists:
+`DotnetInspector.Sections` owns the host-neutral pipeline, descriptor
+projection, selection engine, and reusable type/member catalogs. Package and
+library catalogs remain in L3 while their models and scanner orchestration are
+CLI-owned:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
@@ -411,9 +423,8 @@ is still neither typed nor demand-driven:
   implemented queries themselves take a borrowed content owner, not a path.
 
 Converting the remaining collection into typed, demand-driven, content-shaped
-queries is therefore the migration path for the split, not a follow-up to it.
-L2 is close to a project move as query coverage expands; the descriptor contract is
-already Markout-free apart from its name binding.
+queries is therefore the prerequisite for moving the package and library
+catalogs and their result shapes into L2, not a follow-up to that migration.
 
 ## Non-goals
 
