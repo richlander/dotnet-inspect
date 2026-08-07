@@ -32,6 +32,7 @@
          classifier while its legacy API surface still produces C# strings. -->
     <Compile Include="..\ILInspector.CSharp\CSharpKeywords.cs" Link="CSharpKeywords.cs" />
     <Compile Include="..\ILInspector.CSharp\CSharpIdentifierCore.cs" Link="CSharpIdentifierCore.cs" />
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />

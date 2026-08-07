@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
