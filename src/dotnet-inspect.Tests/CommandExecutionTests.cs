@@ -5233,7 +5233,7 @@ public partial class CommandExecutionTests
     public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v20";
+        const string currentCategory = "effective-v21";
         string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string assemblyPath = Path.Combine(directory, "Instructions.dll");
@@ -9893,6 +9893,75 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("| Dependencies | section |", output);
         Assert.Contains("| @Performance | category |", output);
         Assert.DoesNotContain("| Performance: Boxing | section |", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ScopedEffectiveDiscoveryDoesNotPoisonBareCache()
+    {
+        const string currentCategory = "effective-v21";
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"effective-scope-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string scopedPath = Path.Combine(directory, "Scoped.dll");
+        string controlPath = Path.Combine(directory, "Control.dll");
+        File.Copy(TestAssemblyPath, scopedPath);
+        File.Copy(TestAssemblyPath, controlPath);
+
+        string sourcePdb = Path.ChangeExtension(TestAssemblyPath, ".pdb");
+        if (File.Exists(sourcePdb))
+        {
+            File.Copy(sourcePdb, Path.ChangeExtension(scopedPath, ".pdb"));
+            File.Copy(sourcePdb, Path.ChangeExtension(controlPath, ".pdb"));
+        }
+
+        string[] cacheFiles = [.. new[] { scopedPath, controlPath }
+            .SelectMany(path =>
+            {
+                string hash = Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+                return new[]
+                {
+                    LibraryCommand.BuildEffectiveCacheKey(path, hash, hasSourceLink: false),
+                    LibraryCommand.BuildEffectiveCacheKey(path, hash, hasSourceLink: true),
+                };
+            })
+            .Select(key => CoreCache.GetFilePath(currentCategory, key, extension: "tsv"))];
+
+        try
+        {
+            foreach (string cacheFile in cacheFiles)
+                DeleteIfPresent(cacheFile);
+
+            var (controlExit, controlOutput, controlError) = await RunAppAsync(
+                "library", controlPath, "-D", "--effective", "--tips", "q");
+            var (scopedExit, scopedOutput, scopedError) = await RunAppAsync(
+                "library", scopedPath, "-D", "--effective",
+                "-S", "Library Info", "--tips", "q");
+            var (bareExit, bareOutput, bareError) = await RunAppAsync(
+                "library", scopedPath, "-D", "--effective", "--tips", "q");
+
+            Assert.Equal(0, controlExit);
+            Assert.Equal(0, scopedExit);
+            Assert.Equal(0, bareExit);
+            Assert.Empty(controlError);
+            Assert.Empty(scopedError);
+            Assert.Empty(bareError);
+            Assert.Contains("| Library Info | section |", scopedOutput);
+            Assert.DoesNotContain("| References | section |", scopedOutput);
+            Assert.Equal(controlOutput, bareOutput);
+        }
+        finally
+        {
+            foreach (string cacheFile in cacheFiles)
+                DeleteIfPresent(cacheFile);
+            Directory.Delete(directory, recursive: true);
+        }
+
+        static void DeleteIfPresent(string path)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]

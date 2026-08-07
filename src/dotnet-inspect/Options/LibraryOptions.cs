@@ -196,6 +196,18 @@ public record LibraryOptions : IProjectionOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
+    /// The user's resolved section selection before internal discovery scope is synthesized.
+    /// Capability authorization keys off this value so an internal base-category expansion cannot
+    /// authorize PDB or source network work. Null falls back to <see cref="IncludeSections"/> for
+    /// callers that do not perform internal scope expansion.
+    /// </summary>
+    public HashSet<string>? UserIncludeSectionsOverride { get; init; }
+
+    /// <summary>The section selection that came from the user's gesture.</summary>
+    public HashSet<string>? UserIncludeSections
+        => UserIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
     /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
     /// </summary>
     public string[]? Discover { get; init; }

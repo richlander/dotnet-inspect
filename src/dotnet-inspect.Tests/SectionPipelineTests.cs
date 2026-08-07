@@ -939,6 +939,39 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_InternalDiscoveryScopeDoesNotAuthorizeNetwork()
+    {
+        var synthesizedBaseScope = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Library Info",
+            "Signals",
+            "Symbols",
+        };
+        var options = new LibraryOptions
+        {
+            Verbosity = Verbosity.Detailed,
+            UserVerbosityOverride = Verbosity.Minimal,
+            IncludeSections = synthesizedBaseScope,
+            UserIncludeSectionsOverride = [],
+        };
+
+        var plan = LibrarySourcePlans.For(options);
+
+        Assert.False(plan.AllowPdbDownload);
+        Assert.False(plan.RunHeadAudit);
+        Assert.False(plan.RunIntegrity);
+        Assert.False(plan.CollectSourceFiles);
+        Assert.False(plan.ReadCachedPdb);
+
+        plan = LibrarySourcePlans.For(options with
+        {
+            UserIncludeSectionsOverride =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" },
+        });
+        Assert.True(plan.AllowPdbDownload);
+    }
+
+    [Fact]
     public void LibrarySourcePlan_SourceAuditAuthorizedByExplicitSourceLinkSections()
     {
         // The HEAD availability audit is now consumed only by the explicit Source Link audit

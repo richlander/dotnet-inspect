@@ -242,9 +242,7 @@ internal static class LibraryMetadataService
                 return inspection;
             }
 
-            var sourcePlan = LibrarySourcePlans.For(
-                options.UserVerbosity,
-                options.IncludeSections);
+            var sourcePlan = LibrarySourcePlans.For(options);
 
             await AuditAsync(
                 service,

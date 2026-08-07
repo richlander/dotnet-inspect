@@ -257,6 +257,13 @@ public class LibraryCommand
             options = options with { IncludeSections = selectResult.Sections };
         }
 
+        options = options with
+        {
+            UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
+                ? new HashSet<string>(options.IncludeSections, StringComparer.OrdinalIgnoreCase)
+                : [],
+        };
+
         if (options.ReferenceTreeDepth is < 1)
         {
             CommandError.Write("--depth must be at least 1.");
@@ -415,6 +422,11 @@ public class LibraryCommand
         HashSet<string>? discoveryExecutionScope = options.IncludeSections;
         if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
             discoveryExecutionScope = [.. pipeline.BaseSectionNames];
+        bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
+            && options.Discover is { Length: 0 }
+            && options.UserIncludeSections is not { Count: > 0 }
+            && !HasILOffsetCoordinate(options)
+            && !HasHeapCoordinate(options);
 
         if (trace is not null)
             trace.Verbosity = options.Verbosity.ToString();
@@ -508,7 +520,7 @@ public class LibraryCommand
                 string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null)
                 {
                     var cached = TryGetCachedEffective(resolvedPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -543,8 +555,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(
                         resolvedPath!, inspection, options, pipeline, userVerbosity,
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
-                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
-                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
@@ -589,7 +600,7 @@ public class LibraryCommand
                     : null;
 
                 // Check effective sections cache before running full inspection
-                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null && assemblyPaths.Count > 0)
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -637,8 +648,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(
                         assemblyPaths[0], inspections[0], options, pipeline, userVerbosity,
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
-                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
-                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
@@ -683,7 +693,7 @@ public class LibraryCommand
                 string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (fullEffectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null)
                 {
                     var cached = TryGetCachedEffective(assemblyPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
@@ -717,8 +727,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(
                         assemblyPath!, inspection, options, pipeline, userVerbosity,
                         fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
-                        cache: fullEffectiveDiscovery && options.Discover is { Length: 0 }
-                            && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options),
+                        cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
