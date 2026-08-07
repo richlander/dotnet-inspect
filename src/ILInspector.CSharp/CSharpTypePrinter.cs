@@ -62,6 +62,10 @@ public sealed class CSharpTypePrinter
                 .Concat(derivedUsings)
                 .ToImmutableHashSet(StringComparer.Ordinal)
             : ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+        var importedDeclaredTypeNames = preparedTypes
+            .Where(type => emittedUsings.Contains(type.Namespace))
+            .Select(type => CSharpFormatter.StripArity(type.Type.Name))
+            .ToImmutableHashSet(StringComparer.Ordinal);
 
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
@@ -84,6 +88,7 @@ public sealed class CSharpTypePrinter
                         .Where(sibling => !ReferenceEquals(sibling, type))
                         .Select(sibling => CSharpFormatter.StripArity(sibling.Type.Name))
                         .Concat(ancestorTypeNames)
+                        .Concat(importedDeclaredTypeNames)
                         .ToImmutableHashSet(StringComparer.Ordinal),
                     typeNameContext.KnownNamespaces,
                     diagnostics)));
@@ -462,9 +467,13 @@ public sealed class CSharpTypePrinter
         {
             var accessors = new List<string>();
             if (body.Getter is not null)
-                accessors.Add(AccessorHead(member.Member, "get") + ";");
+                accessors.Add(AccessorHead(type.Type, member.Member, "get", formatter) + ";");
             if (body.Setter is not null)
-                accessors.Add(AccessorHead(member.Member, SetterKeyword(member.Member)) + ";");
+                accessors.Add(AccessorHead(
+                    type.Type,
+                    member.Member,
+                    SetterKeyword(member.Member),
+                    formatter) + ";");
             return [$"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}"];
         }
 
@@ -473,8 +482,15 @@ public sealed class CSharpTypePrinter
             PadDeclaration(declaration, pad),
             $"{pad}{{"
         };
-        AddAccessor(lines, member.Member, "get", body.Getter, indent + 1);
-        AddAccessor(lines, member.Member, SetterKeyword(member.Member), body.Setter, indent + 1);
+        AddAccessor(lines, type.Type, member.Member, "get", body.Getter, formatter, indent + 1);
+        AddAccessor(
+            lines,
+            type.Type,
+            member.Member,
+            SetterKeyword(member.Member),
+            body.Setter,
+            formatter,
+            indent + 1);
         lines.Add($"{pad}}}");
         return lines;
     }
@@ -511,23 +527,25 @@ public sealed class CSharpTypePrinter
             PadDeclaration(declaration, pad),
             $"{pad}{{"
         };
-        AddAccessor(lines, member.Member, "add", body.Adder, indent + 1);
-        AddAccessor(lines, member.Member, "remove", body.Remover, indent + 1);
+        AddAccessor(lines, type.Type, member.Member, "add", body.Adder, formatter, indent + 1);
+        AddAccessor(lines, type.Type, member.Member, "remove", body.Remover, formatter, indent + 1);
         lines.Add($"{pad}}}");
         return lines;
     }
 
     static void AddAccessor(
         List<string> lines,
+        ApiType declaringType,
         ApiMember member,
         string kind,
         CSharpAccessorBody? body,
+        CSharpFormatter formatter,
         int indent)
     {
         if (body is null)
             return;
         string pad = new(' ', indent * 4);
-        string head = AccessorHead(member, kind);
+        string head = AccessorHead(declaringType, member, kind, formatter);
         if (body.Kind == CSharpAccessorBodyKind.Auto)
         {
             lines.Add($"{pad}{head};");
@@ -544,13 +562,38 @@ public sealed class CSharpTypePrinter
         lines.Add($"{pad}}}");
     }
 
-    static string AccessorHead(ApiMember member, string kind)
+    static string AccessorHead(
+        ApiType declaringType,
+        ApiMember member,
+        string kind,
+        CSharpFormatter formatter)
     {
         var accessor = member.SignatureModel?.Accessors
             .FirstOrDefault(candidate => candidate.Kind == kind);
         var parts = new List<string>();
         if (accessor?.ReturnAttributes is { Count: > 0 } returnAttributes)
-            parts.Add($"[return: {string.Join(", ", returnAttributes)}]");
+        {
+            var attributeProbe = new ApiMember
+            {
+                Name = "__AccessorAttributeProbe",
+                Kind = "method",
+                SignatureModel = new ApiSignature
+                {
+                    ReturnType = "void",
+                    MemberName = "__AccessorAttributeProbe",
+                    ReturnAttributes = returnAttributes
+                }
+            };
+            string formattedProbe = formatter.FormatMember(declaringType, attributeProbe);
+            attributeProbe.SignatureModel.ReturnAttributes = [];
+            string formattedDeclaration = formatter.FormatMember(declaringType, attributeProbe);
+            if (!formattedProbe.EndsWith(formattedDeclaration, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"C# accessor '{member.Name}.{kind}' return attributes were not rendered.");
+            }
+            parts.Add(formattedProbe[..^formattedDeclaration.Length].TrimEnd());
+        }
         if (!string.IsNullOrWhiteSpace(accessor?.Accessibility))
             parts.Add(accessor.Accessibility!);
         parts.Add(kind);

@@ -65,14 +65,18 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var attributeReferences = CollectAttributeTypeReferences(member.Attributes).ToHashSet(StringComparer.Ordinal);
+        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, member).ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = CollectQualificationOnlyAttributeTypeReferences(
+                member.Attributes,
+                member)
+            .ToHashSet(StringComparer.Ordinal);
         var references = CollectMemberTypeReferences(member).Concat(attributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
-            attributeReferences);
+            qualificationOnlyAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
 
@@ -90,14 +94,18 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? methodParameters = null)
     {
         options ??= new CSharpDeclarationOptions();
-        var attributeReferences = CollectAttributeTypeReferences(member.Attributes).ToHashSet(StringComparer.Ordinal);
+        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, member).ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = CollectQualificationOnlyAttributeTypeReferences(
+                member.Attributes,
+                member)
+            .ToHashSet(StringComparer.Ordinal);
         var references = CollectMemberTypeReferences(member).Concat(attributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
-            attributeReferences);
+            qualificationOnlyAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
@@ -115,20 +123,35 @@ internal static class CSharpDeclarationWriter
         var memberList = members?.ToList() ?? type.Members;
         var parameters = primaryConstructorParameters ?? [];
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes)
-            .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(member.Attributes)))
+            .Concat(memberList.SelectMany(member => CollectAttributeTypeReferences(member.Attributes, member)))
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = CollectAttributeTypeReferences(type.Attributes)
+            .Concat(memberList.SelectMany(member =>
+                CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)))
+            .Concat(parameters.SelectMany(parameter =>
+                CollectAttributeArgumentTypeReferences(parameter.Attributes)))
+            .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterAttributeReferences = parameters
+            .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
             .ToHashSet(StringComparer.Ordinal);
         var references = CollectTypeReferences(type)
             .Concat(memberList.SelectMany(CollectMemberTypeReferences))
             .Concat(parameters.SelectMany(CollectParameterTypeReferences))
-            .Concat(attributeReferences);
+            .Concat(attributeReferences)
+            .Concat(primaryParameterAttributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
             CollectShadowingNames(type, memberList),
             CSharpFormatter.StripArity(type.Name),
-            attributeReferences);
+            qualificationOnlyAttributeReferences);
 
-        List<string> lines = [plan.Apply(RenderTypeDeclarationCore(type, options))];
+        string typeDeclaration = AddPrimaryConstructorParameters(
+            type,
+            RenderTypeDeclarationCore(type, options),
+            options,
+            parameters);
+        List<string> lines = [plan.Apply(typeDeclaration)];
         lines.Add("{");
         foreach (var member in memberList)
         {
@@ -168,7 +191,9 @@ internal static class CSharpDeclarationWriter
                     $"Delegate '{type.FullName}' requires a structured Invoke signature.");
             }
 
-            var delegateAttributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
+            var delegateAttributeReferences = CollectAttributeTypeReferences(type.Attributes)
+                .Concat(CollectAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
+                .ToHashSet(StringComparer.Ordinal);
             var references = CollectTypeReferences(type)
                 .Concat(CollectMemberTypeReferences(delegateInvoke))
                 .Concat(delegateAttributeReferences)
@@ -191,31 +216,27 @@ internal static class CSharpDeclarationWriter
         }
 
         var attributeReferences = CollectAttributeTypeReferences(type.Attributes).ToHashSet(StringComparer.Ordinal);
+        var parameterAttributeReferences = parameters
+            .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
+            .ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyAttributeReferences = attributeReferences
+            .Concat(parameters.SelectMany(parameter =>
+                CollectAttributeArgumentTypeReferences(parameter.Attributes)))
+            .ToHashSet(StringComparer.Ordinal);
         var plan = TypeNamePlan.Create(
             CollectTypeReferences(type)
                 .Concat(parameters.SelectMany(CollectParameterTypeReferences))
-                .Concat(attributeReferences),
+                .Concat(attributeReferences)
+                .Concat(parameterAttributeReferences),
             options,
             CollectShadowingNames(type, []),
             CSharpFormatter.StripArity(type.Name),
-            attributeReferences);
-        string declaration = RenderTypeDeclarationCore(type, options);
-        if (parameters.Count > 0)
-        {
-            string declarationWithoutAttributes = RenderTypeDeclarationCore(
-                type,
-                options with { IncludeCustomAttributes = false });
-            if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
-            }
-
-            declaration = declaration[..^declarationWithoutAttributes.Length]
-                + AddPrimaryConstructorParameters(
-                    declarationWithoutAttributes,
-                    parameters);
-        }
+            qualificationOnlyAttributeReferences);
+        string declaration = AddPrimaryConstructorParameters(
+            type,
+            RenderTypeDeclarationCore(type, options),
+            options,
+            parameters);
         return plan.Apply(declaration);
     }
 
@@ -267,7 +288,7 @@ internal static class CSharpDeclarationWriter
         var attributeTypeRefs = scopeList
             .SelectMany(scope => CollectAttributeTypeReferences(scope.Type.Attributes)
                 .Concat(scope.Members.SelectMany(member =>
-                    CollectAttributeTypeReferences(member.Attributes))))
+                    CollectAttributeTypeReferences(member.Attributes, member))))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -345,25 +366,135 @@ internal static class CSharpDeclarationWriter
                 yield return reference;
     }
 
-    static IEnumerable<string> CollectAttributeTypeReferences(IEnumerable<string> attributes)
+    static IEnumerable<string> CollectAttributeTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
     {
-        foreach (var attribute in attributes)
+        foreach (var attribute in AttributeTexts(attributes, member))
+        {
             foreach (var reference in ExtractQualifiedTypeNames(StripAttributeArguments(attribute)))
+                yield return reference;
+            foreach (var reference in CollectAttributeArgumentTypeReferences([attribute]))
+                yield return reference;
+        }
+    }
+
+    static IEnumerable<string> CollectAttributeArgumentTypeReferences(
+        IEnumerable<string> attributes,
+        ApiMember? member = null)
+    {
+        foreach (var attribute in AttributeTexts(attributes, member))
+        {
+            int firstArgumentList = attribute.IndexOf('(', StringComparison.Ordinal);
+            for (var index = 0; index < attribute.Length; index++)
+            {
+                if (IsStringLiteralStart(attribute, index))
+                {
+                    index = SkipStringLiteral(attribute, index) - 1;
+                    continue;
+                }
+                if (attribute[index] == '\'')
+                {
+                    index = SkipCharLiteral(attribute, index) - 1;
+                    continue;
+                }
+
+                bool isTypeOf = attribute.AsSpan(index).StartsWith("typeof(", StringComparison.Ordinal);
+                bool isNestedCast = attribute[index] == '('
+                    && index > firstArgumentList;
+                if (!isTypeOf && !isNestedCast)
+                    continue;
+
+                int open = isTypeOf ? index + "typeof".Length : index;
+                int close = attribute.IndexOf(')', open + 1);
+                if (close < 0)
+                    break;
+                if (isNestedCast)
+                {
+                    int next = close + 1;
+                    while (next < attribute.Length && char.IsWhiteSpace(attribute[next]))
+                        next++;
+                    if (next >= attribute.Length
+                        || (attribute[next] is not '+' and not '-'
+                            && !char.IsAsciiDigit(attribute[next])))
+                    {
+                        continue;
+                    }
+                }
+
+                foreach (var reference in ExtractQualifiedTypeNames(attribute[(open + 1)..close]))
+                    yield return reference;
+                index = close;
+            }
+        }
+    }
+
+    static IEnumerable<string> CollectQualificationOnlyAttributeTypeReferences(
+        IEnumerable<string> memberAttributes,
+        ApiMember member)
+    {
+        foreach (var reference in CollectAttributeTypeReferences(memberAttributes))
+            yield return reference;
+        if (member.SignatureModel is not { } signature)
+            yield break;
+
+        foreach (var reference in CollectAttributeTypeReferences(signature.ReturnAttributes))
+            yield return reference;
+        foreach (var accessor in signature.Accessors)
+            foreach (var reference in CollectAttributeTypeReferences(accessor.ReturnAttributes))
+                yield return reference;
+        foreach (var parameter in signature.Parameters)
+            foreach (var reference in CollectAttributeArgumentTypeReferences(parameter.Attributes))
                 yield return reference;
     }
 
+    static IEnumerable<string> AttributeTexts(
+        IEnumerable<string> attributes,
+        ApiMember? member)
+    {
+        foreach (var attribute in attributes)
+            yield return attribute;
+        if (member?.SignatureModel is not { } signature)
+            yield break;
+
+        foreach (var attribute in signature.ReturnAttributes)
+            yield return attribute;
+        foreach (var parameter in signature.Parameters)
+            foreach (var attribute in parameter.Attributes)
+                yield return attribute;
+        foreach (var accessor in signature.Accessors)
+            foreach (var attribute in accessor.ReturnAttributes)
+                yield return attribute;
+    }
+
     static string AddPrimaryConstructorParameters(
+        ApiType type,
         string declaration,
+        CSharpDeclarationOptions options,
         IReadOnlyList<ApiParameter> parameters)
     {
+        if (parameters.Count == 0)
+            return declaration;
+        string declarationWithoutAttributes = RenderTypeDeclarationCore(
+            type,
+            options with { IncludeCustomAttributes = false });
+        if (!declaration.EndsWith(declarationWithoutAttributes, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
+        }
+
         string parameterList = CSharpFormatter.FormatParameterList(parameters);
-        int constraints = declaration.IndexOf(" where ", StringComparison.Ordinal);
-        string head = constraints >= 0 ? declaration[..constraints] : declaration;
-        string tail = constraints >= 0 ? declaration[constraints..] : "";
+        int constraints = declarationWithoutAttributes.IndexOf(" where ", StringComparison.Ordinal);
+        string head = constraints >= 0
+            ? declarationWithoutAttributes[..constraints]
+            : declarationWithoutAttributes;
+        string tail = constraints >= 0 ? declarationWithoutAttributes[constraints..] : "";
         int inheritance = head.IndexOf(" : ", StringComparison.Ordinal);
-        return inheritance >= 0
+        string withParameters = inheritance >= 0
             ? head[..inheritance] + parameterList + head[inheritance..] + tail
             : $"{head}{parameterList}{tail}";
+        return declaration[..^declarationWithoutAttributes.Length] + withParameters;
     }
 
     static HashSet<string> CollectShadowingNames(
@@ -984,10 +1115,17 @@ internal static class CSharpDeclarationWriter
     {
         foreach (var token in DottedIdentifierTokens(expression))
         {
-            if (token.Contains('.', StringComparison.Ordinal)
-                && !token.StartsWith("global.", StringComparison.Ordinal)
-                && !token.StartsWith("global::", StringComparison.Ordinal))
-                yield return token;
+            if (!token.Contains('.', StringComparison.Ordinal)
+                || token.StartsWith("global.", StringComparison.Ordinal)
+                || token.StartsWith("global::", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string normalized = token.StartsWith('@') ? token[1..] : token;
+            yield return normalized
+                .Replace(".@", ".", StringComparison.Ordinal)
+                .Replace("+@", "+", StringComparison.Ordinal);
         }
     }
 
@@ -1005,14 +1143,17 @@ internal static class CSharpDeclarationWriter
                 i = SkipCharLiteral(text, i);
                 continue;
             }
-            if (!IsIdentifierStart(text[i]))
+            if (!IsIdentifierStart(text[i])
+                && (text[i] != '@'
+                    || i + 1 >= text.Length
+                    || !IsIdentifierStart(text[i + 1])))
             {
                 i++;
                 continue;
             }
 
             var start = i++;
-            while (i < text.Length && (IsIdentifierPart(text[i]) || text[i] is '.' or '+'))
+            while (i < text.Length && (IsIdentifierPart(text[i]) || text[i] is '.' or '+' or '@'))
                 i++;
             yield return text[start..i].TrimEnd('.');
         }
@@ -2443,7 +2584,7 @@ internal static class CSharpDeclarationWriter
                     continue;
                 }
 
-                replacements[EscapeNamespace(typeRef.FullName)] = typeRef.SimpleName;
+                replacements[EscapeNamespace(typeRef.FullName)] = EscapeIdentifier(typeRef.SimpleName);
                 if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
                     generatedUsings.Add(typeRef.Namespace);
             }
@@ -2599,8 +2740,6 @@ internal static class CSharpDeclarationWriter
                 return null;
             var ns = value[..lastDot];
             var simple = StripArity(value[(lastDot + 1)..]);
-            if (CSharpKeywords.RequiresDeclarationEscape(simple))
-                return null;
             return new TypeRef(value, ns, simple);
         }
 

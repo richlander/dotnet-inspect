@@ -1581,6 +1581,41 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Theory]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort)]
+    public void ImportedDeclaredTypeCannotCaptureQualifiedNamespaceRoot(
+        CSharpTypeNamePolicy policy)
+    {
+        var importedSystem = CreateEmptyType("Imported", "System");
+        var importedWidget = CreateEmptyType("Imported", "Widget");
+        var consumer = CreateEmptyType("Samples", "Consumer");
+        var getWidget = CreateMethod("GetWidget");
+        getWidget.SignatureModel!.ReturnType = "Imported.Widget";
+        var getUri = CreateMethod("GetUri");
+        getUri.SignatureModel!.ReturnType = "System.Uri";
+        consumer.Members.Add(getWidget);
+        consumer.Members.Add(getUri);
+
+        var result = _printer.PrintBatch(
+            [
+                new CSharpTypePrintRequest(importedSystem),
+                new CSharpTypePrintRequest(importedWidget),
+                new CSharpTypePrintRequest(consumer)
+            ],
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = policy,
+                Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                    ? ["Imported"]
+                    : []
+            });
+
+        Assert.Contains("using Imported;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Widget GetWidget();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public global::System.Uri GetUri();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("Alpha", "Beta")]
     [InlineData("A", "A.B")]
     public void ShortWithUsingsImportsOtherDeclaringNamespace(
@@ -1622,6 +1657,55 @@ public sealed class CSharpTypePrinterTests
             2,
             result.Source.Split("[global::System.ObsoleteAttribute]", StringSplitOptions.None).Length - 1);
         Assert.DoesNotContain("[System.ObsoleteAttribute]", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyPlansTypeBearingAttributeArgumentsAndReturnAttributes()
+    {
+        var type = CreateEmptyType("Samples", "External`1");
+        type.Attributes =
+        [
+            "Other.Marker(typeof(External.Value), (External.Kind)1)",
+            "Other.KeywordMarker(typeof(Alpha.@event), (Alpha.@event)1)"
+        ];
+        type.TypeParameters = [new TypeParameter { Name = "Alpha" }];
+        var method = CreateMethod("Get");
+        method.Kind = "property";
+        method.SignatureModel!.ReturnAttributes = ["External.ReturnMarker"];
+        method.SignatureModel.Accessors =
+        [
+            new ApiAccessor
+            {
+                Kind = "get",
+                ReturnAttributes = ["External.AccessorMarker"]
+            }
+        ];
+        type.Members.Add(method);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                IncludeCustomAttributes = true
+            });
+
+        Assert.Contains(
+            "[Other.Marker(typeof(global::External.Value), (global::External.Kind)1)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[Other.KeywordMarker(typeof(global::Alpha.@event), (global::Alpha.@event)1)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: global::External.ReturnMarker]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: global::External.AccessorMarker]",
+            result.Source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1932,6 +2016,90 @@ public sealed class CSharpTypePrinterTests
                 }
             """,
             result.Units[0].Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullPropertyAndEventBodiesPlanAccessorReturnAttributes()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        ReturnAttributes = ["External.GetterMarker"]
+                    }
+                ]
+            }
+        };
+        var @event = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "add",
+                        ReturnAttributes = ["External.AddMarker"]
+                    },
+                    new ApiAccessor
+                    {
+                        Kind = "remove",
+                        ReturnAttributes = ["External.RemoveMarker"]
+                    }
+                ]
+            }
+        };
+        var type = CreateEmptyType("Samples", "External`1");
+        type.TypeParameters = [new TypeParameter { Name = "void" }];
+        type.Members.Add(property);
+        type.Members.Add(@event);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                memberPolicyOverrides:
+                [
+                    new CSharpMemberPolicy(
+                        property,
+                        CSharpBodyPolicy.Full,
+                        new CSharpPropertyBody(CSharpAccessorBody.Block("return 42;"), null)),
+                    new CSharpMemberPolicy(
+                        @event,
+                        CSharpBodyPolicy.Full,
+                        new CSharpEventBody(
+                            CSharpAccessorBody.Block("_changed += value;"),
+                            CSharpAccessorBody.Block("_changed -= value;")))
+                ]),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "[return: global::External.GetterMarker] get",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: global::External.AddMarker] add",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[return: global::External.RemoveMarker] remove",
+            result.Source,
             StringComparison.Ordinal);
     }
 

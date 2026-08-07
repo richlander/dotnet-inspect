@@ -78,6 +78,43 @@ public sealed class CSharpFormatterTests
         Assert.Empty(declaration.Diagnostics);
     }
 
+    [Fact]
+    public void FormatsPrimaryConstructorParametersInTypeUnit()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatTypeUnit(
+            type,
+            members: null,
+            primaryConstructorParameters:
+            [
+                new ApiParameter
+                {
+                    Type = "System.String",
+                    Name = "message",
+                    Attributes =
+                    [
+                        "Attributes.Other.Marker(typeof(External.Value))"
+                    ]
+                }
+            ]);
+
+        Assert.Contains(
+            "public class Worker([Marker(typeof(External.Value))] String message)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.Contains("Attributes.Other", declaration.Usings);
+    }
+
     [Theory]
     [InlineData(CSharpTypeNamePolicy.Qualified, "public System.Threading.Tasks.Task Run()", false)]
     [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Task Run()", true)]
@@ -460,6 +497,69 @@ public sealed class CSharpFormatterTests
             declaration.Text,
             StringComparison.Ordinal);
         Assert.DoesNotContain("@global::", declaration.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QualifiedPolicyEscapesKeywordTypeWithShadowedRoot()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker`1",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = "Alpha" }]
+        };
+        var member = new ApiMember
+        {
+            Name = "GetEvent",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.event",
+                MemberName = "GetEvent"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(
+            "public global::Alpha.@event GetEvent()",
+            declaration.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ShortPolicyEscapesKeywordType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "GetEvent",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Alpha.event",
+                MemberName = "GetEvent"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains("Alpha", declaration.Usings);
+        Assert.Contains("public @event GetEvent()", declaration.Text, StringComparison.Ordinal);
     }
 
     [Fact]

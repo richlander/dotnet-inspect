@@ -150,8 +150,13 @@ public sealed class CSharpFormatter
 
     public CSharpFormattedDeclaration FormatTypeUnit(
         ApiType type,
-        IEnumerable<ApiMember>? members = null,
-        IReadOnlyList<ApiParameter>? primaryConstructorParameters = null)
+        IEnumerable<ApiMember>? members = null)
+        => FormatTypeUnit(type, members, primaryConstructorParameters: null);
+
+    internal CSharpFormattedDeclaration FormatTypeUnit(
+        ApiType type,
+        IEnumerable<ApiMember>? members,
+        IReadOnlyList<ApiParameter>? primaryConstructorParameters)
     {
         ArgumentNullException.ThrowIfNull(type);
         return ToFormattedDeclaration(CSharpDeclarationWriter.RenderTypeUnit(
