@@ -409,13 +409,13 @@ completeness checks when deliberately running a subset locally. CI runs the full
 preset and never passes it.
 
 The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
-build files including `global.json` and `nuget.config`, minus `*.md`. A fidelity
-result is a whole-pipeline observation, so its real input set is the test
-project's transitive closure, which an enumerated project list cannot track
-without rotting. Under-triggering silently disables the gate on exactly the
-changes it exists to catch; over-triggering costs a parallel job that never
-blocks the hot lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl`
-under those trees can be a corpus or baseline fixture.
+build files including `global.json`, minus `*.md`. A fidelity result is a
+whole-pipeline observation, so its real input set is the test project's
+transitive closure, which an enumerated project list cannot track without
+rotting. Under-triggering silently disables the gate on exactly the changes it
+exists to catch; over-triggering costs a parallel job that never blocks the hot
+lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl` under those
+trees can be a corpus or baseline fixture.
 
 A job-level timeout would cancel the job, and a cancelled job runs no further
 steps and satisfies no `failure()` condition — the same silent-cancellation

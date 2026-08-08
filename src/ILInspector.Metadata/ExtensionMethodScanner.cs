@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -65,7 +66,7 @@ public static class ExtensionMethodScanner
             yield break;
 
         var reader = peReader.GetMetadataReader();
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -96,7 +97,7 @@ public static class ExtensionMethodScanner
                 includeAll))
             {
                 if (TypeMatcher.Matches(
-                    TypeMatcher.Normalize(property.ExtendedType),
+                    FqnParser.NormalizeTypeName(property.ExtendedType),
                     normalizedTarget))
                 {
                     yield return property;
@@ -133,7 +134,7 @@ public static class ExtensionMethodScanner
                     if (signature.ParameterTypes.Length == 0) continue;
 
                     var extendedType = signature.ParameterTypes[0];
-                    var normalizedExtended = TypeMatcher.Normalize(extendedType);
+                    var normalizedExtended = FqnParser.NormalizeTypeName(extendedType);
 
                     // Match against target
                     if (TypeMatcher.Matches(normalizedExtended, normalizedTarget))

@@ -160,7 +160,7 @@ public static class SharedParsers
         if (values.Length == 1 && int.TryParse(values[0], out var limit))
             return ([], limit);
 
-        return (new HashSet<string>(values.Select(TypeMatcher.NormalizeMemberName), StringComparer.OrdinalIgnoreCase), null);
+        return (new HashSet<string>(values.Select(FqnParser.NormalizeMemberName), StringComparer.OrdinalIgnoreCase), null);
     }
 
     /// <summary>
