@@ -6,7 +6,7 @@ set -euo pipefail
 out="${1:-}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+packages="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 
 cat > "$tmp/corpus.csproj" <<'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
@@ -25,9 +25,9 @@ cat > "$tmp/corpus.csproj" <<'EOF'
 </Project>
 EOF
 
-dotnet restore "$tmp/corpus.csproj" --configfile "$root/nuget.config" --verbosity quiet >/dev/null
-
-packages="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+dotnet restore "$tmp/corpus.csproj" \
+  "-p:RestorePackagesPath=$packages" \
+  --verbosity quiet >/dev/null
 
 select_asset() {
   local package="$1"
