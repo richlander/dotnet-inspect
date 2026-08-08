@@ -716,7 +716,7 @@ public static class TypeCommand
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
     {
-        var normalized = TypeMatcher.Normalize(query.Trim());
+        var normalized = FqnParser.NormalizeTypeName(query.Trim());
         return types
             .Where(type => IsPrefixMatch(type.FullName, normalized) || IsPrefixMatch(type.Name, normalized))
             .ToList();
