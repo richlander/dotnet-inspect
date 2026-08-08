@@ -16,6 +16,7 @@ using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using DotnetInspector.CSharpBodySlicer;
+using DotnetInspector.Queries;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 using Research = ILInspector.Research;
@@ -273,8 +274,10 @@ public sealed record BrowserPackageDependencies(
     string Package,
     string Version,
     string ActiveFramework,
+    string Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
-    BrowserAssemblyReference[] AssemblyReferences);
+    BrowserAssemblyReference[] AssemblyReferences,
+    string? AssemblyReferenceError);
 
 public sealed record BrowserPackageDependencyGroup(
     string Framework,
@@ -478,6 +481,9 @@ internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 public static partial class BrowserInspectionEngine
 {
     static readonly HttpClient Http = new();
+    static readonly InspectionQueryRegistry<AssemblyInspectionSession> AssemblyQueries =
+        new InspectionQueryRegistry<AssemblyInspectionSession>()
+            .Add(AssemblyReferencesQuery.Definition, AssemblyReferencesQuery.Execute);
     static readonly object PackageCacheLock = new();
     static readonly Dictionary<string, PackageCacheEntry> PackageCache = new(StringComparer.Ordinal);
     const int MaxCachedPackages = 12;
@@ -1125,9 +1131,9 @@ public static partial class BrowserInspectionEngine
 
     // Projects package-scoped dependency evidence: the NuGet .nuspec dependency groups
     // (per target framework, kept as-declared so the reality of "no group for this exact
-    // TFM" stays visible) plus the referenced assemblies read straight from the active
-    // framework's implementation assembly. The .nuspec is untrusted feed content, so it is
-    // parsed with DTD processing prohibited to block XXE and entity-expansion attacks.
+    // TFM" stays visible) plus the typed direct-reference query over the active assembly.
+    // The .nuspec is untrusted feed content, so it is parsed with DTD processing prohibited
+    // to block XXE and entity-expansion attacks.
     [JSExport]
     public static async Task<string> QueryPackageDependencies(
         string packageId,
@@ -1142,7 +1148,8 @@ public static partial class BrowserInspectionEngine
         var groups = new List<BrowserPackageDependencyGroup>();
         string packageName = packageId;
         string packageVersion = version;
-        var assemblyReferences = new List<BrowserAssemblyReference>();
+        BrowserAssemblyReference[] assemblyReferences = [];
+        string? assemblyReferenceError = null;
 
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
@@ -1189,49 +1196,64 @@ public static partial class BrowserInspectionEngine
                 }
             }
 
-            var implementation = archive.Entries.FirstOrDefault(entry =>
-                entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase));
-            if (implementation is not null)
+            var selectedAssembly = archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals(
+                        $"lib/{targetFramework}/{assemblyName}",
+                        StringComparison.OrdinalIgnoreCase))
+                ?? archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals(
+                        $"ref/{targetFramework}/{assemblyName}",
+                        StringComparison.OrdinalIgnoreCase));
+            if (selectedAssembly is null)
             {
-                using var assemblyStream = implementation.Open();
+                assemblyReferenceError =
+                    $"Assembly '{assemblyName}' is not present for framework '{targetFramework}'.";
+            }
+            else
+            {
+                using var assemblyStream = selectedAssembly.Open();
                 using var buffer = new MemoryStream();
                 await assemblyStream.CopyToAsync(buffer);
-                buffer.Position = 0;
-                try
+
+                var image = buffer.ToArray();
+                var reference = ResolvedAssemblyReference.Create(
+                    new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                    path: null,
+                    () => new MemoryStream(image, writable: false),
+                    AssemblyResolutionProvenance.Local(selectedAssembly.FullName));
+                using var inspection = AssemblyInspectionSession.Open(reference);
+                InspectionQueryResults queryResults = AssemblyQueries.Run(
+                    [AssemblyReferencesQuery.Definition],
+                    inspection);
+                switch (queryResults.Get(AssemblyReferencesQuery.Definition))
                 {
-                    using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
-                    if (peReader.HasMetadata)
-                    {
-                        var reader = peReader.GetMetadataReader();
-                        foreach (var handle in reader.AssemblyReferences)
-                        {
-                            var reference = reader.GetAssemblyReference(handle);
-                            var name = reader.GetString(reference.Name);
-                            if (!string.IsNullOrEmpty(name))
-                                assemblyReferences.Add(new BrowserAssemblyReference(name, reference.Version.ToString()));
-                        }
-                    }
-                }
-                catch
-                {
-                    // A malformed assembly should not sink the whole dependency view; the
-                    // nuspec groups still render. Leave assemblyReferences empty.
+                    case AssemblyReferencesResult.Available available:
+                        assemblyReferences = available.References
+                            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                            .ThenBy(item => item.Version, StringComparer.Ordinal)
+                            .Select(item => new BrowserAssemblyReference(item.Name, item.Version))
+                            .ToArray();
+                        break;
+
+                    case AssemblyReferencesResult.Failed failed:
+                        assemblyReferenceError = failed.Error.Message;
+                        break;
+
+                    default:
+                        throw new InvalidOperationException(
+                            "Unknown assembly-reference query result.");
                 }
             }
         }
-
-        var distinctReferences = assemblyReferences
-            .GroupBy(reference => reference.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .OrderBy(reference => reference.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
 
         var result = new BrowserPackageDependencies(
             packageName,
             packageVersion,
             targetFramework,
+            assemblyName,
             [.. groups],
-            distinctReferences);
+            assemblyReferences,
+            assemblyReferenceError);
 
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageDependencies);
     }

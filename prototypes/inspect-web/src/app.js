@@ -1400,8 +1400,9 @@ function renderPackageDependencies() {
   }
 
   const groups = data.dependencyGroups || [];
+  const assemblyReferences = assemblyReferencesSectionHtml(data);
   if (!groups.length) {
-    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>`;
+    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
   }
 
   const selectedTfm = resolveDependenciesFramework(groups);
@@ -1415,7 +1416,6 @@ function renderPackageDependencies() {
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
-  const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
   const depList = dependencyListSectionHtml(groups, selectedTfm);
 
   const graphSection = `
@@ -1424,7 +1424,28 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${selector}${graphSection}${depList}`;
+  return `${selector}${graphSection}${depList}${assemblyReferences}`;
+}
+
+function assemblyReferencesSectionHtml(data) {
+  const references = data.assemblyReferences || [];
+  const assembly = data.assembly || "selected assembly";
+  if (data.assemblyReferenceError) {
+    return `
+      <section class="document-section">
+        <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)}</span></div>
+        <div class="empty-list">Inspection failed: ${escapeHtml(data.assemblyReferenceError)}</div>
+      </section>`;
+  }
+
+  return `
+    <section class="document-section">
+      <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
+      ${references.length
+        ? `<ul class="dep-list">${references.map(reference =>
+            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(reference.version)}</code></li>`).join("")}</ul>`
+        : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
+    </section>`;
 }
 
 // The NuGet dependency list for the selected TFM. Extracted so a framework switch can

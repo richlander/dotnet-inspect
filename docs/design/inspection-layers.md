@@ -58,6 +58,12 @@ content-shaped registry over a host-owned `AssemblyInspectionSession`. The
 scanner key, and the CLI and package convenience route lower section selection
 into that same registry.
 
+The browser engine is the second host for `AssemblyReferencesQuery`. Its package
+Dependencies lens opens package bytes through its own
+`AssemblyInspectionSession`, runs the same L1 definition through a browser-owned
+registry, and projects the typed result directly into its transport model. It
+does not consume the CLI aggregate or renderer.
+
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
@@ -224,8 +230,8 @@ canaries:
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   a flat immutable reference result. The CLI projects Findings and owns
   path-based transitive tree resolution.
-- Metadata sections and `References` bind to query definitions by object
-  identity. Diagnostic names are never lookup keys.
+- Metadata sections, CLI `References`, and the browser Dependencies lens bind to
+  query definitions by object identity. Diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
