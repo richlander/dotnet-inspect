@@ -2,7 +2,9 @@ using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -317,6 +319,47 @@ public class LibraryFindingConsumerTests
             LibraryIntegrationCatalog.RollupName,
             IntegrationSectionNames.AI));
         Assert.False(LibraryCommand.FailureAffectsSection("Custom Attributes", "Type Forwarders"));
+    }
+
+    [Fact]
+    public async Task MultiLibraryFailureWarnings_AreCorrelatedPerAssembly()
+    {
+        var failed = new LibraryInspection
+        {
+            ClassifiedMethodInspection = new FindingInspection<ClassifiedMethodObservation>.Failed(
+                new InspectionError(
+                    FindingTestData.Subject,
+                    MetadataFindings.ClassifiedMethodDescriptor,
+                    "method scan failed")),
+        };
+        var populated = new LibraryInspection
+        {
+            AsyncMethods =
+            [
+                new AsyncMethodSummary
+                {
+                    MethodName = "M",
+                    DeclaringType = "Test.Type",
+                    Signature = "Task M()",
+                },
+            ],
+        };
+        var options = new LibraryOptions
+        {
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.AsyncMethods,
+            },
+        };
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [failed, populated],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Contains("method scan failed", error);
+        Assert.DoesNotContain("has no data", error);
     }
 
     static void AssertFailure<T>(

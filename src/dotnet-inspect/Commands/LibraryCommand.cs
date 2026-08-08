@@ -2129,7 +2129,7 @@ public class LibraryCommand
             filteredSections);
     }
 
-    private static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
+    internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count)
@@ -2137,20 +2137,24 @@ public class LibraryCommand
 
         var (empty, requested) = GetEmptySections(inspections, options, pipeline);
         var failures = inspections
-            .SelectMany(inspection => inspection.InspectionFailures ?? [])
+            .SelectMany(inspection =>
+            {
+                var (inspectionEmpty, _) = pipeline.GetEmptySections(
+                    inspection, options.Verbosity, options.IncludeSections);
+                return (inspection.InspectionFailures ?? [])
+                    .Where(failure => inspectionEmpty.Any(
+                        section => FailureAffectsSection(failure.Section, section)));
+            })
             .Distinct()
             .ToList();
-        List<LibraryInspectionFailureJson> relevantFailures = failures
-            .Where(failure => empty.Any(section => FailureAffectsSection(failure.Section, section)))
-            .ToList();
-        foreach (var failure in relevantFailures)
+        foreach (var failure in failures)
         {
             CommandError.WriteWarning(
                 $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
-            .Where(section => !relevantFailures.Any(
+            .Where(section => !failures.Any(
                 failure => FailureAffectsSection(failure.Section, section)))
             .ToList();
         if (unexplained.Count > 0 && empty.Count == requested)
