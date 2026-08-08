@@ -264,6 +264,38 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_AutomaticRequestUsesSelectedCompileSet()
+    {
+        WriteDll("tools/net8.0/MyTool.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "MyPackage");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_DuplicateNameUsesAutomaticallySelectedTfm()
+    {
+        WriteDll("ref/netstandard2.0/MyPackage.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "MyPackage");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library], result.Paths);
+    }
+
+    [Fact]
     public void SelectPackageLibraries_NoTfm_SelectsHighestTfmInStableOrder()
     {
         WriteDll("lib/net8.0/Zeta.dll");
@@ -324,6 +356,20 @@ public class TfmSelectorTests : IDisposable
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0", "MyPackage");
 
         Assert.Equal(primary, result);
+    }
+
+    [Fact]
+    public void FindAssemblyContainingType_AutomaticLookupUsesSelectedCompileSet()
+    {
+        WriteAssembly("tools/net8.0/MyTool.dll");
+        var library = WriteAssembly("lib/net8.0/MyPackage.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyContainingType(
+            _tempDir,
+            typeof(TfmSelectorTests).FullName!);
+
+        Assert.Equal(library, path);
+        Assert.Equal("net8.0", tfm);
     }
 
     [Fact]
@@ -397,6 +443,16 @@ public class TfmSelectorTests : IDisposable
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, []);
+        return path;
+    }
+
+    private string WriteAssembly(string relativePath)
+    {
+        var path = Path.Combine(
+            _tempDir,
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.Copy(typeof(TfmSelectorTests).Assembly.Location, path);
         return path;
     }
 }

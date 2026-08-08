@@ -93,6 +93,29 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void Selection_CaseCollidingPathsAreIndependentOfEnumerationOrder()
+    {
+        string[] entries =
+        [
+            "lib/net8.0/Example.dll",
+            "LIB/NET8.0/example.dll",
+        ];
+
+        PackageCompileAssetSelection first =
+            PackageCompileAssetSelector.Select(
+                InMemory(entries),
+                "Example");
+        PackageCompileAssetSelection reversed =
+            PackageCompileAssetSelector.Select(
+                InMemory(entries.Reverse().ToArray()),
+                "Example");
+
+        Assert.Equal(first.Assets, reversed.Assets);
+        Assert.Equal(first.DefaultAsset, reversed.DefaultAsset);
+        Assert.Equal("LIB/NET8.0/example.dll", first.DefaultAsset!.Path);
+    }
+
+    [Fact]
     public void Selection_MissingFrameworkPreservesTypedCandidates()
     {
         IPackageContent content = InMemory("lib/net8.0/Example.dll");

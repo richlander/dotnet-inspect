@@ -74,8 +74,11 @@ public static class PackageCompileAssetSelector
                 .Select(Parse)
                 .OfType<PackageCompileAsset>()
                 .GroupBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
-                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase),
+                .Select(group => group
+                    .OrderBy(asset => asset.Path, StringComparer.Ordinal)
+                    .First())
+                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];
         if (discovered.Length == 0)
         {
@@ -129,7 +132,8 @@ public static class PackageCompileAssetSelector
         [
             .. frameworkAssets
                 .Where(asset => asset.Kind == preferredKind)
-                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase),
+                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
         ];
 
         PackageCompileAsset defaultAsset = selected.FirstOrDefault(
