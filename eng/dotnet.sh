@@ -31,15 +31,39 @@ if [ ! -x "$dotnetup" ]; then
     trap - EXIT
 fi
 
+refresh_failed=false
 if install_output="$("$dotnetup" sdk install 11 --interactive false --no-progress 2>&1)"; then
-    :
+    install_exit=0
 else
     install_exit=$?
+    refresh_failed=true
     sdk_output="$("$dotnetup" dotnet -- --list-sdks 2>&1)" || sdk_output=""
     if ! printf '%s\n' "$sdk_output" | grep -Eq '^11\.'; then
         printf '%s\n' "$install_output" >&2
         exit "$install_exit"
     fi
+fi
+
+if selected_output="$("$dotnetup" dotnet -- --version 2>&1)"; then
+    selected_exit=0
+else
+    selected_exit=$?
+fi
+if ! printf '%s\n' "$selected_output" | grep -Eq '^11\.'; then
+    if [ "$refresh_failed" = true ]; then
+        printf '%s\n' "$install_output" >&2
+        echo "dotnetup command isolation did not select the required .NET 11 SDK." >&2
+        exit "$install_exit"
+    fi
+    printf '%s\n' "$selected_output" >&2
+    echo "dotnetup command isolation did not select the required .NET 11 SDK." >&2
+    if [ "$selected_exit" -ne 0 ]; then
+        exit "$selected_exit"
+    fi
+    exit 1
+fi
+
+if [ "$refresh_failed" = true ]; then
     echo "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK." >&2
 fi
 exec "$dotnetup" dotnet -- "$@"

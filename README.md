@@ -63,7 +63,8 @@ The launchers install `dotnetup` under `$HOME/.local/bin` by default. Set
 shell startup files, or the centrally installed SDK. CI continues to use
 `actions/setup-dotnet` because the runner is already an isolated environment.
 If an SDK refresh fails, they warn and use an already-installed .NET 11 SDK;
-without one, preparation fails.
+without one, preparation fails. They also fail if command isolation selects a
+different SDK, including through `global.json`.
 On Windows, invoke `dotnet.ps1` directly from PowerShell 7.3 or later. The
 launcher rejects older hosts because they cannot reliably preserve empty
 arguments, embedded quotes, and trailing backslashes. Quote the bare `--`,

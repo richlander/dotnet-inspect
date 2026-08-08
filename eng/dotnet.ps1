@@ -64,7 +64,8 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
 
 $installOutput = & $dotnetup sdk install 11 --interactive false --no-progress 2>&1
 $installExitCode = $LASTEXITCODE
-if ($installExitCode -ne 0) {
+$refreshFailed = $installExitCode -ne 0
+if ($refreshFailed) {
     $sdkOutput = & $dotnetup dotnet -- --list-sdks 2>&1
     $sdkExitCode = $LASTEXITCODE
     $hasDotnet11 = $sdkExitCode -eq 0 -and @(
@@ -79,6 +80,31 @@ if ($installExitCode -ne 0) {
         exit $installExitCode
     }
 
+}
+
+$selectedOutput = & $dotnetup dotnet -- --version 2>&1
+$selectedExitCode = $LASTEXITCODE
+$selectedDotnet11 = $selectedExitCode -eq 0 -and @(
+    $selectedOutput | Where-Object { $_ -match '^11\.' }
+).Count -eq 1
+if (-not $selectedDotnet11) {
+    $diagnostics = if ($refreshFailed) { $installOutput } else { $selectedOutput }
+    foreach ($line in $diagnostics) {
+        [Console]::Error.WriteLine($line)
+    }
+    [Console]::Error.WriteLine(
+        "dotnetup command isolation did not select the required .NET 11 SDK.")
+    $failureExitCode = if ($refreshFailed) {
+        $installExitCode
+    } elseif ($selectedExitCode -ne 0) {
+        $selectedExitCode
+    } else {
+        1
+    }
+    exit $failureExitCode
+}
+
+if ($refreshFailed) {
     [Console]::Error.WriteLine(
         "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK.")
 }
