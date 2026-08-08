@@ -2040,6 +2040,8 @@ public static class CompileBackSourceComposer
             return null;
         }
 
+        var compilationPolicy =
+            new CompilationClosureBindingPolicy(resolver);
         foreach (AssemblyResolutionScope scope in
             new[] { AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform })
         {
@@ -2048,35 +2050,55 @@ public static class CompileBackSourceComposer
                     assembly,
                     scope,
                     valid.Name);
-            using TypeResolutionContext context =
+            using TypeResolutionContext structuredContext =
                 TypeResolutionContext.Create(
                     resolver,
                     [assembly],
                     [request]);
-            if (context.Resolve(request)
-                is TypeResolutionOutcome.Resolved resolved)
+            if (structuredContext.Resolve(request)
+                is not TypeResolutionOutcome.Resolved resolved)
             {
-                ResolvedAssemblyReference definitionAssembly =
-                    resolved.Definition.Assembly.Assembly;
-                // The structured walk may tighten a signed forwarder hop to Platform,
-                // but Roslyn compiles against ResolveAll's sibling-first closure.
-                ResolvedAssemblyReference? compilationAssembly =
-                    resolver.Resolve(
-                        definitionAssembly.Identity,
-                        AssemblyResolutionScope.Any);
-                if (compilationAssembly?.Registration
-                    != definitionAssembly.Registration)
-                {
-                    return null;
-                }
-
-                return (
-                    definitionAssembly,
-                    resolved.Definition.Address);
+                continue;
             }
+
+            // Structured resolution tightens signed hops to Platform. Replay the
+            // whole walk through Roslyn's sibling-first closure and engage only
+            // when both paths reach the same durable TypeDef.
+            using TypeResolutionContext compilationContext =
+                TypeResolutionContext.Create(
+                    compilationPolicy,
+                    [assembly],
+                    [request]);
+            if (compilationContext.Resolve(request)
+                    is not TypeResolutionOutcome.Resolved compilationResolved
+                || compilationResolved.Definition.Assembly.Assembly.Identity
+                    != resolved.Definition.Assembly.Assembly.Identity
+                || compilationResolved.Definition.Address
+                    != resolved.Definition.Address)
+            {
+                return null;
+            }
+
+            return (
+                resolved.Definition.Assembly.Assembly,
+                resolved.Definition.Address);
         }
 
         return null;
+    }
+
+    sealed class CompilationClosureBindingPolicy(
+        AssemblyDependencyResolver resolver) : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            resolver.Select(
+                new AssemblyBindingRequest(
+                    request.Target,
+                    request.Origin,
+                    AssemblyResolutionScope.Any));
     }
 
     static bool TryCollectRequiredInterfaceMethods(

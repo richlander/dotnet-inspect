@@ -1332,6 +1332,47 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.Copy(
+            platformPath,
+            Path.Combine(fixtureDir, "System.Text.Json.dll"));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.NotNull(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
