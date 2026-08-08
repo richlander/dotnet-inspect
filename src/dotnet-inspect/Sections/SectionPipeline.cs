@@ -1,4 +1,5 @@
 using DotnetInspector.Options;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
@@ -22,6 +23,7 @@ public sealed record SectionEntry<TModel>
     public SectionSizeClass SizeClass { get; init; }
     public SectionCost Cost { get; init; }
     public required string? ScannerKey { get; init; }
+    public InspectionQueryDefinition? Query { get; init; }
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
@@ -57,6 +59,7 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
     private Func<string, SectionCost>? _scannerCost;
+    private Func<InspectionQueryDefinition, InspectionCost>? _queryCost;
 
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
@@ -96,6 +99,21 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
     /// <summary>
+    /// Binds this pipeline to the typed query registry's prerequisite-aware costs.
+    /// </summary>
+    public SectionPipeline<TModel> UseQueryCosts(
+        Func<InspectionQueryDefinition, InspectionCost> costOf)
+    {
+        if (_entries.Count > 0)
+            throw new InvalidOperationException(
+                "UseQueryCosts must be called before any section is registered; " +
+                $"{_entries.Count} section(s) are already registered and would keep their " +
+                "declared cost.");
+
+        _queryCost = costOf;
+        return this;
+    }
+
     /// <summary>
     /// Drops the computed <c>@All</c> and <c>@Hidden</c> poles from this pipeline's category map,
     /// making them unresolvable as selectors rather than merely undiscoverable. A command whose
@@ -149,6 +167,22 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+        => AddDescriptor<TDescriptor>(query: null, isApplicable);
+
+    /// <summary>
+    /// Registers a section descriptor whose data is supplied by a typed query.
+    /// </summary>
+    public SectionPipeline<TModel> Add<TDescriptor>(
+        InspectionQueryDefinition query,
+        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return AddDescriptor<TDescriptor>(query, isApplicable);
+    }
+
+    private SectionPipeline<TModel> AddDescriptor<TDescriptor>(
+        InspectionQueryDefinition? query,
+        Func<TModel, bool>? isApplicable) where TDescriptor : ISectionDescriptor<TModel>
     {
         return Add(new SectionEntry<TModel>
         {
@@ -163,6 +197,7 @@ public sealed class SectionPipeline<TModel>
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
             ScannerKey = TDescriptor.ScannerKey,
+            Query = query,
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
@@ -192,6 +227,14 @@ public sealed class SectionPipeline<TModel>
             var scanner = costOf(scannerKey);
             if (scanner > entry.Cost)
                 entry = entry with { Cost = scanner };
+        }
+
+        if (_queryCost is { } queryCostOf && entry.Query is { } query)
+        {
+            SectionCost queryCost = queryCostOf(query).ToSectionCost(query);
+
+            if (queryCost > entry.Cost)
+                entry = entry with { Cost = queryCost };
         }
 
         // @All renders every member, so an Unbounded section must not be able to join it. Curated
@@ -274,6 +317,16 @@ public sealed class SectionPipeline<TModel>
         .ToHashSet(StringComparer.Ordinal)!;
 
     /// <summary>
+    /// Every typed query declared by a registered section, independent of selection.
+    /// Query identity is the instance, not its diagnostic name.
+    /// </summary>
+    public IReadOnlySet<InspectionQueryDefinition> DeclaredQueries => _entries
+        .Select(e => e.Query)
+        .Where(query => query is not null)
+        .Cast<InspectionQueryDefinition>()
+        .ToHashSet();
+
+    /// <summary>
     /// Section names paired with the scanner key each declares, for sections that declare one.
     /// Exposed so a test can derive the sections affected by a scanner property — for example
     /// "which sections depend on a scanner that declares prerequisites" — from the registration
@@ -282,6 +335,13 @@ public sealed class SectionPipeline<TModel>
     public IEnumerable<(string Name, string ScannerKey)> ScannerBoundSections => _entries
         .Where(e => e.ScannerKey != null)
         .Select(e => (e.Name, e.ScannerKey!));
+
+    /// <summary>
+    /// Section names paired with the typed query each declares, for sections that declare one.
+    /// </summary>
+    public IEnumerable<(string Name, InspectionQueryDefinition Query)> QueryBoundSections => _entries
+        .Where(e => e.Query is not null)
+        .Select(e => (e.Name, e.Query!));
 
     /// <summary>
     /// Section names paired with the <b>effective</b> cost the verbosity ladder consults — after
@@ -796,6 +856,50 @@ public sealed class SectionPipeline<TModel>
 
         trace?.RecordRequested(scanners);
         return scanners;
+    }
+
+    /// <summary>
+    /// Returns the typed queries needed to satisfy all requested sections.
+    /// </summary>
+    /// <param name="excludeUnbounded">
+    /// Keeps explicitly included unbounded sections from demanding their queries. Effective
+    /// discovery uses this because <c>-S</c> narrows the discovered rows but must not turn
+    /// discovery into execution of the selected section.
+    /// </param>
+    public HashSet<InspectionQueryDefinition> GetRequiredQueries(
+        Verbosity verbosity,
+        HashSet<string>? include = null,
+        bool fixedOverview = false,
+        InspectionTrace? trace = null,
+        IReadOnlyList<(string Reason, InspectionQueryDefinition Query)>? commandDemand = null,
+        bool excludeUnbounded = false)
+    {
+        HashSet<InspectionQueryDefinition> queries = [];
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            SectionEntry<TModel> entry = _entries[i];
+            if (entry.Query is not { } query)
+                continue;
+            if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
+                continue;
+            if (IsRequested(entry, i, verbosity, include, fixedOverview))
+            {
+                queries.Add(query);
+                trace?.RecordQueryDemand(entry.Name, query);
+            }
+        }
+
+        if (commandDemand is not null)
+        {
+            foreach ((string reason, InspectionQueryDefinition query) in commandDemand)
+            {
+                queries.Add(query);
+                trace?.RecordCommandQueryDemand(reason, query);
+            }
+        }
+
+        trace?.RecordRequestedQueries(queries);
+        return queries;
     }
 
     /// <summary>

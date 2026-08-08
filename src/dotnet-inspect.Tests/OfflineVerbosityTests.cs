@@ -19,7 +19,7 @@ public class OfflineVerbosityTests : IDisposable
 
     public void Dispose()
     {
-        CoreFactory.Initialize(offline: false);
+        CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions());
         CoreFactory.ResetSharedForTesting();
     }
 
@@ -35,7 +35,7 @@ public class OfflineVerbosityTests : IDisposable
             if (offline)
                 args = args.Where(a => a != "--offline").ToArray();
 
-            CoreFactory.Initialize(offline);
+            CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = offline });
             CoreFactory.ResetSharedForTesting();
 
             args = CommandLineBuilder.PreprocessArgs(args);
