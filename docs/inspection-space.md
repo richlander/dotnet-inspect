@@ -262,14 +262,19 @@ The first implemented group contract owns typed
 snapshots. Every participant in a group must carry the same binding-policy
 version identity. The group acquires each selected image lazily, validates it
 against its descriptor, and retains one immutable, non-pooled byte snapshot
-under a cumulative group budget reserved before snapshot allocation. Callback
-access receives a scoped stack-only image view; direct access returns a
-stack-only read-only span result. Disposing the group prevents new access and
-releases its retained references after active callbacks complete, but it never
-attempts to revoke or recycle an already returned span.
+under a cumulative group budget reserved before snapshot allocation. Metadata
+exposes that bounded immutable snapshot acquisition as a narrow public
+capability; raw PE and metadata readers remain private, and Queries receives no
+friend access to Metadata. Callback access receives a scoped stack-only image
+view; direct access returns a stack-only read-only span result. Disposing the
+group prevents new access and releases its retained references after active
+callbacks complete, but it never attempts to revoke or recycle an already
+returned span.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
+production Metadata friends.
 Catalogs, producer sessions, authorization, and command migration remain later
 slices.
 

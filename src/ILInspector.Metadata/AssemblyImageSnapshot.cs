@@ -5,28 +5,42 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
-internal abstract class AssemblyImageSnapshotResult
+/// <summary>
+/// Typed result of acquiring an immutable assembly image snapshot.
+/// </summary>
+public abstract class AssemblyImageSnapshotResult
 {
     private protected AssemblyImageSnapshotResult()
     {
     }
 
-    internal sealed class Ready(AssemblyImageSnapshot snapshot)
-        : AssemblyImageSnapshotResult
+    public sealed class Ready : AssemblyImageSnapshotResult
     {
-        internal AssemblyImageSnapshot Snapshot { get; } = snapshot;
+        internal Ready(AssemblyImageSnapshot snapshot)
+        {
+            Snapshot = snapshot;
+        }
+
+        public AssemblyImageSnapshot Snapshot { get; }
     }
 
-    internal sealed class Rejected(CandidateOpenFailure failure)
-        : AssemblyImageSnapshotResult
+    public sealed class Rejected : AssemblyImageSnapshotResult
     {
-        internal CandidateOpenFailure Failure { get; } = failure;
+        internal Rejected(CandidateOpenFailure failure)
+        {
+            Failure = failure;
+        }
+
+        public CandidateOpenFailure Failure { get; }
     }
 }
 
-internal sealed class AssemblyImageSnapshot
+/// <summary>
+/// Immutable, non-pooled content and identity for one managed assembly image.
+/// </summary>
+public sealed class AssemblyImageSnapshot
 {
-    internal const long DefaultMaxRetainedImageBytes =
+    public const long DefaultMaxRetainedImageBytes =
         512L * 1024 * 1024;
 
     AssemblyImageSnapshot(
@@ -39,12 +53,20 @@ internal sealed class AssemblyImageSnapshot
         ModuleVersionId = moduleVersionId;
     }
 
-    internal ImmutableArray<byte> Content { get; }
-    internal AssemblyReferenceIdentity Identity { get; }
-    internal Guid ModuleVersionId { get; }
-    internal long Length => Content.Length;
+    public ImmutableArray<byte> Content { get; }
+    public AssemblyReferenceIdentity Identity { get; }
+    public Guid ModuleVersionId { get; }
+    public long Length => Content.Length;
 
-    internal static AssemblyImageSnapshotResult Open(
+    /// <summary>
+    /// Opens, bounds, copies, and validates an assembly image.
+    /// </summary>
+    /// <remarks>
+    /// The image length is reserved before allocation. A failed acquisition
+    /// releases any successful reservation. A successful acquisition leaves
+    /// the reservation with the caller until it stops retaining the snapshot.
+    /// </remarks>
+    public static AssemblyImageSnapshotResult Open(
         ResolvedAssemblyReference assembly,
         Func<long, bool> tryReserveBytes,
         Action<long> releaseBytes)

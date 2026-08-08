@@ -16,11 +16,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
-    <!-- Queries is the production L1 owner above Metadata. Its workspace uses
-         only the internal immutable-snapshot acquisition seam while that seam
-         is established; exposing the Metadata implementation types publicly
-         would create a larger cross-layer contract. -->
-    <InternalsVisibleTo Include="DotnetInspector.Queries" />
     <!-- The renderer tests cross a subsystem boundary to build projection
          fixtures with the same containment policy the projector applies,
          rather than duplicating TextPolicy.Field in test code. This grants

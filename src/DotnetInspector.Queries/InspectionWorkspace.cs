@@ -400,11 +400,10 @@ public sealed class AssemblyContextGroup : IDisposable
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
-            participant.Release();
+            long imageSize = participant.Release();
+            if (imageSize != 0)
+                ReleaseImage(imageSize);
         }
-
-        lock (_lifetimeGate)
-            _retainedImageBytes = 0;
     }
 
     sealed class ParticipantState(
@@ -416,10 +415,12 @@ public sealed class AssemblyContextGroup : IDisposable
         internal bool Initialized { get; set; }
         internal SnapshotAccess Access { get; set; }
 
-        internal void Release()
+        internal long Release()
         {
+            long imageSize = Access.Snapshot?.Length ?? 0;
             Access = default;
             Initialized = false;
+            return imageSize;
         }
     }
 
