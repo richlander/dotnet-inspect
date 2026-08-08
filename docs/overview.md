@@ -9,13 +9,15 @@ It is built for both humans and agents. Markdown is the default output because h
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
-boundaries. `DotnetInspector.Queries` now contains the first workspace context
-foundation and typed metadata-query canary. Commands have not migrated to the
-workspace owner, and broader query planning remains future work. The components
-below are the current hosts, shared substrates, and inspection producers that
-will extend that space.
+boundaries. The first typed query-planning slices are implemented for library
+metadata-image and direct-reference inspection. `DotnetInspector.Queries` also
+contains the first workspace context foundation, but commands have not migrated
+to that owner and the remaining query families remain future work. The
+components below are the current hosts, shared substrates, and inspection
+producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
+- `src/DotnetInspector.Queries/` contains host-neutral typed query definitions, deterministic sequential execution, prerequisite-aware cost, and the first content-shaped assembly queries. It has no Markout, console, or filesystem-path dependency.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.

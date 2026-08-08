@@ -11,7 +11,7 @@ public sealed record LibrarySectionCatalog(
 
 /// <summary>
 /// Section descriptors for the library command.
-/// Each descriptor declares its name, cost classification, scanner key, and a
+/// Each descriptor declares its name, cost classification, query or scanner binding, and a
 /// <c>CanRender</c> check against <see cref="LibraryInspection"/>.
 /// </summary>
 public static class LibrarySections
@@ -36,8 +36,8 @@ public static class LibrarySections
     public const string ScannerResourceTriage = "ResourceTriage";
 
     /// <summary>
-    /// Builds the library catalog from one scanner registry, so section costs and execution use
-    /// the same immutable declarations.
+    /// Builds the library catalog from one scanner registry and one typed query catalog, so
+    /// section costs, demand, and execution use the same immutable declarations.
     /// </summary>
     public static LibrarySectionCatalog CreateCatalog()
     {
@@ -98,7 +98,7 @@ public static class LibrarySections
             .Add<Hosting>()
             .Add<HealthChecks>()
             .Add<HttpClient>()
-            .Add<References>(HasReferenceData)
+            .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
             .Add<TopLeverage>(HasMethodBodies)
@@ -249,6 +249,22 @@ public static class LibrarySections
                         catch (Exception ex)
                         {
                             return new MetadataImageResult.Failed(ex);
+                        }
+                    }))
+            .Add(AssemblyReferencesQuery.Definition, ctx =>
+                ctx.Scan(
+                    AssemblyReferencesQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return AssemblyReferencesQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new AssemblyReferencesResult.Failed(ex);
                         }
                     }));
     }

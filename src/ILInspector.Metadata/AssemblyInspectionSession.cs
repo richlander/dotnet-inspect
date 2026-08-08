@@ -69,6 +69,10 @@ public sealed class AssemblyInspectionSession : IDisposable
     public AssemblyInfo AssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_image.PEReader, includeReferences);
 
+    /// <summary>Direct assembly references without decoding unrelated assembly facts.</summary>
+    public List<AssemblyReference> AssemblyReferences()
+        => AssemblyInspector.ExtractReferences(_image.PEReader);
+
     /// <summary>
     /// The image's own simple assembly name and the simple names of its assembly references,
     /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
