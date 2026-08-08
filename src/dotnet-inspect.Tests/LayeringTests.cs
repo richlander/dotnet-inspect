@@ -107,6 +107,14 @@ public sealed class LayeringTests
             "FrameworkPriority(",
             engineSource,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "StartsWith($\"lib/{package.Framework}/\"",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return parts.Length == 3",
+            engineSource,
+            StringComparison.Ordinal);
         Assert.Contains(
             "assemblyId: item.assemblyId",
             browserSource,

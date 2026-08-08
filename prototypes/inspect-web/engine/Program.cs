@@ -2553,9 +2553,41 @@ public static partial class BrowserInspectionEngine
                 Directory.CreateDirectory(packageDirectory);
                 using var packageStream = new MemoryStream(bytes, writable: false);
                 using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{package.Framework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                ZipArchiveEntry[] implementationEntries =
+                [
+                    .. archive.Entries
+                        .Where(entry =>
+                        {
+                            string[] parts = entry.FullName.Split(
+                                '/',
+                                StringSplitOptions.RemoveEmptyEntries);
+                            return parts.Length == 3
+                                && parts[0].Equals(
+                                    "lib",
+                                    StringComparison.OrdinalIgnoreCase)
+                                && parts[1].Equals(
+                                    package.Framework,
+                                    StringComparison.OrdinalIgnoreCase)
+                                && parts[2].EndsWith(
+                                    ".dll",
+                                    StringComparison.OrdinalIgnoreCase);
+                        })
+                        .GroupBy(
+                            entry => entry.FullName,
+                            StringComparer.OrdinalIgnoreCase)
+                        .Select(group => group
+                            .OrderBy(
+                                entry => entry.FullName,
+                                StringComparer.Ordinal)
+                            .First())
+                        .OrderBy(
+                            entry => entry.FullName,
+                            StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(
+                            entry => entry.FullName,
+                            StringComparer.Ordinal),
+                ];
+                foreach (ZipArchiveEntry entry in implementationEntries)
                 {
                     var path = Path.Combine(packageDirectory, entry.Name);
                     await WriteEntryAsync(entry, path);
@@ -2566,7 +2598,13 @@ public static partial class BrowserInspectionEngine
                         path));
                     if (package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
                         && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
-                        && entry.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase))
+                        && (entry.Name.Equals(
+                                assemblyName,
+                                StringComparison.Ordinal)
+                            || (implementationPath is null
+                                && entry.Name.Equals(
+                                    assemblyName,
+                                    StringComparison.OrdinalIgnoreCase))))
                     {
                         implementationPath = path;
                     }

@@ -168,6 +168,41 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void AutomaticEntryPointsAgreeWhenToolsAndLibrariesCoexist()
+    {
+        WriteDll("tools/net6.0/any/MyTool.dll");
+        var library = WriteDll("lib/netstandard2.1/MyPackage.dll");
+
+        var assemblies = TfmSelector.GetPackageAssemblies(_tempDir);
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+        var libraries = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.Equal([library], assemblies);
+        Assert.Equal(["netstandard2.1"], tfms);
+        Assert.Equal("netstandard2.1", highestTfm);
+        Assert.Equal([library], highest);
+        Assert.Equal(highestTfm, libraries.Tfm);
+        Assert.Equal(highest, libraries.Paths);
+    }
+
+    [Fact]
+    public void AutomaticEntryPointsRankAcrossReferenceAndLibraryRoots()
+    {
+        WriteDll("ref/netstandard2.0/MyPackage.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal(["net8.0", "netstandard2.0"], tfms);
+        Assert.Equal("net8.0", highestTfm);
+        Assert.Equal([library], highest);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_NoTfmLayout_ReturnsPackageAssemblies()
     {
         var root = WriteDll("MyLib.dll");
