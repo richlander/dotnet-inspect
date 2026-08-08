@@ -550,7 +550,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         bool isPlatformAssembly = false,
         string? packageName = null,
-        string? packageVersion = null)
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         try
         {
@@ -561,7 +562,8 @@ internal static class LibraryMetadataService
             {
                 await SourceEnricher.AcquirePdbAsync(
                     context, httpClient, packageName, packageVersion,
-                    isPlatformAssembly, logger.Log, cacheOnly: true);
+                    isPlatformAssembly, logger.Log, cacheOnly: true,
+                    sourceOptions: sourceOptions);
             }
 
             return context.HasPdb && service.HasSourceLink;
