@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -768,6 +769,13 @@ public class PackageCommand
         catch (HttpRequestException ex)
         {
             CommandError.WriteLine($"Failed to download package: {ex.Message}");
+            return 1;
+        }
+        catch (InvalidOperationException ex) when (
+            options.Columns is { Length: > 0 }
+            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+        {
+            CommandError.Write(ex.Message);
             return 1;
         }
         finally
@@ -2221,6 +2229,7 @@ public class PackageCommand
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
+        var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2238,6 +2247,15 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (libraryOptions.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+        var queries = pipeline.GetRequiredQueries(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
@@ -2251,7 +2269,9 @@ public class PackageCommand
                 version,
                 context.HttpClient,
                 scanners: scanners,
-                scannerRegistry: scannerRegistry);
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryRegistry: queryRegistry);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
@@ -2336,6 +2356,11 @@ public class PackageCommand
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,
+            Value = options.Value,
+            Urls = options.Urls,
+            Paths = options.Paths,
+            JsonArray = options.JsonArray,
+            ProjectionRow = options.PrintRow,
             Rows = options.Rows,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,

@@ -21,7 +21,8 @@ A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
 Use `-S @Source` for the full local evidence set (it also pulls `Original
 Source` when SourceLink is available — see the `sourcelink` skill):
 
-- `Decompiled Source` — raised, lowered C# (readable best-effort).
+- `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
+  PDB names use byte-preserving type/role-derived names by default.
 - `Annotated Source` — C# with hidden-fact comments and interleaved IL.
 - `IL` — raw IL, the highest-fidelity view.
 

@@ -33,6 +33,7 @@ public class PositionalRecordPropertyOrderTests
     public static TheoryData<string> ProductAssemblies() => new()
     {
         "dotnet-inspect",
+        "CSharpText",
         "ILInspector.Metadata",
         "ILInspector.CSharp",
         "ILInspector.Analysis",
