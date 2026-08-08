@@ -1591,7 +1591,10 @@ static class ReturnToSender
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
-        var references = CompilationReferences(assemblyPath).ToArray();
+        var compilationClosure = CreateCompilationClosure(assemblyPath);
+        AssemblyDependencyResolver compilationResolver =
+            compilationClosure.Resolver;
+        MetadataReference[] references = compilationClosure.References;
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = scope == RoundTripScope.All
@@ -1618,7 +1621,10 @@ static class ReturnToSender
                         facts.Add(fact);
                 }
             }
-            return CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+            ArtifactRequest request =
+                createRequest(closureRoots, closureFacts);
+            request.CompilationResolver = compilationResolver;
+            return CompileBackSourceComposer.Compose(request);
         }
 
         var firstArtifact = Compose();
@@ -2159,32 +2165,53 @@ static class ReturnToSender
     }
 
     internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
+        => CreateCompilationClosure(targetPath).References;
+
+    internal static (
+        AssemblyDependencyResolver Resolver,
+        MetadataReference[] References)
+        CreateCompilationClosure(string targetPath)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
         {
             ExcludeTargetAssembly = true,
+            SnapshotAssemblyImages = true,
         });
+        return (resolver, CompilationReferences(resolver).ToArray());
+    }
+
+    static IEnumerable<MetadataReference> CompilationReferences(
+        AssemblyDependencyResolver resolver)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dependency in resolver.ResolveAll())
         {
-            if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
-                continue;
-
             string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
-            if (!seen.Add(simpleName))
+            if (seen.Contains(simpleName))
                 continue;
 
             MetadataReference reference;
             try
             {
-                reference = MetadataReference.CreateFromFile(dependency.Path);
+                ResolvedAssemblyReference? assembly =
+                    resolver.Acquire(dependency);
+                if (assembly is null)
+                    continue;
+                using Stream stream = assembly.OpenRead();
+                using var image = new MemoryStream();
+                stream.CopyTo(image);
+                reference =
+                    RoundTripCompilationEngine.CreateFrozenReference(
+                        image.ToArray(),
+                        dependency.Path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
             {
                 continue;
             }
 
+            seen.Add(simpleName);
             yield return reference;
         }
     }

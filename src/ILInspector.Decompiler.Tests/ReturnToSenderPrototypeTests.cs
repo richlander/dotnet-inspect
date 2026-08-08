@@ -897,7 +897,10 @@ public class ReturnToSenderPrototypeTests
             Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, all.Status);
-            Assert.Equal(RoundTripScopeComparisonStatus.Completed, pair.Comparison.Status);
+            Assert.True(
+                pair.Comparison.Status
+                    == RoundTripScopeComparisonStatus.Completed,
+                pair.Comparison.Failure);
             var comparison = Assert.Single(pair.Comparison.Members);
             Assert.Equal(RoundTripEvidenceStatus.Exact, comparison.CSharpStatus);
             Assert.Equal(IlBodyDiffOutcome.Exact, comparison.IlStatus);
@@ -1324,6 +1327,74 @@ public class ReturnToSenderPrototypeTests
                 "RtsForward_IProbe_Target",
                 result.Source,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string dependencyPath = CompileFixture(
+            "public interface IBefore { void M(); }",
+            directory: fixtureDir,
+            assemblyName: "RtsSnapshotDependency");
+        var dependency = ResolvedAssemblyReference.CreateFromPath(
+            dependencyPath,
+            AssemblyResolutionProvenance.Local("test"));
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        try
+        {
+            var closure = ReturnToSender.CreateCompilationClosure(assemblyPath);
+
+            CompileFixture(
+                "public interface IAfter { void M(); }",
+                directory: fixtureDir,
+                assemblyName: "RtsSnapshotDependency");
+
+            ResolvedAssemblyReference frozen = Assert.IsType<ResolvedAssemblyReference>(
+                closure.Resolver.Resolve(
+                    dependency.Identity,
+                    AssemblyResolutionScope.Any));
+            using Stream frozenStream = frozen.OpenRead();
+            using var frozenPe = new PEReader(frozenStream);
+            Assert.True(
+                ContainsType(
+                    frozenPe.GetMetadataReader(),
+                    "IBefore"));
+            Assert.False(
+                ContainsType(
+                    frozenPe.GetMetadataReader(),
+                    "IAfter"));
+
+            PortableExecutableReference roslynReference =
+                Assert.Single(
+                    closure.References.OfType<PortableExecutableReference>(),
+                    reference =>
+                    {
+                        var metadata =
+                            Assert.IsType<AssemblyMetadata>(
+                                reference.GetMetadata());
+                        var module = Assert.Single(metadata.GetModules());
+                        var reader = module.GetMetadataReader();
+                        return AssemblyReferenceIdentity
+                            .FromAssemblyDefinition(reader)
+                            == dependency.Identity;
+                    });
+            var roslynMetadata =
+                Assert.IsType<AssemblyMetadata>(
+                    roslynReference.GetMetadata());
+            var roslynReader =
+                Assert.Single(roslynMetadata.GetModules())
+                    .GetMetadataReader();
+            Assert.True(ContainsType(roslynReader, "IBefore"));
+            Assert.False(ContainsType(roslynReader, "IAfter"));
         }
         finally
         {
@@ -6368,6 +6439,17 @@ public class ReturnToSenderPrototypeTests
 
         throw new InvalidOperationException($"Could not find {typeName}::{methodName}#{overload}.");
     }
+
+    static bool ContainsType(
+        MetadataReader reader,
+        string typeName) =>
+        reader.TypeDefinitions.Any(
+            handle =>
+                string.Equals(
+                    reader.GetFullTypeName(
+                        reader.GetTypeDefinition(handle)),
+                    typeName,
+                    StringComparison.Ordinal));
 
     [Fact]
     public void CompileBackTargets_EmitsNestedTargetMemberRequirement()

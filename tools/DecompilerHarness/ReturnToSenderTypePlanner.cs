@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Services;
@@ -33,6 +34,7 @@ internal abstract record ArtifactRequest(
 {
     internal RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
     internal MetadataSource? BodySource { get; init; }
+    internal AssemblyDependencyResolver? CompilationResolver { get; set; }
 }
 
 internal sealed record MethodArtifactRequest(
@@ -527,6 +529,7 @@ public static class CompileBackSourceComposer
                 request.BodyPolicy),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
+                request.CompilationResolver,
                 request.Reader,
                 request.Function,
                 request.TargetType,
@@ -1413,6 +1416,7 @@ public static class CompileBackSourceComposer
     static ExternalExplicitInterfaceMethodInfo? ExternalExplicitInterfaceMethod(
         MetadataReader reader,
         string assemblyPath,
+        AssemblyDependencyResolver? compilationResolver,
         TypeDefinition targetType,
         MethodDefinitionHandle targetMethod,
         string metadataMethodName,
@@ -1468,6 +1472,7 @@ public static class CompileBackSourceComposer
             // target member, so decline to the ContextFail floor.
             if (!TryReadExternalInterfaceSurface(
                     assemblyPath,
+                    compilationResolver,
                     interfaceReference,
                     out var requiredMethods)
                 || requiredMethods.Count == 0)
@@ -1790,42 +1795,52 @@ public static class CompileBackSourceComposer
 
     static bool TryReadExternalInterfaceSurface(
         string assemblyPath,
+        AssemblyDependencyResolver? compilationResolver,
         ExternalInterfaceReferenceInfo interfaceReference,
         out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
     {
-        // Read the interface surface from the SAME filename-deduplicated dependency closure
-        // the recompile references (ReturnToSender.CompilationReferences: resolver.ResolveAll()
-        // with ExcludeTargetAssembly, deduplicated by simple assembly name). Reading from that
-        // exact closure — rather than an identity/platform resolution that can select a
-        // different file than the recompile ends up referencing — guarantees the members
-        // validated here are precisely the members C# will require against the reconstructed
-        // `: DisplayName`, and lets us prove the interface is defined by exactly one assembly
-        // in the closure (otherwise the unqualified base-list name is ambiguous, CS0433).
+        // Read the interface surface from the SAME frozen, filename-deduplicated dependency
+        // closure the recompile references (ReturnToSender.CreateCompilationClosure:
+        // resolver.ResolveAll() with ExcludeTargetAssembly, deduplicated by simple assembly
+        // name). Reading from that exact acquisition generation — rather than reopening paths
+        // or selecting a different identity/platform candidate — guarantees the validated
+        // members are precisely those C# requires against the reconstructed `: DisplayName`,
+        // and lets us prove the interface is defined by exactly one assembly in the closure
+        // (otherwise the unqualified base-list name is ambiguous, CS0433).
         // Memoize per (target assembly, interface identity, interface full name): the same
         // interface recurs across many targets and rescanning the closure per target is an
         // unbounded slowdown. Negative results (unresolvable, ambiguous, or unrepresentable)
         // are cached so they are not retried.
-        string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
-        var cached = _externalInterfaceSurfaces.GetOrAdd(cacheKey, _ =>
-        {
-            var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
-                new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
+        AssemblyDependencyResolver resolver =
+            compilationResolver
+            ?? new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(assemblyPath)
                 {
                     ExcludeTargetAssembly = true,
-                }));
-
+                    SnapshotAssemblyImages = true,
+                });
+        var cacheKey = new ExternalInterfaceSurfaceCacheKey(
+            interfaceReference.AssemblyIdentity,
+            interfaceReference.MetadataFullName);
+        var surfaces = _externalInterfaceSurfaces.GetValue(
+            resolver,
+            static _ => []);
+        var cached = surfaces.GetOrAdd(cacheKey, _ =>
+        {
             // Locate the single closure assembly that defines the interface as a
             // TypeDefinition. Type forwarders are ExportedType rows (FindType returns null),
             // so a BCL interface defined once in CoreLib and forwarded elsewhere resolves to
             // exactly one definition. Zero, or more than one, definition declines.
-            string? definitionPath = null;
+            ResolvedAssemblyReference? definitionAssembly = null;
             foreach (var dependency in resolver.ResolveAll())
             {
-                if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
+                ResolvedAssemblyReference? candidate =
+                    resolver.Acquire(dependency);
+                if (candidate is null)
                     continue;
                 try
                 {
-                    using var probeStream = File.OpenRead(dependency.Path);
+                    using Stream probeStream = candidate.OpenRead();
                     using var probeReader = new PEReader(probeStream);
                     if (!probeReader.HasMetadata)
                         continue;
@@ -1838,17 +1853,17 @@ public static class CompileBackSourceComposer
                     continue;
                 }
 
-                if (definitionPath is not null)
+                if (definitionAssembly is not null)
                     return null;
-                definitionPath = dependency.Path;
+                definitionAssembly = candidate;
             }
 
-            if (definitionPath is null)
+            if (definitionAssembly is null)
                 return null;
 
             try
             {
-                using var stream = File.OpenRead(definitionPath);
+                using Stream stream = definitionAssembly.OpenRead();
                 using var peReader = new PEReader(stream);
                 if (!peReader.HasMetadata)
                     return null;
@@ -1861,7 +1876,8 @@ public static class CompileBackSourceComposer
                         reader,
                         interfaceHandle,
                         resolver,
-                        Path.GetFullPath(definitionPath),
+                        definitionAssembly.Path
+                            ?? definitionAssembly.Identity.ToString(),
                         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                         collected)
                     ? collected
@@ -1883,11 +1899,16 @@ public static class CompileBackSourceComposer
         return true;
     }
 
-    static readonly ConcurrentDictionary<string, AssemblyDependencyResolver> _externalInterfaceResolvers =
-        new(StringComparer.OrdinalIgnoreCase);
+    readonly record struct ExternalInterfaceSurfaceCacheKey(
+        AssemblyReferenceIdentity AssemblyIdentity,
+        string MetadataFullName);
 
-    static readonly ConcurrentDictionary<string, IReadOnlyList<ExternalInterfaceRequiredMethod>?> _externalInterfaceSurfaces =
-        new(StringComparer.Ordinal);
+    static readonly ConditionalWeakTable<
+        AssemblyDependencyResolver,
+        ConcurrentDictionary<
+            ExternalInterfaceSurfaceCacheKey,
+            IReadOnlyList<ExternalInterfaceRequiredMethod>?>>
+        _externalInterfaceSurfaces = new();
 
     // Probes whether a method signature carries detail that SignatureDecoder renders
     // ambiguously, making a decoded-string comparison unsound: by-ref parameters (in/out/ref
@@ -2064,8 +2085,8 @@ public static class CompileBackSourceComposer
 
             // Structured resolution tightens signed hops to Platform. Replay the
             // whole walk through Roslyn's sibling-first closure and engage only
-            // when both paths reach the same byte-identical defining image and
-            // durable TypeDef address.
+            // when both paths reach defining images with the same SHA-256 digest
+            // and durable TypeDef address.
             using TypeResolutionContext compilationContext =
                 TypeResolutionContext.Create(
                     compilationPolicy,
@@ -2630,6 +2651,7 @@ public static class CompileBackSourceComposer
 
     public static CompileBackSourceResult ComposeMethod(
         string assemblyPath,
+        AssemblyDependencyResolver? compilationResolver,
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
@@ -2695,6 +2717,7 @@ public static class CompileBackSourceComposer
                 ? ExternalExplicitInterfaceMethod(
                     reader,
                     assemblyPath,
+                    compilationResolver,
                     targetTypeDef,
                     targetMethod,
                     methodName,

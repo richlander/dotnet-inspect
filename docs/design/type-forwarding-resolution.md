@@ -2666,8 +2666,11 @@ gates the compile-back harness's structured forwarder wiring.
 `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
 gate candidate consistency when resolution tightens a signed forwarder hop:
 the structured engine replays the complete walk through Roslyn's sibling-first
-closure and requires the same assembly identity, byte-identical defining image,
-and durable TypeDef address.
+closure and requires the same assembly identity, matching defining-image
+SHA-256 digest, and durable TypeDef address.
+`CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
+that Roslyn references and structured inspection share one frozen acquisition
+generation even when a dependency path is replaced afterward.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 
