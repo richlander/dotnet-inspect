@@ -7,6 +7,7 @@ using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using SignatureVerificationResult = DotnetInspector.Services.SignatureVerificationResult;
@@ -20,6 +21,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace DotnetInspector.Commands;
 
@@ -35,11 +37,14 @@ public class LibraryCommand
     /// the lens — table row counts, never rows — so listing the category accurately costs a header
     /// read rather than a projection.
     ///
-    /// Passed into <see cref="SectionPipeline.GetRequiredScanners"/> rather than added to its result,
+    /// Passed into <see cref="SectionPipeline{TModel}.GetRequiredQueries"/> rather than added to its result,
     /// so the one method that computes the requested set is also the one that records it.
     /// </summary>
-    private static readonly (string Reason, string Scanner)[] DiscoveryScanners =
-        [("discovery catalog", LibrarySections.ScannerMetadata)];
+    private static readonly (string Reason, InspectionQueryDefinition Query)[] DiscoveryQueries =
+    [
+        ("discovery catalog", MetadataImageQuery.Definition),
+        ("References applicability", AssemblyReferencesQuery.Definition),
+    ];
 
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
@@ -50,12 +55,14 @@ public class LibraryCommand
         // which is exactly when "what did this actually scan?" is worth knowing.
         var trace = new InspectionTrace
         {
-            Command = "library",
-            Target = Path.GetFileName(
-                options.AssemblyName
-                    ?? options.PackagePath
-                    ?? options.PlatformAssembly
-                    ?? string.Empty),
+            Command = new InertString(TextPolicy.Field, "library"),
+            Target = new InertString(
+                TextPolicy.Field,
+                Path.GetFileName(
+                    options.AssemblyName
+                        ?? options.PackagePath
+                        ?? options.PlatformAssembly
+                        ?? string.Empty)),
         };
 
         try
@@ -77,8 +84,10 @@ public class LibraryCommand
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
-        var pipeline = LibrarySections.CreatePipeline();
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var scannerRegistry = catalog.ScannerRegistry;
+        var queryRegistry = catalog.QueryRegistry;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -98,13 +107,34 @@ public class LibraryCommand
             return 1;
         }
         options = aliasNormalized.Options;
+        options = NormalizeReferenceProjection(options);
 
-        // Static discovery mode: -D --schema lists schema without resolving/loading the library.
+        if (options.Effective && options.Discover == null)
+        {
+            CommandError.Write("--effective requires -D/--discover.");
+            return 1;
+        }
+        if (options.Effective && options.Schema)
+        {
+            CommandError.Write("--effective cannot be combined with --schema.");
+            return 1;
+        }
+
+        // Schema and named discovery are structural by default. They describe the catalog without
+        // resolving the target or running producers. Bare -D with a target is the cheap,
+        // target-aware orientation gesture; --effective opts named or bare discovery into producer
+        // execution.
         if (options.Discover != null)
         {
-            if (!options.Schema && hasInputSource)
+            bool requiresInspection = hasInputSource
+                && !options.Schema
+                && (options.Effective
+                    || options.Discover.Length == 0
+                    || HasILOffsetCoordinate(options)
+                    || HasHeapCoordinate(options));
+            if (requiresInspection)
             {
-                // Need to run pipeline to determine effective sections — handled after data collection below.
+                // Handled after data collection below.
             }
             else
             {
@@ -113,8 +143,8 @@ public class LibraryCommand
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap(),
-                    // --schema reveals the full catalog including the @Hidden pole; a static -D
-                    // without --schema keeps the curated top-level view.
+                    // --schema reveals every registered section. Structural category drill-down
+                    // keeps the curated top-level scope when no target inspection is requested.
                     catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
                     listedCategoryDoors: pipeline.GetListedCategoryDoors(),
                     projection: options);
@@ -130,8 +160,7 @@ public class LibraryCommand
         // at Normal so the cache-only PDB read stays enabled (never downgrading a higher verbosity
         // the user asked for, in which case the normal curated ladder applies instead of the fixed
         // overview). Combined with an explicit selector the explicit selection wins and the marker
-        // is dropped, which is what it has always done - it used to emit a spurious "@Default not
-        // found" warning on the way. See #3547.
+        // is dropped. See #3547.
         if (options.Discover == null && options.SelectDefault)
         {
             options = options with { SelectDefault = false };
@@ -139,11 +168,11 @@ public class LibraryCommand
                 options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
-        // -D defaults to effective discovery for target-based commands.
-        bool effectiveDiscovery = options.Discover != null && !options.Schema && hasInputSource;
+        bool discoveryInspection = options.Discover != null && !options.Schema && hasInputSource;
+        bool fullEffectiveDiscovery = discoveryInspection && options.Effective;
         var userVerbosity = options.Verbosity; // preserve for display formatting
         options = options with { UserVerbosityOverride = userVerbosity };
-        if (effectiveDiscovery)
+        if (fullEffectiveDiscovery)
             options = options with { Verbosity = Verbosity.Detailed };
 
         var normalized = NormalizeILOffsetSelection(options);
@@ -162,11 +191,18 @@ public class LibraryCommand
         }
         options = heapNormalized.Options;
 
-        // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
-        // render by exact name, but it is not a render selector. This keeps -S from fanning out to
-        // unbounded @Hidden members as a group.
-        if (RejectHiddenRenderSelector(options.Select))
-            return 1;
+        // --effective with a named section/category scopes producer execution to that structural
+        // selection. Bare --effective is scoped separately to the base-category union so it cannot
+        // implicitly run unrelated domains.
+        if (fullEffectiveDiscovery && options.Discover is { Length: > 0 })
+        {
+            var discoverResult = SelectResolver.ResolveSelectAsSections(
+                options.Discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(), selectDefault: false);
+            if (SelectOutput.WriteUnresolved(discoverResult))
+                return 1;
+            options = options with { IncludeSections = discoverResult.Sections };
+        }
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -175,16 +211,25 @@ public class LibraryCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
+            const string ilCoordinateRequired =
+                "IL coordinate sections require --il-offset <token>+<offset>.";
+            var heapCoordinateRequired =
+                $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+            var removedILCoordinateSections = false;
+            var removedHeapSection = false;
+
             if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
                 if (!HasExactILCoordinateSelection(options.Select))
                 {
+                    var count = selectResult.Sections.Count;
                     selectResult.Sections.ExceptWith(ILCoordinateSections);
+                    removedILCoordinateSections = selectResult.Sections.Count != count;
                 }
                 else if (options.Discover == null)
                 {
-                    CommandError.Write("IL coordinate sections require --il-offset <token>+<offset>.");
+                    CommandError.Write(ilCoordinateRequired);
                     return 1;
                 }
             }
@@ -198,16 +243,72 @@ public class LibraryCommand
                 // asked for a specific section that cannot exist without its coordinate.
                 if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
                 {
-                    selectResult.Sections.Remove(MetadataSectionNames.Heap);
+                    removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
                 }
                 else if (options.Discover == null)
                 {
-                    CommandError.Write($"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".");
+                    CommandError.Write(heapCoordinateRequired);
                     return 1;
                 }
             }
 
+            if (selectResult.Sections.Count == 0
+                && (removedILCoordinateSections || removedHeapSection))
+            {
+                if (removedILCoordinateSections)
+                    CommandError.Write(ilCoordinateRequired);
+                else if (removedHeapSection)
+                    CommandError.Write(heapCoordinateRequired);
+                return 1;
+            }
+
             options = options with { IncludeSections = selectResult.Sections };
+        }
+
+        options = options with
+        {
+            UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
+                ? new HashSet<string>(options.IncludeSections, StringComparer.OrdinalIgnoreCase)
+                : [],
+        };
+
+        if (options.ReferenceTreeDepth is < 1)
+        {
+            CommandError.Write("--depth must be at least 1.");
+            return 1;
+        }
+
+        if (options.ReferenceTreeDepth is not null
+            && (options.Discover != null || !options.Tree))
+        {
+            CommandError.Write("--depth requires -S References --tree.");
+            return 1;
+        }
+
+        if (options.Tree && options.Discover == null)
+        {
+            if (options.IncludeSections is not { Count: 1 }
+                || !options.IncludeSections.Contains(SectionNames.References))
+            {
+                CommandError.Write("--tree requires exactly -S References.");
+                return 1;
+            }
+
+            if (options.Count
+                || options.Print
+                || options.Value
+                || options.Urls
+                || options.Paths
+                || options.Columns is { Length: > 0 }
+                || options.Fields is { Length: > 0 }
+                || options.Rows is not null
+                || options.JsonOutput
+                || options.PlainText
+                || options.TabularExplicitlySet)
+            {
+                CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+                return 1;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(options.HeapParameter)
@@ -315,19 +416,76 @@ public class LibraryCommand
                 return 1;
         }
 
-        if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+        if (options.Discover == null
+            && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                options.TabularExplicitlySet, options.IncludeSections))
             return 1;
 
         // Warn if tabular output is combined with detailed verbosity without section selector
-        if (!effectiveDiscovery && !options.Count)
+        if (!discoveryInspection && !options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
 
-        // Compute which scanners are needed for the requested sections
+        // Cheap discovery runs only the command-level presence probes. Full discovery executes the
+        // requested sections; bare full discovery is bounded to the base-category union.
+        HashSet<string>? discoveryExecutionScope = options.IncludeSections;
+        if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
+            discoveryExecutionScope = [.. pipeline.BaseSectionNames];
+        bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
+            && options.Discover is { Length: 0 }
+            && options.UserIncludeSections is not { Count: > 0 }
+            && !HasILOffsetCoordinate(options)
+            && !HasHeapCoordinate(options);
+
         if (trace is not null)
-            trace.Verbosity = options.Verbosity.ToString();
-        var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections, options.FixedOverview, trace,
-            effectiveDiscovery ? DiscoveryScanners : null);
+            trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
+        var scanners = discoveryInspection && !fullEffectiveDiscovery
+            ? pipeline.GetRequiredScanners(
+                Verbosity.Quiet, include: [], fixedOverview: false, trace: trace)
+            : pipeline.GetRequiredScanners(
+                options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (discoveryInspection)
+            commandQueryDemand.AddRange(DiscoveryQueries);
+        if (options.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+
+        var queries = pipeline.GetRequiredQueries(
+            discoveryInspection && !fullEffectiveDiscovery
+                ? Verbosity.Quiet
+                : options.Verbosity,
+            discoveryInspection && !fullEffectiveDiscovery
+                ? []
+                : discoveryExecutionScope,
+            discoveryInspection && !fullEffectiveDiscovery
+                ? false
+                : options.FixedOverview,
+            trace,
+            commandQueryDemand);
+        var inspectionOptions = fullEffectiveDiscovery
+            && options.IncludeSections is not { Count: > 0 }
+            ? options with { IncludeSections = discoveryExecutionScope }
+            : options;
+        if (discoveryInspection)
+        {
+            inspectionOptions = inspectionOptions with
+            {
+                // Assembly references are a cheap metadata fact. Discovery never needs the
+                // transitive projection because References effectiveness is established directly.
+                CollectReferenceTree = false,
+            };
+        }
+        else
+        {
+            var candidates = pipeline.GetCandidateSections(
+                options.Verbosity, options.IncludeSections, options.FixedOverview);
+            inspectionOptions = inspectionOptions with
+            {
+                CollectReferenceTree = options.Tree
+                    && candidates.Contains(SectionNames.References),
+            };
+        }
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
@@ -377,26 +535,30 @@ public class LibraryCommand
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
-                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
 
                 // Identity of the bytes about to be inspected. Computed once and reused for the
                 // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
                 // discovery run hashes the assembly at most twice.
-                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
+                string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null)
                 {
                     var cached = TryGetCachedEffective(resolvedPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(resolvedPath!, options, logger, null, null, context.HttpClient, isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
+                    isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
+                    queries: queries, queryRegistry: queryRegistry,
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {resolvedPath}");
@@ -414,14 +576,20 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        resolvedPath!, inspection, options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: useEffectiveDiscoveryCache,
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
+                if (RejectEmptyExactSection(inspection, options, pipeline))
+                    return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -447,38 +615,43 @@ public class LibraryCommand
                     return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = effectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
                         packageName: packageName, packageVersion: packageVersion);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
-                string? inspectedContentHash = effectiveDiscovery && assemblyPaths.Count > 0
+                string? inspectedContentHash = fullEffectiveDiscovery && assemblyPaths.Count > 0
                     ? TryGetContentHash(assemblyPaths[0])
                     : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null && assemblyPaths.Count > 0)
                 {
                     var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
                 // Verify package signature if nupkg is available
                 SignatureVerificationResult? signatureResult = null;
-                if (nupkgPath != null)
+                if (nupkgPath != null && !discoveryInspection)
                 {
                     logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
                     signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
                 }
 
                 // Inspect all assemblies
+                var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
+                    ? [assemblyPaths[0]]
+                    : assemblyPaths;
                 var inspections = await CollectPackageInspectionsAsync(
-                    assemblyPaths, options, logger, packageName, packageVersion,
-                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry, effectiveDiscovery, trace);
+                    inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
+                    extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
+                    queries, queryRegistry,
+                    discoveryInspection && !fullEffectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
                 {
@@ -497,14 +670,20 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspections[0], options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        assemblyPaths[0], inspections[0], options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: useEffectiveDiscoveryCache,
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
+                if (RejectEmptyExactSection(inspections[0], options, pipeline))
+                    return 1;
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
@@ -533,24 +712,28 @@ public class LibraryCommand
                     return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
 
                 // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
-                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
+                string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
 
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options))
+                if (useEffectiveDiscoveryCache && inspectedContentHash != null)
                 {
                     var cached = TryGetCachedEffective(assemblyPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, userVerbosity, rootLabel);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
                     }
                 }
 
-                var inspection = await LibraryMetadataService.InspectAsync(assemblyPath!, options, logger, null, null, context.HttpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: effectiveDiscovery, trace: trace);
+                var inspection = await LibraryMetadataService.InspectAsync(
+                    assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
+                    scanners: scanners, scannerRegistry: scannerRegistry,
+                    queries: queries, queryRegistry: queryRegistry,
+                    discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
                     CommandError.Write($"Could not read library: {assemblyPath}");
@@ -567,14 +750,20 @@ public class LibraryCommand
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
                 if (heapExitCode != 0)
                     return heapExitCode;
-                if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
+                if (discoveryInspection)
+                    return WriteEffectiveSections(
+                        assemblyPath!, inspection, options, pipeline, userVerbosity,
+                        fullEffectiveDiscovery, discoveryExecutionScope, sourceLinkAvailable,
+                        cache: useEffectiveDiscoveryCache,
+                        inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
+                if (RejectEmptyExactSection(inspection, options, pipeline))
+                    return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -860,34 +1049,11 @@ public class LibraryCommand
         }, null);
     }
 
-    // Catalog-hidden set for the effective (real-assembly) -D flows. IL-offset
-    // coordinate sections are excluded so they remain discoverable at the -D top
-    // level exactly when a coordinate makes them applicable (FilterEffective drops
-    // them otherwise); they stay grouped under @Hidden for --schema / -S.
+    // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
+    // members form the flat catalog; separate domains remain behind their category
+    // doors even when a coordinate or other explicit input makes a member effective.
     private static IReadOnlySet<string> EffectiveCatalogHidden(SectionPipeline<LibraryInspection> pipeline)
-    {
-        var hidden = pipeline.GetCatalogHiddenSections()
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        hidden.ExceptWith(ILCoordinateSections);
-        return hidden;
-    }
-
-    // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
-    // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
-    // selection from fanning out to unbounded @Hidden members as a group. Shared with the
-    // package embedded-library render path, which resolves
-    // -S against the same curated LibrarySections pipeline.
-    internal static bool RejectHiddenRenderSelector(string[]? select)
-    {
-        if (select is { Length: > 0 }
-            && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
-        {
-            CommandError.Write("@Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Top Leverage\").");
-            return true;
-        }
-
-        return false;
-    }
+        => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
     /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
@@ -967,6 +1133,39 @@ public class LibraryCommand
         }
 
         return false;
+    }
+
+    private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
+    {
+        if (options.Discover != null)
+            return options;
+
+        var select = options.Select?.ToList() ?? [];
+        var tree = options.Tree || options.IncludeDependencies;
+
+        for (var i = 0; i < select.Count; i++)
+        {
+            if (!select[i].Equals("Dependencies", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            select[i] = SectionNames.References;
+            tree = true;
+        }
+
+        if ((options.IncludeReferences || options.IncludeDependencies)
+            && !select.Contains(SectionNames.References, StringComparer.OrdinalIgnoreCase))
+        {
+            select.Add(SectionNames.References);
+        }
+
+        return options with
+        {
+            IncludeReferences = false,
+            IncludeDependencies = false,
+            Select = select.Count > 0 ? [.. select] : null,
+            SelectDefault = select.Count > 0 ? false : options.SelectDefault,
+            Tree = tree,
+        };
     }
 
     /// <summary>
@@ -1659,24 +1858,63 @@ public class LibraryCommand
         return builder.ToString();
     }
 
-    private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
-        LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool sourceLinkAvailable = false, bool cache = true, string? inspectedContentHash = null)
+    private static int WriteEffectiveSections(
+        string assemblyPath,
+        LibraryInspection inspection,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        Verbosity userVerbosity,
+        bool fullEffectiveness,
+        HashSet<string>? effectivenessScope,
+        bool sourceLinkAvailable = false,
+        bool cache = true,
+        string? inspectedContentHash = null)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
         // inspection already established from an embedded or adjacent PDB).
         inspection.HasSourceLink |= sourceLinkAvailable;
 
-        // Compute all structurally applicable sections for discovery/caching,
-        // including opt-in sections whose renderability depends on the section's
-        // own work (for example SourceLink audit sections).
-        var allEffective = pipeline.GetDiscoverableSections(inspection);
+        List<string> allEffective;
+        if (fullEffectiveness)
+        {
+            var selected = pipeline.GetAvailableSections(inspection, effectivenessScope)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (options.Discover is { Length: 0 })
+            {
+                var baseSections = pipeline.BaseSectionNames
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                selected.RemoveWhere(section => !baseSections.Contains(section));
+
+                // Domain doors remain structural orientation in the bare catalog. Their members
+                // stay hidden from the flat section list, but one applicable member is needed in
+                // the effective schema so the category door survives category filtering.
+                foreach (var section in pipeline.GetDiscoverableSections(inspection))
+                {
+                    if (!baseSections.Contains(section))
+                        selected.Add(section);
+                }
+            }
+
+            allEffective = pipeline.SelectableSectionNames
+                .Where(selected.Contains)
+                .ToList();
+        }
+        else
+        {
+            allEffective = pipeline.GetDiscoverableSections(inspection);
+        }
+
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
-        // Field-level filtering on ALL effective sections (unfiltered) for caching
-        var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
+        // Cheap discovery never content-probes fields. Full discovery may narrow dynamic field
+        // schemas after the selected producers have run.
+        var filteredSchema = fullEffectiveness
+            ? FilterSchemaToEffectiveFields(
+                inspection, allEffective, schemaMap, pipeline, allEffective.ToArray())
+            : schemaMap;
         if (cache)
             CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
 
@@ -1696,9 +1934,9 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
-    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
-    private const string EffectiveCategory = "effective-v19";
+    // Bumped to v21: References now owns both the flat and tree projections, so the effective
+    // catalog no longer contains a separate Dependencies section.
+    private const string EffectiveCategory = "effective-v21";
 
     static LibraryCommand()
     {
@@ -1809,7 +2047,7 @@ public class LibraryCommand
         }
     }
 
-    private static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
+    internal static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
     {
         // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
         // (which flips whether the SourceLink section family is effective) busts a stale -D
@@ -1838,15 +2076,16 @@ public class LibraryCommand
     }
 
     private static int RenderEffective(List<string> effective, DocumentSchema schema, LibraryOptions options,
-        Verbosity userVerbosity = Verbosity.Minimal, string? rootLabel = null)
+        SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
+        string? rootLabel = null)
     {
         return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
-            sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
-            sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
-            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors(),
+            sectionCostAnnotations: pipeline.GetCostAnnotations(),
+            sectionCategories: pipeline.GetCategoryMap(),
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            listedCategoryDoors: pipeline.GetListedCategoryDoors(),
             projection: options);
     }
 
@@ -1893,6 +2132,9 @@ public class LibraryCommand
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        if (options.Count)
+            return;
+
         var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
         var failures = inspection.InspectionFailures;
         List<LibraryInspectionFailureJson> relevantFailures = failures?
@@ -1916,10 +2158,31 @@ public class LibraryCommand
         }
     }
 
+    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        if (options.Count || options.IncludeSections is not { Count: 1 })
+            return false;
+
+        var (empty, requested) = pipeline.GetEmptySections(
+            inspection, options.Verbosity, options.IncludeSections);
+        if (requested != 1 || empty.Count != 1)
+            return false;
+
+        CommandError.WriteLine($"This section ({empty[0]}) produced no output.");
+        return true;
+    }
+
     internal static bool FailureAffectsSection(string failureSection, string section)
     {
         if (failureSection.Equals(section, StringComparison.OrdinalIgnoreCase))
             return true;
+
+        if (failureSection.Equals(MetadataSectionNames.Image, StringComparison.Ordinal)
+            && MetadataSectionNames.IsMetadataSection(section))
+        {
+            return true;
+        }
 
         if (failureSection.Equals("Classified Methods", StringComparison.Ordinal))
         {
@@ -1976,6 +2239,8 @@ public class LibraryCommand
         string? packageName, string? packageVersion, string extractPath,
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
+        HashSet<InspectionQueryDefinition>? queries = null,
+        InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
@@ -1984,7 +2249,7 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, discoveryOnly: discoveryOnly, trace: trace);
+            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, queries: queries, queryRegistry: queryRegistry, discoveryOnly: discoveryOnly, trace: trace);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");

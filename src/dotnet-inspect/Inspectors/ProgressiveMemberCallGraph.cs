@@ -48,7 +48,11 @@ public enum CallGraphTier
 public sealed record MemberCallGraphView(
     CallGraphTier Tier,
     Analysis.CallTreeNode? CalleeRoot,
-    Analysis.CallTreeNode? CallerRoot);
+    Analysis.CallTreeNode? CallerRoot)
+{
+    public Analysis.CatalogCallGraphDiagnostics Diagnostics { get; init; } =
+        Analysis.CatalogCallGraphDiagnostics.Empty;
+}
 
 /// <summary>
 /// Progressive acquisition seam for a single member's call graph (issue #3266). Serves the graph in
@@ -74,7 +78,7 @@ public sealed record MemberCallGraphView(
 /// over the same memoized pull core, so the two never double the work. A single instance assumes one
 /// logical consumer; do not mix concurrent pull calls with <see cref="RunAsync"/>.</para>
 /// </summary>
-public sealed class ProgressiveMemberCallGraph
+public sealed class ProgressiveMemberCallGraph : IDisposable
 {
     readonly string _assemblyPath;
     readonly int _memberToken;
@@ -89,7 +93,9 @@ public sealed class ProgressiveMemberCallGraph
     // pull+push, switch these to Lazy<T> with ExecutionAndPublication.
     MethodBodyInspectionSession? _scopedSession;
     MethodBodyInspectionSession? _fullSession;
-    List<Analysis.LibraryBodyIndex>? _crossScopes;
+    List<MethodBodyInspectionSession>? _crossSessions;
+    Analysis.CatalogCallGraphScope? _catalogScope;
+    bool _disposed;
 
     ProgressiveMemberCallGraph(
         string assemblyPath,
@@ -145,6 +151,7 @@ public sealed class ProgressiveMemberCallGraph
     /// </summary>
     public MemberCallGraphView Callees()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         if (_fullSession is not null)
         {
             var full = _fullSession.BodyIndex.BuildCallTree(_memberToken, maxDepth: _depth, maxNodes: _maxNodes);
@@ -182,6 +189,7 @@ public sealed class ProgressiveMemberCallGraph
     /// </summary>
     public MemberCallGraphView Callers()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var index = FullIndex;
         var calleeRoot = index.BuildCallTree(_memberToken, maxDepth: _depth, maxNodes: _maxNodes);
         var callerRoot = index.BuildCallerTree(_memberToken, maxDepth: _depth, maxNodes: _maxNodes);
@@ -194,11 +202,26 @@ public sealed class ProgressiveMemberCallGraph
     /// </summary>
     public MemberCallGraphView CrossLibrary()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Analysis.CatalogCallGraphScope scope = CatalogScope;
         var index = FullIndex;
-        var scopes = CrossScopes;
-        var calleeRoot = index.BuildCallTree(_memberToken, scopes, maxDepth: _depth, maxNodes: _maxNodes);
-        var callerRoot = index.BuildCallerTree(_memberToken, scopes, maxDepth: _depth, maxNodes: _maxNodes);
-        return new MemberCallGraphView(CallGraphTier.CrossLibrary, calleeRoot, callerRoot);
+        var calleeRoot = index.BuildCallTree(
+            _memberToken,
+            scope,
+            maxDepth: _depth,
+            maxNodes: _maxNodes);
+        var callerRoot = index.BuildCallerTree(
+            _memberToken,
+            scope,
+            maxDepth: _depth,
+            maxNodes: _maxNodes);
+        return new MemberCallGraphView(
+            CallGraphTier.CrossLibrary,
+            calleeRoot,
+            callerRoot)
+        {
+            Diagnostics = scope.Diagnostics,
+        };
     }
 
     /// <summary>
@@ -250,13 +273,7 @@ public sealed class ProgressiveMemberCallGraph
 
     // The full target-assembly index, built at most once. Supersedes the scoped build for every
     // later query, so callees derived here reach the full depth without a second decode.
-    Analysis.LibraryBodyIndex FullIndex
-        => (_fullSession ??= MethodBodyInspectionSession.Open(
-            _assemblyPath,
-            _resolverFactory(_assemblyPath),
-            includeAllocations: true,
-            includeOpportunities: false,
-            bodyScope: null)).BodyIndex;
+    Analysis.LibraryBodyIndex FullIndex => FullSession.BodyIndex;
 
     // The scoped single-body index for the first paint — unless a full build already exists, in
     // which case that is reused (the scoped build is never made once superseded).
@@ -276,11 +293,25 @@ public sealed class ProgressiveMemberCallGraph
         }
     }
 
-    IReadOnlyList<Analysis.LibraryBodyIndex> CrossScopes => _crossScopes ??= BuildCrossScopes();
+    Analysis.CatalogCallGraphScope CatalogScope =>
+        _catalogScope ??=
+            MethodBodyInspectionSession.CreateCallGraphScope(
+                [FullSession, .. CrossSessions]);
 
-    List<Analysis.LibraryBodyIndex> BuildCrossScopes()
+    MethodBodyInspectionSession FullSession =>
+        _fullSession ??= MethodBodyInspectionSession.Open(
+            _assemblyPath,
+            _resolverFactory(_assemblyPath),
+            includeAllocations: true,
+            includeOpportunities: false,
+            bodyScope: null);
+
+    IReadOnlyList<MethodBodyInspectionSession> CrossSessions =>
+        _crossSessions ??= BuildCrossSessions();
+
+    List<MethodBodyInspectionSession> BuildCrossSessions()
     {
-        var scopes = new List<Analysis.LibraryBodyIndex>();
+        var scopes = new List<MethodBodyInspectionSession>();
         foreach (var scopePath in _crossLibraryAssemblies)
         {
             // Surface acquisition failures instead of swallowing them: an unreadable or missing
@@ -290,9 +321,19 @@ public sealed class ProgressiveMemberCallGraph
                 scopePath,
                 _resolverFactory(scopePath),
                 includeAllocations: true,
-                includeOpportunities: false).BodyIndex);
+                includeOpportunities: false));
         }
 
         return scopes;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _catalogScope?.Dispose();
+        _catalogScope = null;
+        _disposed = true;
     }
 }

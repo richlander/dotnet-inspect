@@ -1,4 +1,5 @@
 using System.Reflection.Metadata;
+using CSharpText;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -32,11 +33,9 @@ public sealed class PrimitiveKeywordConsistencyTests
     public void TryToKeywordForSystemType_RejectsNonPrimitiveSystemType()
         => Assert.False(PrimitiveTypeNames.TryToKeywordForSystemType("DateTime", out _));
 
-    // SignatureDecoder lives in the bottom-layer MetadataPrimitives project and
-    // spells primitives from a PrimitiveTypeCode-keyed SRM provider switch, so it
-    // cannot reference PrimitiveTypeNames (a layer above). This binds its keyword
-    // spelling to the shared alias table so the two independent producers cannot
-    // silently disagree.
+    // SignatureDecoder lives in MetadataPrimitives and spells primitives from a
+    // PrimitiveTypeCode-keyed SRM provider switch. It remains independent of the
+    // C# textual alias table, so this binds the two producers against silent drift.
     public static TheoryData<PrimitiveTypeCode, string> PrimitiveCodeFullNames => new()
     {
         { PrimitiveTypeCode.Boolean, "System.Boolean" },

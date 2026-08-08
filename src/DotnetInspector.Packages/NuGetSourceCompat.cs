@@ -18,6 +18,7 @@ public record NuGetSourceOptions
     public string[] Sources { get; init; } = [];
     public string[] AdditionalSources { get; init; } = [];
     public string? ConfigFile { get; init; }
+    internal string[]? AuthorizedSourceUrls { get; init; }
     public static NuGetSourceOptions Default { get; } = new();
 }
 
@@ -26,6 +27,47 @@ public record NuGetSourceOptions
 /// </summary>
 public static class NuGetSourceResolver
 {
+    /// <summary>
+    /// Restricts payload fulfillment for one discovered coordinate to its
+    /// reporting producers while retaining the ambient source set and config.
+    /// Follow-on coordinates, such as tool-wrapper redirects, independently
+    /// recalculate their authorization.
+    /// </summary>
+    public static NuGetSourceOptions? RestrictToSources(
+        NuGetSourceOptions? original,
+        IReadOnlyList<string> sourceUrls)
+    {
+        ArgumentNullException.ThrowIfNull(sourceUrls);
+        return (original ?? NuGetSourceOptions.Default) with
+        {
+            AuthorizedSourceUrls = [.. sourceUrls],
+        };
+    }
+
+    internal static IReadOnlyList<NuGetSource> ResolveAuthorizedSources(
+        NuGetSourceOptions? options,
+        IReadOnlyList<NuGetSource> activeSources)
+    {
+        if (options?.AuthorizedSourceUrls is not { } authorizedUrls)
+            return activeSources;
+
+        HashSet<string> authorizedKeys =
+        [
+            .. authorizedUrls.Select(NuGetCache.GetSourceKey),
+        ];
+        return
+        [
+            .. activeSources.Where(source =>
+                authorizedKeys.Contains(NuGetCache.GetSourceKey(source.Url))),
+        ];
+    }
+
+    internal static NuGetSourceOptions? WithoutSourceRestriction(
+        NuGetSourceOptions? options)
+        => options?.AuthorizedSourceUrls is null
+            ? options
+            : options with { AuthorizedSourceUrls = null };
+
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content
     /// cache records, so a caller can ask the cache for content this
@@ -122,8 +164,8 @@ public static class NuGetSourceResolver
         }
 
         // Well-formed XML is not enough. Any XML file parses — a .csproj passed by mistake
-        // reaches this point — and SourceResolver then finds no packageSources and substitutes
-        // nuget.org, answering with packages from a feed the user did not choose, at exit 0.
+        // reaches this point — and an explicitly selected config starts from an empty source
+        // layer rather than inheriting the ambient NuGet.org default.
         try
         {
             if (SourceResolver.ResolveConfiguredSources(configFile).Count == 0)
@@ -147,12 +189,11 @@ public static class NuGetSourceResolver
     /// Validates a user-supplied <c>--nugetconfig</c> path before it is used.
     /// </summary>
     /// <remarks>
-    /// SourceResolver parses config files best-effort and falls back to nuget.org when it ends up
-    /// with no sources. That is right for the machine, user, and project configs it discovers on
-    /// its own — a broken machine config should not break every command. It is wrong for a config
-    /// the user named explicitly: a mistyped path or malformed file would otherwise search
-    /// unrelated feeds and exit 0, reporting someone else's packages as the answer. An explicit
-    /// config that cannot be used is a failure, not a reason to pick a default.
+    /// Ambient resolution starts with the default NuGet.org source layer before merging discovered
+    /// configuration. An explicitly selected config starts empty instead: a mistyped path or
+    /// malformed file must not search unrelated feeds and exit 0, reporting someone else's
+    /// packages as the answer. An explicit config that cannot be used is a failure, not a reason
+    /// to pick a default.
     /// </remarks>
     private static void ValidateExplicitConfig(string configFile)
     {
@@ -274,9 +315,27 @@ public static class NuGetSearchService
         Action<string>? log = null,
         NuGetSourceOptions? sourceOptions = null)
     {
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
-
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        return await SearchResolvedAsync(
+            client,
+            sources,
+            query,
+            take,
+            prerelease,
+            log,
+            resultFilter: null).ConfigureAwait(false);
+    }
+
+    private static async Task<NuGetSearchOutcome> SearchResolvedAsync(
+        HttpClient client,
+        List<NuGetSource> sources,
+        string query,
+        int take,
+        bool prerelease,
+        Action<string>? log,
+        Func<SearchResult, bool>? resultFilter)
+    {
+        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
 
         // nuget.org's search endpoint is well known, so searching it needs no service-index
         // request. That shortcut is keyed on where resolution actually landed, not on whether a
@@ -287,15 +346,36 @@ public static class NuGetSearchService
         // path on that host is a different endpoint the user named deliberately, and answering it
         // from the well-known search endpoint would report results the requested URL never served.
         if (sources is [{ Credential: null } only]
-            && NuGetCredentialScope.IsSameEndpoint(only.Url, NuGetSource.NuGetOrg.Url))
+            && only.IsNuGetOrg)
         {
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
-            IReadOnlyList<SearchResult> results = await service.SearchAsync(query, take, prerelease);
-            return new NuGetSearchOutcome(results.Select(NuGetSearchResult.From).ToList(), []);
+            IReadOnlyList<SearchResult> results = resultFilter is null
+                ? await service.SearchAsync(query, take, prerelease)
+                : await service.SearchByPrefixAsync(query, take, prerelease);
+            IEnumerable<NuGetSearchResult> projected = results
+                .Where(result => resultFilter?.Invoke(result) ?? true)
+                .Select(NuGetSearchResult.From);
+            if (resultFilter is not null)
+            {
+                projected = projected.DistinctBy(
+                    result => result.PackageId,
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
+            return new NuGetSearchOutcome(
+                projected.Take(take).ToList(),
+                []);
         }
 
-        return await SearchSourcesAsync(client, sources, query, take, prerelease, log);
+        return await SearchSourcesAsync(
+            client,
+            sources,
+            query,
+            take,
+            prerelease,
+            log,
+            resultFilter).ConfigureAwait(false);
     }
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
@@ -304,7 +384,8 @@ public static class NuGetSearchService
         string query,
         int take,
         bool prerelease,
-        Action<string>? log)
+        Action<string>? log,
+        Func<SearchResult, bool>? resultFilter)
     {
         List<NuGetSearchResult> results = [];
         List<string> failures = [];
@@ -343,7 +424,13 @@ public static class NuGetSearchService
             try
             {
                 SearchService service = new(client, searchUrl);
-                found = await service.SearchAsync(query, take, prerelease, auth);
+                found = resultFilter is null
+                    ? await service.SearchAsync(query, take, prerelease, auth)
+                    : await service.SearchByPrefixAsync(
+                        query,
+                        take,
+                        prerelease,
+                        auth);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException or TaskCanceledException)
             {
@@ -354,7 +441,8 @@ public static class NuGetSearchService
             searched++;
             foreach (SearchResult result in found)
             {
-                if (seen.Add((result.Id, result.Version)))
+                if ((resultFilter?.Invoke(result) ?? true)
+                    && seen.Add((result.Id, result.Version)))
                 {
                     results.Add(NuGetSearchResult.From(result));
                 }
@@ -371,7 +459,15 @@ public static class NuGetSearchService
             throw new InvalidOperationException($"No configured NuGet source could be searched.{detail}");
         }
 
-        return new NuGetSearchOutcome(results.Take(take).ToList(), failures);
+        IEnumerable<NuGetSearchResult> limited = results;
+        if (resultFilter is not null)
+        {
+            limited = limited.DistinctBy(
+                result => result.PackageId,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        return new NuGetSearchOutcome(limited.Take(take).ToList(), failures);
     }
 
     private static string DescribeServiceIndexFailure(
@@ -391,13 +487,34 @@ public static class NuGetSearchService
     }
 
     public static async Task<List<NuGetSearchResult>> SearchByPrefixAsync(
-        HttpClient client, string prefix, int take = 100, bool prerelease = false, Action<string>? log = null)
+        HttpClient client,
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
-        log?.Invoke($"Searching NuGet by prefix: {prefix}");
-        SearchService service = new(client);
-        using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.PackageSearch);
-        IReadOnlyList<SearchResult> results = await service.SearchByPrefixAsync(prefix, take, prerelease);
-        return results.Select(NuGetSearchResult.From).ToList();
+        log?.Invoke($"Searching packages by prefix: {prefix}");
+        List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        NuGetSearchOutcome outcome = await SearchResolvedAsync(
+            client,
+            sources,
+            prefix,
+            take,
+            prerelease,
+            log,
+            result => result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ConfigureAwait(false);
+        if (outcome.Failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Could not search every configured NuGet source."
+                + Environment.NewLine
+                + "  "
+                + string.Join(Environment.NewLine + "  ", outcome.Failures));
+        }
+
+        return [.. outcome.Results];
     }
 
     public static List<NuGetSearchResult> ParseSearchResponse(string json)
