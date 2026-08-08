@@ -154,12 +154,12 @@ public static class PackageCompileAssetSelector
         if (string.IsNullOrWhiteSpace(entry))
             return null;
 
-        string path = entry.Replace('\\', '/').TrimStart('/');
-        string[] parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string path = entry.Replace('\\', '/');
+        string[] parts = path.Split('/');
         if (parts.Length != 3
             || parts.Any(part => part is "." or "..")
             || !parts[2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(parts[1]))
+            || !TfmResolver.IsTfmLike(parts[1]))
         {
             return null;
         }

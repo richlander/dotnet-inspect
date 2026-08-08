@@ -108,13 +108,22 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "StartsWith($\"lib/{package.Framework}/\"",
+            ".FullName.StartsWith(prefix",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ".FullName.StartsWith($\"lib/",
             engineSource,
             StringComparison.Ordinal);
         Assert.Contains(
             "return parts.Length == 3",
             engineSource,
             StringComparison.Ordinal);
+        Assert.Equal(
+            8,
+            CountOccurrences(
+                engineSource,
+                "GetDirectPackageAssemblyEntries("));
         Assert.Contains(
             "assemblyId: item.assemblyId",
             browserSource,

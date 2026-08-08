@@ -203,6 +203,23 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void AutomaticEntryPointsFallBackForUnrecognizedFrameworkDirectories()
+    {
+        var monoAndroid = WriteDll("lib/MonoAndroid10/MyPackage.dll");
+        var xamarinIos = WriteDll("lib/Xamarin.iOS10/MyPackage.dll");
+
+        var assemblies = TfmSelector.GetPackageAssemblies(_tempDir);
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal([monoAndroid, xamarinIos], assemblies);
+        Assert.Empty(tfms);
+        Assert.Null(highestTfm);
+        Assert.Equal([monoAndroid, xamarinIos], highest);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_NoTfmLayout_ReturnsPackageAssemblies()
     {
         var root = WriteDll("MyLib.dll");
@@ -404,6 +421,20 @@ public class TfmSelectorTests : IDisposable
             typeof(TfmSelectorTests).FullName!);
 
         Assert.Equal(library, path);
+        Assert.Equal("net8.0", tfm);
+    }
+
+    [Fact]
+    public void FindAssemblyContainingType_DoesNotEscapeSelectedCompileSet()
+    {
+        WriteAssembly("tools/net8.0/MyTool.dll");
+        WriteDll("lib/net8.0/MyPackage.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyContainingType(
+            _tempDir,
+            typeof(TfmSelectorTests).FullName!);
+
+        Assert.Null(path);
         Assert.Equal("net8.0", tfm);
     }
 

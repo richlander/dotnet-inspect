@@ -450,19 +450,6 @@ public static class TfmSelector
                         return (path, compileTfm);
                 }
 
-                foreach (string path in GetLegacyPackageAssemblies(extractPath)
-                    .Except(compilePaths, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (PlatformResolver.HasType(path, typeName))
-                    {
-                        return (
-                            path,
-                            TfmResolver.ExtractTfmFromPath(
-                                Path.GetRelativePath(extractPath, path)
-                                    .Replace('\\', '/')));
-                    }
-                }
-
                 return (null, compileTfm);
             }
         }

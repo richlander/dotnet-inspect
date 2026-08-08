@@ -138,8 +138,13 @@ public class PackageCompileAssetSelectorTests : IDisposable
     {
         IPackageContent content = InMemory(
             "../escape.dll",
+            "/lib/net8.0/Leading.dll",
             "runtimes/linux-x64/lib/net8.0/Runtime.dll",
             "lib/../Escape.dll",
+            "lib/net8.0//RepeatedSeparator.dll",
+            "lib/net8.0/Trailing.dll/",
+            "lib/uap10.0/Legacy.dll",
+            "lib/portable-net45+win8/Portable.dll",
             "lib/net8.0/fr/Example.resources.dll");
 
         PackageCompileAssetSelection selection =

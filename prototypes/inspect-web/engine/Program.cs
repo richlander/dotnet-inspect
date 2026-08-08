@@ -1356,12 +1356,8 @@ public static partial class BrowserInspectionEngine
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
         {
-            var prefix = $"lib/{targetFramework}/";
-            var assemblies = archive.Entries
-                .Where(entry =>
-                    entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+            ZipArchiveEntry[] assemblies =
+                GetDirectPackageAssemblyEntries(archive, targetFramework);
 
             foreach (var entry in assemblies)
             {
@@ -1500,11 +1496,9 @@ public static partial class BrowserInspectionEngine
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
         {
-            var prefix = $"lib/{targetFramework}/";
             var assemblyBytes = new List<byte[]>();
-            foreach (var entry in archive.Entries.Where(entry =>
-                entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+            foreach (ZipArchiveEntry entry in
+                GetDirectPackageAssemblyEntries(archive, targetFramework))
             {
                 try
                 {
@@ -1654,9 +1648,8 @@ public static partial class BrowserInspectionEngine
             using (var stream = new MemoryStream(packageBytes, writable: false))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
             {
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase) &&
-                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                foreach (ZipArchiveEntry entry in
+                    GetDirectPackageAssemblyEntries(archive, targetFramework))
                 {
                     await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
                     if (!assemblyNames.Contains(entry.Name))
@@ -1859,13 +1852,8 @@ public static partial class BrowserInspectionEngine
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
         {
-            var prefix = $"lib/{targetFramework}/";
-            var entries = archive.Entries
-                .Where(entry =>
-                    entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            ZipArchiveEntry[] entries =
+                GetDirectPackageAssemblyEntries(archive, targetFramework);
 
             foreach (var entry in entries)
             {
@@ -2187,10 +2175,10 @@ public static partial class BrowserInspectionEngine
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
         {
-            var prefix = $"lib/{targetFramework}/";
-            var entry = archive.Entries.FirstOrDefault(candidate =>
-                candidate.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(candidate.Name, assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            ZipArchiveEntry? entry = FindDirectPackageAssemblyEntry(
+                archive,
+                targetFramework,
+                assemblyFileName);
             if (entry is not null)
             {
                 using var assemblyStream = entry.Open();
@@ -2256,10 +2244,10 @@ public static partial class BrowserInspectionEngine
         using (var stream = new MemoryStream(packageBytes, writable: false))
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
         {
-            var prefix = $"lib/{targetFramework}/";
-            var entry = archive.Entries.FirstOrDefault(candidate =>
-                candidate.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(candidate.Name, assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            ZipArchiveEntry? entry = FindDirectPackageAssemblyEntry(
+                archive,
+                targetFramework,
+                assemblyFileName);
             if (entry is not null)
             {
                 using var assemblyStream = entry.Open();
@@ -2553,40 +2541,20 @@ public static partial class BrowserInspectionEngine
                 Directory.CreateDirectory(packageDirectory);
                 using var packageStream = new MemoryStream(bytes, writable: false);
                 using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+                string? preferredAssemblyName =
+                    package.Package.Equals(
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && package.Version.Equals(
+                        version,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? assemblyName
+                        : null;
                 ZipArchiveEntry[] implementationEntries =
-                [
-                    .. archive.Entries
-                        .Where(entry =>
-                        {
-                            string[] parts = entry.FullName.Split(
-                                '/',
-                                StringSplitOptions.RemoveEmptyEntries);
-                            return parts.Length == 3
-                                && parts[0].Equals(
-                                    "lib",
-                                    StringComparison.OrdinalIgnoreCase)
-                                && parts[1].Equals(
-                                    package.Framework,
-                                    StringComparison.OrdinalIgnoreCase)
-                                && parts[2].EndsWith(
-                                    ".dll",
-                                    StringComparison.OrdinalIgnoreCase);
-                        })
-                        .GroupBy(
-                            entry => entry.FullName,
-                            StringComparer.OrdinalIgnoreCase)
-                        .Select(group => group
-                            .OrderBy(
-                                entry => entry.FullName,
-                                StringComparer.Ordinal)
-                            .First())
-                        .OrderBy(
-                            entry => entry.FullName,
-                            StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(
-                            entry => entry.FullName,
-                            StringComparer.Ordinal),
-                ];
+                    GetDirectPackageAssemblyEntries(
+                        archive,
+                        package.Framework,
+                        preferredAssemblyName);
                 foreach (ZipArchiveEntry entry in implementationEntries)
                 {
                     var path = Path.Combine(packageDirectory, entry.Name);
@@ -3020,6 +2988,78 @@ public static partial class BrowserInspectionEngine
         await input.CopyToAsync(output);
     }
 
+    static ZipArchiveEntry[] GetDirectPackageAssemblyEntries(
+        ZipArchive archive,
+        string targetFramework,
+        string? preferredAssemblyName = null,
+        string root = "lib")
+    {
+        return
+        [
+            .. archive.Entries
+                .Where(entry =>
+                {
+                    string[] parts = entry.FullName.Split('/');
+                    return parts.Length == 3
+                        && parts[0].Equals(
+                            root,
+                            StringComparison.OrdinalIgnoreCase)
+                        && parts[1].Equals(
+                            targetFramework,
+                            StringComparison.OrdinalIgnoreCase)
+                        && parts[2].EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase);
+                })
+                .GroupBy(
+                    entry => entry.FullName,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                    group
+                        .Where(entry =>
+                            preferredAssemblyName is not null
+                            && entry.Name.Equals(
+                                preferredAssemblyName,
+                                StringComparison.Ordinal))
+                        .OrderBy(
+                            entry => entry.FullName,
+                            StringComparer.Ordinal)
+                        .FirstOrDefault()
+                    ?? group
+                        .OrderBy(
+                            entry => entry.FullName,
+                            StringComparer.Ordinal)
+                        .First())
+                .OrderBy(
+                    entry => entry.FullName,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    entry => entry.FullName,
+                    StringComparer.Ordinal),
+        ];
+    }
+
+    static ZipArchiveEntry? FindDirectPackageAssemblyEntry(
+        ZipArchive archive,
+        string targetFramework,
+        string assemblyName,
+        string root = "lib")
+    {
+        ZipArchiveEntry[] entries = GetDirectPackageAssemblyEntries(
+            archive,
+            targetFramework,
+            assemblyName,
+            root);
+        return entries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? entries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
     // Descends the call graph one hop into a platform (BCL) method by acquiring its
     // implementation assembly from the CoreCLR runtime pack. RID is irrelevant here — we
     // only read metadata/IL, never execute — so linux-x64 stands in for the eventual
@@ -3215,18 +3255,30 @@ public static partial class BrowserInspectionEngine
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         using var stream = new MemoryStream(packageBytes, writable: false);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-        var implementation = archive.Entries.FirstOrDefault(entry =>
-            entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+        ZipArchiveEntry[] implementationEntries =
+            GetDirectPackageAssemblyEntries(
+                archive,
+                targetFramework,
+                assemblyName);
+        var implementation = implementationEntries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? implementationEntries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase))
             ?? (allowRefFallback
-                ? archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                ? FindDirectPackageAssemblyEntry(
+                    archive,
+                    targetFramework,
+                    assemblyName,
+                    root: "ref")
                 : null)
             ?? throw new InvalidOperationException(
                 $"No implementation asset for {assemblyName} at {targetFramework}.");
 
-        foreach (var entry in archive.Entries.Where(entry =>
-            entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-            && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+        foreach (ZipArchiveEntry entry in implementationEntries)
         {
             await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
         }
