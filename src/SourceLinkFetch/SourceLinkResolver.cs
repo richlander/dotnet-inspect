@@ -232,6 +232,17 @@ public partial class SourceLinkResolver
 
                 string remainder = path[entry.PathPrefix.Length..];
                 string substituted = SubstituteUrl(entry, remainder, out int offset, out int length);
+
+                // The entry-level probe proves that ordinary substitutions reach a content
+                // selector, but the concrete remainder can be empty or decode as blank. That can
+                // change Azure's selector binding, so validate the actual request before this
+                // specific match is allowed to outrank a less-specific entry.
+                if (!SourceLinkProvenance.CanSelectContent(
+                        substituted, offset, length, out _))
+                {
+                    continue;
+                }
+
                 resolution = new SourceLinkResolution(
                     remainder, substituted, IsPrefixMatch: true, offset, length);
                 return true;
@@ -431,12 +442,12 @@ public partial class SourceLinkResolver
     /// shape has to be read against the host rather than by itself.
     /// </para>
     /// <para>
-    /// One probe character is enough to decide it, and this deliberately does not probe twice.
-    /// What is being located is the component the substitution lands in, and that is fixed by the
-    /// text around it rather than by the text substituted: <see cref="EscapePathSegments"/>
-    /// percent-encodes every character that could end a component — <c>?</c>, <c>&amp;</c> and
-    /// <c>#</c> — leaving only <c>/</c>, which is legal inside both a path and a query value. So
-    /// a real document name cannot reach a different component than the probe did.
+    /// This probe decides whether an ordinary substitution can reach a content selector. The
+    /// concrete resolved URL is checked again in <see cref="TryResolve"/>, because an empty or
+    /// whitespace-only remainder can decode as blank and change Azure's selector binding.
+    /// <see cref="EscapePathSegments"/> otherwise percent-encodes every character that could end
+    /// a component — <c>?</c>, <c>&amp;</c> and <c>#</c> — leaving only <c>/</c>, which is legal
+    /// inside both a path and a query value.
     /// </para>
     /// </remarks>
     private static bool SubstitutionCanSelectContent(string urlPrefix, string urlSuffix) =>

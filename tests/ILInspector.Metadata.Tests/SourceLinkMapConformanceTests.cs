@@ -730,6 +730,34 @@ public class SourceLinkMapConformanceTests
     }
 
     /// <summary>
+    /// An empty or whitespace-only concrete substitution can make one of two Azure selectors
+    /// blank, so a map that always failed under the parser's nonblank probe can serve the other,
+    /// fixed selector for that document. The unsafe specific match must yield to the valid
+    /// fallback, while a nonblank substitution keeps the host's visible 400 response.
+    /// </summary>
+    [Theory]
+    [InlineData("path=/README.md&scopePath=*")]
+    [InlineData("scopePath=/README.md&path=*")]
+    public void AConcreteBlankSelector_DoesNotServeTheOtherFixedSelector(string specific)
+    {
+        const string root =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+            + "&versionType=commit&version=" + ConformanceSha + "&";
+
+        string mapText =
+            "{\"documents\":{\"/_/A.cs*\":\"" + root + specific
+            + "\",\"/_/*\":\"" + root + "path=/*\"}}";
+        var map = SLF.SourceLinkResolver.Parse(mapText);
+
+        Assert.Empty(map.RejectedKeys);
+        Assert.Equal(root + "path=/A.cs", map.ResolveUrl("/_/A.cs"));
+        Assert.Equal(root + "path=/A.cs%20", map.ResolveUrl("/_/A.cs "));
+        Assert.Equal(
+            root + specific.Replace("*", "/B.cs", StringComparison.Ordinal),
+            map.ResolveUrl("/_/A.cs/B.cs"));
+    }
+
+    /// <summary>
     /// A map with more than one valid reading resolves nothing, and says why. Reporting the
     /// reason is what keeps this distinguishable from a map that legitimately covers no document.
     /// </summary>

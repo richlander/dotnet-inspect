@@ -345,8 +345,8 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// Whether an entry may resolve at all: refuses one that would fetch a single file for every
-    /// document it matches, on a host whose content selector this reader knows.
+    /// Whether a substitution may resolve: refuses one that would fetch a fixed file instead of
+    /// the document it represents, on a host whose content selector this reader knows.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -375,12 +375,11 @@ public static class SourceLinkProvenance
     /// </list>
     /// <para>
     /// So an unrecognized host keeps today's behavior: unknown grammar means no claim in either
-    /// direction, and the entry resolves. Only a host this reader can speak for, whose selector
-    /// the substitution demonstrably misses, is refused — and it is refused as a non-conformant
-    /// entry, so it lands in <see cref="SourceLinkResolver.RejectedKeys"/> and stops shadowing a
-    /// valid less-specific entry rather than merely failing to resolve. That is the same remedy
-    /// this matcher already applies to a wildcard key paired with a constant URL, and for the
-    /// identical stated reason: wrong content is worse than no content.
+    /// direction, and the substitution resolves. At parse time, a known-host entry whose ordinary
+    /// substitution demonstrably misses the selector lands in
+    /// <see cref="SourceLinkResolver.RejectedKeys"/>. At resolution time, a concrete empty or
+    /// blank substitution that changes the host's selector binding yields to a valid less-specific
+    /// entry. Both remedies enforce the same rule: wrong content is worse than no content.
     /// </para>
     /// <para>
     /// The direction of the call is worth naming. <see cref="Determine"/> asks the resolver what
