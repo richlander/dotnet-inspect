@@ -33,6 +33,7 @@
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.LauncherFixture\DotnetInspector.LauncherFixture.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
