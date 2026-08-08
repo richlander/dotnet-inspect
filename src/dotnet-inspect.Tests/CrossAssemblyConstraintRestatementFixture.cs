@@ -25,4 +25,8 @@ public sealed class CrossAssemblyConstraintRestatementFixture
         where T : class
         where U : class =>
         value;
+
+    public override T? GenericBaseConstraint<T>(T? value)
+        where T : class =>
+        value;
 }

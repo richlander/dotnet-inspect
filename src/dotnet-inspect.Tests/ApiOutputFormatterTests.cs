@@ -844,6 +844,11 @@ public class ApiOutputFormatterTests
     [InlineData(
         nameof(CrossAssemblyConstraintRestatementFixture.InterfaceConstraint),
         TypeParameterTypeKind.NeitherReferenceNorValue)]
+    [InlineData(
+        nameof(
+            CrossAssemblyConstraintRestatementFixture
+                .GenericBaseConstraint),
+        TypeParameterTypeKind.ReferenceType)]
     public void ConstraintRestatement_ResolvesCrossAssemblyNamedConstraint(
         string memberName,
         TypeParameterTypeKind expected)
@@ -910,6 +915,37 @@ public class ApiOutputFormatterTests
         Assert.Equal(
             expected,
             Assert.Single(member.SignatureModel!.TypeParameters).TypeKind);
+    }
+
+    [Fact]
+    public void ConstraintRestatement_ClassifiesClassWithConstructedGenericBase()
+    {
+        string path =
+            typeof(DotnetInspector.Fixtures.CrossAssemblyConstraintBase)
+                .Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            DotnetInspector.Fixtures
+                                .CrossAssemblyConstraintBase))
+                .Members,
+            candidate =>
+                candidate.Name
+                    == nameof(
+                        DotnetInspector.Fixtures
+                            .CrossAssemblyConstraintBase
+                            .GenericBaseConstraint));
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(
+                member.SignatureModel!.TypeParameters)
+                .TypeKind);
     }
 
     [Fact]
@@ -1023,7 +1059,7 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
-    public void ConstraintRestatement_CachesLargeAssemblyReferenceIdentity()
+    public void ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity()
     {
         var (consumerPath, dependencyPath) =
             EmitRepeatedExternalConstraintSample(
@@ -1036,13 +1072,13 @@ public class ApiOutputFormatterTests
                     consumerPath,
                     AssemblyResolutionProvenance.Local(
                         nameof(
-                            ConstraintRestatement_CachesLargeAssemblyReferenceIdentity)));
+                            ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity)));
             ResolvedAssemblyReference dependency =
                 ResolvedAssemblyReference.CreateFromPath(
                     dependencyPath,
                     AssemblyResolutionProvenance.Local(
                         nameof(
-                            ConstraintRestatement_CachesLargeAssemblyReferenceIdentity)));
+                            ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity)));
 
             Extract();
             long before = GC.GetAllocatedBytesForCurrentThread();
@@ -1050,16 +1086,23 @@ public class ApiOutputFormatterTests
             long allocated =
                 GC.GetAllocatedBytesForCurrentThread() - before;
 
-            Assert.Equal(
-                64,
-                Assert.Single(
+            List<ApiMember> members = Assert.Single(
                     surface.Types,
                     candidate =>
                         candidate.Name == "RepeatedConstraintSample")
                     .Members
-                    .Count(member => member.Name.StartsWith(
+                    .Where(member => member.Name.StartsWith(
                         "Pick",
-                        StringComparison.Ordinal)));
+                        StringComparison.Ordinal))
+                    .ToList();
+            Assert.Equal(64, members.Count);
+            Assert.All(
+                members,
+                member => Assert.Equal(
+                    TypeParameterTypeKind.ReferenceType,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind));
             Assert.InRange(allocated, 0, 32 * 1024 * 1024);
 
             ApiSurface Extract()
@@ -1801,7 +1844,7 @@ public class ApiOutputFormatterTests
             dependency.DefineDynamicModule("LargeKeyConstraint");
         Type externalClass = dependencyModule
             .DefineType(
-                "Fixtures.ExternalClass",
+                "System.Enum",
                 System.Reflection.TypeAttributes.Public
                     | System.Reflection.TypeAttributes.Class)
             .CreateType()!;

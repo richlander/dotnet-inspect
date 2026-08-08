@@ -1239,6 +1239,31 @@ public static class ApiSurfaceExtractor
         return false;
     }
 
+    internal static bool ResolvesThroughCoreLibrary(
+        AssemblyReferenceIdentity reference)
+    {
+        if (reference.PublicKeyToken is not { } token
+            || !CoreLibraryPublicKeyTokens.TryGetValue(
+                reference.Name,
+                out byte[][]? expectedTokens))
+        {
+            return false;
+        }
+
+        foreach (byte[] expected in expectedTokens)
+        {
+            if (string.Equals(
+                    token,
+                    Convert.ToHexString(expected),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Computes the 8-byte strong-name public-key token of
     /// <paramref name="assemblyRef"/>. An assembly reference stores either the

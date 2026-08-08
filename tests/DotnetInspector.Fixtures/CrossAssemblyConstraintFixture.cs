@@ -4,6 +4,11 @@ public abstract class ExternalConstraintClass;
 
 public interface IExternalConstraint;
 
+public abstract class ExternalGenericBase<T>;
+
+public abstract class ExternalDerivedFromGeneric
+    : ExternalGenericBase<int>;
+
 public abstract class CrossAssemblyConstraintBase
 {
     public abstract T? ClassConstraint<T>(T? value)
@@ -21,4 +26,7 @@ public abstract class CrossAssemblyConstraintBase
     public abstract T? TransitiveConstraint<T, U>(T? value)
         where T : U
         where U : ExternalConstraintClass;
+
+    public abstract T? GenericBaseConstraint<T>(T? value)
+        where T : ExternalDerivedFromGeneric;
 }

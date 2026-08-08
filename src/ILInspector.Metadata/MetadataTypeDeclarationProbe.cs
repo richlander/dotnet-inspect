@@ -337,8 +337,34 @@ public static class MetadataTypeDeclarationProbe
                 return MetadataTypeDefinitionKind.Interface;
             }
 
+            if (declaringAssemblyDefinesCoreLibraryRoot
+                && MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    handle)
+                    is MetadataTypeDefinitionNameReadResult.Read ownName
+                && ownName.Name.ToMetadataFullName()
+                    == "System.Enum")
+            {
+                return MetadataTypeDefinitionKind.Class;
+            }
+
             if (definition.BaseType.IsNil)
                 return MetadataTypeDefinitionKind.Class;
+
+            if (definition.BaseType.Kind
+                == HandleKind.TypeSpecification)
+            {
+                MetadataTypeDefinitionKind baseKind =
+                    GuardedProviderDecode.TypeSpec(
+                        reader,
+                        (TypeSpecificationHandle)definition.BaseType,
+                        BaseTypeKindProvider.Instance,
+                        (GenericContext?)null,
+                        MetadataTypeDefinitionKind.Unknown);
+                return baseKind == MetadataTypeDefinitionKind.Class
+                    ? MetadataTypeDefinitionKind.Class
+                    : MetadataTypeDefinitionKind.Unknown;
+            }
 
             MetadataTypeDefinitionNameReadResult read =
                 definition.BaseType.Kind switch
@@ -389,5 +415,99 @@ public static class MetadataTypeDeclarationProbe
         {
             return MetadataTypeDefinitionKind.Unknown;
         }
+    }
+
+    sealed class BaseTypeKindProvider :
+        ISignatureTypeProvider<
+            MetadataTypeDefinitionKind,
+            GenericContext?>
+    {
+        internal static BaseTypeKindProvider Instance { get; } =
+            new();
+
+        public MetadataTypeDefinitionKind GetTypeFromDefinition(
+            MetadataReader reader,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind) =>
+            FromRawKind(rawTypeKind);
+
+        public MetadataTypeDefinitionKind GetTypeFromReference(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            byte rawTypeKind) =>
+            FromRawKind(rawTypeKind);
+
+        public MetadataTypeDefinitionKind GetTypeFromSpecification(
+            MetadataReader reader,
+            GenericContext? context,
+            TypeSpecificationHandle handle,
+            byte rawTypeKind) =>
+            GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                this,
+                context,
+                MetadataTypeDefinitionKind.Unknown);
+
+        public MetadataTypeDefinitionKind GetGenericInstantiation(
+            MetadataTypeDefinitionKind genericType,
+            ImmutableArray<MetadataTypeDefinitionKind> typeArguments) =>
+            genericType;
+
+        public MetadataTypeDefinitionKind GetModifiedType(
+            MetadataTypeDefinitionKind modifier,
+            MetadataTypeDefinitionKind unmodifiedType,
+            bool isRequired) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetPinnedType(
+            MetadataTypeDefinitionKind elementType) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetGenericMethodParameter(
+            GenericContext? context,
+            int index) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetGenericTypeParameter(
+            GenericContext? context,
+            int index) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetFunctionPointerType(
+            MethodSignature<MetadataTypeDefinitionKind> signature) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetArrayType(
+            MetadataTypeDefinitionKind elementType,
+            ArrayShape shape) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetByReferenceType(
+            MetadataTypeDefinitionKind elementType) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetPointerType(
+            MetadataTypeDefinitionKind elementType) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetPrimitiveType(
+            PrimitiveTypeCode typeCode) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        public MetadataTypeDefinitionKind GetSZArrayType(
+            MetadataTypeDefinitionKind elementType) =>
+            MetadataTypeDefinitionKind.Unknown;
+
+        static MetadataTypeDefinitionKind FromRawKind(
+            byte rawTypeKind) =>
+            rawTypeKind switch
+            {
+                (byte)SignatureTypeKind.Class =>
+                    MetadataTypeDefinitionKind.Class,
+                (byte)SignatureTypeKind.ValueType =>
+                    MetadataTypeDefinitionKind.ValueType,
+                _ => MetadataTypeDefinitionKind.Unknown,
+            };
     }
 }

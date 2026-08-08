@@ -77,6 +77,16 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
+            if (IsClassThatProvesNothing(
+                    request.Type.ToMetadataFullName())
+                && request.Start
+                    is TypeResolutionStart.Reference reference
+                && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    reference.Value))
+            {
+                return ConstraintClass.ProvesNothing;
+            }
+
             if (_context is null)
             {
                 _requests.Add(request);
@@ -854,6 +864,9 @@ internal static class TypeParameterKindClassifier
         TypeReferenceHandle handle,
         ResolutionPlan? resolution)
     {
+        if (resolution is not null)
+            return resolution.Classify(reader, handle);
+
         try
         {
             TypeReference reference = reader.GetTypeReference(handle);
@@ -871,8 +884,7 @@ internal static class TypeParameterKindClassifier
             return ConstraintClass.Unreadable;
         }
 
-        return resolution?.Classify(reader, handle)
-            ?? ConstraintClass.Unreadable;
+        return ConstraintClass.Unreadable;
     }
 
     static string? TypeReferenceFullName(MetadataReader reader, TypeReferenceHandle handle)

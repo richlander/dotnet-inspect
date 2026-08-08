@@ -202,6 +202,24 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Probe_MaterializesCoreEnumAsSpecialClass()
+    {
+        using var pe =
+            new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                pe.GetMetadataReader(),
+                Name("System", "Enum")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            defined.Kind);
+        Assert.False(defined.IsValueType);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
     public void Probe_ReturnsNestedDefinition()
     {
         TypeDefinitionHandle inner = default;

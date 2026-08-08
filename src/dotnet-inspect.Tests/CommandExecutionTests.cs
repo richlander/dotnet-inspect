@@ -1475,6 +1475,9 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "TransitiveConstraint<T, U>(T? value) where T : class where U : class",
             output);
+        Assert.Contains(
+            "GenericBaseConstraint<T>(T? value) where T : class",
+            output);
     }
 
     [Theory]
