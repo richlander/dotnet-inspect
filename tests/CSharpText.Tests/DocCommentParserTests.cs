@@ -1,6 +1,4 @@
-using ILInspector.Metadata;
-
-namespace DotnetInspector.Tests;
+namespace CSharpText.Tests;
 
 /// <summary>
 /// Tests for XML doc comment parsing, including sample reference extraction.

@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -52,7 +53,7 @@ public static class TypeHierarchyScanner
             yield break;
 
         var reader = peReader.GetMetadataReader();
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {

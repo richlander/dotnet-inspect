@@ -1,3 +1,4 @@
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -142,7 +143,7 @@ public class TypeDependencyScannerTests
 
         Assert.NotEmpty(result.Tree);
 
-        var directNames = result.Tree.Select(n => TypeMatcher.Normalize(n.TypeName)).ToList();
+        var directNames = result.Tree.Select(n => FqnParser.NormalizeTypeName(n.TypeName)).ToList();
 
         // INumberBase should be a direct dep of INumber
         Assert.Contains(directNames, n => TypeMatcher.GetBaseName(n).EndsWith("INumberBase"));
@@ -180,7 +181,7 @@ public class TypeDependencyScannerTests
         {
             if (node.Children.Count > 0)
             {
-                result.Add(TypeMatcher.Normalize(node.TypeName));
+                result.Add(FqnParser.NormalizeTypeName(node.TypeName));
                 CollectExpandedNames(node.Children, result);
             }
         }

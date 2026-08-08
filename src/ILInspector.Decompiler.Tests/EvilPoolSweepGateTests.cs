@@ -1142,7 +1142,7 @@ public class EvilPoolSweepGateTests
     ///
     /// <para>This is the case that gates the other seven. They all pool a synthetic package
     /// that only the scratch cache holds, so they stay green whatever the isolation does:
-    /// deleting both knobs from the sweep -- <c>HttpClientFactory.Initialize(false)</c> and
+    /// deleting both knobs from the sweep -- <c>HttpClientFactory.Initialize</c> and
     /// <c>skipNuGetCache: false</c> -- leaves all seven passing, because the fixture is
     /// still found where it was seeded. The suite would quietly become able to reach the
     /// developer's NuGet cache and the network, and <see cref="SweepWorld.Run"/> would go
@@ -1157,7 +1157,7 @@ public class EvilPoolSweepGateTests
     /// without depending on how any layer words its message.</para>
     ///
     /// <para>Half of its power is ambient, and the case runs anyway rather than skipping.
-    /// The network half holds anywhere: a sweep that regressed <c>Initialize(false)</c>
+    /// The network half holds anywhere: a sweep that regressed its online factory configuration
     /// downloads this package from nuget.org and reaches <c>pin-mismatch</c> on any
     /// machine. The shared-NuGet-cache half only bites where that cache actually holds the
     /// package; somewhere it does not, a sweep with <c>skipNuGetCache</c> regressed misses
