@@ -3,18 +3,25 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using ILInspector.Metadata;
+using InertText;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// A scanner requested unbounded work without a matching registry declaration.
+/// A scanner or typed query requested unbounded work without a matching registry declaration.
 /// This is a programming error, not an inspected-artifact failure.
 /// </summary>
-internal sealed class ScannerCostDeclarationException(string message) : Exception(message);
+internal abstract class CostDeclarationException(string message) : Exception(message);
+
+internal sealed class ScannerCostDeclarationException(string message)
+    : CostDeclarationException(message);
+
+internal sealed class QueryCostDeclarationException(string message)
+    : CostDeclarationException(message);
 
 /// <summary>
-/// Context passed to each scanner during data collection.
+/// Shared resource context passed to scanners and typed-query adapters during data collection.
 /// </summary>
 public sealed class ScannerContext : IDisposable
 {
@@ -42,7 +49,7 @@ public sealed class ScannerContext : IDisposable
     private bool _sessionOpenAttempted;
     private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
         _drillMap;
-    private (string Key, SectionCost Cost)? _runningScanner;
+    private (WorkKind Kind, string Key, SectionCost Cost)? _runningWork;
 
     /// <summary>
     /// One metadata session over the assembly, opened on first use and shared by the scanners that
@@ -83,22 +90,28 @@ public sealed class ScannerContext : IDisposable
         _sessionOpenAttempted = true;
         try
         {
-            if (MetadataContext is { HasMetadata: true } context)
+            if (MetadataContext is { } context)
             {
                 _session = AssemblyInspectionSession.Borrow(context);
-                Trace?.RecordResource("metadata session", "borrowed from the command's open image");
+                Trace?.RecordResource(
+                    "metadata session",
+                    new InertString(TextPolicy.Field, "borrowed from the command's open image"));
             }
             else
             {
                 _session = AssemblyInspectionSession.Open(AssemblyPath);
-                Trace?.RecordResource("metadata session", "opened (no shared image available)");
+                Trace?.RecordResource(
+                    "metadata session",
+                    new InertString(TextPolicy.Field, "opened (no shared image available)"));
             }
         }
         catch (Exception)
         {
             // Left to the fallback path overload, which logs and produces the failed inspection.
             _session = null;
-            Trace?.RecordResource("metadata session", "failed to open; scanners reopen individually");
+            Trace?.RecordResource(
+                "metadata session",
+                new InertString(TextPolicy.Field, "failed to open; scanners reopen individually"));
         }
 
         return _session;
@@ -143,16 +156,22 @@ public sealed class ScannerContext : IDisposable
     public int SharedScanCount { get; private set; }
 
     /// <summary>
-    /// The scanner currently executing and the cost it declared, set by
-    /// <see cref="ScannerRegistry.RunScanners"/> around each invocation. Null when no scanner is
-    /// running through the registry — a test driving a scan function directly has no declaration
-    /// to check against.
+    /// Enters a scanner's resource declaration for the duration of its executor.
     /// </summary>
     internal IDisposable EnterScanner(string key, SectionCost cost)
+        => EnterWork(WorkKind.Scanner, key, cost);
+
+    /// <summary>
+    /// Enters a typed query's resource declaration for the duration of its executor.
+    /// </summary>
+    internal IDisposable EnterQuery(string key, SectionCost cost)
+        => EnterWork(WorkKind.Query, key, cost);
+
+    private IDisposable EnterWork(WorkKind kind, string key, SectionCost cost)
     {
-        var outer = _runningScanner;
-        _runningScanner = (key, cost);
-        return new ScannerScope(this, outer);
+        var outer = _runningWork;
+        _runningWork = (kind, key, cost);
+        return new WorkScope(this, outer);
     }
 
     /// <summary>
@@ -170,18 +189,24 @@ public sealed class ScannerContext : IDisposable
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
-        if (_runningScanner is not { } running || running.Cost == SectionCost.Unbounded)
+        if (_runningWork is not { } running || running.Cost == SectionCost.Unbounded)
             return;
 
-        throw new ScannerCostDeclarationException(
-            $"Scanner '{running.Key}' declares Cost={running.Cost} but asked for the {resource}, " +
-            $"which is unbounded whole-assembly work. Register it with SectionCost.Unbounded, or " +
-            $"stop taking the {resource}.");
+        string message =
+            $"{running.Kind} '{running.Key}' declares Cost={running.Cost} but asked for the " +
+            $"{resource}, which is unbounded whole-assembly work. Register it with " +
+            $"SectionCost.Unbounded, or stop taking the {resource}.";
+        throw running.Kind switch
+        {
+            WorkKind.Scanner => new ScannerCostDeclarationException(message),
+            WorkKind.Query => new QueryCostDeclarationException(message),
+            _ => throw new InvalidOperationException($"Unknown inspection work kind '{running.Kind}'."),
+        };
     }
 
-    private sealed class ScannerScope(
+    private sealed class WorkScope(
         ScannerContext context,
-        (string Key, SectionCost Cost)? outer) : IDisposable
+        (WorkKind Kind, string Key, SectionCost Cost)? outer) : IDisposable
     {
         private ScannerContext? _context = context;
 
@@ -190,9 +215,15 @@ public sealed class ScannerContext : IDisposable
             if (_context is not { } current)
                 return;
 
-            current._runningScanner = outer;
+            current._runningWork = outer;
             _context = null;
         }
+    }
+
+    private enum WorkKind
+    {
+        Scanner,
+        Query,
     }
 
     public void Dispose() => _session?.Dispose();
@@ -224,14 +255,20 @@ public sealed class ScannerContext : IDisposable
             // Scanners swallow a failed index and render an empty section, so without this the
             // trace would show no body index for a run that tried to build one and failed —
             // indistinguishable from a run that correctly never needed it.
-            Trace?.RecordResource("body index", $"FAILED after {Elapsed(start)}: {ex.GetType().Name}");
+            Trace?.RecordResource(
+                "body index",
+                InertString.Format(
+                    TextPolicy.Field,
+                    $"FAILED after {Elapsed(start)}: {ex.GetType().Name}"));
             throw;
         }
 
         var index = _bodySession.BodyIndex;
         Trace?.RecordResource(
             "body index",
-            $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})");
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} (features: {BodyAnalysisFeatures})"));
         return index;
     }
 
@@ -251,7 +288,11 @@ public sealed class ScannerContext : IDisposable
 
         var start = System.Diagnostics.Stopwatch.GetTimestamp();
         _drillMap = LibraryMetadataService.BuildLibraryDrillMap(GetMetadataContext(), Logger);
-        Trace?.RecordResource("drill map", $"built in {Elapsed(start)} ({_drillMap.Count} members)");
+        Trace?.RecordResource(
+            "drill map",
+            InertString.Format(
+                TextPolicy.Field,
+                $"built in {Elapsed(start)} ({_drillMap.Count} members)"));
         return _drillMap;
     }
 
