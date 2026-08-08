@@ -158,12 +158,13 @@ public class UnraisedLocalFunctionCallTests
         var function = IrImporter.Import(
             source, type.FullName!, nameof(UnraisedLocalFunctionSamples.CallsRaisedIf));
         Assert.NotNull(function);
+        IrFunction? importedBody = null;
 
         var result = CSharpPrinter.PrintRaised(
             function!,
             method =>
             {
-                var importedBody = IrImporter.Import(source, method);
+                importedBody = IrImporter.Import(source, method);
                 Assert.NotNull(importedBody);
                 foreach (var statement in importedBody.Body.Blocks
                     .SelectMany(block => block.Children)
@@ -171,9 +172,16 @@ public class UnraisedLocalFunctionCallTests
                 {
                     statement.Detach();
                 }
+                // Preserve the admitted shape while changing only the return type.
+                var blocks = importedBody.Body.Blocks.ToArray();
+                foreach (var block in blocks.Skip(1))
+                    block.Detach();
+                blocks[0].Add(new Return(null));
                 return importedBody;
             });
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.NotNull(importedBody);
+        Assert.True(importedBody.Body.Blocks is [{ Children: [Return { Value: null }] }]);
         string output = result.Output!.ReplaceLineEndings("\n");
 
         Assert.DoesNotContain("static int F(", output);
