@@ -56,7 +56,11 @@ executes metadata-image and direct assembly-reference queries through a typed,
 content-shaped registry over a host-owned `AssemblyInspectionSession`. The
 `References` section binds to its concrete query definition rather than a string
 scanner key, and the CLI and package convenience route lower section selection
-into that same registry.
+into that same registry. Separately, the first workspace query executes
+Integrations inspection across every participant in one binding-consistent
+assembly context group, reusing retained immutable content and returning
+per-participant evidence or failure. No command uses that group-scoped query
+yet.
 
 The browser engine is the second host for `AssemblyReferencesQuery`. Its package
 Dependencies lens asks `PackageCompileAssetSelector` for the same content-shaped

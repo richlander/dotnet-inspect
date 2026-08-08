@@ -233,6 +233,35 @@ public sealed class AssemblyContextGroup : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(callback);
 
+        return UseSnapshot(
+            assembly,
+            snapshot => callback(
+                new AssemblyImageView(
+                    assembly,
+                    snapshot.Content.AsSpan())));
+    }
+
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        ResolvedAssemblyReference assembly,
+        Func<AssemblyInspectionSession, TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        return UseSnapshot(
+            assembly,
+            snapshot =>
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                return callback(session);
+            });
+    }
+
+    AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+        ResolvedAssemblyReference assembly,
+        Func<AssemblyImageSnapshot, TResult> callback)
+    {
         BeginCallback();
         try
         {
@@ -245,10 +274,7 @@ public sealed class AssemblyContextGroup : IDisposable
                     failure);
             }
 
-            TResult value = callback(
-                new AssemblyImageView(
-                    assembly,
-                    access.Snapshot!.Content.AsSpan()));
+            TResult value = callback(access.Snapshot!);
             return new AssemblyImageAccessResult<TResult>.Available(value);
         }
         finally
