@@ -10,10 +10,12 @@ The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. The first typed query-planning slices are implemented for library
-metadata-image and direct-reference inspection; workspace contexts and the
-remaining query families are not implemented yet. The components below are the
-current hosts, shared substrates, and inspection producers that will extend that
-space.
+metadata-image and direct-reference inspection. `DotnetInspector.Queries` also
+contains the first workspace context foundation and a sequential group-scoped
+Integrations query, but commands have not migrated to that owner and the
+remaining query families remain future work. The components below are the
+current hosts, shared substrates, and inspection producers that will extend
+that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions, deterministic sequential execution, prerequisite-aware cost, and the first content-shaped assembly queries. It has no Markout, console, or filesystem-path dependency.
