@@ -2240,7 +2240,15 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
-        var queries = pipeline.GetRequiredQueries(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (libraryOptions.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+        var queries = pipeline.GetRequiredQueries(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
