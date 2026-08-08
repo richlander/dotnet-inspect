@@ -4,6 +4,7 @@ using System.Net;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -556,6 +557,35 @@ public sealed class SourceScopedRoutingTests : IDisposable
             new CommandContext(verbose: false));
 
         Assert.False(exists);
+    }
+
+    [Fact]
+    public void SourceEnrichment_TreatsUnmappedCacheCandidateAsAMiss()
+    {
+        string configPath = Path.Combine(_testRoot, "enrichment-mapping.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="excluded" value="{ExcludedSource}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="excluded">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        string? version = SourceEnricher.FindCachedPackageVersion(
+            $"Unmapped{Guid.NewGuid():N}",
+            new ApiOptions
+            {
+                SourceOptions = new NuGetSourceOptions { ConfigFile = configPath },
+            });
+
+        Assert.Null(version);
     }
 
     private static void SeedLatestCandidate(
