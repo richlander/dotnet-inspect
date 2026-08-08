@@ -303,7 +303,9 @@ public class PackageCommand
                     && NuGetCache.TryGetCachedPackage(
                         normalizedName,
                         versionQueryPinned,
-                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            normalizedName)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -348,7 +350,9 @@ public class PackageCommand
 
             if (options.Limit == 1 && options.ForceLatest)
             {
-                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+                    options.SourceOptions,
+                    normalizedName);
                 var latest = await PackageExtractor.GetLatestVersionAsync(
                     context.HttpClient,
                     normalizedName,

@@ -525,7 +525,8 @@ public class LibraryCommand
                     logger.Log,
                     options.PlatformFramework,
                     useRuntimeAssemblies: true,
-                    platformVersion: options.PlatformVersion);
+                    platformVersion: options.PlatformVersion,
+                    sourceOptions: options.SourceOptions);
 
                 if (error != null)
                 {

@@ -383,7 +383,9 @@ internal static class SourceEnricher
     private static string? FindCachedPackageVersion(string packageName, ApiOptions options)
         => PackageExtractor.TryGetLatestCachedCandidateVersion(
             packageName,
-            NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
+            NuGetSourceResolver.ResolveSourceKeysForPackage(
+                options.SourceOptions,
+                packageName));
 
     /// <summary>
     /// Enriches multiple types from a single XML doc file (loaded once).

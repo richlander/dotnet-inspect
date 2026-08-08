@@ -138,6 +138,39 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task UnmappedPackage_ReportsMappingFailureWithoutNetworkLookup()
+    {
+        string packageName = $"Unmapped{Guid.NewGuid():N}";
+        string configPath = Path.Combine(_testRoot, "unmapped.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="excluded" value="{ExcludedSource}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="excluded">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        var (exit, output, error) = await RunCommandAsync(
+            ["package", packageName, "--version", "--nugetconfig", configPath]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Package source mapping has no pattern for package '{packageName.ToLowerInvariant()}'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("PackageSourceMappingException", error);
+        Assert.DoesNotContain(" at DotnetInspector.", error);
+    }
+
+    [Fact]
     public async Task Router_MissingSourceValue_ReportsCleanParseError()
     {
         var (exit, output, error) = await RunCommandAsync(
@@ -203,6 +236,81 @@ public sealed class SourceScopedRoutingTests : IDisposable
             qualifiedName,
             [NuGetCache.GetSourceKey(ExcludedSource)],
             allowPlatformPrefixFallback: false));
+    }
+
+    [Fact]
+    public void QualifiedName_PackageSourceMappingSelectsCandidateCachePerPackageId()
+    {
+        string packageName = $"RouteMapped{Guid.NewGuid():N}.Package";
+        string qualifiedName = $"{packageName}.Widget";
+        string configPath = Path.Combine(_testRoot, "mapping.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="excluded" value="{ExcludedSource}" />
+                <add key="second" value="{SecondSource}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="second">
+                  <package pattern="{packageName}" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var sourceOptions = new NuGetSourceOptions { ConfigFile = configPath };
+
+        SeedLatestCandidate(packageName, ExcludedSource, "1.0.0");
+        Assert.Null(SourceResolver.TryResolveQualifiedTypeName(
+            qualifiedName,
+            sourceOptions,
+            allowPlatformPrefixFallback: false));
+
+        SeedLatestCandidate(packageName, SecondSource, "1.0.0");
+        Assert.NotNull(SourceResolver.TryResolveQualifiedTypeName(
+            qualifiedName,
+            sourceOptions,
+            allowPlatformPrefixFallback: false));
+    }
+
+    [Fact]
+    public void PackageContentCache_PackageSourceMappingSelectsEligibleProducer()
+    {
+        string packageName = $"PayloadMapped{Guid.NewGuid():N}";
+        string configPath = Path.Combine(_testRoot, "payload-mapping.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="excluded" value="{ExcludedSource}" />
+                <add key="second" value="{SecondSource}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="second">
+                  <package pattern="{packageName}" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var sourceOptions = new NuGetSourceOptions { ConfigFile = configPath };
+
+        SeedPackage(packageName, ExcludedSource);
+        IReadOnlyList<string> eligibleKeys =
+            NuGetSourceResolver.ResolveSourceKeysForPackage(
+                sourceOptions,
+                packageName);
+        Assert.Null(NuGetCache.TryGetCachedPackage(
+            packageName,
+            "1.0.0",
+            eligibleKeys));
+
+        SeedPackage(packageName, SecondSource);
+        Assert.NotNull(NuGetCache.TryGetCachedPackage(
+            packageName,
+            "1.0.0",
+            eligibleKeys));
     }
 
     [Theory]
@@ -437,7 +545,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             extension: "txt");
     }
 
-    private void SeedPackage(string packageName)
+    private void SeedPackage(string packageName, string? sourceUrl = null)
     {
         string staged = Path.Combine(_testRoot, $"stage-{Guid.NewGuid():N}");
         Directory.CreateDirectory(staged);
@@ -451,7 +559,9 @@ public sealed class SourceScopedRoutingTests : IDisposable
             nupkgPath: null,
             packageName,
             version: "1.0.0",
-            _ambientSourceKeys[0]);
+            sourceUrl is null
+                ? _ambientSourceKeys[0]
+                : NuGetCache.GetSourceKey(sourceUrl));
     }
 
     private static async Task<IReadOnlyList<BreadcrumbObservation>> RunAppAsync(string[] args)

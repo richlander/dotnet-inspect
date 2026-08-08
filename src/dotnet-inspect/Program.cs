@@ -322,6 +322,11 @@ try
 
     return exitCode;
 }
+catch (PackageSourceMappingException ex)
+{
+    CommandError.Write(ex.Message);
+    return 1;
+}
 catch (NuGetFetch.UnsupportedSourceException ex)
 {
     // Sources arrive from nuget.config as well as from options, so only resolution sees all of

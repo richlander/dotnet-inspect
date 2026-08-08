@@ -564,8 +564,9 @@ public static class TypeCommand
     {
         if (PackageExtractor.HasCachedCandidateVersion(
                 packageName,
-                NuGetSourceResolver.ResolveSourceKeys(
-                    options.SourceOptions)))
+                NuGetSourceResolver.ResolveSourceKeysForPackage(
+                    options.SourceOptions,
+                    packageName)))
         {
             return true;
         }
@@ -634,7 +635,8 @@ public static class TypeCommand
                 assembly,
                 context.HttpClient,
                 logger.Log,
-                framework);
+                framework,
+                sourceOptions: options.SourceOptions);
             if (assemblyPath == null || error != null)
             {
                 logger.LogWarning($"Could not resolve platform library '{assembly}' in {framework}: {error}");
