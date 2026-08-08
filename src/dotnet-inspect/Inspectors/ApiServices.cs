@@ -35,12 +35,16 @@ internal static class ApiServices
         if (apiDllPath is null)
             return null;
 
-        using var resolution = new TypeDefinitionResolutionSession(
-            apiDllPath,
-            isPlatformAssembly: runtimeAssemblyPath is not null,
-            options.ProjectAssetsPath,
-            options.Tfm ?? selectedTfm,
-            options.PlatformFramework);
+        using TypeDefinitionResolutionSession? resolution =
+            TryCreateResolutionSession(
+                apiDllPath,
+                isPlatformAssembly: runtimeAssemblyPath is not null,
+                options.ProjectAssetsPath,
+                options.Tfm ?? selectedTfm,
+                options.PlatformFramework);
+        if (resolution is null)
+            return null;
+
         ApiSurface? api =
             resolution.ExtractApiSurface(options.IncludeAll);
         if (api is null)
@@ -70,6 +74,32 @@ internal static class ApiServices
         api.Library = Path.GetFileName(apiDllPath);
 
         return new LoadedApiSurface(api, apiDllPath, runtimeAssemblyPath ?? apiDllPath);
+    }
+
+    static TypeDefinitionResolutionSession? TryCreateResolutionSession(
+        string assemblyPath,
+        bool isPlatformAssembly,
+        string? projectAssetsPath,
+        string? targetFramework,
+        string? platformFramework)
+    {
+        try
+        {
+            return new TypeDefinitionResolutionSession(
+                assemblyPath,
+                isPlatformAssembly,
+                projectAssetsPath,
+                targetFramework,
+                platformFramework);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            return null;
+        }
     }
 
     // ===== Type Lookup =====
@@ -246,9 +276,9 @@ internal static class ApiServices
         {
             try
             {
-                using Stream stream = group.Assembly.OpenRead();
-                var targetApi = AssemblyReader.ExtractApiSurface(
-                    stream,
+                ApiSurface? targetApi =
+                    resolution.ExtractApiSurface(
+                    group.Assembly,
                     includeAll);
                 if (targetApi == null)
                     continue;

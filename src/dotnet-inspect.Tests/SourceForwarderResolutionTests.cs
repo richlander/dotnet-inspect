@@ -117,6 +117,88 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ApiServices_ClassifiesConstraintsOnForwardedType()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetSource =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.Location;
+            string dependencySource =
+                typeof(DotnetInspector.Fixtures.ExternalConstraintClass)
+                    .Assembly.Location;
+            string targetPath = Path.Combine(
+                directory,
+                Path.GetFileName(targetSource));
+            string dependencyPath = Path.Combine(
+                directory,
+                Path.GetFileName(dependencySource));
+            File.Copy(targetSource, targetPath);
+            File.Copy(dependencySource, dependencyPath);
+
+            AssemblyName targetName =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.GetName();
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        targetName.Name!,
+                        targetName.Version,
+                        targetName.CultureName,
+                        null),
+                    typeNamespace:
+                        typeof(CrossAssemblyConstraintRestatementFixture)
+                            .Namespace!,
+                    typeName:
+                        nameof(
+                            CrossAssemblyConstraintRestatementFixture)));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            ApiType type = Assert.Single(api.Types);
+            Assert.True(type.IsForwarded);
+            AssertKind(
+                nameof(
+                    CrossAssemblyConstraintRestatementFixture
+                        .ClassConstraint),
+                TypeParameterTypeKind.ReferenceType);
+            AssertKind(
+                nameof(
+                    CrossAssemblyConstraintRestatementFixture
+                        .InterfaceConstraint),
+                TypeParameterTypeKind.NeitherReferenceNorValue);
+
+            void AssertKind(
+                string methodName,
+                TypeParameterTypeKind expected)
+            {
+                ApiMember member = Assert.Single(
+                    type.Members,
+                    candidate => candidate.Name == methodName);
+                Assert.Equal(
+                    expected,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_DoesNotOpenTraversalTarget()
     {
         string parent = CreateDirectory();
@@ -168,7 +250,9 @@ public class SourceForwarderResolutionTests
     static byte[] BuildAssembly(
         string assemblyName,
         AssemblyReferenceIdentity? forwardTarget = null,
-        bool definesType = false)
+        bool definesType = false,
+        string typeNamespace = "N",
+        string typeName = "Type")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -196,8 +280,8 @@ public class SourceForwarderResolutionTests
         {
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
+                metadata.GetOrAddString(typeNamespace),
+                metadata.GetOrAddString(typeName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
@@ -214,8 +298,8 @@ public class SourceForwarderResolutionTests
                 hashValue: default);
             metadata.AddExportedType(
                 TypeAttributes.Public | Forwarder,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
+                metadata.GetOrAddString(typeNamespace),
+                metadata.GetOrAddString(typeName),
                 target,
                 typeDefinitionId: 0);
         }

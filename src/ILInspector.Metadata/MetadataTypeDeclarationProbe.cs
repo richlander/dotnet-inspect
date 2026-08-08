@@ -49,12 +49,9 @@ public static class MetadataTypeDeclarationProbe
             if (match == MetadataTypeDefinitionNameMatch.Match)
             {
                 candidates.Add(
-                    new PendingValue(
-                        new TypeDeclarationCandidate.Definition(
-                            TypeDefinitionToken.FromHandle(reader, handle),
-                            (definition.Attributes
-                                & System.Reflection.TypeAttributes.Interface)
-                                != 0)));
+                    new PendingDefinition(
+                        handle,
+                        TypeDefinitionToken.FromHandle(reader, handle)));
             }
         }
 
@@ -84,7 +81,10 @@ public static class MetadataTypeDeclarationProbe
             AddCandidate(candidates, forwarders, candidate!);
         }
 
-        return Complete(candidates, declaresCoreLibraryRoot);
+        return Complete(
+            reader,
+            candidates,
+            declaresCoreLibraryRoot);
     }
 
     static bool IsCoreLibraryRoot(
@@ -224,6 +224,7 @@ public static class MetadataTypeDeclarationProbe
     }
 
     static TypeDeclarationResult Complete(
+        MetadataReader reader,
         List<PendingCandidate> pending,
         bool declaringAssemblyDefinesCoreLibraryRoot)
     {
@@ -231,7 +232,10 @@ public static class MetadataTypeDeclarationProbe
             return new TypeDeclarationResult.Missing();
 
         ImmutableArray<TypeDeclarationCandidate> candidates =
-            [.. pending.Select(candidate => candidate.Materialize())];
+            [.. pending.Select(
+                candidate => candidate.Materialize(
+                    reader,
+                    declaringAssemblyDefinesCoreLibraryRoot))];
         if (candidates.Length > 1)
         {
             return new TypeDeclarationResult.Ambiguous(
@@ -243,7 +247,7 @@ public static class MetadataTypeDeclarationProbe
             TypeDeclarationCandidate.Definition definition =>
                 new TypeDeclarationResult.Defined(
                     definition.Token,
-                    definition.IsInterface,
+                    definition.Kind,
                     declaringAssemblyDefinesCoreLibraryRoot),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
@@ -260,12 +264,32 @@ public static class MetadataTypeDeclarationProbe
 
     abstract class PendingCandidate
     {
-        internal abstract TypeDeclarationCandidate Materialize();
+        internal abstract TypeDeclarationCandidate Materialize(
+            MetadataReader reader,
+            bool declaringAssemblyDefinesCoreLibraryRoot);
     }
 
     sealed class PendingValue(TypeDeclarationCandidate value) : PendingCandidate
     {
-        internal override TypeDeclarationCandidate Materialize() => value;
+        internal override TypeDeclarationCandidate Materialize(
+            MetadataReader reader,
+            bool declaringAssemblyDefinesCoreLibraryRoot) =>
+            value;
+    }
+
+    sealed class PendingDefinition(
+        TypeDefinitionHandle handle,
+        TypeDefinitionToken token) : PendingCandidate
+    {
+        internal override TypeDeclarationCandidate Materialize(
+            MetadataReader reader,
+            bool declaringAssemblyDefinesCoreLibraryRoot) =>
+            new TypeDeclarationCandidate.Definition(
+                token,
+                ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaringAssemblyDefinesCoreLibraryRoot));
     }
 
     sealed class PendingForwarder : PendingCandidate
@@ -290,9 +314,80 @@ public static class MetadataTypeDeclarationProbe
                 declarations.Add(declaration);
         }
 
-        internal override TypeDeclarationCandidate Materialize() =>
+        internal override TypeDeclarationCandidate Materialize(
+            MetadataReader reader,
+            bool declaringAssemblyDefinesCoreLibraryRoot) =>
             new TypeDeclarationCandidate.Forwarder(
                 [.. declarations],
                 Target);
+    }
+
+    internal static MetadataTypeDefinitionKind ClassifyDefinitionKind(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool declaringAssemblyDefinesCoreLibraryRoot)
+    {
+        try
+        {
+            TypeDefinition definition =
+                reader.GetTypeDefinition(handle);
+            if ((definition.Attributes
+                    & System.Reflection.TypeAttributes.Interface) != 0)
+            {
+                return MetadataTypeDefinitionKind.Interface;
+            }
+
+            if (definition.BaseType.IsNil)
+                return MetadataTypeDefinitionKind.Class;
+
+            MetadataTypeDefinitionNameReadResult read =
+                definition.BaseType.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            (TypeDefinitionHandle)definition.BaseType),
+                    HandleKind.TypeReference =>
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            (TypeReferenceHandle)definition.BaseType),
+                    _ => new MetadataTypeDefinitionNameReadResult.Rejected(
+                        MetadataTypeNameFailure.Malformed(
+                            definition.BaseType,
+                            "A type definition has an unsupported base-type handle.")),
+                };
+            if (read is not MetadataTypeDefinitionNameReadResult.Read named)
+                return MetadataTypeDefinitionKind.Unknown;
+
+            if (named.Name.ToMetadataFullName()
+                is not ("System.ValueType" or "System.Enum"))
+            {
+                return MetadataTypeDefinitionKind.Class;
+            }
+
+            bool authenticCoreType =
+                definition.BaseType.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        declaringAssemblyDefinesCoreLibraryRoot,
+                    HandleKind.TypeReference =>
+                        ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                            reader,
+                            reader.GetTypeReference(
+                                (TypeReferenceHandle)definition.BaseType)
+                                .ResolutionScope),
+                    _ => false,
+                };
+            return authenticCoreType
+                ? MetadataTypeDefinitionKind.ValueType
+                : MetadataTypeDefinitionKind.Class;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or ArgumentException)
+        {
+            return MetadataTypeDefinitionKind.Unknown;
+        }
     }
 }

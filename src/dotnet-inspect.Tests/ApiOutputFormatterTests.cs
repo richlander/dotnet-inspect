@@ -972,6 +972,115 @@ public class ApiOutputFormatterTests
         }
     }
 
+    [Fact]
+    public void ConstraintRestatement_ExternalValueTypesStayUndetermined()
+    {
+        var (consumerPath, dependencyPath) =
+            EmitExternalValueTypeConstraintSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_ExternalValueTypesStayUndetermined)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_ExternalValueTypesStayUndetermined)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new ExactBindingPolicy(dependency));
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name == "ValueTypeSample");
+
+            Assert.All(
+                type.Members.Where(
+                    candidate =>
+                        candidate.Name
+                            is "DirectValueType"
+                                or "ConstructedValueType"),
+                member => Assert.Equal(
+                    TypeParameterTypeKind.Undetermined,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind));
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+        }
+    }
+
+    [Fact]
+    public void ConstraintRestatement_CachesLargeAssemblyReferenceIdentity()
+    {
+        var (consumerPath, dependencyPath) =
+            EmitRepeatedExternalConstraintSample(
+                methodCount: 64,
+                publicKeyBytes: 1024 * 1024);
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_CachesLargeAssemblyReferenceIdentity)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_CachesLargeAssemblyReferenceIdentity)));
+
+            Extract();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            ApiSurface surface = Extract();
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.Equal(
+                64,
+                Assert.Single(
+                    surface.Types,
+                    candidate =>
+                        candidate.Name == "RepeatedConstraintSample")
+                    .Members
+                    .Count(member => member.Name.StartsWith(
+                        "Pick",
+                        StringComparison.Ordinal)));
+            Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+
+            ApiSurface Extract()
+            {
+                using var pe =
+                    new PEReader(File.OpenRead(consumerPath));
+                using var catalog = new TypeResolutionCatalog();
+                return ApiSurfaceExtractor.Extract(
+                    pe,
+                    source,
+                    catalog,
+                    new ExactBindingPolicy(dependency));
+            }
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+        }
+    }
+
     /// <summary>
     /// The three core types that prove nothing about a type parameter are recognized by
     /// typed identity, never by display name. An assembly may declare its own
@@ -1604,6 +1713,135 @@ public class ApiOutputFormatterTests
         string path = Path.Combine(Path.GetTempPath(), $"lookalike-{Guid.NewGuid():N}.dll");
         ab.Save(path);
         return (path, fakePath);
+    }
+
+    static (string ConsumerPath, string DependencyPath)
+        EmitExternalValueTypeConstraintSample()
+    {
+        var dependency =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalValueTypes{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var dependencyModule =
+            dependency.DefineDynamicModule("ExternalValueTypes");
+        Type direct = dependencyModule
+            .DefineType(
+                "Fixtures.ExternalStruct",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Sealed
+                    | System.Reflection.TypeAttributes.SequentialLayout,
+                typeof(ValueType))
+            .CreateType()!;
+        var genericBuilder = dependencyModule.DefineType(
+            "Fixtures.ExternalStruct`1",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Sealed
+                | System.Reflection.TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        genericBuilder.DefineGenericParameters("T");
+        Type generic = genericBuilder.CreateType()!;
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-value-types-{Guid.NewGuid():N}.dll");
+        dependency.Save(dependencyPath);
+
+        var consumer =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalValueTypeConsumer{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            consumer.DefineDynamicModule("ExternalValueTypeConsumer");
+        var sample = module.DefineType(
+            "ValueTypeSample",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class);
+        AddMethod("DirectValueType", direct);
+        AddMethod(
+            "ConstructedValueType",
+            generic.MakeGenericType(typeof(int)));
+        sample.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-value-type-consumer-{Guid.NewGuid():N}.dll");
+        consumer.Save(consumerPath);
+        return (consumerPath, dependencyPath);
+
+        void AddMethod(string name, Type constraint)
+        {
+            var method = sample.DefineMethod(
+                name,
+                System.Reflection.MethodAttributes.Public
+                    | System.Reflection.MethodAttributes.Static);
+            var parameter =
+                method.DefineGenericParameters("T")[0];
+            parameter.SetBaseTypeConstraint(constraint);
+            method.SetReturnType(parameter);
+            method.SetParameters(parameter);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+    }
+
+    static (string ConsumerPath, string DependencyPath)
+        EmitRepeatedExternalConstraintSample(
+            int methodCount,
+            int publicKeyBytes)
+    {
+        var dependencyName = new System.Reflection.AssemblyName(
+            $"LargeKeyConstraint{Guid.NewGuid():N}");
+        dependencyName.SetPublicKey(new byte[publicKeyBytes]);
+        var dependency =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                dependencyName,
+                typeof(object).Assembly);
+        var dependencyModule =
+            dependency.DefineDynamicModule("LargeKeyConstraint");
+        Type externalClass = dependencyModule
+            .DefineType(
+                "Fixtures.ExternalClass",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Class)
+            .CreateType()!;
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"large-key-constraint-{Guid.NewGuid():N}.dll");
+        dependency.Save(dependencyPath);
+
+        var consumer =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"RepeatedConstraint{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            consumer.DefineDynamicModule("RepeatedConstraint");
+        var sample = module.DefineType(
+            "RepeatedConstraintSample",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class);
+        for (int i = 0; i < methodCount; i++)
+        {
+            var method = sample.DefineMethod(
+                $"Pick{i}",
+                System.Reflection.MethodAttributes.Public
+                    | System.Reflection.MethodAttributes.Static);
+            var parameter =
+                method.DefineGenericParameters("T")[0];
+            parameter.SetBaseTypeConstraint(externalClass);
+            method.SetReturnType(parameter);
+            method.SetParameters(parameter);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+        sample.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"repeated-constraint-{Guid.NewGuid():N}.dll");
+        consumer.Save(consumerPath);
+        return (consumerPath, dependencyPath);
     }
 
     /// <summary>

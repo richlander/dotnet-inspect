@@ -801,14 +801,14 @@ public sealed class ResolvedTypeDefinition
         MetadataTypeDefinitionAddress address,
         ResolvedAssemblyCandidate assembly,
         MetadataTypeDefinitionName type,
-        bool isInterface,
+        MetadataTypeDefinitionKind kind,
         bool declaringAssemblyDefinesCoreLibraryRoot)
     {
         Key = key;
         Address = address;
         Assembly = assembly;
         Type = type;
-        IsInterface = isInterface;
+        Kind = kind;
         DeclaringAssemblyDefinesCoreLibraryRoot =
             declaringAssemblyDefinesCoreLibraryRoot;
     }
@@ -817,7 +817,11 @@ public sealed class ResolvedTypeDefinition
     public MetadataTypeDefinitionAddress Address { get; }
     public ResolvedAssemblyCandidate Assembly { get; }
     public MetadataTypeDefinitionName Type { get; }
-    public bool IsInterface { get; }
+    public MetadataTypeDefinitionKind Kind { get; }
+    public bool IsInterface =>
+        Kind == MetadataTypeDefinitionKind.Interface;
+    public bool IsValueType =>
+        Kind == MetadataTypeDefinitionKind.ValueType;
     public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
 }
 

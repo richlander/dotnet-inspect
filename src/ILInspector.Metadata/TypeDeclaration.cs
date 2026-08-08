@@ -4,6 +4,15 @@ using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
+/// <summary>Definition kind needed by consumers that cannot inspect the defining image.</summary>
+public enum MetadataTypeDefinitionKind
+{
+    Unknown,
+    Class,
+    Interface,
+    ValueType,
+}
+
 /// <summary>A validated TypeDef metadata token in one assembly candidate.</summary>
 public readonly record struct TypeDefinitionToken
 {
@@ -78,14 +87,20 @@ public abstract class TypeDeclarationCandidate
 
     public sealed class Definition : TypeDeclarationCandidate
     {
-        internal Definition(TypeDefinitionToken token, bool isInterface)
+        internal Definition(
+            TypeDefinitionToken token,
+            MetadataTypeDefinitionKind kind)
         {
             Token = token;
-            IsInterface = isInterface;
+            Kind = kind;
         }
 
         public TypeDefinitionToken Token { get; }
-        public bool IsInterface { get; }
+        public MetadataTypeDefinitionKind Kind { get; }
+        public bool IsInterface =>
+            Kind == MetadataTypeDefinitionKind.Interface;
+        public bool IsValueType =>
+            Kind == MetadataTypeDefinitionKind.ValueType;
     }
 
     public sealed class Forwarder : TypeDeclarationCandidate
@@ -128,17 +143,21 @@ public abstract class TypeDeclarationResult
     {
         internal Defined(
             TypeDefinitionToken definition,
-            bool isInterface,
+            MetadataTypeDefinitionKind kind,
             bool declaringAssemblyDefinesCoreLibraryRoot)
         {
             Definition = definition;
-            IsInterface = isInterface;
+            Kind = kind;
             DeclaringAssemblyDefinesCoreLibraryRoot =
                 declaringAssemblyDefinesCoreLibraryRoot;
         }
 
         public TypeDefinitionToken Definition { get; }
-        public bool IsInterface { get; }
+        public MetadataTypeDefinitionKind Kind { get; }
+        public bool IsInterface =>
+            Kind == MetadataTypeDefinitionKind.Interface;
+        public bool IsValueType =>
+            Kind == MetadataTypeDefinitionKind.ValueType;
         public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
     }
 

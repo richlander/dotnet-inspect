@@ -155,6 +155,49 @@ public class MetadataTypeDeclarationProbeTests
                 Name("N", "Contract")));
 
         Assert.True(defined.IsInterface);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Interface,
+            defined.Kind);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_MaterializesValueTypeKind()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle objectType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "Object");
+            TypeDefinitionHandle valueType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "ValueType",
+                    objectType);
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.SequentialLayout,
+                "N",
+                "Value",
+                valueType);
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Value")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.ValueType,
+            defined.Kind);
+        Assert.True(defined.IsValueType);
         Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
     }
 
@@ -740,12 +783,13 @@ public class MetadataTypeDeclarationProbeTests
         MetadataBuilder metadata,
         TypeAttributes attributes,
         string @namespace,
-        string name) =>
+        string name,
+        EntityHandle baseType = default) =>
         metadata.AddTypeDefinition(
             attributes,
             @namespace.Length == 0 ? default : metadata.GetOrAddString(@namespace),
             metadata.GetOrAddString(name),
-            baseType: default,
+            baseType,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 

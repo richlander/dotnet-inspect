@@ -36,6 +36,15 @@ internal static class TypeParameterKindClassifier
     {
         readonly HashSet<TypeResolutionRequest> _requests =
             new(TypeResolutionRequestComparer.Instance);
+        readonly Dictionary<
+            TypeReferenceHandle,
+            TypeResolutionRequest?> _projectedRequests = [];
+        readonly Dictionary<
+            AssemblyReferenceHandle,
+            AssemblyReferenceIdentity> _assemblyReferences = [];
+        readonly Dictionary<
+            TypeReferenceHandle,
+            ConstraintClass> _resolvedClasses = [];
         TypeResolutionContext? _context;
         ConstraintRootProvider? _constraintRootProvider;
 
@@ -55,8 +64,15 @@ internal static class TypeParameterKindClassifier
             MetadataReader reader,
             TypeReferenceHandle handle)
         {
-            if (CreateRequest(reader, source, handle)
-                is not { } request)
+            if (!_projectedRequests.TryGetValue(
+                    handle,
+                    out TypeResolutionRequest? request))
+            {
+                request = CreateRequest(reader, source, handle);
+                _projectedRequests.Add(handle, request);
+            }
+
+            if (request is null)
             {
                 return ConstraintClass.Unreadable;
             }
@@ -67,24 +83,42 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
+            if (_resolvedClasses.TryGetValue(
+                    handle,
+                    out ConstraintClass cached))
+            {
+                return cached;
+            }
+
             if (_context.Resolve(request)
                 is not TypeResolutionOutcome.Resolved resolved)
             {
+                _resolvedClasses.Add(
+                    handle,
+                    ConstraintClass.Unreadable);
                 return ConstraintClass.Unreadable;
             }
 
             ResolvedTypeDefinition definition = resolved.Definition;
-            if (definition.IsInterface)
-                return ConstraintClass.ProvesNothing;
-
-            return IsClassThatProvesNothing(
-                       request.Type.ToMetadataFullName())
-                   && definition.DeclaringAssemblyDefinesCoreLibraryRoot
-                ? ConstraintClass.ProvesNothing
-                : ConstraintClass.ProvesReferenceType;
+            ConstraintClass result = definition.Kind switch
+            {
+                MetadataTypeDefinitionKind.Interface =>
+                    ConstraintClass.ProvesNothing,
+                MetadataTypeDefinitionKind.Class
+                    when IsClassThatProvesNothing(
+                        request.Type.ToMetadataFullName())
+                        && definition
+                            .DeclaringAssemblyDefinesCoreLibraryRoot =>
+                    ConstraintClass.ProvesNothing,
+                MetadataTypeDefinitionKind.Class =>
+                    ConstraintClass.ProvesReferenceType,
+                _ => ConstraintClass.Unreadable,
+            };
+            _resolvedClasses.Add(handle, result);
+            return result;
         }
 
-        static TypeResolutionRequest? CreateRequest(
+        TypeResolutionRequest? CreateRequest(
             MetadataReader reader,
             ResolvedAssemblyReference source,
             TypeReferenceHandle handle)
@@ -149,14 +183,21 @@ internal static class TypeParameterKindClassifier
             }
         }
 
-        static TypeResolutionRequest FromAssemblyReference(
+        TypeResolutionRequest FromAssemblyReference(
             MetadataReader reader,
             ResolvedAssemblyReference source,
             AssemblyReferenceHandle handle,
             MetadataTypeDefinitionName type)
         {
-            AssemblyReferenceIdentity reference =
-                AssemblyReferenceIdentity.From(reader, handle);
+            if (!_assemblyReferences.TryGetValue(
+                    handle,
+                    out AssemblyReferenceIdentity? reference))
+            {
+                reference =
+                    AssemblyReferenceIdentity.From(reader, handle);
+                _assemblyReferences.Add(handle, reference);
+            }
+
             AssemblyResolutionScope scope =
                 PlatformKeys.IsPlatform(reference.PublicKeyToken)
                     ? AssemblyResolutionScope.Platform
@@ -728,8 +769,15 @@ internal static class TypeParameterKindClassifier
             return ConstraintClass.Unreadable;
         }
 
-        if ((definition.Attributes & TypeAttributes.Interface) != 0)
+        MetadataTypeDefinitionKind kind =
+            MetadataTypeDeclarationProbe.ClassifyDefinitionKind(
+                reader,
+                handle,
+                DeclaresCoreLibraryRoot(reader));
+        if (kind == MetadataTypeDefinitionKind.Interface)
             return ConstraintClass.ProvesNothing;
+        if (kind != MetadataTypeDefinitionKind.Class)
+            return ConstraintClass.Unreadable;
 
         // Same-module, so the name is checked against the module's own identity rather
         // than against a resolution scope: an ordinary assembly may declare a type
@@ -852,10 +900,14 @@ internal static class TypeParameterKindClassifier
         : ISignatureTypeProvider<ConstraintClass, GenericContext?>
     {
         public ConstraintClass GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => ClassifyDefinition(reader, handle);
+            => rawTypeKind == (byte)SignatureTypeKind.ValueType
+                ? ConstraintClass.Unreadable
+                : ClassifyDefinition(reader, handle);
 
         public ConstraintClass GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => ClassifyReference(reader, handle, resolution);
+            => rawTypeKind == (byte)SignatureTypeKind.ValueType
+                ? ConstraintClass.Unreadable
+                : ClassifyReference(reader, handle, resolution);
 
         public ConstraintClass GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
             => GuardedProviderDecode.TypeSpec(reader, handle, this, context, fallback: ConstraintClass.Unreadable);

@@ -1542,7 +1542,7 @@ public sealed class TypeResolutionContext : IDisposable
                                 address,
                                 current,
                                 request.Type,
-                                defined.IsInterface,
+                                defined.Kind,
                                 defined.DeclaringAssemblyDefinesCoreLibraryRoot),
                             hops.ToImmutable());
 
@@ -1942,7 +1942,7 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Address,
                     definition.Assembly,
                     definition.Type,
-                    definition.IsInterface,
+                    definition.Kind,
                     definition.DeclaringAssemblyDefinesCoreLibraryRoot),
                 resolved.Hops);
         }

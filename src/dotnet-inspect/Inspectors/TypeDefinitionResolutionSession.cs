@@ -74,22 +74,29 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
 
     public ApiSurface? ExtractApiSurface(
         bool includeAll = false,
+        bool typesOnly = false) =>
+        ExtractApiSurface(_root, includeAll, typesOnly);
+
+    public ApiSurface? ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        bool includeAll = false,
         bool typesOnly = false)
     {
+        ArgumentNullException.ThrowIfNull(source);
         try
         {
             using AssemblyInspectionSession session =
-                AssemblyInspectionSession.Open(_root);
+                AssemblyInspectionSession.Open(source);
             if (!session.HasMetadata)
                 return null;
 
             ApiSurface surface = session.ApiSurface(
-                _root,
+                source,
                 _catalog,
                 _policy,
                 includeAll,
                 typesOnly);
-            if (_root.Path is { } path)
+            if (source.Path is { } path)
             {
                 foreach (ApiType type in surface.Types)
                     type.SourceAssemblyPath = path;
