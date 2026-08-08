@@ -164,6 +164,41 @@ public class AnnotatedSourceTasteTests
         Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withAnnotated.CostOverlay?.Body.Output));
         Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withAnnotated.SemanticsOverlay?.Output));
     }
+
+    [Fact]
+    public void ReadableLocalNames_AreSharedByEveryCSharpBodyView()
+    {
+        static ResearchViews.MemberProjectionResult Project(PrinterOptions options)
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(typeof(AnnotatedTasteFixture).Assembly.Location);
+            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(AnnotatedTasteFixture).FullName!,
+                nameof(AnnotatedTasteFixture.Compute),
+                AnnotatedSource: true,
+                CostOverlay: true,
+                SemanticsOverlay: true,
+                PrinterOptions: options));
+        }
+
+        var readable = Project(StyleOptionCatalog.DefaultOptions);
+        var slots = Project(PrinterOptions.Default);
+
+        Assert.All(
+            [
+                readable.AnnotatedSource?.Output,
+                readable.CostOverlay?.Body.Output,
+                readable.SemanticsOverlay?.Output,
+            ],
+            output => Assert.Contains("int num =", Assert.IsType<string>(output)));
+        Assert.All(
+            [
+                slots.AnnotatedSource?.Output,
+                slots.CostOverlay?.Body.Output,
+                slots.SemanticsOverlay?.Output,
+            ],
+            output => Assert.Contains("int V_0 =", Assert.IsType<string>(output)));
+    }
 }
 
 public sealed class AnnotatedTasteFixture

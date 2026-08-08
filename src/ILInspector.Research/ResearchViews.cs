@@ -122,7 +122,12 @@ public static partial class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(
+                        imported,
+                        costAnnotations,
+                        request.Source,
+                        OverlayPrinterOptions(request.PrinterOptions),
+                        gestures), emptyOutputIsFailure: false),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -134,7 +139,12 @@ public static partial class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(
+                        imported,
+                        semanticsAnnotations,
+                        request.Source,
+                        OverlayPrinterOptions(request.PrinterOptions),
+                        gestures), emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -448,9 +458,24 @@ public static partial class ResearchViews
         return sb.ToString().TrimEnd();
     }
 
-    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations, MetadataSource source, AnnotationGestureSelector? gestures = null)
+    static PrinterOptions? OverlayPrinterOptions(PrinterOptions? options)
+        => options is null
+            ? null
+            : PrinterOptions.Default with { ReadableLocalNames = options.ReadableLocalNames };
+
+    static DecompilerResult RenderRaisedOverlay(
+        IrFunction imported,
+        IReadOnlyList<IAnnotation> annotations,
+        MetadataSource source,
+        PrinterOptions? options,
+        AnnotationGestureSelector? gestures = null)
     {
-        var result = CSharpPrinter.PrintRaised(imported, out var printedRanges, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
+        var result = CSharpPrinter.PrintRaised(
+            imported,
+            out var printedRanges,
+            importMethodBody: null,
+            typesProvablyDisjoint: source.AreProvablyDisjoint,
+            options: options);
         if (result.Output is not { } output)
             return result;
         var projected = annotations.Count == 0

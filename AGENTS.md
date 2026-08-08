@@ -388,26 +388,45 @@ round:
   where the resolution is itself unreviewed. Once the reviews *are* clean, this
   reverses: see [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
-- **The PR is mergeable and green** — two questions, two commands. For
-  conflicts, `gh pr view <n> --json mergeable`: `CONFLICTING` blocks, and
-  `UNKNOWN` means GitHub has not finished computing the merge, so re-query
-  rather than read it as clear. For the gating runs, `gh pr checks <n>
-  --required`, which on a PR targeting `main` resolves to `ci-required` — the
-  only check the ruleset requires. Exit `0` is green; exit `8` means checks are
-  still running, so wait with `--watch`. Exit `1` reporting *no* required
-  checks is inconclusive: the aggregate may not have registered yet, or the
-  ruleset may not cover the PR's base. Fall back to plain `gh pr checks <n>`
-  and inspect the base separately; a PR targeting `main` is not green until its
-  current-head `ci-required` has passed. Do not read
-  `mergeStateStatus` as check state: it is a composite, and it reports `CLEAN`
-  for a PR with no checks at all (#3706). `skipping` is terminal and does not
-  block, but it is also not evidence: never cite a skipped job as validation,
-  and if a change should have triggered a job that skipped, the path filter is
-  the bug. After a push, compare `headRefOid` from `gh pr view <n> --json
-  headRefName,headRefOid` with `headSha` from `gh run list --branch
-  <headRefName> --event pull_request --json databaseId,headSha,status,conclusion`,
-  then watch that run by id. `gh pr checks --watch` can otherwise return exit
-  `0` against the previous head's run before the new one registers.
+- **The PR is mergeable and green** — two questions, one consolidated status
+  query. Use a single `gh api graphql` request that returns the PR's
+  `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
+  contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
+  and reset time. Request enough contexts for the normal check matrix; if
+  `pageInfo.hasNextPage` is true and `ci-required` is absent, fetch the
+  remaining context pages before concluding that it is missing. Confirm that
+  `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and the current
+  head's `ci-required` check run completed successfully. A `CONFLICTING`
+  mergeability result blocks, and `UNKNOWN` means GitHub has not finished
+  computing the merge. Do not read `mergeStateStatus` as check state: it is a
+  composite, and it reports `CLEAN` for a PR with no checks at all (#3706). A
+  missing `ci-required` is likewise inconclusive: the aggregate may not have
+  registered yet. Inspect all returned contexts; no PR is green until its
+  current-head `ci-required` has completed with a `SUCCESS` conclusion. A
+  subordinate check run with status `COMPLETED` and conclusion `SKIPPED` does
+  not block, but it is also not evidence: never cite a skipped job as
+  validation, and if a change should have triggered a job that skipped, the
+  path filter is the bug.
+
+  Status discovery must conserve the shared GitHub API budget. After a push,
+  wait at least 15 minutes before the first status query; use 20 minutes for
+  lanes known to run longer. After any inconclusive result — including pending
+  checks, `UNKNOWN` mergeability, or a missing `ci-required` — wait at least 10
+  minutes plus small random jitter before querying again. Yield the session or
+  schedule a delayed wake-up; do not hold a synchronous shell or agent turn
+  open with `sleep`. Do not use `gh run watch`, `gh pr checks --watch`, or a
+  polling loop for long-running PR checks.
+
+  Every status check must re-query the PR aggregate and compare its current
+  `headRefOid`; a run or check identifier is pinned to one commit and cannot
+  detect a later push. Retain the expected head SHA locally, and reuse returned
+  identifiers only for one-off detail or log queries after the aggregate has
+  confirmed that head. Separate discovery calls are prohibited; additional
+  calls are only for required context pagination or one-off details after the
+  aggregate has confirmed the head. If the query reports low remaining quota,
+  yield until its reported reset time rather than sleeping or continuing to
+  query. These intervals are minimums, not targets: wait longer when no
+  decision depends on an immediate result.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
@@ -416,10 +435,10 @@ round:
   report its parent's changes as its own. `ci.yml` applies no base-branch
   filter, so every slice schedules the same CI wherever it targets; a slice
   reporting *no* checks is therefore not green. Re-query after the registration
-  window and verify the current head; if no matching workflow run appears, that
-  is a scheduling bug to investigate, since a PR that triggers no workflow
-  leaves `ci-required` nothing to block on and displays as MERGEABLE and CLEAN
-  (#3706).
+  window, following the status-discovery cadence above, and verify the current
+  head; if no matching workflow run appears, that is a scheduling bug to
+  investigate, since a PR that triggers no workflow leaves `ci-required`
+  nothing to block on and displays as MERGEABLE and CLEAN (#3706).
 
 Do not integrate main under a reviewer mid-read. When integration is what moved
 the head, say so on the PR and name the merge commit, so the re-review reads as
