@@ -288,6 +288,21 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    public void EnumWithUnknownBacking_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
     public void LongBackedEnumOffset_RemainsOnArithmeticSelector()
     {
         var enumType = TypeRef.Definition("Synthetic", "", "LongAlgorithm");
