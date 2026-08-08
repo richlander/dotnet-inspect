@@ -2628,6 +2628,11 @@ paths.
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
+Direct `Callers` applies this correspondence to the declaring type. Forwarding
+of non-core-library parameter types remains downstream work in
+[#3513](https://github.com/richlander/dotnet-inspect/issues/3513); graph
+correspondence resolves every named signature type independently.
+
 ### Slice 6: graph correspondence and cleanup
 
 - Split total graph storage identity from optional resolved member
