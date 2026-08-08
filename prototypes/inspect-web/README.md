@@ -35,7 +35,10 @@ published engine assets and is no longer independently fixture-backed.
   ranked Performance Triage judgments.
 - The package Dependencies lens combines declared NuGet dependency groups with
   the selected assembly's flat direct-reference list. Assembly references come
-  from the same typed `AssemblyReferencesQuery` used by the CLI.
+  from the same typed `AssemblyReferencesQuery` used by the CLI. Package compile
+  asset selection comes from the shared content-shaped
+  `PackageCompileAssetSelector`; JavaScript carries its opaque asset identity
+  without parsing `ref/` or `lib/` paths.
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
@@ -103,9 +106,13 @@ Package acquisition, framework selection, public types, public members, and
 lazy per-overload XML documentation, lazy source resolution, package dependency
 groups, and direct assembly references are real engine results. Direct
 references run through the shared typed query registry and expose failure
-rather than returning a successful empty list. The initial API surface carries
-only metadata-owned XML documentation identities; selecting an overload queries
-its documentation entry. Source resolution prefers SourceLink content
+rather than returning a successful empty list. The product-selected compile
+asset is shared by the package surface and Dependencies request; JavaScript
+does not independently rank frameworks or choose between `ref/` and `lib/`.
+`LayeringTests.BrowserDependencies_UsesProductQueriesAndCompileAssetSelection`
+enforces that product-query and product-selection wiring. The initial API
+surface carries only metadata-owned XML documentation identities; selecting an
+overload queries its documentation entry. Source resolution prefers SourceLink content
 authenticated by the portable-PDB checksum and falls back to decompiling the
 matching implementation asset. The Call graph member section scans
 implementation IL and lists direct in-assembly callers and callees, then

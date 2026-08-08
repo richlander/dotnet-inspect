@@ -140,7 +140,7 @@ export async function inspectPackageDependencies(request) {
     request.packageId,
     request.version,
     request.framework,
-    request.assembly);
+    request.assemblyId);
   return JSON.parse(json);
 }
 

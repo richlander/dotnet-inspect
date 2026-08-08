@@ -278,17 +278,26 @@ public static class TfmSelector
         string? requestedLibrary,
         string? tfm = null)
     {
-        if (!string.IsNullOrWhiteSpace(requestedLibrary))
-        {
-            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(extractPath, requestedLibrary, tfm);
-            return matchedAssembly != null
-                ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
-                : new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.RequestedLibraryNotFound, GetCandidateLibraries(extractPath, tfm));
-        }
-
         var resolution = SelectPackageLibraries(extractPath, tfm);
         if (!resolution.IsSelected)
             return resolution;
+
+        if (!string.IsNullOrWhiteSpace(requestedLibrary))
+        {
+            string? matchedAssembly = resolution.Paths.FirstOrDefault(
+                path => MatchesLibraryRequest(extractPath, path, requestedLibrary));
+            return matchedAssembly is not null
+                ? new PackageLibraryResolution(
+                    [matchedAssembly],
+                    resolution.Tfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [matchedAssembly])
+                : new PackageLibraryResolution(
+                    [],
+                    resolution.Tfm,
+                    PackageLibraryResolutionStatus.RequestedLibraryNotFound,
+                    resolution.Paths);
+        }
 
         if (resolution.Paths.Count == 1)
             return new PackageLibraryResolution([resolution.Paths[0]], resolution.Tfm, PackageLibraryResolutionStatus.Selected, resolution.CandidatePaths);
@@ -303,6 +312,53 @@ public static class TfmSelector
 
     public static PackageLibraryResolution SelectPackageLibraries(string extractPath, string? tfm = null)
     {
+        if (!string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var content = new FileSystemPackageContent(
+                extractPath,
+                nupkgPath: null,
+                fromCache: false,
+                producerKey: "filesystem");
+            PackageCompileAssetSelection compileAssets =
+                PackageCompileAssetSelector.Select(content, "package", tfm);
+            if (compileAssets.Status
+                == PackageCompileAssetSelectionStatus.Selected)
+            {
+                List<string> paths =
+                [
+                    .. compileAssets.Assets.Select(
+                        asset => Path.Combine(
+                            extractPath,
+                            asset.Path.Replace(
+                                '/',
+                                Path.DirectorySeparatorChar))),
+                ];
+                return new PackageLibraryResolution(
+                    paths,
+                    compileAssets.TargetFramework,
+                    PackageLibraryResolutionStatus.Selected,
+                    paths);
+            }
+            if (compileAssets.Status
+                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+            {
+                List<string> candidates =
+                [
+                    .. compileAssets.CandidateAssets.Select(
+                        asset => Path.Combine(
+                            extractPath,
+                            asset.Path.Replace(
+                                '/',
+                                Path.DirectorySeparatorChar))),
+                ];
+                return new PackageLibraryResolution(
+                    [],
+                    tfm,
+                    PackageLibraryResolutionStatus.NoMatchingTargetFramework,
+                    candidates);
+            }
+        }
+
         List<string> selected;
         string? selectedTfm;
         if (string.IsNullOrWhiteSpace(tfm))
@@ -325,6 +381,38 @@ public static class TfmSelector
             .OrderBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
         return new PackageLibraryResolution(ordered, selectedTfm, PackageLibraryResolutionStatus.Selected, ordered);
+    }
+
+    static bool MatchesLibraryRequest(
+        string extractPath,
+        string path,
+        string requestedLibrary)
+    {
+        string normalizedRequest = requestedLibrary.Replace('\\', '/');
+        string relativePath =
+            Path.GetRelativePath(extractPath, path).Replace('\\', '/');
+        string requestLeaf = Path.GetFileName(normalizedRequest);
+        string bareRequest = requestLeaf.EndsWith(
+            ".dll",
+            StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileNameWithoutExtension(requestLeaf)
+                : requestLeaf;
+        return relativePath.Equals(
+                normalizedRequest,
+                StringComparison.OrdinalIgnoreCase)
+            || relativePath.Equals(
+                normalizedRequest + ".dll",
+                StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(path).Equals(
+                requestLeaf.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? requestLeaf
+                        : requestLeaf + ".dll",
+                StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileNameWithoutExtension(path).Equals(
+                bareRequest,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<string> GetCandidateLibraries(string extractPath, string? tfm)

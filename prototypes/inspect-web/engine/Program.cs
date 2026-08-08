@@ -16,7 +16,9 @@ using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
 using DotnetInspector.CSharpBodySlicer;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 using Research = ILInspector.Research;
@@ -28,12 +30,14 @@ public sealed record BrowserPackageSurface(
     string Version,
     string[] Frameworks,
     string ActiveFramework,
+    string DefaultAssemblyId,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
     int TotalMembers,
     BrowserPackageDocument[] Documents);
 
 public sealed record BrowserAssemblySurface(
+    string Id,
     string Name,
     string Asset,
     int PublicTypes,
@@ -502,86 +506,99 @@ public static partial class BrowserInspectionEngine
         var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
         var normalizedVersion = resolvedVersion.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
+            "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, packageId, targetFramework);
+        if (selection.Status == PackageCompileAssetSelectionStatus.NoCompileAssets)
+            throw new InvalidOperationException("The package has no compile-time assemblies.");
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            throw new InvalidOperationException(
+                $"Framework '{targetFramework}' is not present. Available frameworks: "
+                + string.Join(", ", selection.AvailableTargetFrameworks)
+                + ".");
+        }
+
         using var packageStream = new MemoryStream(packageBytes, writable: false);
         using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
-
-        var candidates = archive.Entries
-            .Select(entry => (Entry: entry, Asset: ParseCompileAsset(entry.FullName)))
-            .Where(candidate => candidate.Asset is not null)
-            .Select(candidate => (candidate.Entry, Asset: candidate.Asset!.Value))
-            .ToArray();
-
-        var frameworks = candidates
-            .Select(candidate => candidate.Asset.Framework)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(FrameworkPriority)
-            .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var selectedFramework = string.IsNullOrWhiteSpace(targetFramework)
-            ? frameworks.FirstOrDefault() ?? throw new InvalidOperationException("The package has no compile-time assemblies.")
-            : frameworks.FirstOrDefault(framework =>
-                framework.Equals(targetFramework, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException(
-                    $"Framework '{targetFramework}' is not present. Available frameworks: {string.Join(", ", frameworks)}.");
-
-        var frameworkCandidates = candidates
-            .Where(candidate => candidate.Asset.Framework.Equals(selectedFramework, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        var preferredRoot = frameworkCandidates.Any(candidate => candidate.Asset.Root == "ref") ? "ref" : "lib";
-        var selectedAssets = frameworkCandidates
-            .Where(candidate => candidate.Asset.Root == preferredRoot)
-            .OrderBy(candidate => candidate.Entry.FullName, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
 
         var assemblies = new List<BrowserAssemblySurface>();
         var types = new List<BrowserTypeSurface>();
 
-        foreach (var candidate in selectedAssets)
+        foreach (PackageCompileAsset asset in selection.Assets)
         {
-            await using var entryStream = candidate.Entry.Open();
-            using var assemblyStream = new MemoryStream();
-            await entryStream.CopyToAsync(assemblyStream);
-            var image = assemblyStream.ToArray();
+            if (!content.TryOpenEntry(asset.Path, out Stream? entryStream))
+            {
+                throw new InvalidOperationException(
+                    $"Selected package asset '{asset.Id}' is no longer available.");
+            }
 
-            var reference = ResolvedAssemblyReference.Create(
-                new AssemblyReferenceIdentity(candidate.Entry.Name, null, null, null),
-                null,
-                () => new MemoryStream(image, writable: false),
-                AssemblyResolutionProvenance.Local(candidate.Entry.FullName));
+            await using (entryStream)
+            {
+                using var assemblyStream = new MemoryStream();
+                await entryStream.CopyToAsync(assemblyStream);
+                var image = assemblyStream.ToArray();
 
-            using var inspection = AssemblyInspectionSession.Open(reference);
-            if (!inspection.HasMetadata)
-                continue;
+                var reference = ResolvedAssemblyReference.Create(
+                    new AssemblyReferenceIdentity(
+                        Path.GetFileNameWithoutExtension(asset.AssemblyName),
+                        null,
+                        null,
+                        null),
+                    null,
+                    () => new MemoryStream(image, writable: false),
+                    AssemblyResolutionProvenance.Package(
+                        packageId,
+                        resolvedVersion,
+                        asset.TargetFramework,
+                        rid: null));
 
-            var publicTypes = inspection.ApiSurface().Types
-                .Select(type => ToBrowserType(type, candidate.Entry.Name))
-                .ToArray();
+                using var inspection = AssemblyInspectionSession.Open(reference);
+                if (!inspection.HasMetadata)
+                    continue;
 
-            // Non-public types (internal/private/protected/…) are excluded from the public
-            // surface by design. Pull them in separately so the client can offer an
-            // accessibility filter (public by default). Public types keep their public-only
-            // member lists from the surface above; the includeAll surface would also expand
-            // every public type's members to include private ones, so we take non-public
-            // TYPES from it but not the public entries.
-            var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
-                .Where(type => !string.IsNullOrWhiteSpace(type.Accessibility))
-                .Select(type => ToBrowserType(type, candidate.Entry.Name))
-                .ToArray();
+                var publicTypes = inspection.ApiSurface().Types
+                    .Select(type => ToBrowserType(type, asset.AssemblyName))
+                    .ToArray();
 
-            var assemblyTypes = publicTypes
-                .Concat(nonPublicTypes)
-                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
-                .ThenBy(type => type.Name, StringComparer.Ordinal)
-                .ToArray();
+                // Non-public types (internal/private/protected/…) are excluded from the public
+                // surface by design. Pull them in separately so the client can offer an
+                // accessibility filter (public by default). Public types keep their public-only
+                // member lists from the surface above; the includeAll surface would also expand
+                // every public type's members to include private ones, so we take non-public
+                // TYPES from it but not the public entries.
+                var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
+                    .Where(type => !string.IsNullOrWhiteSpace(type.Accessibility))
+                    .Select(type => ToBrowserType(type, asset.AssemblyName))
+                    .ToArray();
 
-            assemblies.Add(new BrowserAssemblySurface(
-                candidate.Entry.Name,
-                candidate.Entry.FullName,
-                publicTypes.Length,
-                publicTypes.Sum(type => type.Members)));
-            types.AddRange(assemblyTypes);
+                var assemblyTypes = publicTypes
+                    .Concat(nonPublicTypes)
+                    .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+                    .ThenBy(type => type.Name, StringComparer.Ordinal)
+                    .ToArray();
+
+                assemblies.Add(new BrowserAssemblySurface(
+                    asset.Id,
+                    asset.AssemblyName,
+                    asset.Path,
+                    publicTypes.Length,
+                    publicTypes.Sum(type => type.Members)));
+                types.AddRange(assemblyTypes);
+            }
         }
+
+        BrowserAssemblySurface defaultAssembly = assemblies.FirstOrDefault(
+                assembly => assembly.Id.Equals(
+                    selection.DefaultAsset!.Id,
+                    StringComparison.Ordinal))
+            ?? assemblies.FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "The selected compile assets contain no managed assemblies.");
 
         var duplicateNames = types
             .GroupBy(type => type.Id, StringComparer.Ordinal)
@@ -599,8 +616,9 @@ public static partial class BrowserInspectionEngine
         var result = new BrowserPackageSurface(
             packageId,
             resolvedVersion,
-            frameworks,
-            selectedFramework,
+            [.. selection.AvailableTargetFrameworks],
+            selection.TargetFramework!,
+            defaultAssembly.Id,
             assemblies.ToArray(),
             identifiedTypes,
             identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members),
@@ -1139,11 +1157,21 @@ public static partial class BrowserInspectionEngine
         string packageId,
         string version,
         string targetFramework,
-        string assemblyName)
+        string assemblyId)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
+            "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, packageId, targetFramework);
+        PackageCompileAsset? selectedAssembly = selection.Status
+            == PackageCompileAssetSelectionStatus.Selected
+                ? selection.FindAsset(assemblyId)
+                : null;
 
         var groups = new List<BrowserPackageDependencyGroup>();
         string packageName = packageId;
@@ -1196,52 +1224,92 @@ public static partial class BrowserInspectionEngine
                 }
             }
 
-            var selectedAssembly = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals(
-                        $"lib/{targetFramework}/{assemblyName}",
-                        StringComparison.OrdinalIgnoreCase))
-                ?? archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals(
-                        $"ref/{targetFramework}/{assemblyName}",
-                        StringComparison.OrdinalIgnoreCase));
             if (selectedAssembly is null)
             {
                 assemblyReferenceError =
-                    $"Assembly '{assemblyName}' is not present for framework '{targetFramework}'.";
+                    selection.Status switch
+                    {
+                        PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                            "The package has no compile-time assemblies.",
+                        PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                            $"Framework '{targetFramework}' is not present.",
+                        _ => $"Assembly asset '{assemblyId}' is not selected for framework '{targetFramework}'.",
+                    };
             }
             else
             {
-                using var assemblyStream = selectedAssembly.Open();
-                using var buffer = new MemoryStream();
-                await assemblyStream.CopyToAsync(buffer);
-
-                var image = buffer.ToArray();
-                var reference = ResolvedAssemblyReference.Create(
-                    new AssemblyReferenceIdentity(assemblyName, null, null, null),
-                    path: null,
-                    () => new MemoryStream(image, writable: false),
-                    AssemblyResolutionProvenance.Local(selectedAssembly.FullName));
-                using var inspection = AssemblyInspectionSession.Open(reference);
-                InspectionQueryResults queryResults = AssemblyQueries.Run(
-                    [AssemblyReferencesQuery.Definition],
-                    inspection);
-                switch (queryResults.Get(AssemblyReferencesQuery.Definition))
+                if (!content.TryOpenEntry(selectedAssembly.Path, out Stream? assemblyStream))
                 {
-                    case AssemblyReferencesResult.Available available:
-                        assemblyReferences = available.References
-                            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-                            .ThenBy(item => item.Version, StringComparer.Ordinal)
-                            .Select(item => new BrowserAssemblyReference(item.Name, item.Version))
-                            .ToArray();
-                        break;
+                    assemblyReferenceError =
+                        $"Selected package asset '{selectedAssembly.Id}' is no longer available.";
+                }
+                else
+                {
+                    using (assemblyStream)
+                    using (var buffer = new MemoryStream())
+                    {
+                        await assemblyStream.CopyToAsync(buffer);
+                        AssemblyReferencesResult references;
+                        try
+                        {
+                            var image = buffer.ToArray();
+                            var reference = ResolvedAssemblyReference.Create(
+                                new AssemblyReferenceIdentity(
+                                    Path.GetFileNameWithoutExtension(
+                                        selectedAssembly.AssemblyName),
+                                    null,
+                                    null,
+                                    null),
+                                path: null,
+                                () => new MemoryStream(image, writable: false),
+                                AssemblyResolutionProvenance.Package(
+                                    packageId,
+                                    version,
+                                    selectedAssembly.TargetFramework,
+                                    rid: null));
+                            using var inspection =
+                                AssemblyInspectionSession.Open(reference);
+                            InspectionQueryResults queryResults =
+                                AssemblyQueries.Run(
+                                    [AssemblyReferencesQuery.Definition],
+                                    inspection);
+                            references = queryResults.Get(
+                                AssemblyReferencesQuery.Definition);
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException
+                                or BadImageFormatException)
+                        {
+                            references =
+                                new AssemblyReferencesResult.Failed(exception);
+                        }
 
-                    case AssemblyReferencesResult.Failed failed:
-                        assemblyReferenceError = failed.Error.Message;
-                        break;
+                        switch (references)
+                        {
+                            case AssemblyReferencesResult.Available available:
+                                assemblyReferences = available.References
+                                    .OrderBy(
+                                        item => item.Name,
+                                        StringComparer.OrdinalIgnoreCase)
+                                    .ThenBy(
+                                        item => item.Version,
+                                        StringComparer.Ordinal)
+                                    .Select(
+                                        item => new BrowserAssemblyReference(
+                                            item.Name,
+                                            item.Version))
+                                    .ToArray();
+                                break;
 
-                    default:
-                        throw new InvalidOperationException(
-                            "Unknown assembly-reference query result.");
+                            case AssemblyReferencesResult.Failed failed:
+                                assemblyReferenceError = failed.Error.Message;
+                                break;
+
+                            default:
+                                throw new InvalidOperationException(
+                                    "Unknown assembly-reference query result.");
+                        }
+                    }
                 }
             }
         }
@@ -1250,7 +1318,7 @@ public static partial class BrowserInspectionEngine
             packageName,
             packageVersion,
             targetFramework,
-            assemblyName,
+            selectedAssembly?.AssemblyName ?? assemblyId,
             [.. groups],
             assemblyReferences,
             assemblyReferenceError);
@@ -2466,7 +2534,11 @@ public static partial class BrowserInspectionEngine
                 ];
             }
 
-            var workspaceAssemblies = new List<(string Package, string Version, string Path)>();
+            var workspaceAssemblies = new List<(
+                string Package,
+                string Version,
+                string Framework,
+                string Path)>();
             string? implementationPath = null;
             for (int packageIndex = 0; packageIndex < workspace.Length; packageIndex++)
             {
@@ -2487,7 +2559,11 @@ public static partial class BrowserInspectionEngine
                 {
                     var path = Path.Combine(packageDirectory, entry.Name);
                     await WriteEntryAsync(entry, path);
-                    workspaceAssemblies.Add((package.Package, package.Version, path));
+                    workspaceAssemblies.Add((
+                        package.Package,
+                        package.Version,
+                        package.Framework,
+                        path));
                     if (package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
                         && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
                         && entry.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase))
@@ -2533,19 +2609,66 @@ public static partial class BrowserInspectionEngine
                     BrowserJsonContext.Default.BrowserCallGraph);
             }
 
-            var index = Analysis.LibraryBodyIndex.Open(
-                implementationPath,
-                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
-            var callerScopes = workspaceAssemblies
-                .Where(assembly => !Path.GetFullPath(assembly.Path)
-                    .Equals(Path.GetFullPath(implementationPath), StringComparison.OrdinalIgnoreCase))
-                .Select(assembly => Analysis.LibraryBodyIndex.Open(
-                    assembly.Path,
-                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence))
+            string[] corpusPaths =
+            [
+                .. workspaceAssemblies.Select(assembly => assembly.Path),
+            ];
+            var callGraphEntries = workspaceAssemblies
+                .Select(assembly =>
+                {
+                    var bodyIndex = Analysis.LibraryBodyIndex.Open(
+                        assembly.Path,
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+                    ResolvedAssemblyReference descriptor =
+                        ResolvedAssemblyReference.CreateFromPath(
+                            assembly.Path,
+                            AssemblyResolutionProvenance.Package(
+                                assembly.Package,
+                                assembly.Version,
+                                assembly.Framework,
+                                rid: null));
+                    var resolver = new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(assembly.Path)
+                        {
+                            CorpusAssemblyPaths = corpusPaths,
+                            TargetFramework = assembly.Framework,
+                            PreferImplementationAssemblies = true,
+                            AllowPlatformAssemblyVersionRollForward = true,
+                        });
+                    return (
+                        Index: bodyIndex,
+                        Assembly: descriptor,
+                        Policy: (IAssemblyBindingPolicy)resolver);
+                })
+                .GroupBy(entry => (
+                    entry.Assembly.Identity,
+                    entry.Index.DeclaredMethods.FirstOrDefault()
+                        ?.ModuleVersionId ?? Guid.Empty))
+                .Select(group => group.First())
                 .ToArray();
+            var index = callGraphEntries.First(entry =>
+                Path.GetFullPath(entry.Index.Path).Equals(
+                    Path.GetFullPath(implementationPath),
+                    StringComparison.OrdinalIgnoreCase)).Index;
             var callers = index.BuildCallerTree(token, maxDepth: 2, maxNodes: 30);
-            if (callerScopes.Length > 0)
-                callers = index.BuildCallerTree(token, callerScopes, maxDepth: 2, maxNodes: 30);
+            if (callGraphEntries.Length > 1)
+            {
+                var bindingPolicy =
+                    new SourceRelativeAssemblyGroupBindingPolicy(
+                        callGraphEntries.Select(entry =>
+                            (entry.Assembly, entry.Policy)));
+                using var scope = new Analysis.CatalogCallGraphScope(
+                    bindingPolicy,
+                    callGraphEntries.Select(entry =>
+                        new Analysis.CatalogCallGraphParticipant(
+                            entry.Index,
+                            entry.Assembly)));
+                callers = index.BuildCallerTree(
+                    token,
+                    scope,
+                    maxDepth: 2,
+                    maxNodes: 30);
+            }
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
@@ -2557,7 +2680,7 @@ public static partial class BrowserInspectionEngine
                 new BrowserCallGraphScope(
                     workspace.Length,
                     workspaceAssemblies.Count,
-                    callerScopes.Length + 1,
+                    callGraphEntries.Length,
                     assemblyName));
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
@@ -2941,8 +3064,10 @@ public static partial class BrowserInspectionEngine
             version,
             [tfm],
             tfm,
+            $"platform:{RuntimeCoreAssembly}",
             [
                 new BrowserAssemblySurface(
+                    $"platform:{RuntimeCoreAssembly}",
                     RuntimeCoreAssembly,
                     $"runtimes/*/lib/{tfm}/{RuntimeCoreAssembly}",
                     assemblyTypes.Length,
@@ -2999,8 +3124,10 @@ public static partial class BrowserInspectionEngine
             version,
             [tfm],
             tfm,
+            $"platform:{fileName}",
             [
                 new BrowserAssemblySurface(
+                    $"platform:{fileName}",
                     fileName,
                     $"runtimes/*/lib/{tfm}/{fileName}",
                     assemblyTypes.Length,
@@ -3642,68 +3769,4 @@ public static partial class BrowserInspectionEngine
         return value.Replace('#', '.');
     }
 
-    static (string Root, string Framework)? ParseCompileAsset(string path)
-    {
-        var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length != 3
-            || (parts[0] != "ref" && parts[0] != "lib")
-            || !parts[2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || parts[2].EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return (parts[0], parts[1]);
-    }
-
-    static int FrameworkPriority(string framework)
-    {
-        var moniker = framework.ToLowerInvariant();
-
-        // Family tiers dominate version so a modern .NET moniker always outranks an older
-        // .NET Framework one, even though "net462" carries larger raw digits than "net10.0".
-        // Modern .NET is spelled "net{major}.{minor}" (with a dot); .NET Framework is
-        // "net{digits}" (no dot, e.g. net462, net48).
-        int familyBase;
-        int version;
-        if (moniker.StartsWith("netcoreapp"))
-        {
-            familyBase = 300_000;
-            version = DottedVersion(moniker);
-        }
-        else if (moniker.StartsWith("netstandard"))
-        {
-            familyBase = 200_000;
-            version = DottedVersion(moniker);
-        }
-        else if (moniker.StartsWith("net") && moniker.Length > 3 && char.IsDigit(moniker[3]))
-        {
-            if (moniker.Contains('.'))
-            {
-                familyBase = 400_000;
-                version = DottedVersion(moniker);
-            }
-            else
-            {
-                familyBase = 100_000;
-                version = int.TryParse(new string(moniker.Where(char.IsDigit).ToArray()), out var raw) ? raw : 0;
-            }
-        }
-        else
-        {
-            familyBase = 0;
-            version = 0;
-        }
-
-        return familyBase + version;
-
-        static int DottedVersion(string value)
-        {
-            var digits = new string(value.SkipWhile(character => !char.IsDigit(character)).ToArray());
-            var segments = digits.Split('.', StringSplitOptions.RemoveEmptyEntries);
-            var major = segments.Length > 0 && int.TryParse(segments[0], out var parsedMajor) ? parsedMajor : 0;
-            var minor = segments.Length > 1 && int.TryParse(segments[1], out var parsedMinor) ? parsedMinor : 0;
-            return major * 100 + minor;
-        }
-    }
 }
