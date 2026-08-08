@@ -118,21 +118,24 @@ public static class ApiMemberSectionDescriptors
             .Add<ExtensionMethods>(HasExtensionMethods)
             .Add<Events>()
             .Add<MethodAttributes>()
-            .Add<UnsafeMembers>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<ExceptionRegions>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<CalledTypes>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<AllocationFacts>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<SafetyFacts>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<CostFacts>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<TopLeverage>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<OptimizationOpportunities>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<SourceFiles>()
-            .Add<DecompiledSource>(isViewApplicable: HasExecutableBodyMembersOrEnum)
-            .Add<OriginalSource>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<UnsafeMembers>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<ExceptionRegions>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<CalledTypes>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<AllocationFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<SafetyFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<CostFacts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<TopLeverage>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<OptimizationOpportunities>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<SourceFiles>(HasSourceFiles, HasSourceFiles)
+            .Add<DecompiledSource>(
+                HasExecutableBodyMembersOrEnum,
+                HasExecutableBodyMembersOrEnum)
+            .Add<OriginalSource>(HasExecutableBodyMembers, HasExecutableBodyMembers)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
+                HasExecutableBodyMembers,
                 isViewApplicable: HasExecutableBodyMembers)
-            .Add<ILBody>(isViewApplicable: HasExecutableBodyMembers)
-            .Add<Facts>(isViewApplicable: HasExecutableBodyMembers)
+            .Add<ILBody>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<Facts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -456,7 +459,8 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked)
@@ -470,6 +474,7 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.DecompiledSource;
         public static bool IsExpensive => false;
+        public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
@@ -522,6 +527,11 @@ public static class ApiMemberSectionDescriptors
     /// </summary>
     public static bool IsBodyBacked(ApiMember member) =>
         IsMethodLike(member) || HasAccessorTokens(member);
+
+    private static bool HasSourceFiles(ApiType model)
+        => HasExecutableBodyMembers(model)
+           || !string.IsNullOrWhiteSpace(model.SourceUrl)
+           || model.AdditionalSourceFiles.Count > 0;
 
     /// <summary>
     /// True when a body-backed member can carry executable IL. Abstract declarations keep their

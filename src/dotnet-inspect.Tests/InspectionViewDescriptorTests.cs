@@ -124,6 +124,37 @@ public class InspectionViewDescriptorTests
                 new HashSet<string>(selection.SectionNames, StringComparer.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public void TypeSourceViews_DiscloseAcquisitionCapabilities()
+    {
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = true
+                }
+            ]
+        };
+        IReadOnlyDictionary<string, InspectionViewDescriptor> views =
+            ApiMemberSectionDescriptors.CreatePipeline()
+                .GetInspectionViews(model)
+                .ToDictionary(view => view.Id, StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources,
+            views[SectionNames.SourceFiles].Capabilities);
+        Assert.Equal(
+            SectionCapabilities.MayDownloadPdb,
+            views[SectionNames.DecompiledSource].Capabilities);
+    }
+
     [Theory]
     [InlineData("property")]
     [InlineData("event")]
@@ -270,26 +301,6 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
-    public void PlatformRuntimePackageViews_ExcludePackageDependencyQuery()
-    {
-        var pipeline = PackageSectionDescriptors.CreatePipeline();
-        var model = new InspectionResult
-        {
-            PackageName = "Microsoft.NETCore.App",
-            Version = "11.0.0",
-            Source = "localized display text",
-            IsPlatformRuntime = true,
-            DependencyGroups = [new DependencyGroup()]
-        };
-
-        IReadOnlySet<string> ids = pipeline.GetInspectionViews(model)
-            .Select(view => view.Id)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        Assert.DoesNotContain(PackageSections.Dependencies, ids);
-    }
-
-    [Fact]
     public void ViewSelection_RejectsUnknownAndInapplicableIds()
     {
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
@@ -322,9 +333,37 @@ public class InspectionViewDescriptorTests
         InspectionViewDescriptor abstractIl = Assert.Single(
             pipeline.GetInspectionViews(abstractMethod, includeInapplicable: true),
             view => view.Id == SectionNames.IL);
+        Assert.True(abstractIl.IsApplicable);
         Assert.False(abstractIl.IsAvailable);
         Assert.True(abstractIl.CanRender);
         Assert.Throws<InvalidOperationException>(
             () => pipeline.ResolveInspectionViews(abstractMethod, [SectionNames.IL]));
+    }
+
+    [Fact]
+    public void TypeDiscovery_OmitsBodyViewsWithoutExecutableBodies()
+    {
+        var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var model = new ApiType
+        {
+            Name = "IOnlyProperties",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001
+                }
+            ]
+        };
+
+        IReadOnlyList<string> discoverable = pipeline.GetDiscoverableSections(model);
+
+        Assert.DoesNotContain(SectionNames.IL, discoverable);
+        Assert.DoesNotContain(SectionNames.DecompiledSource, discoverable);
+        Assert.DoesNotContain(SectionNames.OriginalSource, discoverable);
+        Assert.DoesNotContain(SectionNames.SourceFiles, discoverable);
     }
 }

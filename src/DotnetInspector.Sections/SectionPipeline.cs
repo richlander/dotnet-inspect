@@ -453,8 +453,9 @@ public sealed class SectionPipeline<TModel>
             if (!IsSelectable(entry))
                 continue;
 
-            bool isApplicable = (entry.IsViewApplicable ?? entry.IsApplicable)(model);
-            if (!isApplicable && !includeInapplicable)
+            bool isApplicable = entry.IsApplicable(model);
+            bool isAvailable = (entry.IsViewApplicable ?? entry.IsApplicable)(model);
+            if (!isAvailable && !includeInapplicable)
                 continue;
 
             result.Add(new InspectionViewDescriptor(
@@ -462,10 +463,10 @@ public sealed class SectionPipeline<TModel>
                 Label: entry.Name,
                 Weight: index,
                 IsApplicable: isApplicable,
-                IsAvailable: isApplicable,
+                IsAvailable: isAvailable,
                 CanRender: entry.CanRender(model),
                 RenderProbeDeferred: !entry.ProbeEffectiveness,
-                IsDefault: isApplicable
+                IsDefault: isAvailable
                     && IsRequested(
                         entry,
                         index,
@@ -515,7 +516,7 @@ public sealed class SectionPipeline<TModel>
                     throw new ArgumentException($"Unknown inspection view ID '{id}'.", nameof(viewIds));
                 if (!view.IsAvailable)
                     throw new InvalidOperationException(
-                        $"Inspection view '{id}' does not apply to this target.");
+                        $"Inspection view '{id}' is not available for this target.");
                 requested.Add(view);
             }
 

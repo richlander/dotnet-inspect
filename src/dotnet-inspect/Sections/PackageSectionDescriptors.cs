@@ -322,8 +322,7 @@ public static class PackageSectionDescriptors
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
-            => !IsPlatformRuntime(model)
-               && model.DependencyGroups is { Count: > 0 };
+            => model.DependencyGroups is { Count: > 0 };
     }
 
     public sealed class Manifest : ISectionDescriptor<InspectionResult>
@@ -375,11 +374,7 @@ public static class PackageSectionDescriptors
     private static bool Matches(InspectionResult model, string section)
         => PackageFileFamily.PredicateFor(section) is { } predicate
            && model.PackageFiles?.Any(predicate) == true;
-
     private static bool HasLibraries(InspectionResult model)
         => model.LibraryFiles is { Count: > 0 }
            || model.AssemblyCount > 0;
-
-    private static bool IsPlatformRuntime(InspectionResult model)
-        => model.IsPlatformRuntime;
 }

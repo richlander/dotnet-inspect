@@ -22,14 +22,6 @@ public class InspectionResult
     public string? Source { get; set; }
 
     /// <summary>
-    /// Whether this target represents the resident runtime rather than a NuGet package.
-    /// Producers set this typed classification; consumers must not infer it from
-    /// <see cref="Source"/> display text.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool IsPlatformRuntime { get; set; }
-
-    /// <summary>
     /// The package description, already contained for a prose sink.
     /// </summary>
     [JsonConverter(typeof(InertStringJsonConverter))]

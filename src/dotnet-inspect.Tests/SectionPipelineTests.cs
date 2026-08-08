@@ -6193,14 +6193,14 @@ public class SectionPipelineTests
             Members =
             [
                 new ApiMember { Name = "Value", Kind = "field", EnumValue = 1 },
-                new ApiMember { Name = ".ctor", Kind = "constructor" },
-                new ApiMember { Name = "Finalize", Kind = "finalizer" },
+                new ApiMember { Name = ".ctor", Kind = "constructor", HasMethodBody = true },
+                new ApiMember { Name = "Finalize", Kind = "finalizer", HasMethodBody = true },
                 new ApiMember { Name = "Field", Kind = "field" },
                 new ApiMember { Name = "Property", Kind = "property" },
-                new ApiMember { Name = "Method", Kind = "method" },
-                new ApiMember { Name = "op_Equality", Kind = "operator" },
-                new ApiMember { Name = "IFoo.Bar", Kind = "explicit-interface-implementation" },
-                new ApiMember { Name = "Ext", Kind = "extension-method" },
+                new ApiMember { Name = "Method", Kind = "method", HasMethodBody = true },
+                new ApiMember { Name = "op_Equality", Kind = "operator", HasMethodBody = true },
+                new ApiMember { Name = "IFoo.Bar", Kind = "explicit-interface-implementation", HasMethodBody = true },
+                new ApiMember { Name = "Ext", Kind = "extension-method", HasMethodBody = true },
                 new ApiMember { Name = "Changed", Kind = "event" }
             ]
         };
@@ -6209,7 +6209,7 @@ public class SectionPipelineTests
         {
             Name = "Sample",
             Kind = "class",
-            Members = [new ApiMember { Name = "Method", Kind = "method" }]
+            Members = [new ApiMember { Name = "Method", Kind = "method", HasMethodBody = true }]
         };
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         yield return DiscoverableCase("member", memberPipeline, apiType, detailType);
