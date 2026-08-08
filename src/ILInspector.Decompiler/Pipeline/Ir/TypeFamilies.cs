@@ -28,21 +28,32 @@ internal static class SwitchTypeFacts
 {
     /// <summary>
     /// Returns the enum type carried by a switch value, including an enum loaded
-    /// indirectly through its primitive storage opcode and an unresolved external
-    /// enum whose non-primitive definition is proven by type-safe switch IL.
+    /// indirectly or from an array through its primitive storage opcode, and an
+    /// unresolved external enum whose non-primitive definition is proven by
+    /// type-safe switch IL.
     /// </summary>
     public static TypeRef? EnumType(IrFunction function, IrExpression value)
     {
-        var type = value is LoadIndirect
+        var type = value switch
+        {
+            LoadIndirect
             {
                 Address.ResultType:
                 {
                     Kind: TypeRefKind.ByRef or TypeRefKind.Pointer,
                     ElementType: { } pointee,
                 },
-            }
-            ? pointee
-            : value.ResultType;
+            } => pointee,
+            LoadElement
+            {
+                Array.ResultType:
+                {
+                    Kind: TypeRefKind.SzArray or TypeRefKind.Array,
+                    ElementType: { } element,
+                },
+            } => element,
+            _ => value.ResultType,
+        };
         if (type is null)
             return null;
         if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)

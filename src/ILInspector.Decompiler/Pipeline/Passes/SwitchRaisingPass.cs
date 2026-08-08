@@ -2066,7 +2066,7 @@ public sealed class SwitchRaisingPass : IIrPass
             } binary
             || SwitchTypeFacts.EnumType(function, left) is not { } enumType
             || function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is not { } underlying
-            || TypeFamilies.Of(underlying) == StackFamily.I8)
+            || TypeFamilies.Of(underlying) != StackFamily.I4)
         {
             return false;
         }
@@ -2074,8 +2074,7 @@ public sealed class SwitchRaisingPass : IIrPass
         int restoredLabelBase = binary.Kind == BinaryKind.Subtract
             ? offset
             : unchecked(-offset);
-        if (TypeFamilies.Of(underlying) == StackFamily.I4
-            && underlying.Name is not ("Int32" or "UInt32")
+        if (underlying.Name is not ("Int32" or "UInt32")
             && Enumerable.Range(0, labelCount)
                 .Select(index => unchecked(restoredLabelBase + index))
                 .Any(label => !CSharpConversionRules.ConstantFits(label, underlying)))

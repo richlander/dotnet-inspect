@@ -39,6 +39,15 @@ enum HighOffsetAlgorithm : uint
     Fifth = 0x80000004u,
 }
 
+enum ArrayOffsetAlgorithm
+{
+    First = 24,
+    Second = 25,
+    Third = 26,
+    Fourth = 27,
+    Fifth = 28,
+}
+
 static class SharedGuardSwitchFixture
 {
     public static void Check(SharedGuardAlgorithm algorithm)
@@ -171,6 +180,29 @@ static class SharedGuardSwitchFixture
         HighOffsetAlgorithm.Fifth => 5,
         _ => -1,
     };
+
+    public static int ClassifyArrayElement(ArrayOffsetAlgorithm[] values, int index)
+    {
+        switch (values[index])
+        {
+            case ArrayOffsetAlgorithm.First: return 1;
+            case ArrayOffsetAlgorithm.Second: return 2;
+            case ArrayOffsetAlgorithm.Third: return 3;
+            case ArrayOffsetAlgorithm.Fourth: return 4;
+            case ArrayOffsetAlgorithm.Fifth: return 5;
+            default: return -1;
+        }
+    }
+
+    public static int ClassifyArrayElementExpression(ArrayOffsetAlgorithm[] values, int index) => values[index] switch
+    {
+        ArrayOffsetAlgorithm.First => 1,
+        ArrayOffsetAlgorithm.Second => 2,
+        ArrayOffsetAlgorithm.Third => 3,
+        ArrayOffsetAlgorithm.Fourth => 4,
+        ArrayOffsetAlgorithm.Fifth => 5,
+        _ => -1,
+    };
 }
 
 [Trait("Area", "Pass")]
@@ -246,6 +278,75 @@ public class SwitchRaisingSharedGuardTests
         Assert.DoesNotContain("algorithm -", output);
     }
 
+    [Theory]
+    [InlineData(nameof(SharedGuardSwitchFixture.ClassifyArrayElement), false)]
+    [InlineData(nameof(SharedGuardSwitchFixture.ClassifyArrayElementExpression), true)]
+    public void CompilerProducedEnumArraySwitch_RestoresElementType(string methodName, bool isExpression)
+    {
+        var function = Import(methodName);
+        var lowered = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.IsType<Binary>(lowered.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output!;
+        if (isExpression)
+            Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        else
+            Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Contains("ArrayOffsetAlgorithm.First", output);
+        Assert.Contains("ArrayOffsetAlgorithm.Fifth", output);
+        Assert.DoesNotContain(" - 24", output);
+    }
+
+    [Fact]
+    public void EnumArrayElementOffset_RestoresSemanticElementType()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            s_int,
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = s_int,
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadElement>(node.Value);
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NarrowEnumArrayElementWithOutOfRangeLabels_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            s_int,
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 300, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadElement>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
     [Fact]
     public void PrecedingGuardAndCasesSharingContinuation_RaisesToSwitch()
     {
@@ -311,6 +412,25 @@ public class SwitchRaisingSharedGuardTests
         function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
         {
             [enumType] = TypeRef.CoreLib("System", "Int64"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NativeBackedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "NativeAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "IntPtr"),
         };
 
         new SwitchRaisingPass().Run(function, PassContext.None);
@@ -768,7 +888,8 @@ public class SwitchRaisingSharedGuardTests
         int switchOffset = 24,
         bool guardTargetsCaseBody = false,
         bool defaultExitsToContinuation = false,
-        bool defaultContainsNestedLoopBreak = false)
+        bool defaultContainsNestedLoopBreak = false,
+        IrExpression? switchValue = null)
     {
         governingType ??= s_int;
         var body = new BlockContainer();
@@ -794,7 +915,7 @@ public class SwitchRaisingSharedGuardTests
                 BinaryKind.Subtract,
                 isChecked: switchIsChecked,
                 isUnsigned: false,
-                new LoadArgument(0, "algorithm", governingType),
+                switchValue ?? new LoadArgument(0, "algorithm", governingType),
                 new Constant(switchOffset, s_int)),
             [0x30, 0x30, 0x20, 0x20]));
         body.Add(dispatch);
