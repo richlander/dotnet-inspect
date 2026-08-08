@@ -62,11 +62,15 @@ The launchers install `dotnetup` under `$HOME/.local/bin` by default. Set
 `DOTNETUP_INSTALL_DIR` to choose another location. They do not alter `PATH`,
 shell startup files, or the centrally installed SDK. CI continues to use
 `actions/setup-dotnet` because the runner is already an isolated environment.
+If an SDK refresh fails, they warn and use an already-installed .NET 11 SDK;
+without one, preparation fails.
 On Windows, invoke `dotnet.ps1` directly from PowerShell 7.3 or later. The
 launcher rejects older hosts because they cannot reliably preserve empty
 arguments, embedded quotes, and trailing backslashes. Quote the bare `--`,
 colon-form options such as `-v:q` or `-p:Value=x`, and values containing
 PowerShell metacharacters so PowerShell passes each one as a single argument.
+Use `eng/dotnet.sh` from Bash on macOS or Linux; the PowerShell launcher rejects
+non-Windows hosts.
 
 If dotnetup is already installed and you want a temporary shell/process
 override instead, evaluate its supported environment script:

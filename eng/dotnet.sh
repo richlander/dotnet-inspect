@@ -31,8 +31,15 @@ if [ ! -x "$dotnetup" ]; then
     trap - EXIT
 fi
 
-if ! install_output="$("$dotnetup" sdk install 11 --interactive false --no-progress 2>&1)"; then
-    printf '%s\n' "$install_output" >&2
-    exit 1
+if install_output="$("$dotnetup" sdk install 11 --interactive false --no-progress 2>&1)"; then
+    :
+else
+    install_exit=$?
+    sdk_output="$("$dotnetup" dotnet -- --list-sdks 2>&1)" || sdk_output=""
+    if ! printf '%s\n' "$sdk_output" | grep -Eq '^11\.'; then
+        printf '%s\n' "$install_output" >&2
+        exit "$install_exit"
+    fi
+    echo "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK." >&2
 fi
 exec "$dotnetup" dotnet -- "$@"

@@ -4,6 +4,12 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $PSNativeCommandArgumentPassing = "Standard"
 
+if (-not $IsWindows) {
+    [Console]::Error.WriteLine(
+        "eng/dotnet.ps1 supports Windows only; use eng/dotnet.sh on macOS or Linux.")
+    exit 2
+}
+
 if ($args.Count -eq 0) {
     [Console]::Error.WriteLine("Usage: .\eng\dotnet.ps1 <dotnet arguments>")
     exit 2
@@ -59,12 +65,22 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
 $installOutput = & $dotnetup sdk install 11 --interactive false --no-progress 2>&1
 $installExitCode = $LASTEXITCODE
 if ($installExitCode -ne 0) {
-    foreach ($line in $installOutput) {
-        [Console]::Error.WriteLine($line)
+    $sdkOutput = & $dotnetup dotnet -- --list-sdks 2>&1
+    $sdkExitCode = $LASTEXITCODE
+    $hasDotnet11 = $sdkExitCode -eq 0 -and @(
+        $sdkOutput | Where-Object { $_ -match '^11\.' }
+    ).Count -gt 0
+    if (-not $hasDotnet11) {
+        foreach ($line in $installOutput) {
+            [Console]::Error.WriteLine($line)
+        }
+        [Console]::Error.WriteLine(
+            "dotnetup could not prepare the .NET 11 SDK (exit $installExitCode).")
+        exit $installExitCode
     }
+
     [Console]::Error.WriteLine(
-        "dotnetup could not prepare the .NET 11 SDK (exit $installExitCode).")
-    exit $installExitCode
+        "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK.")
 }
 
 & $dotnetup dotnet -- @args
