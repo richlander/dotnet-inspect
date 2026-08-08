@@ -57,7 +57,11 @@ through a typed, content-shaped registry over a host-owned
 `AssemblyInspectionSession`. The `References`, `Extension Methods`, and
 `Library Info` sections bind to concrete query definitions rather than string
 scanner keys, and the CLI and package convenience route lower section selection
-into that same registry.
+into that same registry. Separately, the first workspace query executes
+Integrations inspection across every participant in one binding-consistent
+assembly context group, reusing retained immutable content and returning
+per-participant evidence or failure. No command uses that group-scoped query
+yet.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
