@@ -5,6 +5,7 @@ using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using ILInspector.Instructions;
 using DotnetInspector.RoundTripCompilation;
+using DotnetInspector.Services;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1323,6 +1324,47 @@ public class ReturnToSenderPrototypeTests
                 "RtsForward_IProbe_Target",
                 result.Source,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "System.Text.Json.dll"),
+            BuildConfusableAssemblyImage(platformPath));
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
         }
         finally
         {
@@ -8479,6 +8521,53 @@ public class ReturnToSenderPrototypeTests
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildConfusableAssemblyImage(string platformPath)
+    {
+        using var stream = File.OpenRead(platformPath);
+        using var reader = new PEReader(stream);
+        var platformMetadata = reader.GetMetadataReader();
+        var platformAssembly = platformMetadata.GetAssemblyDefinition();
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name) + ".dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name)),
+            platformAssembly.Version,
+            platformAssembly.Culture.IsNil
+                ? default
+                : metadata.GetOrAddString(
+                    platformMetadata.GetString(platformAssembly.Culture)),
+            platformAssembly.PublicKey.IsNil
+                ? default
+                : metadata.GetOrAddBlob(
+                    platformMetadata.GetBlobBytes(platformAssembly.PublicKey)),
+            platformAssembly.Flags,
+            platformAssembly.HashAlgorithm);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();

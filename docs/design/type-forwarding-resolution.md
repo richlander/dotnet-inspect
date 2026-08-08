@@ -2661,6 +2661,8 @@ gates the nested-forwarder composition from declaration chain through final
 definition.
 `ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod`
 gates the compile-back harness's structured forwarder wiring.
+`ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
+gates candidate consistency when resolution tightens a signed forwarder hop.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 

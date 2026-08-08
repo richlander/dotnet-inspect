@@ -2021,7 +2021,7 @@ public static class CompileBackSourceComposer
         }
     }
 
-    static (
+    internal static (
         ResolvedAssemblyReference Assembly,
         MetadataTypeDefinitionAddress Address)?
         ResolveExternalTypeDefinition(
@@ -2056,8 +2056,22 @@ public static class CompileBackSourceComposer
             if (context.Resolve(request)
                 is TypeResolutionOutcome.Resolved resolved)
             {
+                ResolvedAssemblyReference definitionAssembly =
+                    resolved.Definition.Assembly.Assembly;
+                // The structured walk may tighten a signed forwarder hop to Platform,
+                // but Roslyn compiles against ResolveAll's sibling-first closure.
+                ResolvedAssemblyReference? compilationAssembly =
+                    resolver.Resolve(
+                        definitionAssembly.Identity,
+                        AssemblyResolutionScope.Any);
+                if (compilationAssembly?.Registration
+                    != definitionAssembly.Registration)
+                {
+                    return null;
+                }
+
                 return (
-                    resolved.Definition.Assembly.Assembly,
+                    definitionAssembly,
                     resolved.Definition.Address);
             }
         }
