@@ -93,6 +93,95 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 
+    [Fact]
+    public void EmptyLocalFunction_IsRaisedAndKeepsFullFidelity()
+    {
+        var type = typeof(UnraisedLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(UnraisedLocalFunctionSamples.CallsEmpty));
+        Assert.NotNull(function);
+        IrFunction? importedBody = null;
+        bool importedAsSingleVoidReturn = false;
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method =>
+            {
+                importedBody = IrImporter.Import(source, method);
+                importedAsSingleVoidReturn = importedBody?.Body.Blocks
+                    is [{ Children: [Return { Value: null }] }];
+                return importedBody;
+            });
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.True(importedAsSingleVoidReturn);
+        Assert.NotNull(importedBody);
+        string output = result.Output!.ReplaceLineEndings("\n").Trim();
+
+        Assert.Equal(
+            """
+            F();
+            return;
+            static void F()
+            {
+            }
+            """.ReplaceLineEndings("\n"),
+            output);
+        Assert.DoesNotContain("_g__F_", output);
+        Assert.Equal(DecompilationFidelity.Full, function!.Fidelity);
+    }
+
+    [Fact]
+    public void EmptyLocalFunction_WhenBodyImportFails_RemainsDeclined()
+    {
+        var type = typeof(UnraisedLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(UnraisedLocalFunctionSamples.CallsEmpty));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, _ => null);
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!.ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("static void F(", output);
+        Assert.DoesNotContain("F();", output);
+        Assert.Contains("_g__F_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
+    [Fact]
+    public void EmptyNonVoidImportedBody_RemainsDeclined()
+    {
+        var type = typeof(UnraisedLocalFunctionSamples);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source, type.FullName!, nameof(UnraisedLocalFunctionSamples.CallsRaisedIf));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(
+            function!,
+            method =>
+            {
+                var importedBody = IrImporter.Import(source, method);
+                Assert.NotNull(importedBody);
+                foreach (var statement in importedBody.Body.Blocks
+                    .SelectMany(block => block.Children)
+                    .ToArray())
+                {
+                    statement.Detach();
+                }
+                return importedBody;
+            });
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        string output = result.Output!.ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("static int F(", output);
+        Assert.DoesNotContain("return F(", output);
+        Assert.Contains("_g__F_", output);
+        Assert.Equal(DecompilationFidelity.Partial, function!.Fidelity);
+    }
+
     /// <summary>
     /// The gate for the no-seam boundary. Three shipped output paths print with no
     /// import seam — <c>CSharpBodyDiff</c> and two <c>ResearchViews</c> lenses — and
