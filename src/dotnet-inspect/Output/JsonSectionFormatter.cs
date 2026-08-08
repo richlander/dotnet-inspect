@@ -200,6 +200,9 @@ internal sealed class JsonSectionFormatter :
         int skippedRows,
         MarkoutWriterOptions options)
     {
+        if (options.Projection?.IncludeColumns is { Count: > 0 })
+            ProjectionHeaderValidation.RejectDuplicateResolvedColumns(headers);
+
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
         foreach (var row in rows)
@@ -208,6 +211,9 @@ internal sealed class JsonSectionFormatter :
 
     public void BeginTable(TextWriter writer, ReadOnlySpan<string> headers, MarkoutWriterOptions options)
     {
+        if (options.Projection?.IncludeColumns is { Count: > 0 })
+            ProjectionHeaderValidation.RejectDuplicateResolvedColumns(headers);
+
         var section = RequireSection(SectionKind.Table);
         section.SetHeaders(headers);
         _streamingTable = section;

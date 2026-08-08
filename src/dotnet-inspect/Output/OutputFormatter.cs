@@ -24,7 +24,7 @@ public static class OutputFormatter
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
         var sw = new StringWriter { NewLine = "\n" };
-        serialize(sw, new TableFormatter(showHeader));
+        serialize(sw, CreateTableFormatter(showHeader));
         return sw.ToString();
     }
 
@@ -40,12 +40,15 @@ public static class OutputFormatter
         // those wrappers to preserve byte-identical output; their output is already small.
         if (maxRows is null or { IsUnlimited: true } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
-            serialize(output, new TableFormatter(showHeader));
+            serialize(output, CreateTableFormatter(showHeader));
             return;
         }
 
         output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
     }
+
+    private static IMarkoutFormatter CreateTableFormatter(bool showHeader) =>
+        new ProjectionValidatingTableFormatter(new TableFormatter(showHeader));
 
     /// <summary>
     /// Trims a rendered single-section table to <paramref name="maxRows"/> data rows,

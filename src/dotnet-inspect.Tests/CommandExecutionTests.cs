@@ -6127,6 +6127,46 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("CommandExecutionTests", output, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("Type,*", "--json")]
+    [InlineData("Type,*", "--jsonl")]
+    [InlineData("Type,*", "--tsv")]
+    [InlineData("Type,*", "--table")]
+    [InlineData("T*,*e", "--json")]
+    [InlineData("T*,*e", "--jsonl")]
+    [InlineData("T*,*e", "--tsv")]
+    [InlineData("T*,*e", "--table")]
+    public async Task Find_OverlappingColumnPatterns_FailClosedInEveryFormat(string columns, string format)
+    {
+        // Distinct request spellings can still resolve to the same source column. Validate the
+        // resolved headers at the shared formatter boundary so keyed formats cannot emit duplicate
+        // properties and every format agrees that the projection is invalid.
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, "--columns", columns, format);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(ProjectionHeaderValidation.DuplicateResolvedColumnMessage, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Find_DisjointColumnPatterns_AreStillAccepted()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath,
+            "--columns", "Ty*,Lib*", "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        using var row = JsonDocument.Parse(output.Trim());
+        Assert.Equal(
+            ["type", "library"],
+            row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
     [Fact]
     public async Task Find_DuplicateColumn_IsDetectedCaseInsensitively()
     {
@@ -12333,6 +12373,32 @@ public partial class CommandExecutionTests
             Assert.Contains($"No columns matched projection: {column}", error);
             Assert.DoesNotContain("System.InvalidOperationException", error);
             Assert.DoesNotContain("MarkoutProjection.ComputeColumnMap", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OverlappingColumnPatterns_UseGlobalErrorContract()
+    {
+        // PackageCommand has no catch-all, so this pins the top-level typed exception handler rather
+        // than succeeding through find's local error handling.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.OverlappingColumns",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--columns", "Field,*", "--table", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ProjectionHeaderValidation.DuplicateResolvedColumnMessage, error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("at DotnetInspector", error, StringComparison.Ordinal);
         }
         finally
         {
