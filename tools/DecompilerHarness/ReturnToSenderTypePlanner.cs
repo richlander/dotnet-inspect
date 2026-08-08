@@ -1982,31 +1982,31 @@ public static class CompileBackSourceComposer
     {
         try
         {
-            var location = TypeForwardResolver.LocateType(
+            if (ResolveExternalTypeDefinition(
                     assembly,
                     metadataFullName,
-                    resolver,
-                    scope: AssemblyResolutionScope.Any)
-                ?? TypeForwardResolver.LocateType(
-                    assembly,
-                    metadataFullName,
-                    resolver,
-                    scope: AssemblyResolutionScope.Platform);
-            if (location is null)
+                    resolver)
+                is not { } definition)
+            {
                 return false;
+            }
 
-            using var stream = location.OpenRead();
+            using var stream = definition.Assembly.OpenRead();
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
                 return false;
 
             var externalReader = peReader.GetMetadataReader();
-            if (TypeProducer.FindType(externalReader, location.FullTypeName) is not { } interfaceHandle)
+            if (!definition.Address.TryResolve(
+                    externalReader,
+                    out TypeDefinitionHandle interfaceHandle))
+            {
                 return false;
+            }
 
-            string assemblyKey = location.AssemblyPath is { Length: > 0 } path
+            string assemblyKey = definition.Assembly.Path is { Length: > 0 } path
                 ? Path.GetFullPath(path)
-                : location.AssemblyKey;
+                : $"{definition.Assembly.Identity}|{definition.Address.ModuleVersionId}";
             return TryCollectRequiredInterfaceMethods(
                 externalReader,
                 interfaceHandle,
@@ -2019,6 +2019,50 @@ public static class CompileBackSourceComposer
         {
             return false;
         }
+    }
+
+    static (
+        ResolvedAssemblyReference Assembly,
+        MetadataTypeDefinitionAddress Address)?
+        ResolveExternalTypeDefinition(
+            ResolvedAssemblyReference assembly,
+            string metadataFullName,
+            AssemblyDependencyResolver resolver)
+    {
+        int separator = metadataFullName.LastIndexOf('.');
+        string @namespace = separator < 0
+            ? ""
+            : metadataFullName[..separator];
+        string name = metadataFullName[(separator + 1)..];
+        if (MetadataTypeDefinitionName.Create(@namespace, [name])
+            is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return null;
+        }
+
+        foreach (AssemblyResolutionScope scope in
+            new[] { AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform })
+        {
+            TypeResolutionRequest request =
+                TypeResolutionRequest.FromAssembly(
+                    assembly,
+                    scope,
+                    valid.Name);
+            using TypeResolutionContext context =
+                TypeResolutionContext.Create(
+                    resolver,
+                    [assembly],
+                    [request]);
+            if (context.Resolve(request)
+                is TypeResolutionOutcome.Resolved resolved)
+            {
+                return (
+                    resolved.Definition.Assembly.Assembly,
+                    resolved.Definition.Address);
+            }
+        }
+
+        return null;
     }
 
     static bool TryCollectRequiredInterfaceMethods(

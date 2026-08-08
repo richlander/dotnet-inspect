@@ -1234,6 +1234,64 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var facadePath = CompileFixture(
+            "namespace RtsForward { public interface IProbe { void Target(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsForwardFacade");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ForwardedImpl : RtsForward.IProbe
+            {
+                void RtsForward.IProbe.Target() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(facadePath)]);
+        var targetPath = CompileFixture(
+            "namespace RtsForward { public interface IProbe { void Target(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsForwardTarget");
+        CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(RtsForward.IProbe))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(targetPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ForwardedImpl",
+                    "RtsForward.IProbe.Target",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "RtsForward.IProbe.Target()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "RtsForward_IProbe_Target",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     // Close-negative for the shadow-decline (#3112 review): a compiler-authored sibling whose
     // simple name matches a *non-leading* segment of the interface spelling must NOT trigger a
     // decline. Only the FIRST segment (`System`) can be shadowed into a compile error, because
