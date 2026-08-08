@@ -65,9 +65,7 @@ public static class PackageCacheService
     /// </summary>
     public static long ClearCache()
     {
-        long totalFreed = 0;
-
-        totalFreed += DeleteCacheDirectory(NuGetCache.GetAppCacheBasePath());
+        long totalFreed = CoreCache.Clear();
 
         // Clean up legacy cache location (pre-XDG: ~/.local/share/dotnet-inspect)
         var legacyPath = CoreCache.GetLegacyBasePath();
@@ -84,7 +82,14 @@ public static class PackageCacheService
             return 0;
 
         var (size, _) = GetDirectoryStats(path);
-        Directory.Delete(path, recursive: true);
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (DirectoryNotFoundException) when (!Directory.Exists(path))
+        {
+            // Another process completed the same cache deletion.
+        }
         return size;
     }
 

@@ -1,4 +1,4 @@
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// Parses fully-qualified names with optional namespace, type, member, and overload notation.
@@ -42,7 +42,7 @@ public static class FqnParser
         if (lastDot <= 0)
         {
             // No member separator - the whole thing is a (possibly primitive/generic) type name.
-            return new ParseResult(null, TypeMatcher.Normalize(work), null, overloadIndex);
+            return new ParseResult(null, NormalizeTypeName(work), null, overloadIndex);
         }
 
         var rightSegment = work[(lastDot + 1)..];
@@ -60,7 +60,7 @@ public static class FqnParser
             // NOT a Type.Member pattern - this is just a (possibly qualified) type name.
             // Don't try to split namespace from type; return the whole thing as TypeName
             // and let the type resolution logic elsewhere handle namespace splitting.
-            return new ParseResult(null, TypeMatcher.Normalize(work), null, overloadIndex);
+            return new ParseResult(null, NormalizeTypeName(work), null, overloadIndex);
         }
 
         // This is Type.Member or Namespace.Type.Member. Look for another top-level dot to the
@@ -74,7 +74,7 @@ public static class FqnParser
             typePart = leftSegment[(secondLastDot + 1)..];
         }
 
-        return new ParseResult(qualifiedPrefix, TypeMatcher.Normalize(typePart), rightSegment, overloadIndex);
+        return new ParseResult(qualifiedPrefix, NormalizeTypeName(typePart), rightSegment, overloadIndex);
     }
 
     /// <summary>
@@ -112,6 +112,123 @@ public static class FqnParser
     }
 
     /// <summary>
+    /// Normalizes a type selector by converting C#-style generic arguments to
+    /// CLR backtick notation.
+    /// </summary>
+    public static string NormalizeTypeName(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return typeName;
+
+        var trimmed = typeName.Trim();
+        if (typeName.Equals(trimmed, StringComparison.Ordinal)
+            && PrimitiveTypeNames.TryToClrFullName(typeName, out var primitiveFullName))
+            return primitiveFullName;
+
+        var angleIdx = typeName.IndexOf('<');
+        if (angleIdx <= 0)
+            return typeName;
+
+        var closeIdx = typeName.LastIndexOf('>');
+        if (closeIdx <= angleIdx)
+            return typeName;
+
+        var baseName = typeName[..angleIdx];
+        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx));
+        var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
+        return $"{baseName}`{arity}{suffix}";
+    }
+
+    /// <summary>
+    /// Normalizes a member selector to metadata member notation.
+    /// </summary>
+    public static string NormalizeMemberName(string memberName)
+    {
+        memberName = memberName.Trim();
+        var angleIdx = memberName.IndexOf('<');
+        if (angleIdx > 0)
+        {
+            var closeIdx = memberName.LastIndexOf('>');
+            if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
+                memberName = memberName[..angleIdx];
+        }
+
+        return NormalizeOperatorOrSpecialMemberName(memberName);
+    }
+
+    private static string NormalizeOperatorOrSpecialMemberName(string memberName)
+    {
+        if (memberName.Equals("ctor", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("constructor", StringComparison.OrdinalIgnoreCase))
+            return ".ctor";
+
+        if ((memberName.StartsWith("this[", StringComparison.OrdinalIgnoreCase)
+                && memberName.EndsWith("]", StringComparison.Ordinal))
+            || memberName.Equals("this", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
+            return "this[]";
+
+        if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
+            memberName = memberName["operator".Length..].Trim();
+        else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
+            return memberName;
+
+        var compact = memberName.Replace(" ", "", StringComparison.Ordinal);
+        return compact.ToLowerInvariant() switch
+        {
+            "implicit" => "op_Implicit",
+            "explicit" => "op_Explicit",
+            "checkedimplicit" => "op_CheckedImplicit",
+            "checkedexplicit" => "op_CheckedExplicit",
+            "+" => "op_Addition",
+            "checked+" => "op_CheckedAddition",
+            "-" => "op_Subtraction",
+            "checked-" => "op_CheckedSubtraction",
+            "*" => "op_Multiply",
+            "checked*" => "op_CheckedMultiply",
+            "/" => "op_Division",
+            "%" => "op_Modulus",
+            "++" => "op_Increment",
+            "checked++" => "op_CheckedIncrement",
+            "--" => "op_Decrement",
+            "checked--" => "op_CheckedDecrement",
+            "==" => "op_Equality",
+            "!=" => "op_Inequality",
+            "<" => "op_LessThan",
+            ">" => "op_GreaterThan",
+            "<=" => "op_LessThanOrEqual",
+            ">=" => "op_GreaterThanOrEqual",
+            "&" => "op_BitwiseAnd",
+            "|" => "op_BitwiseOr",
+            "^" => "op_ExclusiveOr",
+            "~" => "op_OnesComplement",
+            "!" => "op_LogicalNot",
+            "<<" => "op_LeftShift",
+            ">>" => "op_RightShift",
+            ">>>" => "op_UnsignedRightShift",
+            "true" => "op_True",
+            "false" => "op_False",
+            _ => memberName
+        };
+    }
+
+    internal static int CountTypeParameters(ReadOnlySpan<char> typeParams)
+    {
+        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
+            return 0;
+
+        int count = 1;
+        int depth = 0;
+        foreach (char c in typeParams)
+        {
+            if (c == '<') depth++;
+            else if (c == '>') depth--;
+            else if (c == ',' && depth == 0) count++;
+        }
+        return count;
+    }
+
+    /// <summary>
     /// Parses a member filter value, extracting the overload index if present.
     /// </summary>
     /// <param name="value">Member filter (e.g., "IndexOf:3", "Deserialize")</param>
@@ -119,6 +236,6 @@ public static class FqnParser
     public static (string Name, int? Index) ParseMemberFilter(string value)
     {
         var (head, index) = TrySplitOverload(value);
-        return (TypeMatcher.NormalizeMemberName(head), index);
+        return (NormalizeMemberName(head), index);
     }
 }

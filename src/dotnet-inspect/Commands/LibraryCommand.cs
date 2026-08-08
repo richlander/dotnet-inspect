@@ -41,7 +41,10 @@ public class LibraryCommand
     /// so the one method that computes the requested set is also the one that records it.
     /// </summary>
     private static readonly (string Reason, InspectionQueryDefinition Query)[] DiscoveryQueries =
-        [("discovery catalog", MetadataImageQuery.Definition)];
+    [
+        ("discovery catalog", MetadataImageQuery.Definition),
+        ("References applicability", AssemblyReferencesQuery.Definition),
+    ];
 
     public static async Task<int> ExecuteAsync(LibraryOptions options)
     {
@@ -440,13 +443,26 @@ public class LibraryCommand
                 Verbosity.Quiet, include: [], fixedOverview: false, trace: trace)
             : pipeline.GetRequiredScanners(
                 options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace);
-        var queries = discoveryInspection && !fullEffectiveDiscovery
-            ? pipeline.GetRequiredQueries(
-                Verbosity.Quiet, include: [], fixedOverview: false, trace: trace,
-                commandDemand: DiscoveryQueries)
-            : pipeline.GetRequiredQueries(
-                options.Verbosity, discoveryExecutionScope, options.FixedOverview, trace,
-                discoveryInspection ? DiscoveryQueries : null);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (discoveryInspection)
+            commandQueryDemand.AddRange(DiscoveryQueries);
+        if (options.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+
+        var queries = pipeline.GetRequiredQueries(
+            discoveryInspection && !fullEffectiveDiscovery
+                ? Verbosity.Quiet
+                : options.Verbosity,
+            discoveryInspection && !fullEffectiveDiscovery
+                ? []
+                : discoveryExecutionScope,
+            discoveryInspection && !fullEffectiveDiscovery
+                ? false
+                : options.FixedOverview,
+            trace,
+            commandQueryDemand);
         var inspectionOptions = fullEffectiveDiscovery
             && options.IncludeSections is not { Count: > 0 }
             ? options with { IncludeSections = discoveryExecutionScope }
@@ -457,7 +473,6 @@ public class LibraryCommand
             {
                 // Assembly references are a cheap metadata fact. Discovery never needs the
                 // transitive projection because References effectiveness is established directly.
-                CollectReferences = true,
                 CollectReferenceTree = false,
             };
         }
@@ -467,7 +482,6 @@ public class LibraryCommand
                 options.Verbosity, options.IncludeSections, options.FixedOverview);
             inspectionOptions = inspectionOptions with
             {
-                CollectReferences = candidates.Contains(SectionNames.References),
                 CollectReferenceTree = options.Tree
                     && candidates.Contains(SectionNames.References),
             };
