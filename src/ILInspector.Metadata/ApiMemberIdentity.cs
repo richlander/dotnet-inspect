@@ -658,20 +658,86 @@ public static class ApiMemberIdentity
 
     static string FormatDefinitionName(MetadataReader reader, TypeDefinitionHandle handle)
     {
-        var type = reader.GetTypeDefinition(handle);
-        var genericNames = type.GetGenericParameters()
-            .Select(parameter => reader.GetString(reader.GetGenericParameter(parameter).Name))
-            .ToArray();
-        string name = reader.GetString(type.Name);
-        int tick = name.IndexOf('`');
-        string simple = tick < 0 ? name : name[..tick];
-        if (genericNames.Length > 0)
-            simple += $"<{string.Join(",", genericNames)}>";
-        var declaring = type.GetDeclaringType();
-        if (!declaring.IsNil)
-            return $"{FormatDefinitionName(reader, declaring)}.{simple}";
-        string ns = reader.GetString(type.Namespace);
-        return string.IsNullOrEmpty(ns) ? simple : $"{ns}.{simple}";
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                handle,
+                chain,
+                out int consumed,
+                out EntityHandle terminal,
+                out var rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        var builder = new StringBuilder();
+        string @namespace = reader.GetString(
+            reader.GetTypeDefinition(chain[0]).Namespace);
+        if (!string.IsNullOrEmpty(@namespace))
+        {
+            AppendAnchorName(builder, @namespace);
+            AppendAnchorName(builder, ".");
+        }
+
+        for (int i = 0; i < consumed; i++)
+        {
+            if (i > 0)
+                AppendAnchorName(builder, ".");
+
+            var type = reader.GetTypeDefinition(chain[i]);
+            string name = reader.GetString(type.Name);
+            int tick = name.IndexOf('`');
+            AppendAnchorName(
+                builder,
+                name,
+                tick < 0 ? name.Length : tick);
+
+            var genericParameters = type.GetGenericParameters();
+            if (genericParameters.Count == 0)
+                continue;
+
+            AppendAnchorName(builder, "<");
+            int index = 0;
+            foreach (GenericParameterHandle parameter in genericParameters)
+            {
+                if (index++ > 0)
+                    AppendAnchorName(builder, ",");
+                AppendAnchorName(
+                    builder,
+                    reader.GetString(
+                        reader.GetGenericParameter(parameter).Name));
+            }
+            AppendAnchorName(builder, ">");
+        }
+
+        return builder.ToString();
+    }
+
+    static void AppendAnchorName(
+        StringBuilder builder,
+        string value)
+        => AppendAnchorName(builder, value, value.Length);
+
+    static void AppendAnchorName(
+        StringBuilder builder,
+        string value,
+        int count)
+    {
+        if (count < 0
+            || count > value.Length
+            || builder.Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars - count)
+        {
+            throw new BadImageFormatException(
+                "The member anchor name exceeds the encoded-character budget.");
+        }
+        builder.Append(value, 0, count);
     }
 
     static string MethodMemberName(MetadataReader reader, string methodName, MethodDefinition method)

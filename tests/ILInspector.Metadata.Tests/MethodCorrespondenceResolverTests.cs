@@ -142,6 +142,50 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void Resolve_DeepDeclaringTypeDoesNotExpandAnchorQuadratically()
+    {
+        byte[] warmImage = BuildNestedDeclaringTypeImage(
+            nestingDepth: 2,
+            segmentNameLength: 16);
+        using (var warmSourcePe = new PEReader(new MemoryStream(warmImage)))
+        using (var warmTargetPe = new PEReader(new MemoryStream(warmImage)))
+        {
+            MetadataReader warmSourceReader =
+                warmSourcePe.GetMetadataReader();
+            MethodDefinitionHandle warmMethod =
+                warmSourceReader.MethodDefinitions.Single();
+            _ = MethodCorrespondenceResolver.Resolve(
+                warmSourceReader,
+                MetadataMethodAddress.Create(warmSourceReader, warmMethod),
+                warmTargetPe.GetMetadataReader());
+        }
+
+        byte[] image = BuildNestedDeclaringTypeImage(
+            nestingDepth: 256,
+            segmentNameLength: 1_020);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(sourceReader, sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Exact, result.Status);
+        Assert.NotNull(result.Anchor);
+        Assert.True(
+            allocated < 32 * 1024 * 1024,
+            $"Deep declaring-type anchor allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void BuildMethodKey_CumulativeWorkBudgetFailsBeforeRepeatingDecode()
     {
         byte[] image = BuildConstrainedMethodImage(
@@ -342,6 +386,77 @@ public sealed class MethodCorrespondenceResolverTests
             metadata.GetOrAddBlob(signature),
             bodyOffset: 0,
             MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.Dll | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata),
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildNestedDeclaringTypeImage(
+        int nestingDepth,
+        int segmentNameLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("NestedMethod.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("NestedMethod"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var types =
+            new List<TypeDefinitionHandle>(nestingDepth);
+        for (int i = 0; i < nestingDepth; i++)
+        {
+            string prefix = i.ToString("D3");
+            string name =
+                prefix
+                + new string(
+                    'X',
+                    segmentNameLength - prefix.Length);
+            types.Add(metadata.AddTypeDefinition(
+                i == 0
+                    ? TypeAttributes.Public
+                    : TypeAttributes.NestedPublic,
+                i == 0
+                    ? metadata.GetOrAddString("Probe")
+                    : default,
+                metadata.GetOrAddString(name),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1)));
+        }
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x00, 0x00, 0x01 }),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        for (int i = 1; i < types.Count; i++)
+            metadata.AddNestedType(types[i], types[i - 1]);
 
         var pe = new ManagedPEBuilder(
             new PEHeaderBuilder(
