@@ -74,18 +74,22 @@ internal static class CSharpDeclarationWriter
                 member.Attributes,
                 member)
             .Concat(CollectExplicitInterfaceTypeReferences(member))
+            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : [])
             .ToHashSet(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
+        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
+            .ToHashSet(StringComparer.Ordinal);
         var references = memberReferences
             .Concat(attributeReferences)
-            .Concat(CollectExplicitInterfaceTypeReferences(member));
+            .Concat(explicitInterfaceReferences)
+            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : []);
         var plan = TypeNamePlan.Create(
             references,
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
-            memberReferences,
+            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
@@ -111,18 +115,22 @@ internal static class CSharpDeclarationWriter
                 member.Attributes,
                 member)
             .Concat(CollectExplicitInterfaceTypeReferences(member))
+            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : [])
             .ToHashSet(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
+        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
+            .ToHashSet(StringComparer.Ordinal);
         var references = memberReferences
             .Concat(attributeReferences)
-            .Concat(CollectExplicitInterfaceTypeReferences(member));
+            .Concat(explicitInterfaceReferences)
+            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : []);
         var plan = TypeNamePlan.Create(
             references,
             options,
             CollectShadowingNames(type, [member]),
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
-            memberReferences,
+            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
@@ -155,20 +163,27 @@ internal static class CSharpDeclarationWriter
             .Concat(parameters.SelectMany(parameter =>
                 CollectAttributeArgumentTypeReferences(parameter.Attributes)))
             .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
+            .Concat(memberList
+                .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
+                .Select(_ => "System.Obsolete"))
             .ToHashSet(StringComparer.Ordinal);
         var primaryParameterAttributeReferences = parameters
             .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
             .ToHashSet(StringComparer.Ordinal);
         var shortenableReferences = CollectTypeReferences(type)
-            .Concat(memberList.SelectMany(CollectMemberTypeReferences))
+            .Concat(memberList.SelectMany(member => CollectMemberTypeReferences(member)))
             .Concat(parameters.SelectMany(parameter =>
                 ExtractQualifiedTypeNames(parameter.Type)))
             .ToHashSet(StringComparer.Ordinal);
+        shortenableReferences.ExceptWith(memberList.SelectMany(CollectExplicitInterfaceTypeReferences));
         var references = shortenableReferences
             .Concat(parameters.SelectMany(CollectParameterTypeReferences))
             .Concat(attributeReferences)
             .Concat(primaryParameterAttributeReferences)
-            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences));
+            .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
+            .Concat(memberList
+                .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
+                .Select(_ => "System.Obsolete"));
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -229,12 +244,15 @@ internal static class CSharpDeclarationWriter
             var delegateAttributeValueReferences = CollectAttributeValueTypeReferences(type.Attributes)
                 .Concat(CollectAttributeValueTypeReferences(delegateInvoke.Attributes, delegateInvoke))
                 .ToHashSet(StringComparer.Ordinal);
-            var delegateStrongReferences = CollectTypeReferences(type)
+            var delegateSignatureReferences = CollectTypeReferences(type)
                 .Concat(CollectMemberTypeReferences(delegateInvoke))
-                .Concat(CollectDeclaredAttributeTypeReferences(type.Attributes))
+                .ToHashSet(StringComparer.Ordinal);
+            var delegateQualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(type.Attributes)
                 .Concat(CollectDeclaredAttributeTypeReferences(delegateInvoke.Attributes, delegateInvoke))
                 .ToHashSet(StringComparer.Ordinal);
-            var references = delegateStrongReferences
+            delegateSignatureReferences.ExceptWith(delegateQualificationOnlyReferences);
+            var references = delegateSignatureReferences
+                .Concat(delegateQualificationOnlyReferences)
                 .Concat(delegateAttributeReferences)
                 .ToList();
             var delegatePlan = TypeNamePlan.Create(
@@ -242,7 +260,8 @@ internal static class CSharpDeclarationWriter
                 options,
                 CollectShadowingNames(type, [delegateInvoke]),
                 CSharpFormatter.StripArity(type.Name),
-                delegateStrongReferences,
+                delegateQualificationOnlyReferences,
+                delegateSignatureReferences,
                 valueReferences: delegateAttributeValueReferences);
             string attributes = options.IncludeCustomAttributes && type.Attributes.Count > 0
                 ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
@@ -293,6 +312,26 @@ internal static class CSharpDeclarationWriter
         return plan.Apply(declaration);
     }
 
+    internal static (
+        IReadOnlyList<string> Attributes,
+        IReadOnlyList<string> Diagnostics) RenderAttributeBodies(
+        IReadOnlyList<string> attributes,
+        CSharpDeclarationOptions options)
+    {
+        var references = CollectAttributeTypeReferences(attributes).ToHashSet(StringComparer.Ordinal);
+        var valueReferences = CollectAttributeValueTypeReferences(attributes).ToHashSet(StringComparer.Ordinal);
+        var qualificationOnlyReferences = CollectDeclaredAttributeTypeReferences(attributes)
+            .ToHashSet(StringComparer.Ordinal);
+        var plan = TypeNamePlan.Create(
+            references,
+            options,
+            new HashSet<string>(StringComparer.Ordinal),
+            "",
+            qualificationOnlyReferences,
+            valueReferences: valueReferences);
+        return (attributes.Select(plan.Apply).ToArray(), plan.Diagnostics);
+    }
+
     /// <summary>
     /// Computes a collision-safe set of namespaces that can be imported as
     /// <c>using</c> directives for a compilation unit declaring
@@ -322,7 +361,8 @@ internal static class CSharpDeclarationWriter
             ApiType Type,
             IEnumerable<ApiMember> Members,
             IEnumerable<ApiParameter> AdditionalParameters)> scopes,
-        IEnumerable<string>? contextualNamespaces = null)
+        IEnumerable<string>? contextualNamespaces = null,
+        IEnumerable<string>? additionalAttributes = null)
     {
         var scopeList = scopes
             .Select(scope => (
@@ -332,7 +372,10 @@ internal static class CSharpDeclarationWriter
             .ToList();
         var typeRefs = scopeList
             .SelectMany(scope => CollectTypeReferences(scope.Type)
-                .Concat(scope.Members.SelectMany(CollectMemberTypeReferences))
+                .Concat(scope.Members.SelectMany(member =>
+                    CollectMemberTypeReferences(
+                        member,
+                        includeParameterAttributes: scope.Type.Kind != "delegate")))
                 .Concat(scope.AdditionalParameters.SelectMany(CollectParameterTypeReferences)))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
@@ -343,7 +386,13 @@ internal static class CSharpDeclarationWriter
             .SelectMany(scope => CollectDeclaredAttributeTypeReferences(scope.Type.Attributes)
                 .Concat(scope.Members.SelectMany(member =>
                     CollectDeclaredAttributeTypeReferences(member.Attributes, member)))
-                .Concat(scope.Members.SelectMany(CollectExplicitInterfaceTypeReferences)))
+                .Concat(scope.Members.SelectMany(CollectExplicitInterfaceTypeReferences))
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    CollectDeclaredAttributeTypeReferences(parameter.Attributes)))
+                .Concat(scope.Members
+                    .Where(member => member.IsObsolete)
+                    .Select(_ => "System.Obsolete")))
+            .Concat(CollectDeclaredAttributeTypeReferences(additionalAttributes ?? []))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -391,7 +440,8 @@ internal static class CSharpDeclarationWriter
             collidingSimpleNames,
             rootShadowingNames,
             declaredTypeNames,
-            declaredTypeFullNames);
+            declaredTypeFullNames,
+            typeRefs.Concat(attributeTypeRefs).ToList());
 
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
@@ -662,7 +712,8 @@ internal static class CSharpDeclarationWriter
         IReadOnlySet<string> collidingSimpleNames,
         IReadOnlySet<string> rootShadowingNames,
         IReadOnlySet<string>? declaredTypeNames = null,
-        IReadOnlySet<string>? declaredTypeFullNames = null)
+        IReadOnlySet<string>? declaredTypeFullNames = null,
+        IReadOnlyList<TypeRef>? bindingEvidence = null)
     {
         declaredTypeNames ??= new HashSet<string>(StringComparer.Ordinal);
         declaredTypeFullNames ??= new HashSet<string>(StringComparer.Ordinal);
@@ -675,7 +726,7 @@ internal static class CSharpDeclarationWriter
             .Select(r => r.Namespace)
             .ToHashSet(StringComparer.Ordinal);
 
-        var referencedFullNames = typeRefs
+        var referencedFullNames = (bindingEvidence ?? typeRefs)
             .Select(r => r.FullName)
             .ToHashSet(StringComparer.Ordinal);
         unsafeNamespaces.UnionWith(typeRefs
@@ -939,9 +990,15 @@ internal static class CSharpDeclarationWriter
     static IEnumerable<string> CollectTypeReferences(ApiType type)
     {
         if (type.BaseType is { Length: > 0 })
-            yield return type.BaseType;
+        {
+            foreach (var reference in ExtractQualifiedTypeNames(type.BaseType))
+                yield return reference;
+        }
         foreach (var iface in type.Interfaces)
-            yield return iface;
+        {
+            foreach (var reference in ExtractQualifiedTypeNames(iface))
+                yield return reference;
+        }
         foreach (var typeParameter in type.TypeParameters)
         {
             foreach (var constraint in typeParameter.Constraints)
@@ -952,9 +1009,11 @@ internal static class CSharpDeclarationWriter
         }
     }
 
-    static IEnumerable<string> CollectMemberTypeReferences(ApiMember member)
+    static IEnumerable<string> CollectMemberTypeReferences(
+        ApiMember member,
+        bool includeParameterAttributes = true)
     {
-        foreach (var expression in MemberTypeExpressions(member))
+        foreach (var expression in MemberTypeExpressions(member, includeParameterAttributes))
         {
             foreach (var reference in ExtractQualifiedTypeNames(expression))
                 yield return reference;
@@ -974,7 +1033,9 @@ internal static class CSharpDeclarationWriter
         }
     }
 
-    static IEnumerable<string> MemberTypeExpressions(ApiMember member)
+    static IEnumerable<string> MemberTypeExpressions(
+        ApiMember member,
+        bool includeParameterAttributes)
     {
         if (!string.IsNullOrWhiteSpace(member.ReturnType))
             yield return member.ReturnType!;
@@ -986,8 +1047,11 @@ internal static class CSharpDeclarationWriter
             {
                 if (!string.IsNullOrWhiteSpace(parameter.Type))
                     yield return parameter.Type;
-                foreach (var attribute in parameter.Attributes)
-                    yield return StripAttributeArguments(attribute);
+                if (includeParameterAttributes)
+                {
+                    foreach (var attribute in parameter.Attributes)
+                        yield return StripAttributeArguments(attribute);
+                }
             }
             foreach (var typeParameter in signatureModel.TypeParameters)
                 foreach (var constraint in typeParameter.Constraints)
@@ -1257,11 +1321,55 @@ internal static class CSharpDeclarationWriter
                 continue;
             }
 
-            var start = i++;
-            while (i < text.Length && (IsIdentifierPart(text[i]) || text[i] is '.' or '+' or '@'))
-                i++;
-            yield return text[start..i].TrimEnd('.');
+            var token = new StringBuilder();
+            bool yieldedConstructedRoot = false;
+            while (i < text.Length)
+            {
+                int segmentStart = i++;
+                while (i < text.Length && IsIdentifierPart(text[i]))
+                    i++;
+                token.Append(text.AsSpan(segmentStart, i - segmentStart));
+
+                if (i < text.Length && text[i] == '<')
+                {
+                    if (!yieldedConstructedRoot)
+                    {
+                        yield return token.ToString();
+                        yieldedConstructedRoot = true;
+                    }
+                    int close = MatchingAngleBracket(text, i);
+                    if (close < 0)
+                        break;
+                    foreach (string nested in DottedIdentifierTokens(text[(i + 1)..close]))
+                        yield return nested;
+                    i = close + 1;
+                }
+
+                if (i + 1 >= text.Length
+                    || text[i] is not ('.' or '+')
+                    || (!IsIdentifierStart(text[i + 1]) && text[i + 1] != '@'))
+                {
+                    break;
+                }
+
+                token.Append(text[i++]);
+            }
+            if (!yieldedConstructedRoot)
+                yield return token.ToString();
         }
+    }
+
+    static int MatchingAngleBracket(string text, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            if (text[i] == '<')
+                depth++;
+            else if (text[i] == '>' && --depth == 0)
+                return i;
+        }
+        return -1;
     }
 
     /// <summary>
@@ -1790,8 +1898,8 @@ internal static class CSharpDeclarationWriter
 
     static string FormatObsoleteAttribute(string? message)
         => string.IsNullOrWhiteSpace(message)
-            ? "[Obsolete]"
-            : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
+            ? "[System.Obsolete]"
+            : $"[System.Obsolete(\"{EscapeCSharpString(message)}\")]";
 
     // The Obsolete message is attacker-controlled attribute text rendered inside a
     // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,
@@ -2550,9 +2658,62 @@ internal static class CSharpDeclarationWriter
     {
         public string Apply(string text)
         {
-            foreach (var (qualified, replacements) in Replacements)
-                text = ReplaceIdentifierToken(text, qualified, replacements);
-            return text;
+            var sb = new StringBuilder(text.Length);
+            for (var i = 0; i < text.Length;)
+            {
+                if (IsStringLiteralStart(text, i))
+                {
+                    var end = SkipStringLiteral(text, i);
+                    sb.Append(text.AsSpan(i, end - i));
+                    i = end;
+                    continue;
+                }
+                if (text[i] == '\'')
+                {
+                    var end = SkipCharLiteral(text, i);
+                    sb.Append(text.AsSpan(i, end - i));
+                    i = end;
+                    continue;
+                }
+
+                bool matched = false;
+                foreach (var (token, replacements) in Replacements)
+                {
+                    if (i + token.Length > text.Length
+                        || !text.AsSpan(i, token.Length).SequenceEqual(token)
+                        || !IsStartBoundary(text, i - 1)
+                        || !IsEndBoundary(text, i + token.Length))
+                    {
+                        continue;
+                    }
+
+                    if (IsWithinGlobalAlias(text, i))
+                    {
+                        string qualified = replacements.Qualified;
+                        sb.Append(qualified.StartsWith("global::", StringComparison.Ordinal)
+                            ? qualified["global::".Length..]
+                            : qualified);
+                    }
+                    else
+                    {
+                        bool preserveQualification = IsAttributeValuePrefix(
+                            text,
+                            i,
+                            i + token.Length);
+                        sb.Append(preserveQualification
+                            ? replacements.Qualified
+                            : replacements.Shortened ?? replacements.Qualified);
+                    }
+                    i += token.Length;
+                    matched = true;
+                    break;
+                }
+
+                if (!matched)
+                    sb.Append(text[i++]);
+            }
+
+            return sb.ToString();
         }
 
         public static TypeNamePlan Create(
@@ -2656,16 +2817,29 @@ internal static class CSharpDeclarationWriter
                 })
                 .Select(typeRef => typeRef.SimpleName));
 
-            var collisions = CollidingSimpleNames(bindingTypeRefs);
+            var shorteningTypeRefs = bindingTypeRefs
+                .Where(reference => !qualificationOnlyFullNames.Contains(reference.FullName))
+                .ToList();
+            var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
+            var potentiallyImportedNamespaces = contextualUsings.ToHashSet(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(options.ContainingNamespace))
+                potentiallyImportedNamespaces.Add(options.ContainingNamespace);
+            if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings)
+                potentiallyImportedNamespaces.UnionWith(shorteningTypeRefs.Select(reference => reference.Namespace));
+            var collisionEvidence = bindingTypeRefs
+                .Where(reference => !qualificationOnlyFullNames.Contains(reference.FullName)
+                    || potentiallyImportedNamespaces.Contains(reference.Namespace))
+                .ToList();
+            var collisions = CollidingSimpleNames(collisionEvidence);
             var allShadowingNames = lexicalShadowingNames
                 .Concat(namespaceShadowingNames)
                 .ToHashSet(StringComparer.Ordinal);
             var unsafeNamespaces = UnsafeNamespaces(
-                bindingTypeRefs,
+                shorteningTypeRefs,
                 allShadowingNames,
                 collisions,
-                rootShadowingNames);
-            var contextualUsings = options.Usings.ToHashSet(StringComparer.Ordinal);
+                rootShadowingNames,
+                bindingEvidence: bindingTypeRefs);
             var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
             var diagnostics = new List<string>();
             var replacements = new Dictionary<string, (string Qualified, string? Shortened)>(
@@ -2682,11 +2856,6 @@ internal static class CSharpDeclarationWriter
 
                 void Add(string key)
                 {
-                    if (shortenedReplacement is null
-                        && string.Equals(key, qualifiedReplacement, StringComparison.Ordinal))
-                    {
-                        return;
-                    }
                     replacements[key] = plan;
                 }
             }
@@ -2745,6 +2914,11 @@ internal static class CSharpDeclarationWriter
                     KeepAttributeValueQualified(typeRef);
                     continue;
                 }
+                if (qualificationOnlyFullNames.Contains(typeRef.FullName))
+                {
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
                 var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
                     && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
                 if (!isSameNamespace && collisions.Contains(typeRef.SimpleName))
@@ -2771,11 +2945,6 @@ internal static class CSharpDeclarationWriter
                     KeepResolvableQualified(typeRef);
                     continue;
                 }
-                if (qualificationOnlyFullNames.Contains(typeRef.FullName))
-                {
-                    KeepResolvableQualified(typeRef);
-                    continue;
-                }
                 var isInContext = isSameNamespace || contextualUsings.Contains(typeRef.Namespace);
 
                 if (options.TypeNameMode == CSharpTypeNameMode.ContextualShort && !isInContext)
@@ -2798,60 +2967,6 @@ internal static class CSharpDeclarationWriter
                 replacements.OrderByDescending(kvp => kvp.Key.Length).ToArray(),
                 generatedUsings.ToList(),
                 diagnostics);
-        }
-
-        static string ReplaceIdentifierToken(
-            string text,
-            string token,
-            (string Qualified, string? Shortened) replacements)
-        {
-            var sb = new StringBuilder(text.Length);
-            for (var i = 0; i < text.Length;)
-            {
-                if (IsStringLiteralStart(text, i))
-                {
-                    var end = SkipStringLiteral(text, i);
-                    sb.Append(text.AsSpan(i, end - i));
-                    i = end;
-                    continue;
-                }
-                if (text[i] == '\'')
-                {
-                    var end = SkipCharLiteral(text, i);
-                    sb.Append(text.AsSpan(i, end - i));
-                    i = end;
-                    continue;
-                }
-                if (i + token.Length <= text.Length
-                    && text.AsSpan(i, token.Length).SequenceEqual(token)
-                    && IsStartBoundary(text, i - 1)
-                    && IsEndBoundary(text, i + token.Length))
-                {
-                    if (IsWithinGlobalAlias(text, i))
-                    {
-                        string qualified = replacements.Qualified;
-                        sb.Append(qualified.StartsWith("global::", StringComparison.Ordinal)
-                            ? qualified["global::".Length..]
-                            : qualified);
-                        i += token.Length;
-                        continue;
-                    }
-                    bool preserveQualification = IsAttributeValuePrefix(
-                        text,
-                        i,
-                        i + token.Length);
-                    string replacement = preserveQualification
-                        ? replacements.Qualified
-                        : replacements.Shortened ?? replacements.Qualified;
-                    sb.Append(replacement);
-                    i += token.Length;
-                    continue;
-                }
-
-                sb.Append(text[i++]);
-            }
-
-            return sb.ToString();
         }
 
         static bool IsWithinGlobalAlias(string text, int index)

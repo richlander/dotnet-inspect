@@ -83,6 +83,26 @@ public sealed class CSharpTypePrinter
                     $"Namespace root '{globalTypeName}' conflicts with global type '{globalTypeName}'; emitted namespace or using directives cannot bind that root as a namespace."));
             }
         }
+        var globalAttributeOptions = new CSharpDeclarationOptions
+        {
+            TypeNameMode = options.TypeNamePolicy == CSharpTypeNamePolicy.Qualified
+                ? CSharpTypeNameMode.Qualified
+                : CSharpTypeNameMode.ContextualShort,
+            Usings = contextualUsings,
+            AdditionalRootShadowingNames = globalDeclaredTypeNames,
+            AdditionalUnresolvableRootNames = globalDeclaredTypeNames,
+            AdditionalKnownNamespaces = typeNameContext.KnownNamespaces
+        };
+        var plannedAssemblyAttributes = CSharpDeclarationWriter.RenderAttributeBodies(
+            options.AssemblyAttributes,
+            globalAttributeOptions);
+        var plannedModuleAttributes = CSharpDeclarationWriter.RenderAttributeBodies(
+            options.ModuleAttributes,
+            globalAttributeOptions);
+        diagnostics.AddRange(plannedAssemblyAttributes.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic("<assembly>", diagnostic)));
+        diagnostics.AddRange(plannedModuleAttributes.Diagnostics.Select(
+            diagnostic => new CSharpTypePrintDiagnostic("<module>", diagnostic)));
         var units = ImmutableArray.CreateBuilder<CSharpTypeSourceUnit>();
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
@@ -143,7 +163,12 @@ public sealed class CSharpTypePrinter
             unitList,
             diagnostics.Distinct().ToImmutableArray(),
             emittedUsings,
-            () => ComposeSource(unitList, emittedUsings, options));
+            () => ComposeSource(
+                unitList,
+                emittedUsings,
+                plannedAssemblyAttributes.Attributes,
+                plannedModuleAttributes.Attributes,
+                options));
     }
 
     /// <summary>
@@ -175,7 +200,8 @@ public sealed class CSharpTypePrinter
 
         return CSharpDeclarationWriter.DeriveTypeNameContext(
             scopes,
-            options.Usings);
+            options.Usings,
+            options.AssemblyAttributes.Concat(options.ModuleAttributes));
     }
 
     static string NamespaceRoot(string @namespace)
@@ -212,14 +238,16 @@ public sealed class CSharpTypePrinter
     static string ComposeSource(
         ImmutableArray<CSharpTypeSourceUnit> units,
         IReadOnlyCollection<string> usings,
+        IReadOnlyList<string> assemblyAttributes,
+        IReadOnlyList<string> moduleAttributes,
         CSharpTypePrintOptions options)
     {
         var sb = new System.Text.StringBuilder();
         if (options.EmitPragmaWarningDisable)
             sb.AppendLf("#pragma warning disable");
-        foreach (var attribute in options.AssemblyAttributes)
+        foreach (var attribute in assemblyAttributes)
             sb.AppendLf($"[assembly: {attribute}]");
-        foreach (var attribute in options.ModuleAttributes)
+        foreach (var attribute in moduleAttributes)
             sb.AppendLf($"[module: {attribute}]");
         if (options.IncludeUsings)
         {

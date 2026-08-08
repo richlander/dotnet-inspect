@@ -2632,6 +2632,148 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void GenericInterfaceReferencesArePlannedByTypeComponent()
+    {
+        var type = CreateEmptyType("App", "Host");
+        type.Interfaces.Add("A.IFoo<B.C>");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using A;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("using B;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public class Host : IFoo<C>", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using A.IFoo<B;", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedGenericTypePathPreservesEveryNestedSegment()
+    {
+        var type = CreateEmptyType("App", "Host");
+        type.Interfaces.Add("N.Outer<T>.Middle.Inner<U>");
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("using N;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public class Host : Outer<T>.Middle.Inner<U>",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("using Middle;", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PrimaryConstructorAttributeEvidenceContributesToMemberPlanning()
+    {
+        var type = CreateEmptyType("Contoso.Data", "Store");
+        var method = CreateMethod("GetNode");
+        method.SignatureModel!.ReturnType = "Json.Node";
+        type.Members.Add(method);
+        var parameter = new ApiParameter
+        {
+            Type = "int",
+            Name = "value",
+            Attributes = ["Marker(typeof(Contoso.Data.Json))"]
+        };
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(
+                type,
+                primaryConstructorParameters: [parameter]),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified
+            });
+
+        Assert.Contains(
+            "public global::Json.Node GetNode();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceDualProvenanceRemainsQualified()
+    {
+        var property = new ApiMember
+        {
+            Name = "Contracts.IValue.Value",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Contracts.IValue",
+                MemberName = "Contracts.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var type = CreateEmptyType("App", "Widget");
+        type.Interfaces.Add("Contracts.IValue");
+        type.Members.Add(property);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "Contracts.IValue Contracts.IValue.Value",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "IValue IValue.Value",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceCollisionKeepsBothReferencesQualified()
+    {
+        var property = new ApiMember
+        {
+            Name = "Contracts.IValue.Value",
+            Kind = "explicit-interface-implementation",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "Other.IValue",
+                MemberName = "Contracts.IValue.Value",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+        var sibling = CreateMethod("GetThing");
+        sibling.SignatureModel!.ReturnType = "Contracts.Thing";
+        var type = CreateEmptyType("App", "Widget");
+        type.Interfaces.Add("Contracts.IValue");
+        type.Members.Add(property);
+        type.Members.Add(sibling);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.DoesNotContain("using Contracts;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using Other;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "Other.IValue Contracts.IValue.Value",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void KeptQualifiedReferenceIsNotRewrittenByShorterPrefix()
+    {
+        var type = CreateEmptyType("App", "Widget");
+        var method = CreateMethod("Get");
+        method.SignatureModel!.ReturnType = "A.B";
+        method.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "A.B.C",
+            Name = "value"
+        });
+        type.Members.Add(method);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "public B Get(A.B.C value);",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("public B Get(B.C value);", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void HiddenCustomAttributesStillContributeBindingEvidence()
     {
         var type = CreateEmptyType("App", "Widget");
@@ -2653,6 +2795,45 @@ public sealed class CSharpTypePrinterTests
             "public global::Foo.Bar.Baz Get();",
             result.Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImportedHiddenAttributeNamespacePreventsConflictingSignatureShortening()
+    {
+        var type = CreateEmptyType("App", "Widget");
+        var getFoo = CreateMethod("GetFoo");
+        getFoo.SignatureModel!.ReturnType = "A.Foo";
+        getFoo.Attributes = ["B.Foo"];
+        var getOther = CreateMethod("GetOther");
+        getOther.SignatureModel!.ReturnType = "B.Other";
+        type.Members.Add(getFoo);
+        type.Members.Add(getOther);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { IncludeCustomAttributes = false });
+
+        Assert.Contains("using A;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("using B;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public A.Foo GetFoo();", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Other GetOther();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AttributeTypeIsNotImportedAsNestedTypeNamespace()
+    {
+        var type = CreateEmptyType("App", "Widget");
+        type.Attributes = ["N.Outer"];
+        var method = CreateMethod("Get");
+        method.SignatureModel!.ReturnType = "N.Outer.Inner";
+        type.Members.Add(method);
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type),
+            new CSharpTypePrintOptions { IncludeCustomAttributes = false });
+
+        Assert.DoesNotContain("using N.Outer;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public N.Outer.Inner Get();", result.Source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2793,7 +2974,7 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains("    public enum Choice\n    {\n        One = 1\n    }", result.Units[0].Source, StringComparison.Ordinal);
         Assert.Contains(
-            "    internal delegate int Converter<in @event>(string value) where @event : System.IEquatable<@event>;",
+            "    internal delegate int Converter<in @event>(string value) where @event : IEquatable<@event>;",
             result.Units[0].Source,
             StringComparison.Ordinal);
     }
@@ -2818,6 +2999,83 @@ public sealed class CSharpTypePrinterTests
 
         Assert.Contains(
             "[return: global::External.Marker]\n    public delegate bool Predicate();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateSignatureTypesRespectShorteningPolicy()
+    {
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "External.Result";
+        invoke.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "External.Input",
+            Name = "value"
+        });
+        var delegateType = CreateEmptyType("Samples", "Handler");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
+
+        Assert.Contains("using External;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public delegate Result Handler(Input value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateParameterAttributesRemainQualified()
+    {
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "Contracts.Marker";
+        invoke.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "string",
+            Name = "value",
+            Attributes = ["Attributes.Marker"]
+        });
+        var delegateType = CreateEmptyType("Samples", "Handler");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
+
+        Assert.Contains("using Contracts;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public delegate Marker Handler([Attributes.Marker] string value);",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DelegateAttributeDoesNotEraseSameTypeSignatureEvidence()
+    {
+        var invoke = CreateMethod("Invoke");
+        invoke.SignatureModel!.ReturnType = "A.Foo";
+        invoke.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "B.Foo",
+            Name = "value",
+            Attributes = ["B.Foo"]
+        });
+        invoke.SignatureModel.Parameters.Add(new ApiParameter
+        {
+            Type = "B.Other",
+            Name = "other"
+        });
+        var delegateType = CreateEmptyType("Samples", "Handler");
+        delegateType.Kind = "delegate";
+        delegateType.Members.Add(invoke);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(delegateType));
+
+        Assert.DoesNotContain("using A;", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("using B;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public delegate A.Foo Handler([B.Foo] B.Foo value, B.Other other);",
             result.Source,
             StringComparison.Ordinal);
     }
@@ -3138,6 +3396,66 @@ public sealed class CSharpTypePrinterTests
             + "using System;\n",
             result.Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlobalAttributesAreEscapedAndDiagnoseGlobalRootConflicts()
+    {
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(CreateEmptyType("", "System")),
+            new CSharpTypePrintOptions
+            {
+                TypeNamePolicy = CSharpTypeNamePolicy.Qualified,
+                AssemblyAttributes = ["System.CLSCompliantAttribute(true)"],
+                ModuleAttributes = ["event.Marker"]
+            });
+
+        Assert.Contains(
+            "[assembly: global::System.CLSCompliantAttribute(true)]",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.Contains("[module: @event.Marker]", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.TypeName == "<assembly>"
+                && diagnostic.Message.Contains("conflicts with global type 'System'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SynthesizedObsoleteAttributeCannotBindToSiblingType()
+    {
+        var obsolete = CreateEmptyType("Samples", "Obsolete");
+        var widget = CreateEmptyType("Samples", "Widget");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "int";
+        member.IsObsolete = true;
+        widget.Members.Add(member);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(obsolete), new CSharpTypePrintRequest(widget)]);
+
+        Assert.Contains("[System.Obsolete] public int Get();", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SynthesizedObsoleteReportsGlobalSystemConflict()
+    {
+        var system = CreateEmptyType("", "System");
+        var widget = CreateEmptyType("Samples", "Widget");
+        var member = CreateMethod("Get");
+        member.SignatureModel!.ReturnType = "int";
+        member.IsObsolete = true;
+        widget.Members.Add(member);
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(system), new CSharpTypePrintRequest(widget)]);
+
+        Assert.Contains("[global::System.Obsolete]", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "conflicts with global type 'System'",
+                StringComparison.Ordinal));
     }
 
     [Fact]
