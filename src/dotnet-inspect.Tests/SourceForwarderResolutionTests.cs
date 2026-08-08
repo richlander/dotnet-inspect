@@ -81,6 +81,57 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ResolutionSession_RejectsSourceChangedAfterInventory()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string rootPath = Path.Combine(
+                directory,
+                "Root.dll");
+            File.WriteAllBytes(
+                rootPath,
+                BuildAssembly("Root"));
+            byte[] inventoried =
+                BuildAssembly(
+                    "Changing",
+                    definesType: true,
+                    typeName: "First");
+            byte[] changed =
+                BuildAssembly(
+                    "Changing",
+                    definesType: true,
+                    typeName: "Second");
+            int opens = 0;
+            var source = ResolvedAssemblyReference.Create(
+                ReadIdentity(inventoried),
+                path: null,
+                openRead: () => new MemoryStream(
+                    Interlocked.Increment(ref opens) == 1
+                        ? inventoried
+                        : changed,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionSession_RejectsSourceChangedAfterInventory)));
+
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    rootPath,
+                    isPlatformAssembly: false);
+            ApiSurface? surface =
+                resolution.ExtractApiSurface(source);
+
+            Assert.Null(surface);
+            Assert.Equal(2, opens);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_OpensResolvedDescriptorForForwardedType()
     {
         string directory = CreateDirectory();
@@ -245,6 +296,16 @@ public class SourceForwarderResolutionTests
             $"dotnet-inspect-source-forwarder-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    static AssemblyReferenceIdentity ReadIdentity(
+        byte[] image)
+    {
+        using var pe =
+            new PEReader(new MemoryStream(image));
+        return AssemblyReferenceIdentity
+            .FromAssemblyDefinition(
+                pe.GetMetadataReader());
     }
 
     static byte[] BuildAssembly(

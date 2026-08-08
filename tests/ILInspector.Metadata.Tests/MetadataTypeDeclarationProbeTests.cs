@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -279,6 +280,37 @@ public class MetadataTypeDeclarationProbeTests
         Assert.Equal(
             MetadataTypeDefinitionKind.Unknown,
             defined.Kind);
+    }
+
+    [Fact]
+    public void Probe_ConstructedBaseClassificationDoesNotWalkTypeArguments()
+    {
+        const int Depth = 26;
+        string path = EmitConstructedBaseLadder(Depth);
+        try
+        {
+            using var pe =
+                new PEReader(File.OpenRead(path));
+
+            var stopwatch = Stopwatch.StartNew();
+            var defined =
+                Assert.IsType<TypeDeclarationResult.Defined>(
+                    MetadataTypeDeclarationProbe.Probe(
+                        pe.GetMetadataReader(),
+                        Name("N", "L0")));
+            stopwatch.Stop();
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+                $"Constructed-base classification took {stopwatch.Elapsed}.");
+            Assert.Equal(
+                MetadataTypeDefinitionKind.Class,
+                defined.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -884,6 +916,52 @@ public class MetadataTypeDeclarationProbeTests
             publicKeyOrToken: default,
             flags: default,
             hashValue: default);
+
+    static string EmitConstructedBaseLadder(int depth)
+    {
+        var assembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ConstructedBaseLadder{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            assembly.DefineDynamicModule(
+                "ConstructedBaseLadder");
+        var genericBase = module.DefineType(
+            "N.G`2",
+            TypeAttributes.Public | TypeAttributes.Class);
+        genericBase.DefineGenericParameters("T1", "T2");
+        Type[] levels =
+        [
+            .. Enumerable.Range(0, depth + 1)
+                .Select(index =>
+                    (Type)module.DefineType(
+                        $"N.L{index}",
+                        TypeAttributes.Public
+                            | TypeAttributes.Class)),
+        ];
+        for (int i = 0; i < depth; i++)
+        {
+            ((System.Reflection.Emit.TypeBuilder)levels[i])
+                .SetParent(
+                    genericBase.MakeGenericType(
+                        levels[i + 1],
+                        levels[i + 1]));
+        }
+
+        genericBase.CreateType();
+        for (int i = depth; i >= 0; i--)
+        {
+            ((System.Reflection.Emit.TypeBuilder)levels[i])
+                .CreateType();
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constructed-base-ladder-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
 
     static ExportedTypeHandle AddForwarder(
         MetadataBuilder metadata,

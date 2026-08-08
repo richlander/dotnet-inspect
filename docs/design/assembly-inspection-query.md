@@ -292,8 +292,11 @@ Metadata-owned type-resolution catalog when API extraction encounters a named ge
 constraint outside the selected image. Extraction records requests only for surfaced
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
-alive. Unavailable and ambiguous bindings remain unclassified. Catalog keys and definition
-handles do not escape with the `ApiSurface`.
+alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
+so a replaced path cannot mix image generations
+(`CatalogExtraction_RejectsImageChangedAfterInventory` gates this). Unavailable and
+ambiguous bindings remain unclassified. Catalog keys and definition handles do not escape
+with the `ApiSurface`.
 
 This is a transitional host for a context-group-scoped query, not a second workspace model.
 The workspace must eventually lend its retained image generation to the Metadata catalog

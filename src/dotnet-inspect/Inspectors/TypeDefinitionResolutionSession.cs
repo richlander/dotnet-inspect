@@ -85,17 +85,19 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         ArgumentNullException.ThrowIfNull(source);
         try
         {
-            using AssemblyInspectionSession session =
-                AssemblyInspectionSession.Open(source);
-            if (!session.HasMetadata)
+            ResolutionAwareApiSurfaceOutcome outcome =
+                _catalog.ExtractApiSurface(
+                    source,
+                    _policy,
+                    includeAll,
+                    typesOnly);
+            if (outcome
+                is not ResolutionAwareApiSurfaceOutcome.Read read)
+            {
                 return null;
+            }
 
-            ApiSurface surface = session.ApiSurface(
-                source,
-                _catalog,
-                _policy,
-                includeAll,
-                typesOnly);
+            ApiSurface surface = read.Surface;
             if (source.Path is { } path)
             {
                 foreach (ApiType type in surface.Types)

@@ -236,10 +236,14 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 new Dictionary<
                     AssemblyReferenceHandle,
                     AssemblyReferenceIdentity>();
+            var referenceProjection =
+                new AssemblyReferenceProjectionCache(reader);
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
                 AssemblyReferenceIdentity reference =
-                    AssemblyReferenceIdentity.From(reader, handle);
+                    AssemblyReferenceIdentity.From(
+                        handle,
+                        referenceProjection);
                 referencesByHandle.Add(handle, reference);
                 if (seenReferences.Add(reference))
                     references.Add(reference);
@@ -283,8 +287,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                             out AssemblyReferenceIdentity? target))
                     {
                         target = AssemblyReferenceIdentity.From(
-                            reader,
-                            targetHandle);
+                            targetHandle,
+                            referenceProjection);
                         referencesByHandle.Add(targetHandle, target);
                         if (seenReferences.Add(target))
                             references.Add(target);

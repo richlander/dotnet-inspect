@@ -2655,7 +2655,9 @@ public static class ApiSurfaceExtractor
             ResolvedAssemblyReference source)
         {
             _reader = reader;
-            Plan = new TypeParameterKindClassifier.ResolutionPlan(source);
+            Plan = new TypeParameterKindClassifier.ResolutionPlan(
+                reader,
+                source);
         }
 
         internal TypeParameterKindClassifier.ResolutionPlan Plan { get; }

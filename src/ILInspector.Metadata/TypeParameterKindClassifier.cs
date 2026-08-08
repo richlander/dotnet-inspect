@@ -32,6 +32,7 @@ internal static class TypeParameterKindClassifier
         ["System.Object", "System.ValueType", "System.Enum"];
 
     internal sealed class ResolutionPlan(
+        MetadataReader reader,
         ResolvedAssemblyReference source)
     {
         readonly HashSet<TypeResolutionRequest> _requests =
@@ -42,9 +43,9 @@ internal static class TypeParameterKindClassifier
         readonly Dictionary<
             AssemblyReferenceHandle,
             AssemblyReferenceIdentity> _assemblyReferences = [];
-        readonly Dictionary<
-            AssemblyReferenceKeyBlob,
-            string?> _assemblyReferenceTokens = [];
+        readonly AssemblyReferenceProjectionCache
+            _assemblyReferenceProjection =
+                new(reader);
         readonly Dictionary<
             TypeReferenceHandle,
             ConstraintClass> _resolvedClasses = [];
@@ -227,31 +228,9 @@ internal static class TypeParameterKindClassifier
                     handle,
                     out AssemblyReferenceIdentity? reference))
             {
-                System.Reflection.Metadata.AssemblyReference row =
-                    reader.GetAssemblyReference(handle);
-                bool isPublicKey =
-                    (row.Flags & AssemblyFlags.PublicKey) != 0;
-                var key = new AssemblyReferenceKeyBlob(
-                    row.PublicKeyOrToken,
-                    isPublicKey);
-                if (!_assemblyReferenceTokens.TryGetValue(
-                        key,
-                        out string? token))
-                {
-                    token = AssemblyReferenceIdentity.TokenOrNull(
-                        reader,
-                        row.PublicKeyOrToken,
-                        isPublicKey);
-                    _assemblyReferenceTokens.Add(key, token);
-                }
-
-                reference = new AssemblyReferenceIdentity(
-                    reader.GetString(row.Name),
-                    row.Version,
-                    AssemblyReferenceIdentity.StringOrNull(
-                        reader,
-                        row.Culture),
-                    token);
+                reference = AssemblyReferenceIdentity.From(
+                    handle,
+                    _assemblyReferenceProjection);
                 _assemblyReferences.Add(handle, reference);
             }
 
@@ -265,10 +244,6 @@ internal static class TypeParameterKindClassifier
                 scope,
                 type);
         }
-
-        readonly record struct AssemblyReferenceKeyBlob(
-            BlobHandle Handle,
-            bool IsPublicKey);
     }
 
     /// <param name="chain">

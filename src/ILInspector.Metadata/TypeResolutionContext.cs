@@ -73,6 +73,32 @@ public sealed record TypeResolutionContextOptions
 }
 
 /// <summary>
+/// Typed result of extracting an API surface through a resolution catalog's
+/// retained candidate image.
+/// </summary>
+public abstract class ResolutionAwareApiSurfaceOutcome
+{
+    private protected ResolutionAwareApiSurfaceOutcome()
+    {
+    }
+
+    public sealed class Read : ResolutionAwareApiSurfaceOutcome
+    {
+        internal Read(ApiSurface surface) => Surface = surface;
+
+        public ApiSurface Surface { get; }
+    }
+
+    public sealed class Rejected : ResolutionAwareApiSurfaceOutcome
+    {
+        internal Rejected(CandidateOpenFailure failure) =>
+            Failure = failure;
+
+        public CandidateOpenFailure Failure { get; }
+    }
+}
+
+/// <summary>
 /// Inspection-lifetime owner of assembly acquisition and reusable declaration,
 /// binding, and resolution caches. A catalog creates immutable
 /// <see cref="TypeResolutionContext"/> generations as their request manifests
@@ -113,6 +139,50 @@ public sealed class TypeResolutionCatalog : IDisposable
 
     /// <summary>Gets the identity shared by every generation in this catalog.</summary>
     public AssemblyCatalogId Id => _acquisition.CatalogId;
+
+    /// <summary>
+    /// Extracts a resolution-aware API surface from the same retained candidate
+    /// image used by this catalog's resolution generations.
+    /// </summary>
+    public ResolutionAwareApiSurfaceOutcome ExtractApiSurface(
+        ResolvedAssemblyReference source,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll = false,
+        bool typesOnly = false)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+
+        CandidateRegistrationResult registration =
+            _acquisition.Register(source);
+        if (registration
+            is CandidateRegistrationResult.Rejected rejected)
+        {
+            return new ResolutionAwareApiSurfaceOutcome.Rejected(
+                rejected.Failure);
+        }
+
+        var readyRegistration =
+            (CandidateRegistrationResult.Ready)registration;
+        CandidateSessionResult session =
+            _acquisition.OpenSession(
+                readyRegistration.Candidate);
+        if (session is CandidateSessionResult.Rejected sessionRejected)
+        {
+            return new ResolutionAwareApiSurfaceOutcome.Rejected(
+                sessionRejected.Failure);
+        }
+
+        ApiSurface surface =
+            ((CandidateSessionResult.Ready)session)
+                .Session.ApiSurface(
+                    source,
+                    this,
+                    bindingPolicy,
+                    includeAll,
+                    typesOnly);
+        return new ResolutionAwareApiSurfaceOutcome.Read(surface);
+    }
 
     /// <summary>
     /// Compares two opaque definition keys in the latest frozen generation.

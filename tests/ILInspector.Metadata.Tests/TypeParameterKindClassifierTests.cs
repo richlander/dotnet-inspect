@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -105,7 +106,9 @@ public class TypeParameterKindClassifierTests
                     nameof(
                         ResolutionPlan_CachesSharedLargePublicKeyAcrossDuplicateRows)));
         var plan =
-            new TypeParameterKindClassifier.ResolutionPlan(source);
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         foreach (TypeReferenceHandle reference in references)
@@ -189,6 +192,277 @@ public class TypeParameterKindClassifierTests
             File.Delete(rejectedPath);
             File.Delete(validPath);
         }
+    }
+
+    [Fact]
+    public void Extract_ClassifiesClassWithExternalConstructedBase()
+    {
+        var (consumerPath, dependencyPath, basePath) =
+            EmitExternalConstructedBaseSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_ClassifiesClassWithExternalConstructedBase)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_ClassifiesClassWithExternalConstructedBase)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new MappingPolicy(dependency));
+
+            ApiType type = Assert.Single(surface.Types);
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(type.TypeParameters).TypeKind);
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+            File.Delete(basePath);
+        }
+    }
+
+    [Fact]
+    public void CatalogExtraction_CachesDuplicateLargeKeyRows()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"duplicate-key-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            path,
+            BuildDuplicateKeyConsumer(
+                referenceCount: 32,
+                publicKeyBytes: 1024 * 1024));
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            CatalogExtraction_CachesDuplicateLargeKeyRows)));
+            using var catalog = new TypeResolutionCatalog();
+
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
+            ResolutionAwareApiSurfaceOutcome outcome =
+                catalog.ExtractApiSurface(
+                    source,
+                    new MissingPolicy());
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            ApiSurface surface =
+                Assert.IsType<
+                    ResolutionAwareApiSurfaceOutcome.Read>(
+                        outcome)
+                    .Surface;
+            Assert.Equal(
+                32,
+                Assert.Single(
+                    surface.Types,
+                    type => type.Name == "Consumer`32")
+                    .TypeParameters.Count);
+            Assert.InRange(
+                allocated,
+                0,
+                8 * 1024 * 1024);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void CatalogExtraction_RejectsImageChangedAfterInventory()
+    {
+        byte[] inventoried =
+            BuildSimpleAssembly("Changing", "First");
+        byte[] changed =
+            BuildSimpleAssembly("Changing", "Second");
+        int opens = 0;
+        var source = ResolvedAssemblyReference.Create(
+            ReadIdentity(inventoried),
+            path: null,
+            openRead: () => new MemoryStream(
+                Interlocked.Increment(ref opens) == 1
+                    ? inventoried
+                    : changed,
+                writable: false),
+            AssemblyResolutionProvenance.Local(
+                nameof(
+                    CatalogExtraction_RejectsImageChangedAfterInventory)));
+        using var catalog = new TypeResolutionCatalog();
+
+        var rejected =
+            Assert.IsType<
+                ResolutionAwareApiSurfaceOutcome.Rejected>(
+                    catalog.ExtractApiSurface(
+                        source,
+                        new MissingPolicy()));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Equal(2, opens);
+    }
+
+    static (string ConsumerPath, string DependencyPath, string BasePath)
+        EmitExternalConstructedBaseSample()
+    {
+        var baseAssembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalGenericBase{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var baseModule =
+            baseAssembly.DefineDynamicModule(
+                "ExternalGenericBase");
+        var genericBaseBuilder = baseModule.DefineType(
+            "N.GenericBase`1",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Class);
+        genericBaseBuilder.DefineGenericParameters("T");
+        Type genericBase =
+            genericBaseBuilder.CreateType()!;
+        string basePath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-generic-base-{Guid.NewGuid():N}.dll");
+        baseAssembly.Save(basePath);
+
+        var dependencyAssembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalDerived{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var dependencyModule =
+            dependencyAssembly.DefineDynamicModule(
+                "ExternalDerived");
+        Type derived = dependencyModule
+            .DefineType(
+                "N.Derived",
+                TypeAttributes.Public
+                    | TypeAttributes.Class,
+                genericBase.MakeGenericType(typeof(int)))
+            .CreateType()!;
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-derived-{Guid.NewGuid():N}.dll");
+        dependencyAssembly.Save(dependencyPath);
+
+        var consumerAssembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalBaseConsumer{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var consumerModule =
+            consumerAssembly.DefineDynamicModule(
+                "ExternalBaseConsumer");
+        var consumer = consumerModule.DefineType(
+            "ExternalBaseConsumer`1",
+            TypeAttributes.Public | TypeAttributes.Class);
+        consumer.DefineGenericParameters("T")[0]
+            .SetBaseTypeConstraint(derived);
+        consumer.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-base-consumer-{Guid.NewGuid():N}.dll");
+        consumerAssembly.Save(consumerPath);
+        return (consumerPath, dependencyPath, basePath);
+    }
+
+    static byte[] BuildDuplicateKeyConsumer(
+        int referenceCount,
+        int publicKeyBytes)
+    {
+        MetadataBuilder metadata =
+            NewMetadata($"DuplicateKey{Guid.NewGuid():N}");
+        AddTypeDefinition(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle consumer =
+            AddTypeDefinition(
+                metadata,
+                $"Consumer`{referenceCount}");
+        var key = new BlobBuilder();
+        key.WriteBytes(new byte[publicKeyBytes]);
+        BlobHandle keyHandle = metadata.GetOrAddBlob(key);
+        StringHandle assemblyName =
+            metadata.GetOrAddString("LargeKeyDependency");
+        StringHandle typeNamespace =
+            metadata.GetOrAddString("N");
+        StringHandle typeName =
+            metadata.GetOrAddString("Base");
+
+        for (int i = 0; i < referenceCount; i++)
+        {
+            AssemblyReferenceHandle assembly =
+                metadata.AddAssemblyReference(
+                    assemblyName,
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: keyHandle,
+                    flags: AssemblyFlags.PublicKey,
+                    hashValue: default);
+            TypeReferenceHandle type =
+                metadata.AddTypeReference(
+                    assembly,
+                    typeNamespace,
+                    typeName);
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    consumer,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString($"T{i}"),
+                    index: i);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                type);
+        }
+
+        return SerializePe(metadata);
+    }
+
+    static byte[] BuildSimpleAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        MetadataBuilder metadata =
+            NewMetadata(assemblyName);
+        AddTypeDefinition(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        AddTypeDefinition(metadata, typeName);
+        return SerializePe(metadata);
+    }
+
+    static AssemblyReferenceIdentity ReadIdentity(
+        byte[] image)
+    {
+        using var pe = new PEReader(
+            ImmutableCollectionsMarshal
+                .AsImmutableArray(image));
+        return AssemblyReferenceIdentity
+            .FromAssemblyDefinition(
+                pe.GetMetadataReader());
     }
 
     static byte[] BuildConsumer(
@@ -381,5 +655,15 @@ public class TypeParameterKindClassifierTests
                     out ResolvedAssemblyReference? assembly)
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class MissingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.NotFound();
     }
 }
