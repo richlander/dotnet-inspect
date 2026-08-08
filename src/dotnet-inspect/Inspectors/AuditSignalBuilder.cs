@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using ILInspector.Findings;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -316,8 +317,14 @@ internal static class AuditSignalBuilder
         private static SignalValue? ResolveProvenanceDeterministic(in LibrarySignalContext context) =>
             new(FormatBool(context.Inspection.IsDeterministic), "PE debug directory and path normalization");
 
-        private static SignalValue? ResolveDependenciesDirectAssemblyReferences(in LibrarySignalContext context) =>
-            new((context.Inspection.AssemblyInfo?.References?.Count ?? 0).ToString(), "AssemblyRef table");
+        private static SignalValue? ResolveDependenciesDirectAssemblyReferences(
+            in LibrarySignalContext context) =>
+            context.Inspection.AssemblyReferenceInspection
+                is FindingInspection<AssemblyReference>.Failed
+                    ? null
+                    : new(
+                        (context.Inspection.AssemblyInfo?.References?.Count ?? 0).ToString(),
+                        "AssemblyRef table");
 
         private static SignalValue? ResolveCompatibilityAsyncKind(in LibrarySignalContext context) =>
             new(ResolveAsyncKind(context.Inspection), "public async method classification");
