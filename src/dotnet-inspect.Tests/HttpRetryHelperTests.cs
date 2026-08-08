@@ -429,6 +429,31 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    public async Task AsynchronousVirtualFailureKeepsTheOriginalRelativeRequestUrl()
+    {
+        const string Secret = "sup3rs3cret";
+        using var failureScope = FeedFailureTelemetry.Scope();
+        var messages = new List<string>();
+        using var client = new MutatingFaultHttpClient(Secret);
+
+        var response = await HttpRetryHelper.GetWithRetryAsync(
+            client,
+            "relative/original",
+            retryCount: 0,
+            log: messages.Add,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(response);
+        string errorLog = Assert.Single(messages, message =>
+            message.Contains("(not retryable)", StringComparison.Ordinal));
+        Assert.Contains("relative/original", errorLog, StringComparison.Ordinal);
+        Assert.DoesNotContain("redirect.example", errorLog, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, errorLog, StringComparison.Ordinal);
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal("relative/original", failure.Url.ToString());
+    }
+
+    [Fact]
     public async Task FailedResponseDisposesADistinctFinalRequest()
     {
         using var handler = new DistinctFailureRequestHandler();
@@ -594,6 +619,21 @@ public class HttpRetryHelperTests
             HttpRequestMessage request,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("The virtual HttpClient override was bypassed.");
+    }
+
+    private sealed class MutatingFaultHttpClient(string secret)
+        : HttpClient(new UnexpectedTransportHandler())
+    {
+        public override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            request.RequestUri = new Uri($"https://redirect.example/auth/{secret}");
+            throw new HttpRequestException(
+                "Host not found",
+                new SocketException((int)SocketError.HostNotFound));
+        }
     }
 
     private sealed class DistinctFailureRequestHandler : HttpMessageHandler

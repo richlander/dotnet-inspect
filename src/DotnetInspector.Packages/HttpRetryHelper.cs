@@ -123,7 +123,7 @@ public static class HttpRetryHelper
             }
             void CaptureEffectiveRequestUri(Uri? uri)
             {
-                if (uri?.IsAbsoluteUri == true)
+                if (uri is not null)
                 {
                     effectiveRequestUri = uri;
                     redactedUrl = null;
