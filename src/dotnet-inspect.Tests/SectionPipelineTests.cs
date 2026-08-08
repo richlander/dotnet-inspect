@@ -38,6 +38,14 @@ public class SectionPipelineTests
         public static bool CanRender(TestModel model) => model.Count > 0;
     }
 
+    private sealed class QueryBackedSection : ISectionDescriptor<TestModel>
+    {
+        public static string Name => "Query-backed";
+        public static bool IsExpensive => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(TestModel model) => true;
+    }
+
     private sealed class NormalSection : ISectionDescriptor<TestModel>
     {
         public static string Name => "Normal";
@@ -1562,7 +1570,40 @@ public class SectionPipelineTests
         Assert.Equal(
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal),
             registry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
-        Assert.Equal([MetadataImageQuery.Definition], pipeline.DeclaredQueries);
+        Assert.Equal(
+            [AssemblyReferencesQuery.Definition, MetadataImageQuery.Definition],
+            pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibraryReferencesSection_DemandsTypedAssemblyReferencesQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        HashSet<string> references =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.References,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            references);
+
+        Assert.Equal([AssemblyReferencesQuery.Definition], required);
+    }
+
+    [Fact]
+    public void AssemblyReferencesQuery_ReturnsDirectReferencesFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+
+        var result = Assert.IsType<AssemblyReferencesResult.Available>(
+            AssemblyReferencesQuery.Execute(session));
+
+        Assert.Equal(
+            session.AssemblyReferences().OrderBy(reference => reference.Name),
+            result.References.OrderBy(reference => reference.Name));
     }
 
     [Fact]
@@ -1587,6 +1628,24 @@ public class SectionPipelineTests
         Assert.Equal("answer 42", answer.ToString());
         Assert.Equal(InspectionCost.Moderated, registry.CostOf(query));
         Assert.NotSame(prerequisite, query);
+    }
+
+    [Fact]
+    public void QueryBackedSection_InheritsDependencyClosureCost()
+    {
+        var prerequisite = new InspectionQuery<int>(
+            "moderated prerequisite",
+            InspectionCost.Moderated);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(prerequisite, _ => 1)
+            .Add(query, (_, results) => results.Get(prerequisite), prerequisite);
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseQueryCosts(registry.CostOf)
+            .Add<QueryBackedSection>(query);
+
+        var section = Assert.Single(pipeline.SectionCosts);
+        Assert.Equal(SectionCost.Moderated, section.Cost);
     }
 
     [Fact]
@@ -2780,7 +2839,9 @@ public class SectionPipelineTests
         }
 
         Assert.Empty(trace.QueryClosure.Except(reachable));
-        Assert.Equal([MetadataImageQuery.Definition], requested);
+        Assert.Equal(
+            [AssemblyReferencesQuery.Definition, MetadataImageQuery.Definition],
+            requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
         IEnumerable<InertString> lines = trace.RenderLines();
         Assert.All(
