@@ -330,7 +330,9 @@ Method-body consumers use the narrower `MethodBodySource` capability rather
 than borrowing the session's readers. It resolves method selectors, returns
 copied IL/EH snapshots, and supplies operand names while the session is alive.
 This keeps the CLI and Research off Metadata internals and allows Metadata to
-friend only its test assemblies.
+friend only its test assemblies. The current
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
+friend set rather than checking selected production assembly names.
 
 ```csharp
 public sealed class AssemblyInspectionSession : IDisposable
