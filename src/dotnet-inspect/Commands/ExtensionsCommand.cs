@@ -174,7 +174,7 @@ public class ExtensionsCommand
             .ToLookup(
                 static finding => finding.Payload.Anchor,
                 static finding => finding.Payload);
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
         List<ExtensionMethodResult> results = [];
 
         foreach (var member in census.Members)
@@ -205,7 +205,7 @@ public class ExtensionsCommand
             }
 
             if (!TypeMatcher.Matches(
-                    TypeMatcher.Normalize(member.ExtendedType),
+                    FqnParser.NormalizeTypeName(member.ExtendedType),
                     normalizedTarget))
             {
                 continue;
