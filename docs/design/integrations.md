@@ -119,6 +119,32 @@ The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
 metadata inventory.
 
+## Group-scoped query
+
+`AssemblyContextIntegrationsQuery` is the first typed query that runs across an
+entire assembly context group. It scans each participant sequentially in group
+order and returns both ecosystem and OpenTelemetry evidence with the
+participant's opaque identity and resolution provenance. It does not deduplicate
+signals across assemblies: companion assemblies may expose different useful
+currency, and preserving the producing assembly lets later composition decide
+how to group or present it.
+
+Image acquisition rejection remains explicit beside available participant
+results, so a budget-limited group cannot look like a complete group with fewer
+integrations. Late malformed-metadata mapping is implemented but not yet
+independently gated. The query reuses the workspace's immutable snapshots and
+does not reopen paths or streams.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
+and
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
+gate participant ordering, snapshot reuse, and general partial acquisition.
+`AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
+gates the budget-limited case.
+
+This query does not yet drive `@Integrations` sections. Command migration,
+integration-opportunity composition, cancellation-aware execution, and optional
+concurrent execution remain later slices.
+
 ## Relationship to sections and categories
 
 The focused `Integration:` sections are members of the `@Integrations` section
