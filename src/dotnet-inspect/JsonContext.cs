@@ -124,8 +124,8 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceMap))]
-internal partial class AnnotatedSourceMapJsonContext : JsonSerializerContext
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
 {
 }
 
@@ -134,8 +134,8 @@ internal partial class AnnotatedSourceMapJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UseStringEnumConverter = true)]
-[JsonSerializable(typeof(AnnotatedSourceMap))]
-internal partial class AnnotatedSourceMapCompactJsonContext : JsonSerializerContext
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
 {
 }
 

@@ -521,7 +521,7 @@ public static class MemberCommand
         SectionNames.FidelityCauses,
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
-        SectionNames.AnnotatedSourceMap,
+        SectionNames.AnnotatedSourceDocument,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
@@ -579,7 +579,7 @@ public static class MemberCommand
         return pdbAuthorized
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
-                   || sections.Contains(SectionNames.AnnotatedSourceMap)
+                   || sections.Contains(SectionNames.AnnotatedSourceDocument)
                    || sections.Contains(SectionNames.Facts));
     }
 

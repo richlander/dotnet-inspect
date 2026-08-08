@@ -601,7 +601,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceMap>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
@@ -655,7 +655,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<FidelityCauses>()
             .Add<AppliedTaste>()
             .Add<AnnotatedSource>()
-            .Add<AnnotatedSourceMap>()
+            .Add<AnnotatedSourceDocument>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
             .Add<OriginalSource>()
@@ -732,9 +732,9 @@ public static class ApiMemberDetailSectionDescriptors
     }
 
     /// <summary>The portable machine-readable annotated source payload.</summary>
-    public sealed class AnnotatedSourceMap : ISectionDescriptor<ApiType>
+    public sealed class AnnotatedSourceDocument : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.AnnotatedSourceMap;
+        public static string Name => SectionNames.AnnotatedSourceDocument;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

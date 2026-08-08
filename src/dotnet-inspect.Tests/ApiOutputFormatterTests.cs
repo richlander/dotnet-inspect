@@ -517,24 +517,24 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
-    public void PopulateAnnotatedSourceMap_PreservesFailureForSectionAndRawOutput()
+    public void PopulateAnnotatedSourceDocument_PreservesFailureForSectionAndRawOutput()
     {
         var failure = DecompilerResult.Failure(
             DiagnosticIds.InternalError,
-            "InvalidOperationException: map failed");
+            "InvalidOperationException: document failed");
         var sections = new MemberCodeView();
 
-        Assert.True(ApiOutputFormatter.PopulateAnnotatedSourceMap(
+        Assert.True(ApiOutputFormatter.PopulateAnnotatedSourceDocument(
             sections,
-            sourceMap: null,
+            sourceDocument: null,
             failure));
-        Assert.Same(failure, sections.AnnotatedSourceMapFailure);
+        Assert.Same(failure, sections.AnnotatedSourceDocumentFailure);
         Assert.Equal(
-            "DEC0001: InvalidOperationException: map failed",
-            sections.AnnotatedSourceMapCode.Content);
+            "DEC0001: InvalidOperationException: document failed",
+            sections.AnnotatedSourceDocumentCode.Content);
         Assert.Equal(
-            "DEC0001: InvalidOperationException: map failed",
-            ApiCommand.AnnotatedSourceMapError(sections));
+            "DEC0001: InvalidOperationException: document failed",
+            ApiCommand.AnnotatedSourceDocumentError(sections));
     }
 
     [Fact]

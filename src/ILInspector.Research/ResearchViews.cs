@@ -38,7 +38,7 @@ public static partial class ResearchViews
         int? MethodToken = null,
         PrinterOptions? PrinterOptions = null,
         string? CaretFocus = null,
-        bool SourceMap = false);
+        bool SourceDocument = false);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -58,15 +58,15 @@ public static partial class ResearchViews
 
         /// <summary>
         /// Portable interleaved source, produced only when
-        /// <see cref="MemberProjectionRequest.SourceMap"/> is requested.
+        /// <see cref="MemberProjectionRequest.SourceDocument"/> is requested.
         /// </summary>
-        AnnotatedSourceMap? SourceMap = null,
+        AnnotatedSourceDocument? SourceDocument = null,
 
         /// <summary>
-        /// Failure isolated to portable-map production. Sibling projections
-        /// remain available when the map's C# printer cannot produce output.
+        /// Failure isolated to portable-document production. Sibling projections
+        /// remain available when the document's C# printer cannot produce output.
         /// </summary>
-        DecompilerResult? SourceMapFailure = null);
+        DecompilerResult? SourceDocumentFailure = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -112,32 +112,32 @@ public static partial class ResearchViews
                 }
             }
 
-            AnnotatedSourceMap? sourceMap = null;
-            DecompilerResult? sourceMapFailure = null;
-            if (request.SourceMap)
+            AnnotatedSourceDocument? sourceDocument = null;
+            DecompilerResult? sourceDocumentFailure = null;
+            if (request.SourceDocument)
             {
-                // Printing mutates the raised graph. Produce the portable map
-                // first and from its own import so selecting it cannot reshape
-                // any sibling projection.
-                (sourceMap, sourceMapFailure) = CaptureSourceMap(() =>
+                // Printing mutates the raised graph. Produce the portable
+                // document first and from its own import so selecting it cannot
+                // reshape any sibling projection.
+                (sourceDocument, sourceDocumentFailure) = CaptureSourceDocument(() =>
                 {
-                    var mapFunction = ImportFunction()
+                    var documentFunction = ImportFunction()
                         ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
                     if (headerFactsFailure is not null)
                         throw new InvalidOperationException(
                             string.Join(
                                 "; ",
                                 headerFactsFailure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
-                    var mapHeaderFacts = request.FactRows || request.CostOverlay
+                    var documentHeaderFacts = request.FactRows || request.CostOverlay
                         ? headerFacts
                         : effectiveRegistry.CollectHeaderFacts(context);
-                    return BuildAnnotatedSourceMap(
+                    return BuildAnnotatedSourceDocument(
                         request.Source,
                         request.Type,
                         request.Method,
-                        mapFunction,
+                        documentFunction,
                         facts,
-                        mapHeaderFacts,
+                        documentHeaderFacts,
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly,
@@ -231,8 +231,8 @@ public static partial class ResearchViews
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
                 UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
-                sourceMap,
-                sourceMapFailure);
+                sourceDocument,
+                sourceDocumentFailure);
         }
         catch (Exception ex)
         {
@@ -250,7 +250,7 @@ public static partial class ResearchViews
                 request.SemanticsOverlay ? failure : null,
                 request.FactRows ? [] : null,
                 failure.Trace,
-                SourceMapFailure: request.SourceMap ? failure : null);
+                SourceDocumentFailure: request.SourceDocument ? failure : null);
         }
     }
 
@@ -381,7 +381,7 @@ public static partial class ResearchViews
         return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
     }
 
-    static AnnotatedSourceMap BuildAnnotatedSourceMap(
+    static AnnotatedSourceDocument BuildAnnotatedSourceDocument(
         MetadataSource source,
         string type,
         string method,
@@ -407,7 +407,7 @@ public static partial class ResearchViews
                 importMethodBody: ImportMethodBody,
                 typesProvablyDisjoint: source.AreProvablyDisjoint,
                 options: printerOptions);
-        string csText = RequireSuccessfulMapOutput(csResult);
+        string csText = RequireSuccessfulDocumentOutput(csResult);
 
         bool lensApplied = csResult.Metadata.Decisions
             .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
@@ -419,22 +419,22 @@ public static partial class ResearchViews
 
         var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
         var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
-        return MakePortable(stream, csharpMap, headerFacts);
+        return MakeDocument(stream, csharpMap, headerFacts);
     }
 
-    internal static string RequireSuccessfulMapOutput(DecompilerResult result)
+    internal static string RequireSuccessfulDocumentOutput(DecompilerResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (!result.Succeeded)
         {
             throw new InvalidOperationException(
-                $"Annotated source map C# projection failed: {string.Join("; ", result.Diagnostics)}");
+                $"Annotated source document C# projection failed: {string.Join("; ", result.Diagnostics)}");
         }
         return result.Output!;
     }
 
-    internal static (AnnotatedSourceMap? Map, DecompilerResult? Failure) CaptureSourceMap(
-        Func<AnnotatedSourceMap> produce)
+    internal static (AnnotatedSourceDocument? Document, DecompilerResult? Failure) CaptureSourceDocument(
+        Func<AnnotatedSourceDocument> produce)
     {
         ArgumentNullException.ThrowIfNull(produce);
         try
@@ -528,107 +528,165 @@ public static partial class ResearchViews
         return stream;
     }
 
-    static AnnotatedSourceMap MakePortable(
+    /// <summary>
+    /// Folds the correlated stream, the printer's body-local projection, and the
+    /// member-header facts into the normalized portable document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three planes are built independently and joined only through ids.
+    /// Nodes keep the ids the printer projection minted while
+    /// <c>IrNode</c> identity was still alive, so a C# placement is the node id
+    /// the fact was actually anchored to rather than a coordinate re-match that
+    /// would be ambiguous whenever two nodes print the same characters.
+    /// </para>
+    /// <para>
+    /// Facts are deduplicated on their full semantic identity, including origin,
+    /// after portable escaping — escaping first, because two descriptors that
+    /// differ only in an unpaired surrogate must not merge after they are
+    /// encoded the same way. One fact observed in both media therefore becomes
+    /// one fact row with a node placement and a line placement, which is what
+    /// makes "this is one observation" readable from the payload.
+    /// </para>
+    /// <para>
+    /// Line placements name global stream ids, because a line <em>is</em> a row
+    /// of the interleave. Node and region extents stay in the printer's C#-local
+    /// coordinates, because structure is a property of the C# text rather than
+    /// of the order the two media were woven in.
+    /// </para>
+    /// </remarks>
+    static AnnotatedSourceDocument MakeDocument(
         IReadOnlyList<BoundSourceLine> stream,
         PrintedBodyMap csharpMap,
         IReadOnlyList<ResearchHeaderFact> headerFacts)
     {
-        var csharpToStream = new List<int>(csharpMap.Lines.Count);
-        for (int streamLine = 0; streamLine < stream.Count; streamLine++)
-            if (stream[streamLine].Kind == SourceLineKind.CSharp)
-                csharpToStream.Add(streamLine);
-        if (csharpToStream.Count != csharpMap.Lines.Count)
+        int csharpLineCount = stream.Count(line => line.Kind == SourceLineKind.CSharp);
+        if (csharpLineCount != csharpMap.Lines.Count)
         {
             throw new InvalidOperationException(
-                $"The correlated stream has {csharpToStream.Count} C# lines but the printed map has {csharpMap.Lines.Count}.");
+                $"The correlated stream has {csharpLineCount} C# lines but the printed map has {csharpMap.Lines.Count}.");
         }
 
-        PrintedExtent Rebase(PrintedExtent extent) => new(
-            csharpToStream[extent.StartLine],
-            extent.StartColumn,
-            csharpToStream[extent.EndLine],
-            extent.EndColumn);
+        var lines = new AnnotatedSourceLine[stream.Count];
+        for (int i = 0; i < stream.Count; i++)
+        {
+            var line = stream[i];
+            lines[i] = new AnnotatedSourceLine(i, line.Text, line.Offset, line.Kind);
+        }
 
-        var annotationsByLine = Enumerable.Range(0, stream.Count)
-            .Select(_ => new List<PrintedAnnotationSpan>())
+        // Structural extents stay in the printer's C#-local coordinates. They
+        // are deliberately not rebased onto stream line ids: interleaving is a
+        // presentation choice, and a two-line C# node rebased through it would
+        // enclose every IL line printed between those lines, so a payload
+        // promising exact characters would hand back a mixed-medium blob.
+        var nodes = csharpMap.Nodes
+            .Select(node => new AnnotatedSourceNode(
+                node.Id,
+                node.Kind,
+                SourceLineKind.CSharp,
+                node.Extent))
             .ToArray();
+        var regions = csharpMap.Regions.ToArray();
+
+        // Keyed by semantic identity so the same observation seen on a C# node
+        // and on its IL line collapses to one definition carrying both places.
+        var collected = new Dictionary<FactIdentity, HashSet<(AnnotatedSourcePlacementTarget Target, int? TargetId)>>();
+        HashSet<(AnnotatedSourcePlacementTarget, int?)> Places(FactIdentity identity)
+        {
+            if (!collected.TryGetValue(identity, out var places))
+                collected[identity] = places = [];
+            return places;
+        }
 
         foreach (var annotation in csharpMap.Annotations)
         {
-            if (annotation.Extent is not { } extent)
-                continue;
-            var rebased = MakePortable(annotation) with { Extent = Rebase(extent) };
-            annotationsByLine[rebased.Extent!.Value.StartLine].Add(rebased);
+            var identity = FactIdentity.From(MakePortable(annotation), AnnotatedSourceFactOrigin.Body);
+            var places = Places(identity);
+
+            // An unplaced C# fact contributes nothing yet: the IL plane may still
+            // place it, and deciding that here would make the outcome depend on
+            // which medium was folded first.
+            if (annotation.NodeId is { } nodeId)
+                places.Add((AnnotatedSourcePlacementTarget.Node, nodeId));
         }
 
-        var ilPlacements = new Dictionary<FactIdentity, int>();
         for (int streamLine = 0; streamLine < stream.Count; streamLine++)
         {
             var line = stream[streamLine];
             if (line.Kind != SourceLineKind.Il)
                 continue;
-
-            var extent = new PrintedExtent(streamLine, 0, streamLine, line.Text.Length);
             foreach (var annotation in line.Annotations)
             {
-                var portable = new PrintedAnnotationSpan(
+                var identity = new FactIdentity(
                     MakePortableText(annotation.Descriptor.Id),
                     annotation.Descriptor.Category.ToString(),
                     annotation.Conditionality,
-                    "Instruction",
-                    extent,
                     annotation.Detail is null ? null : MakePortableText(annotation.Detail),
-                    annotation.SourceOffset);
-                annotationsByLine[streamLine].Add(portable);
-                var identity = FactIdentity.From(portable);
-                ilPlacements[identity] = ilPlacements.GetValueOrDefault(identity) + 1;
+                    annotation.SourceOffset,
+                    AnnotatedSourceFactOrigin.Body);
+                Places(identity).Add((AnnotatedSourcePlacementTarget.Line, streamLine));
             }
         }
 
-        var unplaced = new List<PrintedAnnotationSpan>();
-        foreach (var annotation in csharpMap.Annotations)
-        {
-            if (annotation.Extent is not null)
-                continue;
-            var portable = MakePortable(annotation);
-            var identity = FactIdentity.From(portable);
-            if (ilPlacements.GetValueOrDefault(identity) > 0)
-                ilPlacements[identity]--;
-            else
-                unplaced.Add(portable);
-        }
         foreach (var fact in headerFacts)
         {
-            unplaced.Add(new PrintedAnnotationSpan(
+            var identity = new FactIdentity(
                 MakePortableText(fact.Descriptor.Id),
                 fact.Descriptor.Category.ToString(),
                 AnnotationConditionality.Always,
-                "MemberHeader",
-                Extent: null,
                 fact.Detail is null ? null : MakePortableText(fact.Detail),
-                SourceOffset: -1));
+                SourceOffset: -1,
+                AnnotatedSourceFactOrigin.MemberHeader);
+            Places(identity).Add((AnnotatedSourcePlacementTarget.Unplaced, null));
         }
-        unplaced.Sort(CompareAnnotations);
 
-        var lines = new AnnotatedSourceLine[stream.Count];
-        for (int i = 0; i < stream.Count; i++)
+        var ordered = collected.Keys.ToList();
+        ordered.Sort(CompareFactIdentities);
+
+        var facts = new AnnotatedSourceFact[ordered.Count];
+        var placements = new List<AnnotatedSourcePlacement>(ordered.Count);
+        for (int id = 0; id < ordered.Count; id++)
         {
-            annotationsByLine[i].Sort(CompareAnnotations);
-            var line = stream[i];
-            lines[i] = new AnnotatedSourceLine(
-                line.Text,
-                line.Offset,
-                line.Kind,
-                annotationsByLine[i]);
+            var identity = ordered[id];
+            facts[id] = new AnnotatedSourceFact(
+                id,
+                identity.Descriptor,
+                identity.Category,
+                identity.Conditionality,
+                identity.Detail,
+                identity.SourceOffset,
+                identity.Origin);
+
+            var places = collected[identity];
+            if (places.Count == 0)
+                places.Add((AnnotatedSourcePlacementTarget.Unplaced, null));
+            foreach (var (target, targetId) in places)
+                placements.Add(new AnnotatedSourcePlacement(id, target, targetId));
         }
 
-        var nodes = csharpMap.Nodes
-            .Select(node => node with { Extent = Rebase(node.Extent) })
-            .ToArray();
-        var regions = csharpMap.Regions
-            .Select(region => region with { Extent = Rebase(region.Extent) })
-            .ToArray();
-        return new AnnotatedSourceMap(lines, nodes, regions, unplaced);
+        placements.Sort(static (a, b) =>
+        {
+            int c = a.FactId.CompareTo(b.FactId);
+            if (c != 0) return c;
+            c = a.Target.CompareTo(b.Target);
+            return c != 0 ? c : Nullable.Compare(a.TargetId, b.TargetId);
+        });
+
+        return new AnnotatedSourceDocument(lines, nodes, regions, facts, placements);
+    }
+
+    static int CompareFactIdentities(FactIdentity left, FactIdentity right)
+    {
+        int c = left.SourceOffset.CompareTo(right.SourceOffset);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Descriptor, right.Descriptor);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Category, right.Category);
+        if (c != 0) return c;
+        c = left.Conditionality.CompareTo(right.Conditionality);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Detail, right.Detail);
+        return c != 0 ? c : left.Origin.CompareTo(right.Origin);
     }
 
     static PrintedAnnotationSpan MakePortable(PrintedAnnotationSpan annotation)
@@ -666,34 +724,29 @@ public static partial class ResearchViews
         return result.ToString();
     }
 
-    static int CompareAnnotations(PrintedAnnotationSpan left, PrintedAnnotationSpan right)
-    {
-        int c = left.SourceOffset.CompareTo(right.SourceOffset);
-        if (c != 0) return c;
-        c = string.CompareOrdinal(left.Descriptor, right.Descriptor);
-        if (c != 0) return c;
-        c = string.CompareOrdinal(left.Category, right.Category);
-        if (c != 0) return c;
-        c = left.Conditionality.CompareTo(right.Conditionality);
-        if (c != 0) return c;
-        c = string.CompareOrdinal(left.Detail, right.Detail);
-        if (c != 0) return c;
-        return string.CompareOrdinal(left.Kind, right.Kind);
-    }
-
+    /// <summary>
+    /// Everything that distinguishes one observation from another. Deliberately
+    /// excludes coordinates and node kinds: those describe where a fact is shown,
+    /// which is the placement's business, and folding them in here would split
+    /// one cross-medium observation into two.
+    /// </summary>
     readonly record struct FactIdentity(
         string Descriptor,
         string Category,
         AnnotationConditionality Conditionality,
         string? Detail,
-        int SourceOffset)
+        int SourceOffset,
+        AnnotatedSourceFactOrigin Origin)
     {
-        internal static FactIdentity From(PrintedAnnotationSpan annotation) => new(
+        internal static FactIdentity From(
+            PrintedAnnotationSpan annotation,
+            AnnotatedSourceFactOrigin origin) => new(
             annotation.Descriptor,
             annotation.Category,
             annotation.Conditionality,
             annotation.Detail,
-            annotation.SourceOffset);
+            annotation.SourceOffset,
+            origin);
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the

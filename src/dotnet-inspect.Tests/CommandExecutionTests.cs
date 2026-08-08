@@ -6586,7 +6586,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section |", output);
-        Assert.Contains("| Annotated Source Map | section |", output);
+        Assert.Contains("| Annotated Source Document | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section |", output);
@@ -6838,17 +6838,17 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SelectedOverload_AnnotatedSourceMap_UsesStructuredJsonContract()
+    public async Task Member_SelectedOverload_AnnotatedSourceDocument_UsesStructuredJsonContract()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Annotated Source Map", "--json", "--tips", "q");
+            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         var replayed = JsonSerializer.Deserialize(
             output,
-            AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap);
+            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
         Assert.NotNull(replayed);
 
         using var document = JsonDocument.Parse(output);
@@ -6857,20 +6857,79 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(lines);
         Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "CSharp");
         Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "Il");
-        Assert.True(root.GetProperty("nodes").GetArrayLength() > 0);
-        Assert.True(root.GetProperty("regions").GetArrayLength() > 0);
-        Assert.Equal(JsonValueKind.Array, root.GetProperty("unplaced_annotations").ValueKind);
 
-        var csharpFacts = lines
-            .Where(line => line.GetProperty("kind").GetString() == "CSharp")
-            .SelectMany(line => line.GetProperty("annotations").EnumerateArray())
-            .Select(FactIdentity)
+        // Lines are text structure only; facts reach them through placements.
+        Assert.All(lines, line => Assert.False(line.TryGetProperty("annotations", out _)));
+        Assert.False(root.TryGetProperty("unplaced_annotations", out _));
+
+        var nodes = root.GetProperty("nodes").EnumerateArray().ToArray();
+        Assert.NotEmpty(nodes);
+        Assert.True(root.GetProperty("regions").GetArrayLength() > 0);
+        Assert.All(nodes, node => Assert.Equal("CSharp", node.GetProperty("medium").GetString()));
+
+        // Structural extents are medium-local: they index the C# lines, in
+        // order, not the interleaved stream. A payload that rebased them would
+        // put them out of range of the C# text they describe.
+        string[] csharpText =
+        [
+            .. lines
+                .Where(line => line.GetProperty("kind").GetString() == "CSharp")
+                .Select(line => line.GetProperty("text").GetString()!),
+        ];
+        Assert.True(csharpText.Length < lines.Length);
+        foreach (var extent in nodes
+            .Select(node => node.GetProperty("extent"))
+            .Concat(root.GetProperty("regions").EnumerateArray().Select(region => region.GetProperty("extent"))))
+        {
+            int startLine = extent.GetProperty("start_line").GetInt32();
+            int endLine = extent.GetProperty("end_line").GetInt32();
+            Assert.InRange(startLine, 0, csharpText.Length - 1);
+            Assert.InRange(endLine, 0, csharpText.Length - 1);
+            Assert.InRange(extent.GetProperty("start_column").GetInt32(), 0, csharpText[startLine].Length);
+            Assert.InRange(extent.GetProperty("end_column").GetInt32(), 0, csharpText[endLine].Length);
+        }
+
+        var facts = root.GetProperty("facts").EnumerateArray().ToArray();
+        var placements = root.GetProperty("placements").EnumerateArray().ToArray();
+        Assert.NotEmpty(facts);
+        Assert.NotEmpty(placements);
+
+        // Ids are the join, so they must be contiguous from 0 in list order on
+        // every plane and must resolve from every placement.
+        Assert.Equal(
+            Enumerable.Range(0, lines.Length),
+            lines.Select(line => line.GetProperty("id").GetInt32()));
+        Assert.Equal(
+            Enumerable.Range(0, nodes.Length),
+            nodes.Select(node => node.GetProperty("id").GetInt32()));
+        Assert.Equal(
+            Enumerable.Range(0, facts.Length),
+            facts.Select(fact => fact.GetProperty("id").GetInt32()));
+        Assert.All(placements, placement =>
+        {
+            Assert.InRange(placement.GetProperty("fact_id").GetInt32(), 0, facts.Length - 1);
+            int limit = placement.GetProperty("target").GetString() switch
+            {
+                "Node" => nodes.Length,
+                "Line" => lines.Length,
+                _ => 0,
+            };
+            if (limit == 0)
+                Assert.False(placement.TryGetProperty("target_id", out _));
+            else
+                Assert.InRange(placement.GetProperty("target_id").GetInt32(), 0, limit - 1);
+        });
+
+        var csharpFacts = placements
+            .Where(placement => placement.GetProperty("target").GetString() == "Node")
+            .Select(placement => FactIdentity(facts[placement.GetProperty("fact_id").GetInt32()]))
+            .Distinct()
             .Order()
             .ToArray();
-        var ilFacts = lines
-            .Where(line => line.GetProperty("kind").GetString() == "Il")
-            .SelectMany(line => line.GetProperty("annotations").EnumerateArray())
-            .Select(FactIdentity)
+        var ilFacts = placements
+            .Where(placement => placement.GetProperty("target").GetString() == "Line")
+            .Select(placement => FactIdentity(facts[placement.GetProperty("fact_id").GetInt32()]))
+            .Distinct()
             .Order()
             .ToArray();
         Assert.NotEmpty(csharpFacts);
@@ -6889,15 +6948,16 @@ public partial class CommandExecutionTests
             fact.GetProperty("descriptor").GetString(),
             fact.GetProperty("category").GetString(),
             fact.GetProperty("conditionality").GetString(),
-            fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null);
+            fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
+            fact.GetProperty("origin").GetString());
     }
 
     [Fact]
-    public async Task Member_AnnotatedSourceMapJson_RejectsAmbiguousDocumentComposition()
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsAmbiguousDocumentComposition()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "Pump:1", "-S", "Signature,Annotated Source Map", "--json", "--tips", "q");
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -6905,13 +6965,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_DuplicateAnnotatedSourceMapSelectors_UseStructuredJsonContract()
+    public async Task Member_DuplicateAnnotatedSourceDocumentSelectors_UseStructuredJsonContract()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "Pump:1",
-            "-S", "Annotated Source Map",
-            "-S", "annotated source map",
+            "-S", "Annotated Source Document",
+            "-S", "annotated source document",
             "--json", "--tips", "q");
 
         Assert.Equal(0, exit);
@@ -6924,7 +6984,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("@all")]
     [InlineData("Annotated*")]
-    [InlineData("Annotated Source M*")]
+    [InlineData("Annotated Source D*")]
     public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6940,19 +7000,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_AnnotatedSourceMap_IsNotAdvertisedAsATypeSection()
+    public async Task Type_AnnotatedSourceDocument_IsNotAdvertisedAsATypeSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
-            "-S", "Annotated Source Map", "--json", "--tips", "q");
+            "-S", "Annotated Source Document", "--json", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Select value 'Annotated Source Map' not found", error);
+        Assert.Contains("Select value 'Annotated Source Document' not found", error);
     }
 
     [Fact]
-    public void Member_AnnotatedSourceMap_AuthorizesPdbResolution()
+    public void Member_AnnotatedSourceDocument_AuthorizesPdbResolution()
     {
         var type = new ApiType
         {
@@ -6965,7 +7025,7 @@ public partial class CommandExecutionTests
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                SectionNames.AnnotatedSourceMap,
+                SectionNames.AnnotatedSourceDocument,
             },
         };
 
@@ -9848,7 +9908,7 @@ public partial class CommandExecutionTests
         "Custom Attributes",
         "Decompiled Source",
         "Annotated Source",
-        "Annotated Source Map",
+        "Annotated Source Document",
         "Cost Overlay",
         "Semantics Overlay",
         "Original Source",

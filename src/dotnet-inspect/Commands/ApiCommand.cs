@@ -1052,10 +1052,10 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
-        if (IsInvalidAnnotatedSourceMapJsonSelection(options))
+        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
         {
             CommandError.Write(
-                $"section '{SectionNames.AnnotatedSourceMap}' must be the only selected section under --json.");
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
             return 1;
         }
 
@@ -1065,8 +1065,8 @@ public class ApiCommand
             return 0;
         }
 
-        bool sourceMapJson = IsAnnotatedSourceMapJson(options);
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceMapJson)
+        bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1244,18 +1244,18 @@ public class ApiCommand
 
         }
 
-        if (sourceMapJson)
+        if (sourceDocumentJson)
         {
-            if (view.MemberCode?.AnnotatedSourceMap is not { } sourceMap)
+            if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
             {
-                CommandError.Write(AnnotatedSourceMapError(view.MemberCode));
+                CommandError.Write(AnnotatedSourceDocumentError(view.MemberCode));
                 return 1;
             }
 
             JsonOutputHelper.Write(
-                sourceMap,
-                AnnotatedSourceMapJsonContext.Default.AnnotatedSourceMap,
-                AnnotatedSourceMapCompactJsonContext.Default.AnnotatedSourceMap,
+                sourceDocument,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
                 options.CompactJson);
             return 0;
         }
@@ -2162,30 +2162,30 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
-    private static bool IsAnnotatedSourceMapJson(ApiOptions options)
+    private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: 1 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceMap)
-           && HasOnlyExplicitAnnotatedSourceMapSelectors(options);
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
 
-    private static bool IsInvalidAnnotatedSourceMapJsonSelection(ApiOptions options)
+    private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
         => options.JsonOutput
            && !options.Count
            && !IsProjectionRequested(options)
            && options.IncludeSections is { Count: > 0 } sections
-           && sections.Contains(SectionNames.AnnotatedSourceMap)
-           && options.Select?.Any(IsExplicitAnnotatedSourceMapSelector) == true
-           && !HasOnlyExplicitAnnotatedSourceMapSelectors(options);
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
 
-    private static bool HasOnlyExplicitAnnotatedSourceMapSelectors(ApiOptions options)
+    private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options.Select is { Length: > 0 } selectors
-           && selectors.All(IsExplicitAnnotatedSourceMapSelector);
+           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
 
-    private static bool IsExplicitAnnotatedSourceMapSelector(string selector)
+    private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
         => selector.Equals(
-            SectionNames.AnnotatedSourceMap,
+            SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
@@ -2194,12 +2194,12 @@ public class ApiCommand
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
 
-    internal static string AnnotatedSourceMapError(MemberCodeView? memberCode)
-        => memberCode?.AnnotatedSourceMapFailure is { } failure
+    internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceDocumentFailure is { } failure
             ? string.Join(
                 "; ",
                 failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
-            : $"section '{SectionNames.AnnotatedSourceMap}' produced no payload.";
+            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

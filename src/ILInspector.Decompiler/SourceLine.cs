@@ -42,7 +42,7 @@ public readonly record struct SourceLine(string Text, int Offset);
 /// give. A producer emits the already-ordered stream — owning the offset-range
 /// correlation internally — and a printer renders it, framing each line by
 /// <see cref="Kind"/> and reading indentation straight from the C# line's leading
-/// whitespace. This is the <c>correlate → render</c> substrate; the point
+/// whitespace. This is the <c>correlate -&gt; render</c> substrate; the point
 /// <see cref="Offset"/> keeps each line addressable for diff, body subset, and the
 /// mixed IL+C# view.
 /// </summary>
@@ -60,42 +60,53 @@ public sealed record BoundSourceLine(
 }
 
 /// <summary>
-/// Portable line currency for consumers outside the decompiler process. Each
-/// line carries annotation data rather than rendered labels, so a consumer can
-/// choose a gesture, filter facts, or render clean text without parsing
-/// <paramref name="Text"/>.
+/// Portable line currency for consumers outside the decompiler process: one
+/// producer-rendered, display-ready line of an <see cref="AnnotatedSourceDocument"/>,
+/// addressable by <see cref="Id"/>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Unlike <see cref="BoundSourceLine"/>, this type contains no
-/// <see cref="IAnnotation"/> references. Annotation extents use the coordinate
-/// space of the containing stream; constructing that stream and rebasing its
-/// extents is the producer's responsibility.
+/// <see cref="IAnnotation"/> references — and no facts at all. A line is text
+/// structure; a fact is a semantic observation about text. The two are joined
+/// through <c>AnnotatedSourcePlacement</c>, which names this line by
+/// <see cref="Id"/>, so the same fact can be placed on a C# node and an IL line
+/// without being stored twice.
+/// </para>
+/// <para>
+/// <see cref="Text"/> is already rendered by the medium that produced it —
+/// indentation, braces, and IL alignment included — and never carries research
+/// annotation labels, so a consumer can render clean source without parsing it.
+/// </para>
 /// </remarks>
 public sealed record AnnotatedSourceLine
 {
     /// <summary>Creates a portable annotated source line.</summary>
+    /// <param name="Id">This line's identity within its document: its 0-based position in the stream.</param>
     /// <param name="Text">The medium's rendered line without research annotations.</param>
     /// <param name="Offset">The anchoring IL offset, or <c>-1</c> when unanchored.</param>
     /// <param name="Kind">The language this line came from.</param>
-    /// <param name="Annotations">Portable annotations attached to this line.</param>
     public AnnotatedSourceLine(
+        int Id,
         string Text,
         int Offset,
-        SourceLineKind Kind,
-        IReadOnlyList<PrintedAnnotationSpan> Annotations)
+        SourceLineKind Kind)
     {
         ArgumentNullException.ThrowIfNull(Text);
-        ArgumentNullException.ThrowIfNull(Annotations);
+        ArgumentOutOfRangeException.ThrowIfNegative(Id);
         if (Offset < -1)
             throw new ArgumentOutOfRangeException(nameof(Offset), Offset, "A line offset must be -1 or non-negative.");
         if (!Enum.IsDefined(Kind))
             throw new ArgumentException($"Unknown source line kind: {Kind}.", nameof(Kind));
 
+        this.Id = Id;
         this.Text = Text;
         this.Offset = Offset;
         this.Kind = Kind;
-        this.Annotations = Array.AsReadOnly(Annotations.ToArray());
     }
+
+    /// <summary>This line's identity within its document: its 0-based position in the stream.</summary>
+    public int Id { get; }
 
     /// <summary>The medium's rendered line without research annotations.</summary>
     public string Text { get; }
@@ -105,27 +116,4 @@ public sealed record AnnotatedSourceLine
 
     /// <summary>The language this line came from.</summary>
     public SourceLineKind Kind { get; }
-
-    /// <summary>Portable annotations attached to this line.</summary>
-    public IReadOnlyList<PrintedAnnotationSpan> Annotations { get; }
-
-    /// <inheritdoc/>
-    public bool Equals(AnnotatedSourceLine? other)
-        => other is not null
-            && Text == other.Text
-            && Offset == other.Offset
-            && Kind == other.Kind
-            && Annotations.SequenceEqual(other.Annotations);
-
-    /// <inheritdoc/>
-    public override int GetHashCode()
-    {
-        var hash = new HashCode();
-        hash.Add(Text);
-        hash.Add(Offset);
-        hash.Add(Kind);
-        foreach (var annotation in Annotations)
-            hash.Add(annotation);
-        return hash.ToHashCode();
-    }
 }

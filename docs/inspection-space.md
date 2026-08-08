@@ -600,11 +600,12 @@ and the physical body owner instead of collapsing them.
 
 Source projection demonstrates the same pattern at another scale. An in-process
 correlation may retain live annotation objects and IR relationships. Its
-portable projection materializes annotation data and rebased extents so another
+portable projection materializes annotation data and text extents so another
 consumer can retain, filter, or render the relation without those live objects.
-The line's IL offset remains scoped to its physical body, while annotation
-extents use the containing rendered stream's coordinate plane. The projection
-does not claim to recover the original graph.
+The line's IL offset remains scoped to its physical body, while structural
+extents stay in their own medium's line coordinates rather than the interleaved
+stream's, so a multi-line extent names the same characters however the media
+were woven. The projection does not claim to recover the original graph.
 
 These examples are precedents, not core types. Their owning documents define
 the exact currencies and conversions.
