@@ -2613,6 +2613,7 @@ public static partial class BrowserInspectionEngine
             [
                 .. workspaceAssemblies.Select(assembly => assembly.Path),
             ];
+            string fullImplementationPath = Path.GetFullPath(implementationPath);
             var callGraphEntries = workspaceAssemblies
                 .Select(assembly =>
                 {
@@ -2644,11 +2645,16 @@ public static partial class BrowserInspectionEngine
                     entry.Assembly.Identity,
                     entry.Index.DeclaredMethods.FirstOrDefault()
                         ?.ModuleVersionId ?? Guid.Empty))
-                .Select(group => group.First())
+                .Select(group => group
+                    .OrderByDescending(entry =>
+                        Path.GetFullPath(entry.Index.Path).Equals(
+                            fullImplementationPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    .First())
                 .ToArray();
             var index = callGraphEntries.First(entry =>
                 Path.GetFullPath(entry.Index.Path).Equals(
-                    Path.GetFullPath(implementationPath),
+                    fullImplementationPath,
                     StringComparison.OrdinalIgnoreCase)).Index;
             var callers = index.BuildCallerTree(token, maxDepth: 2, maxNodes: 30);
             if (callGraphEntries.Length > 1)

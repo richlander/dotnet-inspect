@@ -231,6 +231,39 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_ExplicitRequestSearchesAllTargetFrameworks()
+    {
+        WriteDll("lib/net10.0/Primary.dll");
+        var requested = WriteDll("lib/net452/Implementation.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "Implementation");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net452", result.Tfm);
+        Assert.Equal([requested], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_ExplicitRequestSearchesAllLayoutsAtTfm()
+    {
+        WriteDll("ref/net8.0/MyPackage.dll");
+        var requested = WriteDll("lib/net8.0/Implementation.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "Implementation",
+            tfm: "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([requested], result.Paths);
+    }
+
+    [Fact]
     public void SelectPackageLibraries_NoTfm_SelectsHighestTfmInStableOrder()
     {
         WriteDll("lib/net8.0/Zeta.dll");
@@ -242,6 +275,31 @@ public class TfmSelectorTests : IDisposable
         Assert.True(result.IsSelected);
         Assert.Equal("net10.0", result.Tfm);
         Assert.Equal([alpha, beta], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_ExplicitTfmScansAllLayouts()
+    {
+        var library = WriteDll("lib/net8.0/MyLib.dll");
+        var runtime =
+            WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir, "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library, runtime], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_KeepsRootAssemblyEndingInResources()
+    {
+        var resources = WriteDll("lib/net8.0/MyCompany.Resources.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([resources], result.Paths);
     }
 
     [Fact]

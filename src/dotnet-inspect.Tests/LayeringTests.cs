@@ -63,6 +63,12 @@ public sealed class LayeringTests
             "inspect-web",
             "engine",
             "Program.cs"));
+        string browserSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "prototypes",
+            "inspect-web",
+            "src",
+            "app.js"));
 
         Assert.Contains(
             ".Add(AssemblyReferencesQuery.Definition, AssemblyReferencesQuery.Execute)",
@@ -96,6 +102,14 @@ public sealed class LayeringTests
         Assert.DoesNotContain(
             "FrameworkPriority(",
             engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "assemblyId: item.assemblyId",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "assembly: item.assembly",
+            browserSource,
             StringComparison.Ordinal);
     }
 

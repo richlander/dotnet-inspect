@@ -1596,7 +1596,7 @@ async function ensureWorkspaceDependencies() {
         packageId: item.id,
         version: item.version,
         framework: item.activeFramework,
-        assembly: item.assembly
+        assemblyId: item.assemblyId
       });
       state.workspaceDependencies[key] = result?.dependencyGroups || [];
     } catch {

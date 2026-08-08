@@ -93,7 +93,8 @@ public static class PackageCompileAssetSelector
             .. discovered
                 .Select(asset => asset.TargetFramework)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(TfmResolver.GetTfmPriority)
+                .OrderByDescending(framework =>
+                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
                 .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase),
         ];
         string? selectedFramework = string.IsNullOrWhiteSpace(targetFramework)
@@ -154,7 +155,6 @@ public static class PackageCompileAssetSelector
         if (parts.Length != 3
             || parts.Any(part => part is "." or "..")
             || !parts[2].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || parts[2].EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(parts[1]))
         {
             return null;

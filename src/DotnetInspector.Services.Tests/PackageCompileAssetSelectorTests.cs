@@ -62,6 +62,37 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void Selection_RanksTargetFrameworksCaseInsensitively()
+    {
+        IPackageContent content = InMemory(
+            "lib/NET8.0/Example.dll",
+            "lib/netstandard2.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("NET8.0", selection.TargetFramework);
+        Assert.Equal("lib/NET8.0/Example.dll", selection.DefaultAsset!.Path);
+    }
+
+    [Fact]
+    public void Selection_KeepsRootAssemblyEndingInResources()
+    {
+        IPackageContent content = InMemory(
+            "lib/net8.0/Example.dll",
+            "lib/net8.0/Example.Resources.dll",
+            "lib/net8.0/fr/Example.resources.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example", "net8.0");
+
+        Assert.Equal(
+            ["lib/net8.0/Example.dll", "lib/net8.0/Example.Resources.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
     public void Selection_MissingFrameworkPreservesTypedCandidates()
     {
         IPackageContent content = InMemory("lib/net8.0/Example.dll");
@@ -86,7 +117,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
             "../escape.dll",
             "runtimes/linux-x64/lib/net8.0/Runtime.dll",
             "lib/../Escape.dll",
-            "lib/net8.0/Example.resources.dll");
+            "lib/net8.0/fr/Example.resources.dll");
 
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(content, "Example");
