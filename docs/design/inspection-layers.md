@@ -51,18 +51,25 @@ the ownership boundaries below, not the project count.
 
 ## Implementation status
 
-`DotnetInspector.Queries` now implements metadata-image, direct-reference, and
-SourceLink audit slices. The library CLI executes metadata and reference queries
-through a typed, content-shaped registry over a host-owned
-`AssemblyInspectionSession`. Library and package SourceLink sections execute a
+`DotnetInspector.Queries` now implements metadata-image, direct-reference,
+SourceLink audit, and assembly-context Integrations slices. The library CLI
+executes metadata-image and direct assembly-reference queries through a typed,
+content-shaped registry over a host-owned `AssemblyInspectionSession`. The
+`References` section binds to its concrete query definition rather than a string
+scanner key, and the CLI and package convenience route lower section selection
+into that same registry. Library and package SourceLink sections execute a
 shared document prerequisite plus availability or integrity query over a
-host-owned `SourceLinkService`.
+host-owned `SourceLinkService`. Separately, the first workspace query executes
+Integrations inspection across every participant in one binding-consistent
+assembly context group, reusing retained immutable content and returning
+per-participant evidence or failure. No command uses that group-scoped query
+yet.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
 `LibraryInspection` compatibility aggregate, and transitive reference resolution
-remain host-owned. The SourceLink document query delegates PDB acquisition to
+remains host-owned. The SourceLink document query delegates PDB acquisition to
 shared Services while the host supplies trusted symbol and SSRF-hardened source
 clients. The registry supports deterministic synchronous and asynchronous
 execution and passes each query's maximum transitive cost into the host execution
