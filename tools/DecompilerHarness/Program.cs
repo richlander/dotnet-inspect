@@ -1810,12 +1810,12 @@ static class Program
 
     static PackageAssemblyInputs ResolvePackageAssemblies(IReadOnlyList<string> packages, string? packageVersion, string? packageTfm, string? packageAssembly)
     {
-        HttpClientFactory.Initialize();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         NuGetCache.Initialize("dotnet-inspect");
 
         var assemblies = new List<string>();
         var tempDirs = new List<string>();
-        using var httpClient = HttpClientFactory.CreateNew();
+        using var httpClient = HttpClientFactory.CreateClient();
         foreach (var package in packages)
         {
             var outcome = PackageExtractor.ExtractPackageAsync(

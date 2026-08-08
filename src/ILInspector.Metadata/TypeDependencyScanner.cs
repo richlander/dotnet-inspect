@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -81,7 +82,7 @@ public static class TypeDependencyScanner
             }
 
             // Find the target type
-            var normalizedTarget = TypeMatcher.Normalize(targetType);
+            var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
             var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
                 return new TypeDependencyResult(null, []);
@@ -141,14 +142,14 @@ public static class TypeDependencyScanner
 
         // A dep is "direct" if it's not transitively reachable through another dep
         var directDeps = allDeps
-            .Where(d => !transitivelyReachable.Contains(TypeMatcher.Normalize(d)))
+            .Where(d => !transitivelyReachable.Contains(FqnParser.NormalizeTypeName(d)))
             .ToList();
 
         // Build tree nodes for direct deps only
         var results = new List<TypeDependencyNode>();
         foreach (var dep in directDeps)
         {
-            var normalized = TypeMatcher.Normalize(dep);
+            var normalized = FqnParser.NormalizeTypeName(dep);
             if (!seen.Add(normalized))
             {
                 // Already shown at a shallower level — include as leaf
@@ -173,7 +174,7 @@ public static class TypeDependencyScanner
         HashSet<string> result,
         HashSet<string> visited)
     {
-        var normalized = TypeMatcher.Normalize(typeName);
+        var normalized = FqnParser.NormalizeTypeName(typeName);
         if (!visited.Add(normalized))
             return;
 
@@ -190,7 +191,7 @@ public static class TypeDependencyScanner
             var baseTypeName = TypeResolver.GetTypeName(mdReader, typeDef.BaseType, context);
             if (baseTypeName != null && !IsSystemRoot(baseTypeName))
             {
-                result.Add(TypeMatcher.Normalize(baseTypeName));
+                result.Add(FqnParser.NormalizeTypeName(baseTypeName));
                 CollectTransitive(baseTypeName, typeIndex, result, visited);
             }
         }
@@ -202,7 +203,7 @@ public static class TypeDependencyScanner
             var ifaceName = TypeResolver.GetTypeName(mdReader, iface.Interface, context);
             if (ifaceName != null)
             {
-                result.Add(TypeMatcher.Normalize(ifaceName));
+                result.Add(FqnParser.NormalizeTypeName(ifaceName));
                 CollectTransitive(ifaceName, typeIndex, result, visited);
             }
         }
@@ -213,7 +214,7 @@ public static class TypeDependencyScanner
         Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)> typeIndex,
         HashSet<string> seen)
     {
-        var normalizedName = TypeMatcher.Normalize(typeName);
+        var normalizedName = FqnParser.NormalizeTypeName(typeName);
 
         var matchKey = ResolveTransitiveKey(typeIndex, normalizedName);
         if (matchKey == null)

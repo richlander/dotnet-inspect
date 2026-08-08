@@ -478,7 +478,7 @@ if (!string.IsNullOrWhiteSpace(nugetConfig))
     sourceOptions = new NuGetSourceOptions { ConfigFile = nugetConfig };
 }
 
-HttpClientFactory.Initialize(offline);
+HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = offline });
 NuGetCache.Initialize("dotnet-inspect", cacheBasePath, skipNuGetCache: isolated);
 
 // Counted where a package reaches the outcome its mode expects, not where it fails

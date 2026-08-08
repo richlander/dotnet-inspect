@@ -2,6 +2,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
@@ -1541,7 +1542,7 @@ public static class ResearchDiff
         if (filter.Contains('*') || filter.Contains('?'))
             return false;
 
-        var normalizedFilter = TypeMatcher.Normalize(filter);
+        var normalizedFilter = FqnParser.NormalizeTypeName(filter);
         return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
                || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
     }
