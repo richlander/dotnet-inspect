@@ -68,6 +68,15 @@ public sealed class AssemblyImage : IDisposable
     /// </summary>
     public static AssemblyImage Open(ResolvedAssemblyReference reference) => FromStream(reference.OpenRead());
 
+    internal static AssemblyImage Open(AssemblyImageSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        return new AssemblyImage(
+            stream: null,
+            new PEReader(snapshot.Content),
+            ownsReader: true);
+    }
+
     internal static AssemblyImage OpenPrefetched(Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
