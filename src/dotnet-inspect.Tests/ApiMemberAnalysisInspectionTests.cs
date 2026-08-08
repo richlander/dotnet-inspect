@@ -1,3 +1,7 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Sections;
@@ -6,11 +10,10 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// The caller-scope prefilter (#3331) is only allowed to change how much work a caller query does,
-/// never which reverse-graph builder answers it. <see cref="ApiMemberAnalysisInspection.CallerScopes"/>
-/// is that decision: <see langword="null"/> selects the same-assembly builder and any non-null list
-/// selects the cross-assembly one, and the two do not produce identical trees. These assert the
-/// decision itself rather than a rendered tree, because the small call-graph fixtures happen not to
-/// distinguish the two builders at all — an output-level test here would pass no matter what.
+/// never whether a catalog graph scope was requested. <see cref="ApiMemberAnalysisInspection.CallerScopes"/>
+/// carries that decision: <see langword="null"/> selects the same-assembly graph and any non-null
+/// list selects the catalog-owned assembly-group graph. Their identity and ordering domains may
+/// produce different trees even when no additional assembly survives filtering.
 ///
 /// The decision is a question about the <em>request</em>, never about how readable the scope turned
 /// out to be, so most of these pin cases where the scope yields nothing to walk yet the choice must
@@ -71,6 +74,32 @@ public class ApiMemberAnalysisInspectionTests
 
         Assert.NotNull(scopes);
         Assert.Single(scopes);
+    }
+
+    [Fact]
+    public void CallerScopes_VersionSkewKeepsTheCallerForGraphDiagnostics()
+    {
+        string targetV2 =
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string targetV1 =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var inspection = Create(targetV2, [caller, targetV1]);
+        int ping = TokenOf(targetV2, "Api", "Ping");
+
+        IReadOnlyList<MethodBodyInspectionSession>? scopes =
+            inspection.CallerScopes(includeAllocations: false);
+        ILInspector.Analysis.CallTreeNode tree =
+            inspection.BuildCallerTree(ping);
+
+        Assert.NotNull(scopes);
+        Assert.Contains(
+            scopes,
+            scope => Path.GetFullPath(scope.Assembly.Path!)
+                == Path.GetFullPath(caller));
+        Assert.Empty(tree.Children);
+        Assert.True(inspection.CallGraphDiagnostics.IsIncomplete);
     }
 
     // Round-2 review found that "would the unfiltered walk have opened it?" is not decidable in
@@ -237,9 +266,9 @@ public class ApiMemberAnalysisInspectionTests
     // Round-8 review (Gemini): the routing flag must not be set by a candidate this walk opens
     // itself. Classification could not decide this path, so it is SELECTED, so the open below
     // settles whether the scope really had a session — and when that open fails, the unfiltered
-    // walk also ended with an empty opened list and took the token builder. Deriving the flag from
-    // every candidate rather than only the ruled-out ones routed this to the structural builder
-    // instead and printed a different tree for the same request.
+    // walk also ended with an empty opened list and kept the same-assembly graph. Deriving the flag
+    // from every candidate rather than only the ruled-out ones created a catalog scope for a
+    // request whose scope never opened.
     //
     // The path carries an embedded null, so File.OpenRead throws ArgumentException — outside the
     // BadImageFormatException/IOException/UnauthorizedAccessException set that means "definitely
@@ -274,6 +303,25 @@ public class ApiMemberAnalysisInspectionTests
             .First(m => m.DeclaringType.Name == declaringTypeName && m.Name == methodName)
             .MetadataToken;
 
+    static int MetadataTokenOf(
+        string assemblyPath,
+        string declaringTypeName,
+        string methodName)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var type = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == declaringTypeName);
+        var method = reader.GetTypeDefinition(type).GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == methodName);
+        return System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(
+            method);
+    }
+
     static string[] FullScope =>
     [
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
@@ -281,6 +329,99 @@ public class ApiMemberAnalysisInspectionTests
         FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath(),
         FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath(),
     ];
+
+    [Fact]
+    public void CallerEdges_BodilessTargetRetainsSameAssemblyCallers()
+    {
+        int target = MetadataTokenOf(
+            SelfPath,
+            nameof(SamplePInvokeClass),
+            nameof(SamplePInvokeClass.GetCurrentProcessId));
+
+        var edges = CreateForCallers(SelfPath, scope: null)
+            .CallerEdges(target);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name
+                == nameof(SamplePInvokeClass.CallGetCurrentProcessId));
+    }
+
+    [Fact]
+    public void CallerEdges_BodilessTargetRetainsCrossAssemblyCallers()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        int invoke = ILInspector.Analysis.LibraryBodyIndex.Open(target)
+            .DeclaredMethods
+            .Single(method =>
+                method.DeclaringType.Name == "IBodilessApi"
+                && method.Name == "Invoke")
+            .MetadataToken;
+
+        var inspection = CreateForCallers(target, [caller]);
+        var edges = inspection.CallerEdges(invoke);
+        var tree = inspection.BuildCallerTree(invoke);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == "CallBodiless");
+        Assert.Contains(
+            tree.Children,
+            child => child.Member.Name == "CallBodiless");
+    }
+
+    [Fact]
+    public void CallerQueries_InvalidTargetTypeProvenanceDegradeWithoutThrowing()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-invalid-target-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string target = Path.Combine(directory, "Malformed.dll");
+            File.WriteAllBytes(target, BuildMalformedTarget());
+            int methodToken = ILInspector.Analysis.LibraryBodyIndex.Open(target)
+                .DeclaredMethods
+                .Single(method => method.Name == "Work")
+                .MetadataToken;
+
+            var callers = CreateForCallers(target, [SelfPath]);
+            var graph = Create(target, [SelfPath]);
+
+            Assert.Empty(callers.CallerEdges(methodToken));
+            Assert.Empty(graph.BuildCallerTree(methodToken).Children);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CallerEdges_ScopeTargetCopyDoesNotSuppressCaller()
+    {
+        string target =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller =
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string copiedTarget = Path.Combine(
+            Path.GetDirectoryName(caller)!,
+            Path.GetFileName(target));
+        int ping = TokenOf(target, "Api", "Ping");
+
+        var edges = CreateForCallers(
+                target,
+                [caller, copiedTarget])
+            .CallerEdges(ping);
+
+        Assert.Contains(
+            edges,
+            edge => edge.Call.Caller.Name == "Run");
+    }
 
     // The Callers table is built from strictly single-hop edges, so it needs the assemblies that
     // name the declaring type, not the transitive closure the Call Graph needs. Box`1 is declared
@@ -430,5 +571,64 @@ public class ApiMemberAnalysisInspectionTests
         }
 
         return null;
+    }
+
+    static byte[] BuildMalformedTarget()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Malformed.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Malformed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            AssemblyHashAlgorithm.None);
+
+        var methodBodies = new BlobBuilder();
+        var body = new InstructionEncoder(new BlobBuilder());
+        body.OpCode(ILOpCode.Ret);
+        int bodyOffset = new MethodBodyStreamEncoder(methodBodies)
+            .AddMethodBody(body);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature()
+            .Parameters(0, returns => returns.Void(), parameters => { });
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Work"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(""),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            methodBodies,
+            flags: CorFlags.ILOnly)
+            .Serialize(image);
+        return image.ToArray();
     }
 }

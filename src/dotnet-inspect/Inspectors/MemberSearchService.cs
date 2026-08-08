@@ -60,7 +60,7 @@ internal static class MemberSearchService
             var outcome = corpus.SearchMembers(patterns, options.IncludeAll, remaining);
 
             foreach (var skippedPath in outcome.SkippedAssemblies)
-                logger.Log($"Warning: Could not read {skippedPath}");
+                logger.LogWarning($"Could not read {skippedPath}");
 
             foreach (var match in outcome.Results)
             {

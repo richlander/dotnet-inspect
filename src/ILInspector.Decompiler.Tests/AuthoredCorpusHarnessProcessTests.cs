@@ -164,9 +164,36 @@ public class AuthoredCorpusHarnessProcessTests
     /// flags were accepted and dispatch got as far as the gate, which is the part that
     /// regressed. Pointing it at a real corpus would test the benchmark instead, which
     /// `AuthoredCorpusRatchetTests` already does in-process.</para>
+    ///
+    /// <para>The lane carried `--integrity-only` until the trend store crossed its
+    /// identity bootstrap (#3353); it now ratchets against the committed history, so
+    /// this pins the combination the workflow actually passes. The `--integrity-only`
+    /// combination is still supported and is covered separately below — a test named
+    /// for the scheduled lane that exercises flags the lane no longer passes would
+    /// report coverage it does not have.</para>
     /// </summary>
     [Fact]
-    public void Harness_LetsTheScheduledIntegrityLaneRun()
+    public void Harness_LetsTheScheduledRatchetLaneRun()
+    {
+        string history = AuthoredCorpusHistoryCardTests.TrackedHistoryPath();
+
+        var run = RunHarness(
+            "--benchmark-authored-corpus", "/does-not-exist.jsonl",
+            "--ratchet-baseline", history,
+            "--json");
+
+        Assert.DoesNotContain("runs instead of", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("does not run a gate", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("applies to", run.Output, StringComparison.Ordinal);
+        Assert.Contains("Corpus file not found", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// `--integrity-only` remains a supported contract, so its dispatch stays covered
+    /// even though the scheduled lane no longer selects it.
+    /// </summary>
+    [Fact]
+    public void Harness_LetsTheIntegrityOnlyCombinationRun()
     {
         var run = RunHarness(
             "--benchmark-authored-corpus", "/does-not-exist.jsonl", "--integrity-only", "--json");
@@ -384,18 +411,23 @@ public class AuthoredCorpusHarnessProcessTests
     [Fact]
     public void Harness_ForwardsIntegrityOnlyToTheBenchmark()
     {
-        string corpus = Path.Combine(
-            AuthoredCorpusRatchetTests.FindRepositoryRoot(),
-            "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
         string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+        string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
 
-        var requested = RunHarness(assembly, "--benchmark-authored-corpus", corpus, "--integrity-only");
-        AssertTheBenchmarkActuallyRan(requested);
-        Assert.Contains("[integrity-only]", requested.Output, StringComparison.Ordinal);
+        try
+        {
+            var requested = RunHarness(assembly, "--benchmark-authored-corpus", corpus, "--integrity-only");
+            AssertTheBenchmarkActuallyRan(requested);
+            Assert.Contains("[integrity-only]", requested.Output, StringComparison.Ordinal);
 
-        var notRequested = RunHarness(assembly, "--benchmark-authored-corpus", corpus);
-        AssertTheBenchmarkActuallyRan(notRequested);
-        Assert.DoesNotContain("[integrity-only]", notRequested.Output, StringComparison.Ordinal);
+            var notRequested = RunHarness(assembly, "--benchmark-authored-corpus", corpus);
+            AssertTheBenchmarkActuallyRan(notRequested);
+            Assert.DoesNotContain("[integrity-only]", notRequested.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(corpus);
+        }
     }
 
     /// <summary>
@@ -679,22 +711,20 @@ public class AuthoredCorpusHarnessProcessTests
     [Fact]
     public void NeitherCorpusGateCountsOneMethodTwice()
     {
-        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
-        string fixturePath = Path.Combine(
-            repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
-        string row = File.ReadAllText(fixturePath).TrimEnd();
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+        string row = AuthoredCorpusTestData.CorrelatedRow(assembly);
         string duplicated = Path.Combine(Path.GetTempPath(), $"duplicated-corpus-{Guid.NewGuid():N}.jsonl");
         File.WriteAllText(duplicated, row + Environment.NewLine + row + Environment.NewLine);
 
         try
         {
             var benchmark = RunHarness([
-                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                assembly,
                 "--benchmark-authored-corpus",
                 duplicated,
             ]);
             var drift = RunHarness([
-                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                assembly,
                 "--verify-authored-corpus",
                 duplicated,
                 "--fail-on-drift",
@@ -735,24 +765,23 @@ public class AuthoredCorpusHarnessProcessTests
     public void BothCorpusGatesRejectTheSameDamagedRow(string description, string damagedRow)
     {
         Assert.NotNull(description);
-        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string damaged = Path.Combine(Path.GetTempPath(), $"damaged-corpus-{Guid.NewGuid():N}.jsonl");
         File.WriteAllText(
             damaged,
-            File.ReadAllText(Path.Combine(
-                repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl"))
+            AuthoredCorpusTestData.CorrelatedRow(assembly) + Environment.NewLine
             + damagedRow + Environment.NewLine);
 
         try
         {
             var drift = RunHarness([
-                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                assembly,
                 "--verify-authored-corpus",
                 damaged,
                 "--fail-on-drift",
             ]);
             var benchmark = RunHarness([
-                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                assembly,
                 "--benchmark-authored-corpus",
                 damaged,
             ]);
@@ -786,18 +815,17 @@ public class AuthoredCorpusHarnessProcessTests
     [Trait("Area", "Corpus")]
     public void Benchmark_ReportsFailedIntegrityThroughTheJsonPath()
     {
-        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string mixed = Path.Combine(Path.GetTempPath(), $"mixed-corpus-{Guid.NewGuid():N}.jsonl");
         File.WriteAllText(
             mixed,
-            File.ReadAllText(Path.Combine(
-                repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl"))
+            AuthoredCorpusTestData.CorrelatedRow(assembly) + Environment.NewLine
             + "{not-json}" + Environment.NewLine);
 
         try
         {
             var run = RunHarness(
-                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                assembly,
                 "--benchmark-authored-corpus",
                 mixed,
                 "--json");

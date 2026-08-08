@@ -3,6 +3,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
+using ILInspector.Findings;
 
 namespace DotnetInspector.Inspectors;
 
@@ -34,7 +35,13 @@ internal static class ApiServices
         if (api == null || apiDllPath == null)
             return null;
 
-        ResolveForwardedTypes(api, apiDllPath, logger, includeAll);
+        ResolveForwardedTypes(
+            api,
+            apiDllPath,
+            logger,
+            includeAll,
+            isPlatformAssembly: runtimeAssemblyPath is not null,
+            targetFramework: selectedTfm);
 
         if (!string.IsNullOrEmpty(packagePath))
         {
@@ -152,44 +159,81 @@ internal static class ApiServices
     /// Resolves types from forwarded assemblies and merges them into the API surface.
     /// Like curl -L, this follows type forwarders to their target assemblies.
     /// </summary>
-    internal static void ResolveForwardedTypes(ApiSurface api, string dllPath, VerboseLogger logger, bool includeAll)
+    internal static void ResolveForwardedTypes(
+        ApiSurface api,
+        string dllPath,
+        VerboseLogger logger,
+        bool includeAll,
+        bool isPlatformAssembly = false,
+        ApiOptions? options = null,
+        string? targetFramework = null)
     {
         if (api.TypeForwarders.Count == 0)
             return;
 
-        var assemblyDir = Path.GetDirectoryName(dllPath);
-        if (assemblyDir == null)
-            return;
+        using var resolution = new TypeDefinitionResolutionSession(
+            dllPath,
+            isPlatformAssembly,
+            options?.ProjectAssetsPath,
+            options?.Tfm ?? targetFramework,
+            options?.PlatformFramework);
+        Dictionary<
+            AssemblyAcquisitionRegistration,
+            (ResolvedAssemblyReference Assembly,
+                HashSet<MetadataTypeDefinitionName> Types)> byAssembly = [];
 
-        var byAssembly = api.TypeForwarders
-            .GroupBy(f => f.TargetAssembly)
-            .ToDictionary(g => g.Key, g => g.Select(f => f.TypeName).ToHashSet(StringComparer.OrdinalIgnoreCase));
-
-        logger.Log($"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} libraries...");
-
-        int resolvedCount = 0;
-
-        foreach (var (targetAssembly, forwardedTypeNames) in byAssembly)
+        foreach (TypeForwarder forwarder in api.TypeForwarders)
         {
-            var targetPath = Path.Combine(assemblyDir, targetAssembly + ".dll");
-            if (!File.Exists(targetPath))
+            if (forwarder.DefinitionName is null)
             {
-                logger.Log($"Target library '{targetAssembly}' not found, skipping.");
+                logger.Log(
+                    $"Forwarded type '{forwarder.TypeName}' has no valid structured metadata name.");
                 continue;
             }
 
+            TypeResolutionOutcome outcome =
+                resolution.Resolve(forwarder.DefinitionName);
+            if (outcome is not TypeResolutionOutcome.Resolved resolved
+                || resolved.Hops.IsDefaultOrEmpty)
+            {
+                logger.Log(
+                    $"Could not resolve forwarded type '{forwarder.TypeName}': {outcome.GetType().Name}.");
+                continue;
+            }
+
+            ResolvedAssemblyReference assembly =
+                resolved.Definition.Assembly.Assembly;
+            if (!byAssembly.TryGetValue(
+                    assembly.Registration,
+                    out var group))
+            {
+                group = (assembly, []);
+                byAssembly.Add(assembly.Registration, group);
+            }
+            group.Types.Add(resolved.Definition.Type);
+        }
+
+        logger.Log(
+            $"Resolving {api.TypeForwarders.Count} forwarded types from {byAssembly.Count} acquired libraries...");
+        int resolvedCount = 0;
+        foreach (var (_, group) in byAssembly)
+        {
             try
             {
-                var targetApi = AssemblyReader.ExtractApiSurface(targetPath, includeAll);
+                using Stream stream = group.Assembly.OpenRead();
+                var targetApi = AssemblyReader.ExtractApiSurface(
+                    stream,
+                    includeAll);
                 if (targetApi == null)
                     continue;
 
                 foreach (var type in targetApi.Types)
                 {
-                    if (forwardedTypeNames.Contains(type.FullName))
+                    if (type.DefinitionName is not null
+                        && group.Types.Contains(type.DefinitionName))
                     {
                         type.IsForwarded = true;
-                        type.SourceAssemblyPath = targetPath;
+                        type.SourceAssemblyPath = group.Assembly.Path;
                         api.Types.Add(type);
                         api.PublicMethodCount += type.Members.Count(DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
                         api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
@@ -199,15 +243,46 @@ internal static class ApiServices
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or InvalidOperationException
+                    or NotSupportedException
+                    or ArgumentException)
             {
-                logger.Log($"Error reading '{targetAssembly}': {ex.Message}");
+                logger.Log(
+                    $"Error reading resolved assembly '{group.Assembly.Identity.Name}': {ex.Message}");
             }
         }
 
         if (resolvedCount > 0)
         {
-            api.IsTypeForwardingAssembly = PlatformResolver.IsFacadeOnlyAssembly(dllPath);
+            AssemblyResolutionProvenance provenance = isPlatformAssembly
+                ? AssemblyResolutionProvenance.Platform(
+                    "InstalledPlatform",
+                    frameworkVersion: null,
+                    "ApiServices")
+                : AssemblyResolutionProvenance.Local("ApiServices");
+            api.SurfaceClassification =
+                AssemblySurfaceClassifier.Classify(dllPath, provenance);
+            api.SurfaceClassificationInspection =
+                MetadataFindings.InspectAssemblySurface(
+                    api.SurfaceClassification,
+                    new FindingSubject(
+                        Path.GetFullPath(dllPath),
+                        Path.GetFileName(dllPath)));
+            api.IsTypeForwardingAssembly =
+                api.SurfaceClassification
+                    is AssemblySurfaceClassificationOutcome.Classified classified
+                && classified.Classification.Kind
+                    == AssemblySurfaceKind.Facade;
+            if (api.SurfaceClassification
+                is AssemblySurfaceClassificationOutcome.Rejected rejected)
+            {
+                logger.Log(
+                    $"Could not classify the forwarding surface: {rejected.Failure.Kind}.");
+            }
             api.PublicTypeCount = api.Types.Count;
             api.Types = api.Types.OrderBy(t => t.FullName).ToList();
             logger.Log($"Resolved {resolvedCount} types from forwarded libraries.");

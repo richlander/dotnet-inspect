@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using DotnetInspector.Core;
 using NuGet.Versioning;
 
@@ -7,7 +9,16 @@ namespace DotnetInspector.Packages;
 /// A package directory that became visible only after its complete contents
 /// were validated and atomically published.
 /// </summary>
-public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
+public sealed record CommittedPackage(
+    string ExtractPath,
+    string? NupkgPath,
+    string ProducerKey);
+
+/// <summary>
+/// An exact cached package payload and the canonical identity of the source
+/// that produced it.
+/// </summary>
+internal sealed record CachedPackage(string ExtractPath, string ProducerKey);
 
 /// <summary>
 /// Utilities for working with NuGet package caches.
@@ -18,7 +29,7 @@ public sealed record CommittedPackage(string ExtractPath, string? NupkgPath);
 /// </summary>
 public static class NuGetCache
 {
-    private const string PackageContentCategory = "package-content-v2";
+    private const string PackageContentCategory = "package-content-v5";
     private const string PackageContentCategoryPrefix = "package-content-v";
     public const string CommitMarkerFileName = ".dotnet-inspect.complete";
     private static string? _appName;
@@ -55,17 +66,20 @@ public static class NuGetCache
     /// </summary>
     internal static void ValidatePathComponent(string value, string name)
     {
-        if (string.IsNullOrWhiteSpace(value)
+        if (!IsValidPathComponent(value))
+        {
+            throw new ArgumentException($"Invalid {name}: '{value}'");
+        }
+    }
+
+    private static bool IsValidPathComponent(string value) =>
+        !(string.IsNullOrWhiteSpace(value)
             || value.Contains("..")
             || value.Contains('/')
             || value.Contains('\\')
             || value.Contains(':')
             || value.Contains('\0')
-            || Path.IsPathRooted(value))
-        {
-            throw new ArgumentException($"Invalid {name}: '{value}'");
-        }
-    }
+            || Path.IsPathRooted(value));
 
     /// <summary>
     /// Gets the path to the NuGet package cache (read-only).
@@ -116,6 +130,8 @@ public static class NuGetCache
         return CoreCache.GetCategoryPath(PackageContentCategory);
     }
 
+    internal static bool UsesGlobalPackages => !_skipNuGetCache;
+
     /// <summary>
     /// Gets the path to the source content cache (read-write).
     /// </summary>
@@ -129,8 +145,34 @@ public static class NuGetCache
     /// </summary>
     /// <param name="packageName">The package name (case-insensitive)</param>
     /// <param name="version">The package version</param>
+    /// <param name="allowedSourceKeys">
+    /// Keys (per <see cref="GetSourceKey"/>) of the sources the caller is
+    /// currently configured to read from, in configured order. Cached content
+    /// committed by a source outside this set is treated as a miss, so an empty
+    /// or <see langword="null"/> list never hits the app cache. The reserved
+    /// <c>local</c> key must be included explicitly; <see langword="null"/> is
+    /// not shorthand for it. Order matters: slots are consulted in it, so a
+    /// higher-precedence source's cached copy answers ahead of a lower one's,
+    /// matching the order a cold run would have tried the feeds in.
+    /// </param>
     /// <returns>The path to the cached package directory, or null if not found</returns>
-    public static string? TryGetCachedPackage(string packageName, string version)
+    public static string? TryGetCachedPackage(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys)
+        => TryGetCachedPackageContent(
+            packageName,
+            version,
+            allowedSourceKeys)?.ExtractPath;
+
+    /// <summary>
+    /// Tries to find an exact cached payload and returns its producer identity.
+    /// </summary>
+    internal static CachedPackage? TryGetCachedPackageContent(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        string? globalPackagesPath = null)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -142,32 +184,45 @@ public static class NuGetCache
         // Check NuGet cache first (more likely to have packages) — skip in isolated mode
         if (!_skipNuGetCache)
         {
-            var nugetCachePath = GetNuGetCachePath();
-            if (Directory.Exists(nugetCachePath))
+            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
+            CachedPackage? global = TryGetGlobalPackageContent(
+                nugetCachePath,
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
+            if (global is not null)
             {
-                var nugetPackageDir = Path.Combine(nugetCachePath, normalizedName, normalizedVersion);
-                if (Directory.Exists(nugetPackageDir) && IsCachedPackageValid(nugetPackageDir, normalizedName))
-                {
-                    InfoTracker.RecordCacheHit();
-                    CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
-                    return nugetPackageDir;
-                }
+                InfoTracker.RecordCacheHit();
+                CacheTelemetry.Record("nuget-global-packages", cacheKey, CacheAccessResult.Hit);
+                return global;
             }
         }
 
-        // Check app cache
+        // Check app cache. A read happens before the tool knows which source
+        // would serve the package, so it asks every source the caller is
+        // currently configured to read from, in configured order. A slot
+        // belonging to any other source is not consulted: those bytes were
+        // fetched under an authority this caller no longer claims.
         var appCachePath = GetPackageContentCachePath();
         if (Directory.Exists(appCachePath))
         {
-            var appPackageDir = Path.Combine(appCachePath, normalizedName, normalizedVersion);
-            if (IsCommittedPackageValid(
-                appPackageDir,
-                normalizedName,
-                normalizedVersion))
+            foreach (var sourceKey in allowedSourceKeys ?? [])
             {
-                InfoTracker.RecordCacheHit();
-                CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
-                return appPackageDir;
+                var appPackageDir = Path.Combine(
+                    appCachePath,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey);
+                if (IsCommittedPackageValid(
+                    appPackageDir,
+                    normalizedName,
+                    normalizedVersion,
+                    sourceKey))
+                {
+                    InfoTracker.RecordCacheHit();
+                    CacheTelemetry.Record("packages", cacheKey, CacheAccessResult.Hit);
+                    return new CachedPackage(appPackageDir, sourceKey);
+                }
             }
         }
 
@@ -176,17 +231,83 @@ public static class NuGetCache
         return null;
     }
 
+    internal static CachedPackage? TryGetGlobalPackageContent(
+        string globalPackagesPath,
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys)
+    {
+        string packageDirectory = Path.Combine(
+            globalPackagesPath,
+            packageName,
+            version);
+        if (!Directory.Exists(packageDirectory)
+            || !IsCachedPackageValid(packageDirectory, packageName)
+            || !TryReadGlobalPackageSourceKey(
+                packageDirectory,
+                out string? producerKey)
+            || !(allowedSourceKeys?.Contains(producerKey) ?? false))
+        {
+            return null;
+        }
+
+        return new CachedPackage(packageDirectory, producerKey);
+    }
+
+    private static bool TryReadGlobalPackageSourceKey(
+        string packageDirectory,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? sourceKey)
+    {
+        string metadataPath = Path.Combine(packageDirectory, ".nupkg.metadata");
+        try
+        {
+            byte[] metadata = File.ReadAllBytes(metadataPath);
+            using var document = HardenedJson.Parse(metadata);
+            if (!document.RootElement.TryGetProperty("source", out var source)
+                || source.ValueKind != System.Text.Json.JsonValueKind.String
+                || string.IsNullOrWhiteSpace(source.GetString()))
+            {
+                sourceKey = null;
+                return false;
+            }
+
+            sourceKey = GetSourceKey(source.GetString());
+            return true;
+        }
+        catch (Exception ex) when (ex is
+            IOException
+            or UnauthorizedAccessException
+            or System.Text.Json.JsonException
+            or InvalidOperationException)
+        {
+            sourceKey = null;
+            return false;
+        }
+    }
+
     /// <summary>
     /// Gets the final path for a package in the transactional content cache.
     /// </summary>
-    public static string GetPackageCachePath(string packageName, string version)
+    /// <remarks>
+    /// The source is part of the path, not merely recorded inside the entry, so
+    /// one coordinate served by two feeds occupies two slots. A single slot
+    /// cannot hold both: the second feed would have to either overwrite content
+    /// another feed is entitled to or fail to commit a package it downloaded
+    /// successfully. The cost is duplicated bytes when two feeds carry the same
+    /// package, which is cheaper than either alternative.
+    /// </remarks>
+    public static string GetPackageCachePath(string packageName, string version, string sourceKey)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
+        ValidatePathComponent(sourceKey, "source key");
 
         var appCachePath = GetPackageContentCachePath();
-        var packageDir = Path.Combine(appCachePath, packageName.ToLowerInvariant(), version.ToLowerInvariant());
-        return packageDir;
+        return Path.Combine(
+            appCachePath,
+            packageName.ToLowerInvariant(),
+            version.ToLowerInvariant(),
+            sourceKey);
     }
 
     /// <summary>
@@ -198,11 +319,17 @@ public static class NuGetCache
     /// <param name="nupkgPath">Optional source archive to retain with the committed contents</param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The package version</param>
+    /// <param name="sourceKey">
+    /// Identity (per <see cref="GetSourceKey"/>) of the source that served
+    /// these bytes, recorded so a later read from a different source set does
+    /// not receive them.
+    /// </param>
     public static CommittedPackage CommitPackage(
         string extractedPath,
         string? nupkgPath,
         string packageName,
-        string version)
+        string version,
+        string sourceKey)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -211,7 +338,8 @@ public static class NuGetCache
         string normalizedVersion = version.ToLowerInvariant();
         string targetPath = GetPackageCachePath(
             normalizedName,
-            normalizedVersion);
+            normalizedVersion,
+            sourceKey);
         string? parentDir = Path.GetDirectoryName(targetPath)
             ?? throw new InvalidOperationException(
                 $"Package cache path has no parent: {targetPath}");
@@ -222,12 +350,14 @@ public static class NuGetCache
         if (IsCommittedPackageValid(
             targetPath,
             normalizedName,
-            normalizedVersion))
+            normalizedVersion,
+            sourceKey))
         {
             return OpenCommittedPackage(
                 targetPath,
                 normalizedName,
-                normalizedVersion);
+                normalizedVersion,
+                sourceKey);
         }
 
         if (Directory.Exists(targetPath))
@@ -238,7 +368,7 @@ public static class NuGetCache
 
         string stagingPath = Path.Combine(
             parentDir,
-            $".{normalizedVersion}.tmp-{Guid.NewGuid():N}");
+            $".{sourceKey}.tmp-{Guid.NewGuid():N}");
         CoreCache.EnsurePathInCacheContext(stagingPath);
 
         try
@@ -270,7 +400,8 @@ public static class NuGetCache
                 writer.Write(
                     GetCommitMarkerContent(
                         normalizedName,
-                        normalizedVersion));
+                        normalizedVersion,
+                        sourceKey));
             }
 
             try
@@ -280,12 +411,14 @@ public static class NuGetCache
             catch (IOException) when (IsCommittedPackageValid(
                 targetPath,
                 normalizedName,
-                normalizedVersion))
+                normalizedVersion,
+                sourceKey))
             {
                 return OpenCommittedPackage(
                     targetPath,
                     normalizedName,
-                    normalizedVersion);
+                    normalizedVersion,
+                    sourceKey);
             }
 
             CacheTelemetry.Record(
@@ -297,7 +430,8 @@ public static class NuGetCache
                 targetPath,
                 committedNupkgPath is null
                     ? null
-                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)));
+                    : Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
+                sourceKey);
         }
         finally
         {
@@ -325,43 +459,109 @@ public static class NuGetCache
     /// Returns the newest cached version of a package from the NuGet or app cache.
     /// Pure disk I/O — never hits the network.
     /// </summary>
-    public static string? TryGetLatestCachedVersion(string packageName)
+    public static string? TryGetLatestCachedVersion(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys)
     {
+        return GetCachedVersions(
+            packageName,
+            allowedSourceKeys,
+            includePrerelease: false,
+            limit: 1).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Returns cached package versions, newest first, without touching the network.
+    /// Entries are included only when their recorded producer is a source the
+    /// caller is currently configured to read. These versions are diagnostic
+    /// exact-pin suggestions; package payloads do not become discovery candidates.
+    /// </summary>
+    public static IReadOnlyList<string> GetCachedVersions(
+        string packageName,
+        IReadOnlyList<string>? allowedSourceKeys,
+        bool includePrerelease = true,
+        int? limit = null)
+    {
+        if (!IsValidPathComponent(packageName))
+            return [];
+
         var normalizedName = packageName.ToLowerInvariant();
+        var versions = new Dictionary<NuGetVersion, string>();
 
-        // Newest non-prerelease, structurally-valid version across both caches.
-        bool IsNuGetCacheValid(string dir) =>
-            IsCachedPackageValid(dir, normalizedName);
-        bool IsAppCacheValid(string dir)
+        void AddVersions(string root, Func<string, string, bool> isValid)
         {
-            string version = Path.GetFileName(dir);
-            return IsCommittedPackageValid(dir, normalizedName, version);
-        }
-        VersionDir? best = null;
+            if (!Directory.Exists(root))
+                return;
 
-        // Check NuGet global cache — skip in isolated mode
+            try
+            {
+                foreach (var dir in Directory.GetDirectories(root))
+                {
+                    string version = Path.GetFileName(dir);
+                    if (!NuGetVersion.TryParse(version, out var parsed)
+                        || (!includePrerelease && parsed.IsPrerelease)
+                        || !isValid(dir, version))
+                    {
+                        continue;
+                    }
+
+                    versions.TryAdd(parsed, version);
+                }
+            }
+            catch (IOException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A cache that cannot be enumerated contributes no suggestions.
+            }
+        }
+
         if (!_skipNuGetCache)
         {
-            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
-                Path.Combine(GetNuGetCachePath(), normalizedName),
-                includePrerelease: false,
-                IsNuGetCacheValid));
+            string globalPackagesPath = GetNuGetCachePath();
+            AddVersions(
+                Path.Combine(globalPackagesPath, normalizedName),
+                (_, version) => TryGetGlobalPackageContent(
+                    globalPackagesPath,
+                    normalizedName,
+                    version,
+                    allowedSourceKeys) is not null);
         }
 
-        // Check app cache
         try
         {
-            best = VersionDirectory.Higher(best, VersionDirectory.SelectBest(
+            AddVersions(
                 Path.Combine(GetPackageContentCachePath(), normalizedName),
-                includePrerelease: false,
-                IsAppCacheValid));
+                (dir, version) =>
+                {
+                    foreach (var sourceKey in allowedSourceKeys ?? [])
+                    {
+                        if (IsCommittedPackageValid(
+                                Path.Combine(dir, sourceKey),
+                                normalizedName,
+                                version,
+                                sourceKey))
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
         }
         catch (InvalidOperationException)
         {
-            // App cache not initialized
+            // App cache not initialized.
         }
 
-        return best?.DirName;
+        IEnumerable<string> ordered = versions
+            .OrderByDescending(pair => pair.Key)
+            .Select(pair => pair.Value);
+        if (limit is { } count)
+            ordered = ordered.Take(count);
+        return ordered.ToArray();
     }
 
     /// <summary>
@@ -402,17 +602,21 @@ public static class NuGetCache
     private static bool IsCommittedPackageValid(
         string cachedPath,
         string packageName,
-        string version)
+        string version,
+        string sourceKey)
     {
         try
         {
             if (!IsCachedPackageValid(cachedPath))
                 return false;
 
+            // The source is already selected by the path; the marker restates it
+            // so an entry that was moved or hand-copied between slots is not
+            // mistaken for one this source committed.
             return File.ReadAllText(
                 Path.Combine(cachedPath, CommitMarkerFileName))
                 .Equals(
-                    GetCommitMarkerContent(packageName, version),
+                    GetCommitMarkerContent(packageName, version, sourceKey),
                     StringComparison.Ordinal);
         }
         catch (IOException)
@@ -428,20 +632,93 @@ public static class NuGetCache
     private static CommittedPackage OpenCommittedPackage(
         string targetPath,
         string packageName,
-        string version)
+        string version,
+        string sourceKey)
     {
         string nupkgPath = Path.Combine(
             targetPath,
             $"{packageName}.{version}.nupkg");
         return new CommittedPackage(
             targetPath,
-            File.Exists(nupkgPath) ? nupkgPath : null);
+            File.Exists(nupkgPath) ? nupkgPath : null,
+            sourceKey);
     }
 
     private static string GetCommitMarkerContent(
         string packageName,
-        string version)
-        => $"{PackageContentCategory}:{packageName}@{version}";
+        string version,
+        string sourceKey)
+        => $"{PackageContentCategory}:{packageName}@{version}:{sourceKey}";
+
+    /// <summary>
+    /// Identity used when a source URL is absent or blank. It occupies its own
+    /// cache slot like any other source and is only matched when a caller asks
+    /// for it by name. Note that a local <c>.nupkg</c> path does not reach this
+    /// slot: <c>PackageExtractor.ExtractLocalPackage</c> unpacks it to a
+    /// temporary directory and never commits it to the content cache.
+    /// </summary>
+    private const string LocalSourceKey = "local";
+
+    /// <summary>
+    /// Derives a stable identity for a NuGet source from its URL, used as a
+    /// path segment in the content cache.
+    /// </summary>
+    /// <remarks>
+    /// The digest keeps source URLs out of cache paths and makes every identity
+    /// a safe path segment regardless of the URL's characters. It is opacity,
+    /// not confidentiality: a feed URL is low entropy, and anyone who can read
+    /// the cache can already see which packages were fetched. Protecting feed
+    /// identity from a local reader would require cache permissions, not a hash.
+    ///
+    /// Canonicalization is delegated to
+    /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/> so a source has
+    /// one identity across the tool. Two feeds that method holds apart — such as
+    /// <c>/FeedA</c> and <c>/feeda</c>, which a case-sensitive server may serve
+    /// differently — get separate cache slots.
+    /// </remarks>
+    /// <param name="sourceUrl">The source URL, or a local folder path.</param>
+    /// <returns>A short hex digest identifying the source.</returns>
+    public static string GetSourceKey(string? sourceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl))
+            return LocalSourceKey;
+
+        var trimmed = sourceUrl.Trim();
+        string normalized;
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && !uri.IsFile)
+        {
+            normalized = NuGetCredentialScope.CanonicalizeEndpoint(uri);
+        }
+        else
+        {
+            // A local folder source. Resolve it so a relative and an absolute
+            // spelling of one directory share a slot. Case is preserved on
+            // every platform: case-insensitive volumes exist on all of them and
+            // case-sensitive ones do too, so the running OS does not answer
+            // whether two spellings name one directory. A spare slot costs a
+            // duplicate download; a folded one serves another directory's bytes.
+            string resolved;
+            try
+            {
+                resolved = Path.GetFullPath(uri?.IsFile == true ? uri.LocalPath : trimmed);
+            }
+            catch (ArgumentException)
+            {
+                resolved = trimmed;
+            }
+            catch (IOException)
+            {
+                resolved = trimmed;
+            }
+
+            normalized = resolved.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexStringLower(digest.AsSpan(0, 16));
+    }
 
     private static void CopyDirectory(string sourceDir, string targetDir)
     {

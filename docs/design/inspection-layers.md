@@ -49,6 +49,23 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
+## Implementation status
+
+`DotnetInspector.Queries` now implements the first L1 slice. The library CLI
+executes metadata-image and direct assembly-reference queries through a typed,
+content-shaped registry over a host-owned `AssemblyInspectionSession`. The
+`References` section binds to its concrete query definition rather than a string
+scanner key, and the CLI and package convenience route lower section selection
+into that same registry.
+
+This is an incremental boundary, not the completed split. The remaining
+library scanners still use the transitional string-keyed `ScannerRegistry`,
+`LibraryMetadataService` still projects query results into the mutable
+`LibraryInspection` compatibility aggregate, and acquisition and transitive
+reference resolution remain host-owned. The current queries are network-free;
+the registry passes their maximum transitive cost into the host execution scope
+so broader cost tiers can retain the same enforcement boundary.
+
 ### L1 — `DotnetInspector.Queries`
 
 Owns typed inspection requests and their typed results, over the `ILInspector.*`
@@ -94,7 +111,7 @@ interchangeably.
 | **Query** | a typed inspection request producing a typed result | — | L1 |
 | **Section** | the named, selectable unit | table \| fields \| list \| blob \| tree | L2 |
 | **Shape** | the narrowing rung | Document \| Table \| Vector \| Scalar | L2 (Markout-defined) |
-| **Format** | presentation of a selected payload | markdown \| json \| tsv \| jsonl \| plaintext | L3 |
+| **Format** | presentation of a selected payload | markdown \| plaintext \| table \| tsv \| jsonl \| json \| mermaid | L3 (selection) |
 
 A **query** may run one or more **scanners**. A **section** presents the result
 of a query at some **shape**, rendered in some **format**.
@@ -125,10 +142,21 @@ graph, and all of them are still "one section". Trees and tables are siblings
 `--jsonl` are presentation modifiers: they change how a selected payload is
 rendered without changing the shape.
 
+**Format is owned as *selection*, not as rendering.** The L3 description above
+is deliberate: L3 owns output format *selection*. Deciding which format a
+request produces is a CLI concern; turning a payload into bytes largely is not.
+Markout renders markdown, tsv, and jsonl, so most of the format axis is
+implemented below L3 even though L3 names the value. Read the owner column as
+"who chooses", not "who writes the characters" — the same distinction the Shape
+row makes by crediting Markout with defining the ladder that L2 selects a rung
+from. A renderer that lives in `src/dotnet-inspect/Output/` is not evidence that
+rendering is an L3 responsibility; it is either genuinely
+dotnet-inspect-specific or a candidate to move.
+
 **Query** has a typed precedent and two senses to keep clear of. The typed
 precedent is small but exact:
-[`SourceDocumentQuery`](../../src/ILInspector.Metadata/MetadataFindings.Source.cs)
-and `MemberSourceQuery` are records in `ILInspector.Metadata` that carry a typed
+[`SourceDocumentQuery`](../../src/ILInspector.SourceLink/SourceLinkFindings.cs)
+and `MemberSourceQuery` are records in `ILInspector.SourceLink` that carry a typed
 request a producer runs — precisely the L1 shape. `MetadataDeclarationQuery` is
 the same concept in utility form. The browser prototype independently named its
 entire exported surface `Query*`.
@@ -173,9 +201,9 @@ consumer's convenience.
    filesystem is a supported consumer.
 4. **Cost and capabilities are declared by the query, not the section.** What
    work costs and what authorization it needs are properties of acquisition.
-5. **The L1/L2 binding is typed.** A section names its query type. A section must
-   not reach L1 through a string key, because a string key cannot be checked and
-   silently degrades to "always collected".
+5. **The L1/L2 binding is typed.** A section catalog binds to a query definition
+   by object identity. A section must not reach L1 through a string key, because
+   a string key cannot be checked and silently degrades to "always collected".
 6. **A second implementation of a shared rule is a defect.** TFM ranking, version
    resolution, moniker normalization, symbol acquisition, and checksum
    verification have one owner each. A consumer that cannot reach the owner is
@@ -183,28 +211,84 @@ consumer's convenience.
 7. **Presentation-free means presentation-free.** No layer below L3 writes to the
    console or decides an output format.
 
+## Current migration state
+
+Metadata-image and direct-reference inspection are the first vertical L1
+canaries:
+
+- `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
+  prerequisite expansion, and query cost.
+- `MetadataImageQuery` consumes an already-open `AssemblyInspectionSession` and
+  returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
+  mutating `LibraryInspection`.
+- `AssemblyReferencesQuery` consumes the same content-shaped session and returns
+  a flat immutable reference result. The CLI projects Findings and owns
+  path-based transitive tree resolution.
+- Metadata sections and `References` bind to query definitions by object
+  identity. Diagnostic names are never lookup keys.
+- An executor can read only its declared transitive prerequisite results. A
+  hidden dependency therefore fails whether or not another requested query
+  happened to populate the shared run, and cannot understate cost.
+- Query planning, contract, and executor failures cross the production boundary
+  as `InspectionQueryException`; cancellation and cost-declaration failures
+  retain their specific exception types. The `ProductionQueryCatchBoundary_*`
+  tests gate this fail-visible boundary.
+- The query registry exposes each executor's maximum transitive
+  `InspectionCost` to a host execution scope. The CLI adapter maps it to
+  `SectionCost` and enforces body-index and drill-map acquisition through
+  `ScannerContext`; the
+  `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost` and
+  `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost` gates enforce this
+  boundary.
+- `MetadataImageOverview.MetadataVersion` remains an `InertString` from the
+  metadata producer through query results to the rendering sink. Inspection
+  trace fields and lines use the same query-to-sink currency.
+- A demanded metadata-image query executes for native PE images too, producing
+  `NoMetadata` and a truthful trace rather than returning before execution.
+
+These are canaries, not the completed split. The remaining boundaries are
+intentional and visible:
+
+- Other library facets still use `ScannerRegistry`, string keys, and shared
+  `LibraryInspection` mutation.
+- L2 currently registers the L1 executor through a `ScannerContext` adapter so
+  the typed query and legacy scanners can borrow one metadata session. The L1
+  query itself does not depend on that CLI context.
+- The CLI retains the typed metadata result on `LibraryInspection` because the
+  existing renderer still consumes that aggregate. Its `Failed` case feeds the
+  existing inspection-failure surface rather than collapsing into empty output.
+- Metadata row and heap projection still retain
+  `LibraryInspection.MetadataAssemblyPath` for on-demand rendering. Removing
+  that path-shaped residual requires a content-shaped projection query.
+- `InspectionCost` and the legacy `SectionCost` are parallel during migration;
+  L2 maps between them exhaustively.
+
 ## What must change
 
 The layering is closer to reality than it looks: the CLI's directories already
 declare `DotnetInspector.*` namespaces, and Markout coupling is already
-concentrated in the upper directories while the model and service directories are
-essentially free of it. The boundary is largely drawn; what is missing is the
-project split and one structural fix.
+concentrated in the upper directories while the model and service directories
+are essentially free of it. The boundary is largely drawn; the metadata canary
+establishes the L1 project and structural pattern, but the remaining facets and
+the L2 project split still need migration.
 
-The structural fix is L1. Today it is neither typed nor demand-driven:
+The structural fix is completing L1. Outside the metadata and direct-reference
+canaries, collection is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
-  results, so a consumer cannot take one query without materializing everything.
-- The binding to that collection is a **nullable string key** that is null for
-  the large majority of sections, meaning "always collected" — so there is no
-  demand-driven seam to consume.
+  results for most scanner families, so a consumer cannot yet take those
+  queries without materializing `LibraryInspection`.
+- The binding to residual collection is a **nullable string key** for the
+  remaining scanner-backed sections. Metadata and `References` use checked
+  query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
-  cannot call it at all.
+  cannot call the residual `LibraryMetadataService` orchestration. The
+  implemented queries themselves take a borrowed content owner, not a path.
 
 Converting collection into typed, demand-driven, content-shaped queries is
-therefore the prerequisite for the split, not a follow-up to it. L2 is close to a
-project move once L1 exists; the descriptor contract is already Markout-free
-apart from its name binding.
+therefore the migration path for the split, not a follow-up to it. L2 is close
+to a project move as query coverage expands; the descriptor contract is already
+Markout-free apart from its name binding.
 
 ## Non-goals
 
@@ -215,5 +299,6 @@ apart from its name binding.
 - It does not require every consumer to adopt L2. Consuming L1 alone is a
   supported choice.
 - It does not retire `ILInspector.*` ownership. Metadata still owns metadata
-  facts, Analysis owns IL-body evidence, CSharp owns C# spelling, and Research
-  composes evidence. L1 sits above them and composes them into typed results.
+  facts, Analysis owns IL-body evidence, CSharpText owns model-free textual
+  grammars, CSharp owns model-bound C# spelling, and Research composes evidence.
+  L1 sits above them and composes them into typed results.

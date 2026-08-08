@@ -3,6 +3,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -53,7 +54,7 @@ internal sealed record TypeFindIfMissResult(
 
     public int WriteAmbiguousError()
     {
-        Console.Error.WriteLine($"Error: Type '{Query}' matched multiple platform types. Use `find {Query} --platform` to choose a source library.");
+        CommandError.Write($"Type '{Query}' matched multiple platform types. Use `find {Query} --platform` to choose a source library.");
         return 1;
     }
 }
@@ -119,7 +120,7 @@ internal static class TypeFindIfMissResolver
         if (!LooksLikeSimpleTypeQuery(query))
             return TypeFindIfMissResult.None(query ?? "");
 
-        var normalizedQuery = TypeMatcher.Normalize(query!);
+        var normalizedQuery = FqnParser.NormalizeTypeName(query!);
         var findOptions = new FindOptions
         {
             Pattern = normalizedQuery,
@@ -150,7 +151,7 @@ internal static class TypeFindIfMissResolver
                 .ToList();
 
             var exactDisplayNameMatches = exactMatches
-                .Where(r => string.Equals(TypeMatcher.Normalize(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
+                .Where(r => string.Equals(FqnParser.NormalizeTypeName(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             var exactSimpleNameMatches = exactMatches

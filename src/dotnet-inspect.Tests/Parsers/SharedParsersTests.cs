@@ -207,6 +207,7 @@ public class SharedParsersTests
     {
         var split = SharedParsers.TrySplitQualifiedTypeMember(
             "String.GenericChoice<T>",
+            sourceKeys: [],
             allowPlatformPrefixFallback: true);
 
         Assert.NotNull(split);

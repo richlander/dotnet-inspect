@@ -1,7 +1,8 @@
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
-using System.Reflection;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -52,6 +53,40 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal("System.Decimal", parameter.Type);
         Assert.True(parameter.HasDefault);
         Assert.Equal("5m", parameter.DefaultValueText);
+    }
+
+    [Fact]
+    public void MethodDeclaration_SynthesizesParameterWhenParamRowIsAbsent()
+    {
+        string path = EmitMethodWithoutParamRow();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "MissingParamSample");
+            var type = reader.GetTypeDefinition(typeHandle);
+            var method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "Echo");
+
+            Assert.Empty(method.GetParameters());
+
+            var declaration = MetadataDeclarationQuery.GetMethod(reader, type, method);
+            var parameter = Assert.Single(declaration.Signature.Parameters);
+
+            Assert.Equal("arg0", parameter.Name);
+            Assert.Equal("int", parameter.Type);
+            Assert.Empty(parameter.Attributes);
+            Assert.False(parameter.HasDefault);
+            Assert.Null(parameter.DefaultValueText);
+            Assert.Null(declaration.SignatureDecodeStatus);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -268,6 +303,27 @@ public sealed class MetadataDeclarationQueryTests
         Assert.True(exact.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
         Assert.False(wrongNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
         Assert.False(globalNamespace.HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile"));
+    }
+
+    static string EmitMethodWithoutParamRow()
+    {
+        var assemblyName = new AssemblyName("MissingParamRow");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("MissingParamSample", TypeAttributes.Public);
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int)]);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"MissingParamRow-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
     }
 
     static TypeDefinition GetTypeDefinition(Type type)

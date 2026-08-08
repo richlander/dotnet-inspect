@@ -73,7 +73,7 @@ public class ExtensionsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -100,8 +100,8 @@ public class ExtensionsCommand
         {
             if (census.Inspection.Failure() is { } failure)
             {
-                Console.Error.WriteLine(
-                    $"Warning: Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
+                CommandError.WriteWarning(
+                    $"Extension member inspection failed for {failure.Subject.Display}: {failure.Reason}");
                 continue;
             }
 
@@ -174,7 +174,7 @@ public class ExtensionsCommand
             .ToLookup(
                 static finding => finding.Payload.Anchor,
                 static finding => finding.Payload);
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
         List<ExtensionMethodResult> results = [];
 
         foreach (var member in census.Members)
@@ -205,7 +205,7 @@ public class ExtensionsCommand
             }
 
             if (!TypeMatcher.Matches(
-                    TypeMatcher.Normalize(member.ExtendedType),
+                    FqnParser.NormalizeTypeName(member.ExtendedType),
                     normalizedTarget))
             {
                 continue;

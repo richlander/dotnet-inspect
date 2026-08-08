@@ -187,6 +187,16 @@ public static class AllocSampleClass
     // cross-assembly resolution can.
     public static System.DateTime MakeDateTime(int year, int month, int day) => new(year, month, day);
 
+    // Two heap allocations, the second a newarr/dup/stelem run that the raise
+    // folds into an array literal. The fold subsumes the newarr, so unless the
+    // literal inherits its offset the alloc.array fact has no node carrying it
+    // and anchors onto the preceding statement instead of the return.
+    public static object[] AllocatesTwice()
+    {
+        object first = new object();
+        return new object[] { first };
+    }
+
     public static System.Func<int, int> Capture(int k) => x => x + k;
 
     public static System.Func<int, int> Cached() => x => x + 1;

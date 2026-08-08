@@ -1,0 +1,485 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Xml.Linq;
+using InertText;
+
+namespace NuGetFetch;
+
+/// <summary>
+/// Thrown when a resolved package source cannot be used as a NuGet source.
+/// </summary>
+/// <remarks>
+/// Resolution is the only chokepoint every source passes through, whichever route it arrived
+/// by, so it is the only place a rejection can be complete. That places the rejection well
+/// after parsing, where returning a message is no longer an option, so it is raised and the
+/// CLI converts it to an <c>Error:</c> line.
+/// </remarks>
+public sealed class UnsupportedSourceException(string message) : Exception(message)
+{
+    /// <summary>
+    /// Throws when <paramref name="url"/> cannot be used as a NuGet source.
+    /// </summary>
+    /// <remarks>
+    /// The throwing half of a pair, in the shape of <see cref="ArgumentNullException.ThrowIfNull"/>.
+    /// A caller that would rather not be thrown at asks
+    /// <see cref="SourceResolver.IsSupportedSource"/> first and handles the answer — which is what
+    /// the CLI's option validators do, so a mistyped <c>--source</c> is an ordinary parse error.
+    /// This guard is what remains for the paths that asked nothing, where a source that cannot
+    /// work should stop the operation rather than quietly fail later as a 401.
+    /// </remarks>
+    public static void ThrowIfUnsupported(string url)
+    {
+        if (!SourceResolver.IsSupportedSource(url, out InertString? problem))
+            throw new UnsupportedSourceException(problem.Value.ToString());
+    }
+
+    /// <summary>
+    /// Throws when any of <paramref name="sources"/> cannot be used as a NuGet source.
+    /// </summary>
+    public static void ThrowIfUnsupported(IEnumerable<PackageSource> sources)
+    {
+        if (!SourceResolver.IsSupportedSource(sources, out InertString? problem))
+            throw new UnsupportedSourceException(problem.Value.ToString());
+    }
+}
+
+/// <summary>
+/// Resolves NuGet package sources from nuget.config files.
+/// </summary>
+public static class SourceResolver
+{
+    /// <summary>
+    /// Reports whether <paramref name="url"/> can be used as a NuGet source.
+    /// </summary>
+    /// <remarks>
+    /// Every source is checked, nuget.org included, because a check that exempts the sources it
+    /// expects to be well-formed only holds while that expectation does.
+    /// </remarks>
+    public static bool IsSupportedSource(string url) => IsSupportedSource(url, out _);
+
+    /// <summary>
+    /// Reports whether <paramref name="url"/> can be used as a NuGet source, and why not when it
+    /// cannot.
+    /// </summary>
+    /// <param name="url">The source URL to test.</param>
+    /// <param name="problem">
+    /// The reason the source is unusable, set only when this returns false.
+    /// </param>
+    /// <remarks>
+    /// Credentials embedded in the URL are the case this exists to catch. NuGet has no support
+    /// for them — the client never sends the userinfo component — so they authenticate against
+    /// nothing, and the request that follows fails as an ordinary 401 that gives the operator no
+    /// hint the credential they supplied was never sent. The form is a git and curl convention,
+    /// which is exactly why it gets typed here.
+    ///
+    /// The reason carries the URL stripped of its userinfo, so reporting the problem does not
+    /// itself put the credential on a terminal or in a log.
+    /// </remarks>
+    public static bool IsSupportedSource(string url, [NotNullWhen(false)] out InertString? problem)
+    {
+        problem = null;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            || string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return true;
+        }
+
+        string withoutCredentials = new UriBuilder(uri)
+        {
+            UserName = "",
+            Password = "",
+        }.Uri.ToString();
+
+        problem = InertString.Format(
+            TextPolicy.Field,
+            $"Source URL '{withoutCredentials}' embeds <user>:<password>, which NuGet does not "
+            + $"support. Configure the credentials in a nuget.config, or use a credential provider.");
+        return false;
+    }
+
+    /// <summary>
+    /// Reports whether every source in <paramref name="sources"/> can be used, and why not when
+    /// one cannot.
+    /// </summary>
+    /// <param name="sources">The sources to test.</param>
+    /// <param name="problem">
+    /// The reason the first unusable source is unusable, set only when this returns false.
+    /// </param>
+    public static bool IsSupportedSource(
+        IEnumerable<PackageSource> sources,
+        [NotNullWhen(false)] out InertString? problem)
+    {
+        foreach (PackageSource source in sources)
+        {
+            if (!IsSupportedSource(source.Url, out problem))
+            {
+                return false;
+            }
+        }
+
+        problem = null;
+        return true;
+    }
+
+    private static IReadOnlyList<PackageSource> Validated(IReadOnlyList<PackageSource> sources)
+    {
+        UnsupportedSourceException.ThrowIfUnsupported(sources);
+        return sources;
+    }
+
+    /// <summary>
+    /// Resolves NuGet sources in priority order.
+    /// Config files are processed most-distant first (machine → user → project-level),
+    /// matching the official NuGet client semantics. A &lt;clear/&gt; in a project-level
+    /// config clears sources accumulated from parent directories.
+    /// </summary>
+    /// <remarks>
+    /// Ambient discovery starts with <see cref="PackageSources.Default"/>. Supplying
+    /// <paramref name="configPath"/> selects only that file and starts with
+    /// <see cref="PackageSources.Empty"/>.
+    /// </remarks>
+    /// <exception cref="UnsupportedSourceException">
+    /// A resolved source cannot be used. Callers that would rather test than catch use
+    /// <see cref="IsSupportedSource"/> on the sources they supply.
+    /// </exception>
+    public static IReadOnlyList<PackageSource> ResolveSources(
+        string? explicitSource = null,
+        string? configPath = null,
+        IEnumerable<string>? additionalSources = null,
+        string? workingDirectory = null)
+        => Validated(BuildSources(explicitSource, configPath, additionalSources, workingDirectory));
+
+    private static IReadOnlyList<PackageSource> BuildSources(
+        string? explicitSource,
+        string? configPath,
+        IEnumerable<string>? additionalSources,
+        string? workingDirectory)
+    {
+        // Explicit source overrides everything
+        if (explicitSource is not null)
+        {
+            return [new PackageSource("explicit", explicitSource)];
+        }
+
+        IReadOnlyList<PackageSource> initialSources = configPath is null
+            ? PackageSources.Default
+            : PackageSources.Empty;
+        List<PackageSource> sources =
+            [.. BuildConfiguredSources(configPath, workingDirectory, initialSources)];
+
+        // Append additional sources
+        if (additionalSources is not null)
+        {
+            foreach (string url in additionalSources)
+            {
+                sources.Add(new PackageSource("additional", url));
+            }
+        }
+
+        return sources;
+    }
+
+    /// <summary>
+    /// Resolves only the sources declared by configuration.
+    /// </summary>
+    /// <remarks>
+    /// Ambient discovery starts with <see cref="PackageSources.Default"/>, while an explicitly
+    /// selected config starts with <see cref="PackageSources.Empty"/>. This method exposes the
+    /// latter behavior so callers can inspect configuration without inheriting the ambient
+    /// default.
+    /// </remarks>
+    public static IReadOnlyList<PackageSource> ResolveConfiguredSources(
+        string? configPath = null,
+        string? workingDirectory = null)
+        => Validated(BuildConfiguredSources(
+            configPath,
+            workingDirectory,
+            PackageSources.Empty));
+
+    private static IReadOnlyList<PackageSource> BuildConfiguredSources(
+        string? configPath,
+        string? workingDirectory,
+        IReadOnlyList<PackageSource> initialSources)
+    {
+        IReadOnlyList<string> configFiles = configPath is not null
+            ? [configPath]
+            : FindConfigFiles(workingDirectory);
+
+        return MergeConfigFiles(configFiles, initialSources);
+    }
+
+    internal static IReadOnlyList<PackageSource> MergeConfigFiles(
+        IReadOnlyList<string> configFiles,
+        IReadOnlyList<PackageSource> initialSources)
+    {
+        ArgumentNullException.ThrowIfNull(configFiles);
+        ArgumentNullException.ThrowIfNull(initialSources);
+
+        var mergedSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        List<string> sourceOrder = [];
+        var inheritedSourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var credentials =
+            new Dictionary<string, PackageSourceCredential>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (PackageSource source in initialSources)
+        {
+            SetSource(mergedSources, sourceOrder, source.Name, source.Url);
+            inheritedSourceNames.Add(source.Name);
+
+            if (source.Credential is not null)
+            {
+                credentials[source.Name] = source.Credential;
+            }
+        }
+
+        // FindConfigFiles returns nearest-first; reverse to process most-distant first
+        // so that <clear/> in a nearer config properly resets distant sources
+        for (int i = configFiles.Count - 1; i >= 0; i--)
+        {
+            MergeConfigFile(
+                configFiles[i],
+                mergedSources,
+                sourceOrder,
+                inheritedSourceNames,
+                disabled,
+                credentials);
+        }
+
+        List<PackageSource> sources = [];
+        IEnumerable<string> configuredSources = sourceOrder
+            .Where(name => !inheritedSourceNames.Contains(name));
+        IEnumerable<string> inheritedSources = sourceOrder
+            .Where(inheritedSourceNames.Contains);
+
+        // Explicitly configured sources are consulted before surviving defaults.
+        foreach (string name in configuredSources.Concat(inheritedSources))
+        {
+            if (disabled.Contains(name))
+            {
+                continue;
+            }
+
+            credentials.TryGetValue(name, out PackageSourceCredential? credential);
+            sources.Add(new PackageSource(name, mergedSources[name], credential));
+        }
+
+        return sources.Count == 0 ? PackageSources.Empty : sources;
+    }
+
+    /// <summary>
+    /// Finds nuget.config files by walking up the directory tree from the current directory.
+    /// Uses the canonical name "NuGet.Config" matching the official NuGet client.
+    /// </summary>
+    public static IReadOnlyList<string> FindConfigFiles(string? startDir = null)
+    {
+        List<string> configs = [];
+        string? dir = startDir ?? Directory.GetCurrentDirectory();
+
+        while (dir is not null)
+        {
+            string configFile = Path.Combine(dir, "NuGet.Config");
+
+            if (File.Exists(configFile))
+            {
+                configs.Add(configFile);
+            }
+            else
+            {
+                // Fallback: check lowercase variant (common on Linux)
+                string lowerConfigFile = Path.Combine(dir, "nuget.config");
+
+                if (File.Exists(lowerConfigFile))
+                {
+                    configs.Add(lowerConfigFile);
+                }
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        // User-level config
+        string? userConfig = GetUserConfigPath();
+
+        if (userConfig is not null && File.Exists(userConfig))
+        {
+            configs.Add(userConfig);
+        }
+
+        return configs;
+    }
+
+    /// <summary>
+    /// Loads package sources from a nuget.config file.
+    /// </summary>
+    public static IReadOnlyList<PackageSource> LoadSourcesFromConfig(string configPath)
+        => Validated(BuildConfiguredSources(
+            configPath,
+            workingDirectory: null,
+            initialSources: PackageSources.Empty));
+
+    /// <summary>
+    /// Merges a single nuget.config file into the accumulated sources, disabled set, and credentials.
+    /// A &lt;clear/&gt; element clears all previously accumulated sources.
+    /// </summary>
+    private static void MergeConfigFile(
+        string configPath,
+        Dictionary<string, string> sources,
+        List<string> sourceOrder,
+        HashSet<string> inheritedSourceNames,
+        HashSet<string> disabled,
+        Dictionary<string, PackageSourceCredential> credentials)
+    {
+        if (!File.Exists(configPath))
+        {
+            return;
+        }
+
+        try
+        {
+            XDocument doc = XDocument.Load(configPath);
+            XElement? root = doc.Root;
+
+            if (root is null)
+            {
+                return;
+            }
+
+            // Parse <packageSources>
+            XElement? packageSources = root.Element("packageSources");
+
+            if (packageSources is not null)
+            {
+                foreach (XElement element in packageSources.Elements())
+                {
+                    if (element.Name == "clear")
+                    {
+                        sources.Clear();
+                        sourceOrder.Clear();
+                        inheritedSourceNames.Clear();
+                        continue;
+                    }
+
+                    if (element.Name == "add")
+                    {
+                        string? key = element.Attribute("key")?.Value;
+                        string? value = element.Attribute("value")?.Value;
+
+                        if (key is not null && value is not null)
+                        {
+                            inheritedSourceNames.Remove(key);
+                            SetSource(sources, sourceOrder, key, value);
+                        }
+                    }
+                }
+            }
+
+            // Parse <disabledPackageSources>
+            XElement? disabledSources = root.Element("disabledPackageSources");
+
+            if (disabledSources is not null)
+            {
+                foreach (XElement element in disabledSources.Elements())
+                {
+                    if (element.Name == "clear")
+                    {
+                        disabled.Clear();
+                        continue;
+                    }
+
+                    if (element.Name != "add")
+                    {
+                        continue;
+                    }
+
+                    string? key = element.Attribute("key")?.Value;
+                    string? value = element.Attribute("value")?.Value;
+
+                    if (key is not null && bool.TryParse(value, out bool isDisabled))
+                    {
+                        if (isDisabled)
+                        {
+                            disabled.Add(key);
+                        }
+                        else
+                        {
+                            disabled.Remove(key);
+                        }
+                    }
+                }
+            }
+
+            // Parse <packageSourceCredentials>
+            XElement? credentialsElement = root.Element("packageSourceCredentials");
+
+            if (credentialsElement is not null)
+            {
+                foreach (XElement sourceElement in credentialsElement.Elements())
+                {
+                    // Source name may be XML-encoded (spaces → _x0020_)
+                    string sourceName = sourceElement.Name.LocalName.Replace("_x0020_", " ");
+                    string? username = null;
+                    string? password = null;
+
+                    foreach (XElement add in sourceElement.Elements("add"))
+                    {
+                        string? key = add.Attribute("key")?.Value;
+                        string? value = add.Attribute("value")?.Value;
+
+                        if (string.Equals(key, "Username", StringComparison.OrdinalIgnoreCase))
+                        {
+                            username = value;
+                        }
+                        else if (string.Equals(key, "ClearTextPassword", StringComparison.OrdinalIgnoreCase))
+                        {
+                            password = value;
+                        }
+                    }
+
+                    if (username is not null && password is not null)
+                    {
+                        credentials[sourceName] = new PackageSourceCredential(username, password);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort config parsing
+        }
+    }
+
+    private static void SetSource(
+        Dictionary<string, string> sources,
+        List<string> sourceOrder,
+        string name,
+        string url)
+    {
+        int existingIndex = sourceOrder.FindIndex(
+            existing => string.Equals(existing, name, StringComparison.OrdinalIgnoreCase));
+        if (existingIndex >= 0)
+        {
+            sourceOrder.RemoveAt(existingIndex);
+        }
+
+        sources.Remove(name);
+        sources[name] = url;
+        sourceOrder.Add(name);
+    }
+
+    private static string? GetUserConfigPath()
+    {
+        // Match the official NuGet client: SpecialFolder.ApplicationData + "NuGet/NuGet.Config"
+        // Windows: %APPDATA%\NuGet\NuGet.Config
+        // Linux:   ~/.config/NuGet/NuGet.Config (via XDG_CONFIG_HOME)
+        // macOS:   ~/.config/NuGet/NuGet.Config
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        if (string.IsNullOrEmpty(appData))
+        {
+            return null;
+        }
+
+        return Path.Combine(appData, "NuGet", "NuGet.Config");
+    }
+}

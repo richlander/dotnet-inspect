@@ -92,5 +92,7 @@ public class SourceTextDiffRendererTests
             SourceTextDiffRenderer.CreateUnifiedDiff("text", null, "Before", "After"));
     }
 
-    static string Join(params string[] lines) => string.Join(Environment.NewLine, lines);
+    // The renderer emits LF on every platform, so expectations are built with LF rather than the
+    // ambient newline. The CR-bearing literals above are inputs, not expectations.
+    static string Join(params string[] lines) => string.Join("\n", lines);
 }

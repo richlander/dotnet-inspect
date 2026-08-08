@@ -312,4 +312,27 @@ public class ArrayLiteralFromStoresPassTests
         Assert.Equal(0, ArrayLiteralCount(function));
         function.CheckInvariant();
     }
+
+    // The fold consumes the newarr, and offset-keyed facts (alloc.array) are
+    // anchored by the offsets surviving in the tree. If the literal did not
+    // adopt the allocation's offset, that offset would exist nowhere and the
+    // fact would anchor to whatever statement precedes it.
+    [Fact]
+    public void FoldedLiteral_AdoptsTheAllocationsSourceOffset()
+    {
+        var allocation = new NewArray(Object, new Constant(1, TypeRef.CoreLib("System", "Int32")));
+        allocation.SetSourceOffset(7);
+        var store = new StoreLocal(0, ObjectArray, allocation);
+        store.SetSourceOffset(11);
+        var function = Build(
+            store,
+            new StoreElement(Object, new LoadLocal(0, ObjectArray), new Constant(0, TypeRef.CoreLib("System", "Int32")), new Constant("A", StringType)),
+            new ExpressionStatement(new Call(Sink(1), isVirtual: false, [new LoadLocal(0, ObjectArray)])));
+
+        RunPass(function);
+
+        var literal = Assert.Single(function.Descendants.OfType<ArrayLiteral>());
+        Assert.Equal(7, literal.SourceOffset);
+        function.CheckInvariant();
+    }
 }

@@ -95,6 +95,11 @@ public record InspectionOptions : IProjectionOptions
     public bool ListVersions { get; init; }
 
     /// <summary>
+    /// Annotate each listed version with the feed it came from, one row per version and feed.
+    /// </summary>
+    public bool ListVersionsWithFeed { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when listing versions or resolving an unversioned latest package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
@@ -193,7 +198,7 @@ public record InspectionOptions : IProjectionOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// When true, bypass cache-first version resolution and always query the network.
+    /// When true, bypass source-scoped candidate metadata caches and always query the network.
     /// Used when the user specifies @latest.
     /// </summary>
     public bool ForceLatest { get; init; }
@@ -252,6 +257,13 @@ public record InspectionOptions : IProjectionOptions
     /// Names to select (sections). Null means all.
     /// </summary>
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
 
     /// <summary>
     /// Column names to include. Null means all.

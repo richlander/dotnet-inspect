@@ -38,6 +38,65 @@ public enum StyleOptionTier
 }
 
 /// <summary>
+/// The product-owned presentation of one <see cref="StyleOptionTier"/>: the
+/// category level of the catalog, sitting one level above
+/// <see cref="StyleOptionDescriptor"/>. A host grouping the catalog by tier reads
+/// its label, blurb, and display position from here instead of restating a
+/// taxonomy the product already owns, so a knob in a newly added tier surfaces
+/// without a consumer edit.
+///
+/// <para>The <see cref="Id"/> is the stable grouping key; <see cref="Title"/> and
+/// <see cref="Summary"/> are presentation and may be reworded. Every tier has
+/// exactly one descriptor, which
+/// <c>StyleOptionCatalogTests.Tiers_CoverEveryTierExactlyOnce</c> enforces by set
+/// equality against <see cref="StyleOptionTier"/> — a new enum value with no
+/// descriptor fails there rather than silently vanishing from a picker.</para>
+/// </summary>
+public sealed record StyleOptionTierDescriptor
+{
+    /// <summary>
+    /// The tier this describes. The enum token is the stable, never-localized
+    /// grouping key a host keys presentation and persisted selections off.
+    /// </summary>
+    public required StyleOptionTier Id { get; init; }
+
+    /// <summary>Short human-facing label for a group heading in a picker.</summary>
+    public required string Title { get; init; }
+
+    /// <summary>
+    /// One-sentence statement of the fidelity contract every knob in this tier
+    /// honors, so a host can explain a group and not merely name it.
+    ///
+    /// <para>This is user-facing copy, not internal prose: a picker renders it
+    /// verbatim as escaped plain text, so it must read as a complete sentence
+    /// without code formatting, and must avoid vocabulary that only means
+    /// something inside this repository (name what a choice costs the reader,
+    /// rather than naming the gate that measures it).</para>
+    /// </summary>
+    public required string Summary { get; init; }
+
+    /// <summary>
+    /// Explicit display position, ascending, most conservative contract first.
+    /// First-class rather than an <see cref="StyleOptionTier"/> ordinal so the
+    /// enum's declaration order and the presentation order can move
+    /// independently.
+    /// </summary>
+    public required int Order { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> when every knob in this tier is byte-divergent —
+    /// the tier-level statement of the contract
+    /// <see cref="StyleOptionDescriptor.ByteDivergent"/> carries per knob. A host
+    /// can warn about a whole group without inspecting its members.
+    /// <c>StyleOptionCatalogTests.ByteDivergence_IsATierProperty</c> enforces the
+    /// agreement in both directions, so
+    /// <see cref="StyleOptionTier.Lens"/> being the only byte-divergent tier is a
+    /// gated claim rather than a comment.
+    /// </summary>
+    public required bool ByteDivergent { get; init; }
+}
+
+/// <summary>
 /// One selectable value on a <see cref="StyleOptionDescriptor"/>'s axis: its
 /// stable token, optional human label, oracle endorsement, and the
 /// <c>.dotnet-inspectconfig</c> key (if any) that selects it. A boolean knob has
@@ -146,16 +205,18 @@ public sealed record StyleOptionDescriptor
     public required bool ByteDivergent { get; init; }
 
     /// <summary>
-    /// The token of the shipped-default value — the value in effect on
-    /// <see cref="PrinterOptions.Default"/>. <see cref="GetValue"/> returns this
-    /// when no non-default value is selected.
+    /// The token of the user-facing product-default value — the value in effect on
+    /// <see cref="StyleOptionCatalog.DefaultOptions"/>. This may differ from the
+    /// low-level <see cref="PrinterOptions.Default"/> used by fidelity and harness
+    /// consumers. <see cref="GetValue"/> returns this when no value is selected.
     /// </summary>
     public required string DefaultValue { get; init; }
 
     /// <summary>
     /// The value domain this knob ranges over, in presentation order. The first
-    /// entry is the default/off value; later entries are the selectable
-    /// alternatives. For a multi-value axis the order is also the resolution
+    /// entry is conventionally the off value for a boolean axis; the declared
+    /// <see cref="DefaultValue"/> identifies the product default independently.
+    /// For a multi-value axis the order is also the resolution
     /// precedence <see cref="GetValue"/> reports when more than one value is set at
     /// once (the earlier, oracle-endorsed value wins — matching the printer).
     /// </summary>
@@ -238,7 +299,7 @@ public sealed record StyleOptionDescriptor
 }
 
 /// <summary>
-/// The catalog of every opt-in <see cref="PrinterOptions"/> knob, exposed as the
+/// The catalog of every configurable <see cref="PrinterOptions"/> knob, exposed as the
 /// shared source of truth for hosts (CLI config resolution, a Wasm UI, the "full
 /// taste" aggregate) so option metadata lives in exactly one place and cannot
 /// drift between the library and its consumers. Most knobs are two-state
@@ -259,8 +320,68 @@ public static class StyleOptionCatalog
     private const string VarStyleElsewhere = "var-elsewhere";
 
     /// <summary>
-    /// Every opt-in knob, in a stable presentation order (formatting and spelling
-    /// first, then the byte-divergent lens). Two-state knobs carry a
+    /// Every <see cref="StyleOptionTier"/> as a presentation descriptor, in
+    /// display order (most conservative contract first). This is the category
+    /// level of the catalog: a host renders a grouped picker by walking these and
+    /// filtering <see cref="Options"/> on <see cref="StyleOptionDescriptor.Tier"/>,
+    /// with no locally-held label, blurb, or ordering. The list is exhaustive and
+    /// duplicate-free by gate (<c>StyleOptionCatalogTests</c>), so a tier added to
+    /// the enum cannot silently drop out of a consumer's layout.
+    /// </summary>
+    public static IReadOnlyList<StyleOptionTierDescriptor> Tiers { get; } =
+    [
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Formatting,
+            Title = "Formatting",
+            Summary = "Layout only — whitespace and line breaks. The code itself is unchanged, and compiles to identical IL.",
+            Order = 1,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Spelling,
+            Title = "Spelling",
+            Summary = "An equally faithful way to spell the same code, such as qualifying a member with this or writing var. Compiles to identical IL.",
+            Order = 2,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Synthesis,
+            Title = "Name synthesis",
+            Summary = "Readable invented names for locals that have none of their own. Compiles to identical IL, but these names no longer match the ones the IL uses.",
+            Order = 3,
+            ByteDivergent = false,
+        },
+        new StyleOptionTierDescriptor
+        {
+            Id = StyleOptionTier.Lens,
+            Title = "Style lenses",
+            Summary = "Keeps what the code does, but not the exact bytes: this rendering recompiles to different IL than the shipped output, so it is excluded from byte-level fidelity checking.",
+            Order = 4,
+            ByteDivergent = true,
+        },
+    ];
+
+    /// <summary>
+    /// The presentation descriptor for <paramref name="tier"/>. Throws rather than
+    /// returning null for an unregistered tier: the registry is exhaustive by
+    /// gate, so a miss is a catalog defect and stays visible instead of degrading
+    /// into an unlabeled group.
+    /// </summary>
+    public static StyleOptionTierDescriptor GetTier(StyleOptionTier tier)
+    {
+        foreach (var descriptor in Tiers)
+            if (descriptor.Id == tier)
+                return descriptor;
+
+        throw new ArgumentOutOfRangeException(nameof(tier), tier, "No style-option tier descriptor is registered for this tier.");
+    }
+
+    /// <summary>
+    /// Every configurable knob, in a stable presentation order (formatting and
+    /// spelling first, then the byte-divergent lens). Two-state knobs carry a
     /// <c>false</c>/<c>true</c> value domain; the guarded-boolean-return knob is a
     /// single multi-value axis (<c>flat</c> / <c>conditional-expression</c> /
     /// <c>branchless</c>). The catalog is exhaustive: the drift-guard test asserts
@@ -270,15 +391,15 @@ public static class StyleOptionCatalog
     public static IReadOnlyList<StyleOptionDescriptor> Options { get; } =
     [
         Boolean(
-            id: "readable-local-names",
-            title: "Readable local names",
-            summary: "Synthesize a readable name for a local that has no PDB source name instead of V_index.",
+            id: "slot-local-names",
+            title: "Use IL slot local names",
+            summary: "Keep V_index for a local that has no PDB source name instead of synthesizing a readable name.",
             tier: StyleOptionTier.Synthesis,
             byteDivergent: false,
             oracleEndorsed: false,
-            configKey: "dotnet_inspect_style_readable_local_names",
-            get: static o => o.ReadableLocalNames,
-            with: static (o, v) => o with { ReadableLocalNames = v }),
+            configKey: "dotnet_inspect_style_slot_local_names",
+            get: static o => !o.ReadableLocalNames,
+            with: static (o, v) => o with { ReadableLocalNames = !v }),
         Boolean(
             id: "wrap-splittable-expressions",
             title: "Wrap long boolean chains",
@@ -363,6 +484,14 @@ public static class StyleOptionCatalog
             get: static o => o.PreferLongLiteralSuffix,
             with: static (o, v) => o with { PreferLongLiteralSuffix = v }),
     ];
+
+    /// <summary>
+    /// User-facing product defaults derived from the catalog. Hosts that present
+    /// normal source output or initialize a style picker use this value; fidelity,
+    /// corpus, and harness paths use <see cref="PrinterOptions.Default"/> directly
+    /// to retain stable slot names and other low-level defaults.
+    /// </summary>
+    public static PrinterOptions DefaultOptions { get; } = ApplyDefaults();
 
     /// <summary>
     /// The oracle-endorsed subset of <see cref="Options"/> — the knobs whose axis
@@ -458,6 +587,14 @@ public static class StyleOptionCatalog
                 },
             ],
         };
+
+    private static PrinterOptions ApplyDefaults()
+    {
+        var options = PrinterOptions.Default;
+        foreach (var knob in Options)
+            options = knob.WithValue(options, knob.DefaultValue);
+        return options;
+    }
 
     // The guarded-boolean-return family as one multi-value axis. Its two non-default
     // values map onto the two independent byte-divergent lens properties, so config

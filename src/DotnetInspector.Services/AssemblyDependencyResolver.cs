@@ -1,6 +1,5 @@
 using System.Buffers;
-using System.Reflection.Metadata;
-using System.Security.Cryptography;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
@@ -51,11 +50,20 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
 /// assemblies) and exposes only paths/descriptors plus the metadata identity
 /// callback needed by Metadata/Decompiler/Research.
 /// </summary>
-public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
+public sealed class AssemblyDependencyResolver :
+    IAssemblyReferenceResolver,
+    IAssemblyBindingPolicy
 {
     readonly AssemblyDependencyResolutionOptions _options;
+    readonly ConcurrentDictionary<
+        string,
+        Lazy<ResolvedAssemblyReference?>> _descriptors =
+            new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
+    readonly ConcurrentDictionary<
+        AssemblyBindingRequestKey,
+        Lazy<AssemblyBindingSelection>> _bindingSelections = [];
 
     public AssemblyDependencyResolver(AssemblyDependencyResolutionOptions options)
         => _options = options;
@@ -65,6 +73,20 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
     /// callers forward inputs (e.g. project-assets/TFM) into the resolver.
     /// </summary>
     internal AssemblyDependencyResolutionOptions Options => _options;
+
+    public AssemblyBindingPolicyVersion Version { get; } = new();
+
+    public AssemblyBindingSelection Select(
+        AssemblyBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var key = AssemblyBindingRequestKey.From(request);
+        return _bindingSelections.GetOrAdd(
+            key,
+            _ => new Lazy<AssemblyBindingSelection>(
+                () => SelectCore(request),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
 
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
     {
@@ -165,14 +187,19 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
             bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
                 && _options.AllowPlatformAssemblyVersionRollForward;
-            if (!MatchesIdentity(identity, dependency.Path, allowVersionRollForward))
-                continue;
-
-            return new ResolvedAssemblyReference(
-                identity,
+            ResolvedAssemblyReference? selected = Descriptor(
                 dependency.Path,
-                () => File.OpenRead(dependency.Path),
-                dependency.Provenance.ToString());
+                ResolutionProvenance(dependency));
+            if (selected is null
+                || !MatchesIdentity(
+                    identity,
+                    selected.Identity,
+                    allowVersionRollForward))
+            {
+                continue;
+            }
+
+            return selected;
         }
 
         // The target may reference an older platform contract than the running
@@ -185,27 +212,130 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
                 identity.Name,
                 useRuntimeAssemblies: _options.PreferImplementationAssemblies);
-            if (path is not null && MatchesIdentity(
-                identity,
-                path,
-                _options.AllowPlatformAssemblyVersionRollForward))
+            if (path is not null)
             {
-                return new ResolvedAssemblyReference(
-                    identity,
+                ResolvedAssemblyReference? selected = Descriptor(
                     path,
-                    () => File.OpenRead(path),
-                    $"{AssemblyDependencyProvenance.InstalledPlatformAssembly}:{framework}");
+                    AssemblyResolutionProvenance.Platform(
+                        framework ?? "InstalledPlatform",
+                        frameworkVersion: null,
+                        AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
+                if (selected is not null
+                    && MatchesIdentity(
+                        identity,
+                        selected.Identity,
+                        _options.AllowPlatformAssemblyVersionRollForward))
+                {
+                    return selected;
+                }
             }
         }
 
         return null;
     }
 
+    AssemblyBindingSelection SelectCore(
+        AssemblyBindingRequest request)
+    {
+        try
+        {
+            return request.Target switch
+            {
+                AssemblyBindingTarget.AssemblyReference reference =>
+                    Resolve(reference.Identity, request.Scope) is
+                        { } assembly
+                        ? AssemblyBindingSelection.Found(assembly)
+                        : AssemblyBindingSelection.NotFound(),
+                AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                    SelectIntrinsicCoreLibrary(request.Scope),
+                _ => AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            };
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or OverflowException
+                or InvalidOperationException
+                or NotSupportedException
+                or ArgumentException
+                or System.Security.SecurityException)
+        {
+            return AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
+        }
+    }
+
+    AssemblyBindingSelection SelectIntrinsicCoreLibrary(
+        AssemblyResolutionScope scope)
+    {
+        string targetPath = Path.GetFullPath(
+            _options.TargetAssemblyPath);
+        ResolvedAssemblyReference? target = Descriptor(
+            targetPath,
+            AssemblyResolutionProvenance.Local(
+                "intrinsic core library"));
+        return target is null
+            ? AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable))
+            : IntrinsicCoreLibraryBinding.Select(
+                target,
+                facade => Resolve(facade, scope) is { } selected
+                    ? AssemblyBindingSelection.Found(selected)
+                    : AssemblyBindingSelection.NotFound());
+    }
+
+    static AssemblyResolutionProvenance ResolutionProvenance(
+        ResolvedAssemblyDependency dependency) =>
+        dependency.Provenance switch
+        {
+            AssemblyDependencyProvenance.PackageDependency
+                or AssemblyDependencyProvenance.DepsJsonAsset
+                or AssemblyDependencyProvenance.ProjectAsset
+                when dependency.PackageId is { Length: > 0 } packageId
+                    && dependency.PackageVersion is { Length: > 0 } packageVersion =>
+                AssemblyResolutionProvenance.Package(
+                    packageId,
+                    packageVersion,
+                    tfm: null,
+                    rid: null),
+            AssemblyDependencyProvenance.TrustedPlatformAssembly
+                or AssemblyDependencyProvenance.SharedFramework =>
+                AssemblyResolutionProvenance.Platform(
+                    dependency.FrameworkName ?? "Platform",
+                    frameworkVersion: null,
+                    dependency.Provenance.ToString()),
+            _ => AssemblyResolutionProvenance.Local(
+                dependency.Provenance.ToString()),
+        };
+
+    ResolvedAssemblyReference? Descriptor(
+        string path,
+        AssemblyResolutionProvenance provenance) =>
+        _descriptors.GetOrAdd(
+            path,
+            static (path, provenance) =>
+                new Lazy<ResolvedAssemblyReference?>(
+                    () => ResolvedAssemblyReference.TryCreateFromPath(
+                        path,
+                        provenance,
+                        out ResolvedAssemblyReference? reference)
+                            ? reference
+                            : null,
+                    LazyThreadSafetyMode.ExecutionAndPublication),
+            provenance).Value;
+
     static bool MatchesIdentity(
         AssemblyReferenceIdentity expected,
-        string path,
+        AssemblyReferenceIdentity actual,
         bool allowVersionRollForward = false)
     {
+        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
+            return false;
         if (expected.Version is null
             && string.IsNullOrEmpty(expected.Culture)
             && string.IsNullOrEmpty(expected.PublicKeyToken))
@@ -213,12 +343,6 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             return true;
         }
 
-        var actual = TryReadIdentity(path);
-        if (actual is null)
-            return false;
-
-        if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
-            return false;
         if (expected.Version is not null
             && actual.Version != expected.Version
             && (!allowVersionRollForward || actual.Version < expected.Version))
@@ -230,6 +354,29 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             return false;
 
         return true;
+    }
+
+    readonly record struct AssemblyBindingRequestKey(
+        AssemblyBindingTarget Target,
+        AssemblyAcquisitionRegistration? Origin,
+        bool GlobalOrigin,
+        AssemblyResolutionScope Scope)
+    {
+        internal static AssemblyBindingRequestKey From(
+            AssemblyBindingRequest request) =>
+            request.Origin switch
+            {
+                AssemblyBindingOrigin.GlobalOrigin =>
+                    new(request.Target, null, true, request.Scope),
+                AssemblyBindingOrigin.RequestingAssembly requesting =>
+                    new(
+                        request.Target,
+                        requesting.Registration,
+                        false,
+                        request.Scope),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding origin."),
+            };
     }
 
     static bool CultureMatches(string? expected, string? actual)
@@ -634,14 +781,20 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
         if (Directory.Exists(exactDirectory))
             return exactDirectory;
-        if (!Version.TryParse(VersionCore(runtimeVersion), out var runtime))
+        if (!System.Version.TryParse(
+            VersionCore(runtimeVersion),
+            out var runtime))
             return null;
 
         return Directory.EnumerateDirectories(frameworkRoot)
             .Select(directory => new
             {
                 Directory = directory,
-                Version = Version.TryParse(VersionCore(Path.GetFileName(directory)), out var version) ? version : null,
+                Version = System.Version.TryParse(
+                    VersionCore(Path.GetFileName(directory)),
+                    out var version)
+                        ? version
+                        : null,
             })
             .Where(candidate => candidate.Version is not null
                 && candidate.Version.Major == runtime.Major
@@ -743,39 +896,6 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         if (NuGetPackageContext(path, packageRoots) is { } context)
             return (context.PackageId, context.PackageVersion);
         return (null, null);
-    }
-
-    static AssemblyReferenceIdentity? TryReadIdentity(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!pe.HasMetadata)
-                return null;
-            var reader = pe.GetMetadataReader();
-            if (!reader.IsAssembly)
-                return null;
-            var assembly = reader.GetAssemblyDefinition();
-            return new AssemblyReferenceIdentity(
-                reader.GetString(assembly.Name),
-                assembly.Version,
-                string.IsNullOrWhiteSpace(reader.GetString(assembly.Culture)) ? null : reader.GetString(assembly.Culture),
-                assembly.PublicKey.IsNil ? null : PublicKeyToken(reader.GetBlobBytes(assembly.PublicKey)));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
-        {
-            return null;
-        }
-    }
-
-    static string PublicKeyToken(byte[] publicKey)
-    {
-        var hash = SHA1.HashData(publicKey);
-        Span<byte> token = stackalloc byte[8];
-        for (int i = 0; i < token.Length; i++)
-            token[i] = hash[hash.Length - 1 - i];
-        return Convert.ToHexString(token).ToLowerInvariant();
     }
 
     readonly record struct NuGetFramework(string Family, int Major, int Minor)

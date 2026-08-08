@@ -16,6 +16,7 @@ public static class PlatformKeys
         "b03f5f7f11d50a3a", // Microsoft (.NET ref assemblies: System.Runtime, ...)
         "7cec85d7bea7798e", // .NET platform (System.Private.CoreLib)
         "cc7b13ffcd2ddd51", // .NET Native / WinRT projections
+        "31bf3856ad364e35", // Microsoft framework (WindowsBase, System.ValueTuple, ...)
         "adb9793829ddae60", // .NET shared framework
     };
 

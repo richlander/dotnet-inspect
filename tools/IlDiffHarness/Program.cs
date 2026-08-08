@@ -216,7 +216,7 @@ static void IncrementBy(Dictionary<string, int> counts, string key, int amount)
 
 static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, OutputFormat format, BaselineComparison? comparison = null)
 {
-    var output = new StringWriter();
+    var output = new StringWriter { NewLine = "\n" };
     if (format == OutputFormat.Markdown)
     {
         MarkoutSerializer.Serialize(

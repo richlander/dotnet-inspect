@@ -59,8 +59,8 @@ static class AuthoredRebuildFidelity
         int cap,
         int maxExamples)
     {
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
         List<AuthoredRebuildFidelityResult> results = [];
 
@@ -90,12 +90,12 @@ static class AuthoredRebuildFidelity
             using var source = SourceLinkService.Open(assemblyPath);
             await AcquirePdbAsync(source, httpClient);
             var buildContext = AssessBuildContext(
-                AssemblyInspector.InspectDll(assemblyPath).IsDeterministic,
+                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
                 MetadataFindings.InspectCompilationOptions(
-                    source,
+                    source.Context,
                     new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
                 MetadataFindings.InspectCompilationReferences(
-                    source,
+                    source.Context,
                     new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
                 ReturnToSender.CompilationReferences(assemblyPath));
 

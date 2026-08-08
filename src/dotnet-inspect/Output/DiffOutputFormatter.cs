@@ -4,6 +4,8 @@ using ILInspector.Research;
 using DotnetInspector.Views;
 using Markout;
 
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Output;
 
 /// <summary>
@@ -19,11 +21,12 @@ public static class DiffOutputFormatter
     /// field stays a stable, script-parseable identifier.
     /// </summary>
     private static string FormatTypeDisplayName(string typeFullName)
-        => MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName));
+        => CSharpIdentifier.ContainRenderedText(
+            MetadataTypeNameFormatter.FormatGenericTypeName(TypeMatcher.GetSimpleName(typeFullName)));
 
     public static void RenderNameOnly(MarkoutWriter writer, IReadOnlyList<TypeDiff> typeDiffs)
     {
-        foreach (var name in typeDiffs.Select(td => td.TypeFullName).OrderBy(n => n))
+        foreach (var name in typeDiffs.Select(td => CSharpIdentifier.ContainRenderedText(td.TypeFullName)).OrderBy(n => n))
         {
             writer.WriteListItem(name);
         }
@@ -65,7 +68,7 @@ public static class DiffOutputFormatter
                 detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
             }
 
-            return new DiffTableRow(symbol, TypeMatcher.GetSimpleName(td.TypeFullName), detail);
+            return new DiffTableRow(symbol, CSharpIdentifier.ContainRenderedText(TypeMatcher.GetSimpleName(td.TypeFullName)), detail);
         }).ToList();
 
         return new DiffTableView

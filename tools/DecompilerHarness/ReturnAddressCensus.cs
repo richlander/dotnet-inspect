@@ -192,7 +192,7 @@ internal static class ReturnAddressCensus
 
     static string Format(DecompilerHarnessReport<RaCensusReport> report, int maxExamples, RaCensusFormat format)
     {
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == RaCensusFormat.Markdown)
         {
             MarkoutSerializer.Serialize(

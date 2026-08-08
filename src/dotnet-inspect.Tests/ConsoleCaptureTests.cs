@@ -43,7 +43,9 @@ public class ConsoleCaptureTests
             {
                 Thread.Sleep(25);
                 Console.Write(token);
+#pragma warning disable RS0030 // Proving the capture works requires writing to the stream it captures (#3319).
                 Console.Error.Write(token);
+#pragma warning restore RS0030
             });
 
             if (output != token)

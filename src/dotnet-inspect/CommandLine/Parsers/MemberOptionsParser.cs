@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -60,7 +61,13 @@ public static class MemberOptionsParser
     /// <summary>
     /// Indicates a version error occurred.
     /// </summary>
-    public record VersionError(string Message) : MemberParseResult;
+    /// <remarks>
+    /// Carries an <see cref="DotnetInspector.Options.OptionError"/> rather than a
+    /// bare string so a validation failure keeps its detail lines all the way to
+    /// the writer; the implicit conversion leaves the message-only sites
+    /// unchanged.
+    /// </remarks>
+    public record VersionError(DotnetInspector.Options.OptionError Error) : MemberParseResult;
 
     /// <summary>
     /// Indicates an unrecognized option was found.
@@ -86,6 +93,7 @@ public static class MemberOptionsParser
         var projectSourcePath = !sourceInputs.HasExplicitSource && projectValues.Length > 0
             ? projectValues[0]
             : null;
+        var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
 
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
@@ -94,6 +102,10 @@ public static class MemberOptionsParser
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));
             return new ShowHelp();
         }
+
+        IReadOnlyList<string> sourceKeys = projectSourcePath is not null
+            ? []
+            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
 
         // Extract positional members
         List<string> positionalMembers = [];
@@ -127,7 +139,7 @@ public static class MemberOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
             source = sourceSelection.Source;
         }
 
@@ -149,9 +161,14 @@ public static class MemberOptionsParser
             && positionalMembers.Count == 0
             && optionMembers.Length == 0)
         {
+            string? platformLookupFailure = null;
             var split = SharedParsers.TrySplitQualifiedTypeMember(
                 source.PackagePath,
-                allowPlatformPrefixFallback: true);
+                sourceKeys,
+                allowPlatformPrefixFallback: true,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+                return new VersionError(platformLookupFailure);
             if (split != null)
             {
                 positionalMembers.Add(split.Value.MemberName);
@@ -172,9 +189,14 @@ public static class MemberOptionsParser
             && source.PlatformAssembly == null
             && source.AssemblyPath == null)
         {
+            string? platformLookupFailure = null;
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 source.PackagePath,
-                allowPlatformPrefixFallback: true);
+                sourceKeys,
+                allowPlatformPrefixFallback: true,
+                message => platformLookupFailure = message);
+            if (platformLookupFailure is not null)
+                return new VersionError(platformLookupFailure);
             if (probe != null)
             {
                 if (source.TypeName != null)
@@ -244,7 +266,8 @@ public static class MemberOptionsParser
         kindFilter.UnionWith(memberKindFilter);
 
         var select = opts.ParseSelect(parseResult);
-        bool hasExplicitSelect = select is { Length: > 0 };
+        var selectDefault = opts.ParseSelectDefault(parseResult);
+        bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
@@ -304,6 +327,7 @@ public static class MemberOptionsParser
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,
+            SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
@@ -312,7 +336,7 @@ public static class MemberOptionsParser
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
-            SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+            SourceOptions = sourceOptions
         };
 
         options = options with

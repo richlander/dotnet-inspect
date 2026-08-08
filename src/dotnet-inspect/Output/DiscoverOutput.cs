@@ -45,7 +45,8 @@ public static class DiscoverOutput
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
             && discover is { Length: > 0 }
-            && !discover.Any(value => value.StartsWith("@", StringComparison.Ordinal))
+            && !discover.Any(value => SelectResolver.TryResolveCategory(
+                value, sectionCategories, schema.SectionNames, out _, out _))
             && ResolvedSectionCount(discover, schema, sectionCategories) > 1)
             tree = true;
 
@@ -112,7 +113,8 @@ public static class DiscoverOutput
         // former and report it clearly instead of the misleading "Section not found".
         if (discover is { Length: > 0 } && fullSchema != null)
         {
-            var remaining = FilterEmptyEffectiveSections(discover, filtered, fullSchema);
+            var remaining = FilterEmptyEffectiveSections(
+                discover, filtered, fullSchema, sectionCategories);
             if (remaining == null)
             {
                 // Every requested section was valid but empty, so the discovered row count is
@@ -140,12 +142,35 @@ public static class DiscoverOutput
     /// or <c>null</c> when every requested section was valid-but-empty (fully handled via notes).
     /// </summary>
     private static string[]? FilterEmptyEffectiveSections(
-        string[] discover, DocumentSchema effective, DocumentSchema fullSchema)
+        string[] discover,
+        DocumentSchema effective,
+        DocumentSchema fullSchema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories)
     {
         var remaining = new List<string>();
         bool emittedNote = false;
         foreach (var name in discover)
         {
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    fullSchema.SectionNames,
+                    out var categoryName,
+                    out var categorySections))
+            {
+                if (!categorySections.Any(member =>
+                        effective.SectionNames.Contains(member, StringComparer.OrdinalIgnoreCase)))
+                {
+                    CommandError.WriteNote(
+                        $"category '{categoryName}' has no data for this query");
+                    emittedNote = true;
+                    continue;
+                }
+
+                remaining.Add(categoryName);
+                continue;
+            }
+
             if (name.StartsWith("@", StringComparison.Ordinal))
             {
                 remaining.Add(name);
@@ -163,7 +188,7 @@ public static class DiscoverOutput
             if (fullMatches.Count >= 1)
             {
                 foreach (var match in fullMatches)
-                    Console.Error.WriteLine($"note: section '{match}' has no data for this query");
+                    CommandError.WriteNote($"section '{match}' has no data for this query");
                 emittedNote = true;
             }
             else
@@ -243,16 +268,40 @@ public static class DiscoverOutput
     /// columns replace detailed columns at Minimal verbosity).
     /// Matches against section-scoped table columns emitted by the serializer.
     /// </summary>
+    /// <param name="fieldLayoutSections">
+    /// Sections rendered as a <c>Field</c>/<c>Value</c> fact table rather than one column per
+    /// schema item. Their rendered header cells are literally "Field" and "Value", which intersect
+    /// no schema item name, so matching on columns would strip every item and report the section as
+    /// having nothing to query. For these, match on the rendered field rows instead.
+    /// </param>
     internal static DocumentSchema FilterSchemaToRenderedColumns(
         List<string> effectiveSections,
         DocumentSchema schema,
-        RenderedSectionManifest rendered)
+        RenderedSectionManifest rendered,
+        IReadOnlySet<string>? fieldLayoutSections = null)
     {
         var filtered = new DocumentSchema();
         foreach (var name in effectiveSections)
         {
             var section = schema.GetSection(name);
             if (section == null) { filtered.AddSection(name); continue; }
+
+            if (fieldLayoutSections?.Contains(name) == true)
+            {
+                var renderedFields = rendered.GetFields(name);
+                if (renderedFields is not null)
+                {
+                    var fieldItems = section.Items
+                        .Where(item => renderedFields.Contains(item.Name))
+                        .Select(item => item.Name)
+                        .ToArray();
+                    if (fieldItems.Length > 0)
+                        filtered.Add(name, section.ItemKind, fieldItems);
+                    else
+                        filtered.AddSection(name);
+                    continue;
+                }
+            }
 
             // No table rendered for this section (e.g. a non-tabular section such as Source/IL,
             // or one not produced by the member renderer): preserve the original schema columns
@@ -388,7 +437,12 @@ public static class DiscoverOutput
         var rows = new List<DiscoveryRow>();
         foreach (var name in discover)
         {
-            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    schema.SectionNames,
+                    out _,
+                    out var categorySections))
             {
                 foreach (var sectionName in categorySections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
                     rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
@@ -448,7 +502,12 @@ public static class DiscoverOutput
         int count = 0;
         foreach (var name in discover)
         {
-            if (TryResolveCategory(name, sectionCategories, out var categorySections))
+            if (SelectResolver.TryResolveCategory(
+                    name,
+                    sectionCategories,
+                    schema.SectionNames,
+                    out _,
+                    out var categorySections))
             {
                 count += categorySections.Length;
                 continue;
@@ -475,21 +534,21 @@ public static class DiscoverOutput
         // Multi-glob match: the miss contains the matches as suggestions
         if (miss != null && miss.IsGlob && matches.Count > 1)
         {
-            Console.Error.WriteLine($"Error: '{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
-            Console.Error.WriteLine("Discovery requires exactly one section. Be more specific.");
+            CommandError.Write($"'{name}' matches {matches.Count} sections: {string.Join(", ", matches)}.");
+            CommandError.WriteLine("Discovery requires exactly one section. Be more specific.");
             return null;
         }
 
         // No match — write error with suggestions
         if (miss != null)
         {
-            Console.Error.WriteLine($"Error: Section '{miss.Value}' not found.");
+            CommandError.Write($"Section '{miss.Value}' not found.");
             if (miss.Suggestions.Count > 0)
             {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
                 foreach (var s in miss.Suggestions)
-                    Console.Error.WriteLine($"  {s}");
+                    CommandError.WriteLine($"  {s}");
             }
         }
 
@@ -529,9 +588,14 @@ public static class DiscoverOutput
             // Resolve each section and build grouped tree
             foreach (var name in discover)
             {
-                if (TryResolveCategory(name, sectionCategories, out var categorySections))
+                if (SelectResolver.TryResolveCategory(
+                        name,
+                        sectionCategories,
+                        schema.SectionNames,
+                        out var categoryName,
+                        out var categorySections))
                 {
-                    nodes.Add(new TreeNode(name)
+                    nodes.Add(new TreeNode(categoryName)
                     {
                         Children = categorySections
                             .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
@@ -680,32 +744,16 @@ public static class DiscoverOutput
         return filtered;
     }
 
-    private static bool TryResolveCategory(
-        string name,
-        IReadOnlyDictionary<string, string[]>? categories,
-        out string[] sections)
-    {
-        sections = [];
-        if (categories == null)
-            return false;
-
-        if (!categories.TryGetValue(name, out var value))
-            return false;
-
-        sections = value;
-        return true;
-    }
-
     private static void WriteCategoryNotFound(string name, IReadOnlyDictionary<string, string[]>? categories)
     {
-        Console.Error.WriteLine($"Error: Category '{name}' not found.");
+        CommandError.Write($"Category '{name}' not found.");
         if (categories is not { Count: > 0 })
             return;
 
-        Console.Error.WriteLine();
-        Console.Error.WriteLine("Available categories:");
+        CommandError.WriteBlankLine();
+        CommandError.WriteLine("Available categories:");
         foreach (var category in categories.Keys.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
-            Console.Error.WriteLine($"  {category}");
+            CommandError.WriteLine($"  {category}");
     }
 }
 

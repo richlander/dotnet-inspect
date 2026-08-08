@@ -428,7 +428,13 @@ internal static class CorpusSensor
                     }
                     else
                     {
-                        IrPasses.Run(function);
+                        // Wires the cross-method import seam for the same reason
+                        // #2818 wired it above for classic state machines: without
+                        // it, cross-method passes (LocalFunctionRaisingPass here)
+                        // decline every candidate, so the sensor measures a pipeline
+                        // strictly less raised than the one the product ships and
+                        // reports raisable methods as residue.
+                        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(method => IrImporter.Import(source, method)));
                     }
                 }
                 catch (Exception ex)
@@ -2014,7 +2020,8 @@ internal static class CorpusSensor
         analysis.Add($"Current measured debt: {CurrentMeasuredDebt(current)}");
         analysis.Add(RegressionVerdict(regressions.Count));
 
-        string card = MarkoutTemplate.Parse(QualityDiffCardTemplate)
+        using var cardWriter = new StringWriter { NewLine = "\n" };
+        MarkoutTemplate.Parse(QualityDiffCardTemplate)
             .Bind("title", QualityCardTitleForProfile(current.Profile))
             .Bind("metric_table", metricTable)
             .Bind("has_staleness", staleness.Length > 0)
@@ -2031,9 +2038,9 @@ internal static class CorpusSensor
             .Bind("regressions", regressions)
             .Bind("has_caveat", caveat.Length > 0)
             .Bind("caveat", caveat)
-            .Render();
+            .Render(cardWriter);
 
-        return card.TrimEnd('\n') + "\n";
+        return cardWriter.ToString().TrimEnd('\n') + "\n";
     }
 
     static string RegressionCaveat(
@@ -2058,7 +2065,7 @@ internal static class CorpusSensor
     // writer emits nothing (the sub-block gates itself), which drives the {{#if}} flags.
     static string RenderBlock(Action<MarkoutWriter> write)
     {
-        using var sw = new StringWriter();
+        using var sw = new StringWriter { NewLine = "\n" };
         var writer = new MarkoutWriter(sw, new MarkdownFormatter());
         write(writer);
         writer.Flush();
@@ -2602,7 +2609,7 @@ internal static class CorpusSensor
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current)
     {
-        using var stringWriter = new StringWriter();
+        using var stringWriter = new StringWriter { NewLine = "\n" };
         var writer = new MarkoutWriter(stringWriter, new MarkdownFormatter());
         WriteQualityMetricChanges(writer, baseline, current);
         writer.Flush();

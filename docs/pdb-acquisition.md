@@ -4,7 +4,9 @@ This document describes how dotnet-inspect locates and downloads PDB (Program Da
 
 ## Overview
 
-PDBs contain debug information that maps compiled code back to source. For SourceLink to work, we need access to a **Portable PDB** that contains the SourceLink JSON document.
+PDBs contain debug information that maps compiled code back to source. Metadata
+owns PE/PDB opening and extracts raw portable-PDB facts. The SourceLink layer
+recognizes and interprets the SourceLink custom-debug-information document.
 
 ## PDB formats
 
@@ -12,7 +14,7 @@ PDBs contain debug information that maps compiled code back to source. For Sourc
 
 - Cross-platform format introduced with .NET Core
 - Magic header: `BSJB` (first 4 bytes)
-- Contains SourceLink information
+- Can contain a raw SourceLink custom-debug-information blob
 - Identified in PE files by CodeView entry with `MinorVersion == 0x504d` ("PM" for Portable Metadata)
 
 > **Trivia**: BSJB are initials from the original CLR team: Brian, Susan, Jason, and Bill. Bill was the metadata developer—of course, management goes first and the developer goes last. This follows the tradition of `MZ` (Mark Zbikowski) in DOS/PE headers found in the same binaries.
@@ -38,10 +40,21 @@ Look for a `.pdb` file next to the library with the same base name. Common when 
 
 ### 3. Symbol package (.snupkg)
 
-For NuGet packages, download the corresponding `.snupkg` from:
+The current implementation downloads a NuGet package's corresponding `.snupkg`
+from:
 
 - `https://globalcdn.nuget.org/symbol-packages/{id}.{version}.snupkg`
 - `https://api.nuget.org/v3-flatcontainer/{id}/{version}/{id}.{version}.snupkg`
+
+That lookup is not yet source-conformant for packages acquired from another
+feed. Under the target
+[package source model](design/package-source-model.md#enrichment-is-a-separate-capability),
+these known routes are available only when NuGet.org produced the package, and
+the derived PDB remains tied to that producer. NuGet V3 defines no standard
+symbol-package download resource for custom or local feeds, so `.snupkg`
+acquisition from those producers is unsupported until an explicit endpoint
+contract exists. This migration is tracked by
+[#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
 
 ### 4. Symbol servers
 
@@ -80,6 +93,10 @@ CodeView Entry 1: System.Text.Json.ni.pdb (MinorVersion: 0x0000, Windows PDB)
 CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) ← use this
 ```
 
+`PdbContext` exposes the selected CodeView identity and raw PDB records without
+exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
+typed APIs for map extraction, URL decoration, and provenance.
+
 ## Microsoft vs third-party libraries
 
 ### Microsoft platform libraries
@@ -107,6 +124,12 @@ Downloaded PDBs are cached locally to avoid repeated downloads:
 
 - **Symbol packages**: `~/.dotnet-inspect/symbols/{package}/{version}/{filename}.pdb`
 - **Symbol server**: `~/.dotnet-inspect/symbols/{pdbname}/{key}/{pdbname}`
+
+Those are the current source-blind paths. The target model scopes a
+package-associated PDB by package producer and a symbol-server PDB by server
+identity, or persists equivalent provenance beside the entry, so a warm hit
+reports and enforces the same origin as the initial acquisition. This migration
+is part of [#3738](https://github.com/richlander/dotnet-inspect/issues/3738).
 
 ## Error handling
 

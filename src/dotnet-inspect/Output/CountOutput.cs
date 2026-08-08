@@ -7,15 +7,15 @@ namespace DotnetInspector.Output;
 /// </summary>
 public static class CountOutput
 {
-    public const string SingleSectionRequiredMessage = "Error: --count requires -S/--select to match exactly one section.";
-    public const string SectionRequiredMessage = "Error: --count requires -S/--select to match at least one section.";
+    public const string SingleSectionRequiredMessage = "--count requires -S/--select to match exactly one section.";
+    public const string SectionRequiredMessage = "--count requires -S/--select to match at least one section.";
 
     public static bool ValidateSingleSection(HashSet<string>? includeSections)
     {
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine(SingleSectionRequiredMessage);
+        CommandError.Write(SingleSectionRequiredMessage);
         return false;
     }
 
@@ -24,12 +24,17 @@ public static class CountOutput
     /// <see cref="ValidateSingleSection"/> this permits multi-section selection (e.g. a
     /// category such as <c>@Performance</c>), which renders a per-section count map.
     /// </summary>
-    public static bool ValidateSectionsSelected(HashSet<string>? includeSections)
+    /// <param name="fixedOverview">
+    /// Whether bare <c>-S</c> selected the fixed overview. That route carries its selection as a
+    /// flag rather than as <paramref name="includeSections"/>, so reading the include set alone
+    /// reports a selection the user did make as no selection at all (#3547).
+    /// </param>
+    public static bool ValidateSectionsSelected(HashSet<string>? includeSections, bool fixedOverview)
     {
-        if (includeSections is { Count: >= 1 })
+        if (includeSections is { Count: >= 1 } || fixedOverview)
             return true;
 
-        Console.Error.WriteLine(SectionRequiredMessage);
+        CommandError.Write(SectionRequiredMessage);
         return false;
     }
 
@@ -79,20 +84,28 @@ public static class CountOutput
     /// </summary>
     public static void WriteCount(int count, string? outputPath)
     {
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         // Invariant: a count is machine-readable output, so it must not pick up
         // culture-specific digits or grouping from the ambient locale.
-        var text = count.ToString(CultureInfo.InvariantCulture);
-        if (string.IsNullOrEmpty(outputPath))
-            Console.WriteLine(text);
-        else
-            File.WriteAllText(outputPath, text + Environment.NewLine);
+        WriteCountResult(count.ToString(CultureInfo.InvariantCulture), outputPath);
     }
 
-    public static void WriteCountFromMarkdown(string markdown)
+    /// <summary>
+    /// Writes an already-rendered scalar or per-section count to <paramref name="outputPath"/>,
+    /// or to stdout when it is null.
+    /// </summary>
+    public static void WriteCountResult(string result, string? outputPath)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        Console.WriteLine(CountMarkdownTableRows(markdown));
+        var text = result.TrimEnd('\r', '\n') + '\n';
+        if (string.IsNullOrEmpty(outputPath))
+            Console.Write(text);
+        else
+            File.WriteAllText(outputPath, text);
+    }
+
+    public static void WriteCountFromMarkdown(string markdown, string? outputPath = null)
+    {
+        WriteCount(CountMarkdownTableRows(markdown), outputPath);
     }
 
     /// <summary>
@@ -157,10 +170,10 @@ public static class CountOutput
     {
         var counts = CountMarkdownTableRowsBySection(markdown);
         var builder = new System.Text.StringBuilder();
-        builder.AppendLine("| Section | Count |");
-        builder.AppendLine("| ------- | ----- |");
+        builder.Append("| Section | Count |\n");
+        builder.Append("| ------- | ----- |\n");
         foreach (var section in orderedSections)
-            builder.AppendLine($"| {section} | {counts.GetValueOrDefault(section)} |");
+            builder.Append($"| {section} | {counts.GetValueOrDefault(section)} |\n");
 
         return builder.ToString().TrimEnd();
     }
@@ -169,9 +182,11 @@ public static class CountOutput
     /// Emits a per-section count map (<c>| Section | Count |</c>) over <paramref name="orderedSections"/>,
     /// reporting 0 for sections absent from the rendered markdown.
     /// </summary>
-    public static void WriteCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
+    public static void WriteCountMapFromMarkdown(
+        string markdown,
+        IReadOnlyList<string> orderedSections,
+        string? outputPath = null)
     {
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        Console.WriteLine(RenderCountMapFromMarkdown(markdown, orderedSections));
+        WriteCountResult(RenderCountMapFromMarkdown(markdown, orderedSections), outputPath);
     }
 }

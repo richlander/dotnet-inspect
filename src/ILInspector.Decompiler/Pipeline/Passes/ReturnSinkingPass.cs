@@ -17,7 +17,17 @@ namespace ILInspector.Decompiler.Pipeline;
 /// return is rewritten into a <see cref="Return"/> in place — adjacent
 /// <c>StoreLocal V; return V;</c> pairs, and the terminal fall-through stores of
 /// a structured statement (try/finally try body, try/catch arms, lock body,
-/// if/else arms) the trailing <c>return V;</c> follows. Switch is deliberately
+/// if/else arms) the trailing <c>return V;</c> follows. An arm that cannot fall
+/// through — it rethrows, throws, returns, <c>break</c>s, or <c>continue</c>s —
+/// never reaches that trailing return, so it contributes no tail rather than
+/// defeating the plan; this is what lets a <c>return</c> inside
+/// <c>using { try { … } catch { … throw; } }</c> sink, and what keeps a loop
+/// <c>break</c> in any arm from being rewritten into a method <c>return</c>.
+/// A <c>using</c> reaches this pass as its underlying try/finally, because
+/// <see cref="UsingStatementPass"/> deliberately runs later so a sunk return
+/// lands inside the using body.
+///
+/// Switch is deliberately
 /// excluded: a switch <em>expression</em> is lowered through its own result
 /// accumulator, so reproducing per-arm returns would diverge from the original.
 ///
@@ -217,16 +227,25 @@ public sealed class ReturnSinkingPass : IIrPass
             case TryFinally tryFinally:
                 // The finally cannot produce the returned value; only the try
                 // body's fall-through tail feeds the trailing return.
-                return CollectContainerTail(tryFinally.TryBody, index);
+                return CollectFallThroughTail(tryFinally.TryBody, index);
             case Lock @lock:
-                return CollectContainerTail(@lock.Body, index);
+                return CollectFallThroughTail(@lock.Body, index);
             case TryCatch tryCatch:
             {
-                var result = CollectContainerTail(tryCatch.TryBody, index);
+                var result = CollectFallThroughTail(tryCatch.TryBody, index);
                 if (result is null)
                     return null;
                 foreach (var clause in tryCatch.Clauses)
                 {
+                    // An arm that cannot fall through — it rethrows, throws, or
+                    // returns — never reaches the trailing return, so it
+                    // contributes no tail rather than defeating the plan. This
+                    // does not weaken the pass: TryPlan still refuses unless the
+                    // plan consumes *every* store of the local, so an arm that
+                    // stored the accumulator before terminating leaves that
+                    // store unconsumed and the whole plan is rejected.
+                    if (!FallsThrough(clause.Body))
+                        continue;
                     var clauseTail = CollectContainerTail(clause.Body, index);
                     if (clauseTail is null)
                         return null;
@@ -242,8 +261,12 @@ public sealed class ReturnSinkingPass : IIrPass
                 return null;
             case IfStatement { HasElse: true } ifStatement:
             {
-                var thenTail = CollectBlockTail(ifStatement.Then, index);
-                var elseTail = CollectBlockTail(ifStatement.Else!, index);
+                // Same arm rule as a catch clause: an arm that cannot fall
+                // through never reaches the trailing return, so it contributes
+                // no tail. TryPlan's all-stores-consumed guard then rejects the
+                // plan if the skipped arm stored the accumulator.
+                var thenTail = CollectFallThroughBlockTail(ifStatement.Then, index);
+                var elseTail = CollectFallThroughBlockTail(ifStatement.Else!, index);
                 if (thenTail is null || elseTail is null)
                     return null;
                 thenTail.AddRange(elseTail);
@@ -258,6 +281,50 @@ public sealed class ReturnSinkingPass : IIrPass
     {
         var blocks = container.Blocks;
         return blocks.Count == 0 ? null : CollectBlockTail(blocks[^1], index);
+    }
+
+    /// <summary>
+    /// The fall-through tail of <paramref name="container"/>, or an empty list
+    /// when control cannot fall out of it. A container that ends in a
+    /// terminator, <c>break</c>, or <c>continue</c> never reaches the trailing
+    /// return, so it contributes no tail rather than contributing a bogus one.
+    /// </summary>
+    static List<(StoreLocal Store, Break? Break)>? CollectFallThroughTail(BlockContainer container, int index) =>
+        FallsThrough(container) ? CollectContainerTail(container, index) : [];
+
+    /// <summary>
+    /// The fall-through tail of <paramref name="block"/>, or an empty list when
+    /// control cannot fall out of it. See <see cref="CollectFallThroughTail"/>.
+    /// </summary>
+    static List<(StoreLocal Store, Break? Break)>? CollectFallThroughBlockTail(Block block, int index) =>
+        FallsThrough(block) ? CollectBlockTail(block, index) : [];
+
+    /// <summary>
+    /// Whether control reaching the end of the container continues into the
+    /// statement that follows the enclosing construct.
+    /// </summary>
+    static bool FallsThrough(BlockContainer container)
+    {
+        var blocks = container.Blocks;
+        return blocks.Count == 0 || FallsThrough(blocks[^1]);
+    }
+
+    /// <summary>
+    /// Whether control reaching the end of the block continues into the
+    /// statement that follows the enclosing construct. A block ending in a
+    /// terminator does not, and neither does one ending in <see cref="Break"/>
+    /// or <see cref="Continue"/>: those transfer to an enclosing loop or switch,
+    /// skipping the trailing return entirely. Leaving <c>Break</c> out would be
+    /// unsound rather than merely conservative, because
+    /// <see cref="CollectBlockTail"/> accepts a <c>StoreLocal; Break</c> pair as
+    /// a foldable tail and <see cref="Apply"/> detaches the <c>Break</c> — which
+    /// would rewrite a loop <c>break</c> into a method <c>return</c>.
+    /// </summary>
+    static bool FallsThrough(Block block)
+    {
+        var children = block.Children;
+        return children.Count == 0
+            || children[^1] is not (Return or Throw or Branch or Leave or EndFinally or EndFilter or Break or Continue);
     }
 
     static List<(StoreLocal Store, Break? Break)>? CollectBlockTail(Block block, int index)

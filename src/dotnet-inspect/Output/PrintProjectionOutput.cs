@@ -64,7 +64,7 @@ public static class PrintProjectionOutput
 
         if (rows.Count == 0)
         {
-            Console.Error.WriteLine("Error: selected section has no printable rows.");
+            CommandError.Write("selected section has no printable rows.");
             return 1;
         }
 
@@ -78,8 +78,8 @@ public static class PrintProjectionOutput
             var position = RowNumbering.IndexOf(rowNumbers, row);
             if (position < 0)
             {
-                Console.Error.WriteLine(
-                    $"Error: row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
+                CommandError.Write(
+                    $"row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
                 return 1;
             }
 
@@ -89,7 +89,7 @@ public static class PrintProjectionOutput
         {
             if (rows.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {rows.Count} printable rows; use --row N|first|last to choose one row.");
+                CommandError.Write($"selected section has {rows.Count} printable rows; use --row N|first|last to choose one row.");
                 return 1;
             }
 
@@ -107,7 +107,7 @@ public static class PrintProjectionOutput
         if (options.Jsonl)
         {
             WriteOutput(
-                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + Environment.NewLine,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n',
                 options.OutputPath);
             return 0;
         }

@@ -16,13 +16,13 @@ public static class SelectOutput
 
         foreach (var miss in unresolved)
         {
-            Console.Error.WriteLine($"Error: Select value '{miss.Value}' not found.");
+            CommandError.Write($"Select value '{miss.Value}' not found.");
             if (miss.Suggestions.Count > 0)
             {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("Did you mean:");
+                CommandError.WriteBlankLine();
+                CommandError.WriteLine("Did you mean:");
                 foreach (var s in miss.Suggestions)
-                    Console.Error.WriteLine($"  {s}");
+                    CommandError.WriteLine($"  {s}");
             }
         }
         return true;
@@ -38,34 +38,45 @@ public static class SelectOutput
         if (result.Unresolved.Count == 0) return false;
 
         bool totalFailure = result.Sections is null or { Count: 0 };
-        string prefix = totalFailure ? "Error" : "Warning";
+
+        void WriteDiagnostic(string message)
+        {
+            if (totalFailure)
+            {
+                CommandError.Write(message);
+            }
+            else
+            {
+                CommandError.WriteWarning(message);
+            }
+        }
 
         foreach (var miss in result.Unresolved)
         {
             if (miss.IsGlob)
             {
-                Console.Error.WriteLine($"{prefix}: No sections match '{miss.Value}'.");
+                WriteDiagnostic($"No sections match '{miss.Value}'.");
                 if (totalFailure && miss.Suggestions.Count > 0)
                 {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine("Available sections:");
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine("Available sections:");
                     foreach (var s in miss.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
+                        CommandError.WriteLine($"  {s}");
                 }
             }
             else
             {
-                Console.Error.WriteLine($"{prefix}: Select value '{miss.Value}' not found.");
+                WriteDiagnostic($"Select value '{miss.Value}' not found.");
                 if (miss.Suggestions.Count > 0)
                 {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
+                    CommandError.WriteBlankLine();
+                    CommandError.WriteLine(miss.ListsAllSections ? "Available sections:" : "Did you mean:");
                     foreach (var s in miss.Suggestions)
-                        Console.Error.WriteLine($"  {s}");
+                        CommandError.WriteLine($"  {s}");
                     if (miss.ListsAllSections)
                     {
-                        Console.Error.WriteLine();
-                        Console.Error.WriteLine("Run with -D to discover sections for this target.");
+                        CommandError.WriteBlankLine();
+                        CommandError.WriteLine("Run with -D to discover sections for this target.");
                     }
                 }
             }

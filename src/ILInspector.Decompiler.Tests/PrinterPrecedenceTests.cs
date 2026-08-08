@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Tests;
 
 // Issue #1479: printer operand positions that bypassed the precedence-wrapping
 // Operand helper, reassociating compound operands into invalid/wrong C# at Full.
+[Collection(FidelityGateCollection.Name)]
 public class PrinterPrecedenceTests
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");

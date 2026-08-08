@@ -44,6 +44,11 @@ public sealed class RvaSpanPass : IIrPass
                 continue;
 
             var literal = new SpanLiteral(element, spanType, elements);
+            // Each raise here replaces one offset-bearing instruction with a
+            // synthesized literal. The replacement inherits that offset: it is the
+            // only place the instruction survives, and offset-keyed facts and the
+            // mixed IL view both locate a statement by the offsets under it.
+            literal.SetSourceOffset(call.SourceOffset);
             context.Stepper.StepOver("raise CreateSpan RVA blob to span literal", call);
             call.ReplaceWith(literal);
         }
@@ -72,6 +77,7 @@ public sealed class RvaSpanPass : IIrPass
                 continue;
 
             var spanLiteral = new SpanLiteral(spanElement, spanInstance, spanElements);
+            spanLiteral.SetSourceOffset(construction.SourceOffset);
             context.Stepper.StepOver("raise ReadOnlySpan RVA field to span literal", construction);
             construction.ReplaceWith(spanLiteral);
         }
@@ -102,6 +108,7 @@ public sealed class RvaSpanPass : IIrPass
                 continue;
 
             var arrayLiteral = new ArrayLiteral(creation.ElementType, TypeRef.SzArray(creation.ElementType), arrayElements);
+            arrayLiteral.SetSourceOffset(creation.SourceOffset);
             context.Stepper.StepOver("raise InitializeArray RVA blob to array literal", creation);
             creation.ReplaceWith(arrayLiteral);
             statement.Detach();
@@ -116,8 +123,14 @@ public sealed class RvaSpanPass : IIrPass
     /// </summary>
     static NewArray? ResolveArrayCreation(IrExpression arrayArg, ExpressionStatement statement)
     {
-        if (arrayArg is NewArray inline)
-            return inline;
+        // An inline creation is the argument of the very statement the caller
+        // detaches, so folding it would take the literal down with the call and
+        // erase the allocation from the output entirely. csc never emits this
+        // shape — it dups the array so the initialized value survives the call —
+        // and it is absent from the runtime (0 of 283 InitializeArray calls
+        // across 181 assemblies), so declining loses nothing real.
+        if (arrayArg is NewArray)
+            return null;
 
         if (statement.Parent is not Block block)
             return null;

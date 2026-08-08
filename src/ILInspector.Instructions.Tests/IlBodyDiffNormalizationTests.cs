@@ -7,10 +7,30 @@ namespace ILInspector.Instructions.Tests;
 
 public class IlBodyDiffNormalizationTests
 {
-    const IlBodyDiffNormalization AllNormalizations =
-        IlBodyDiffNormalization.NormalizeVariableLayout
-        | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+    // Derived from the enum rather than restated, so a normalization added
+    // without coverage here still flows into every AllNormalizations test.
+    static readonly IlBodyDiffNormalization AllNormalizations =
+        Enum.GetValues<IlBodyDiffNormalization>()
+            .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+
+    /// <summary>
+    /// Every declared option must be accepted by <see cref="IlBodyDiff.Compare"/>,
+    /// which rejects any flag outside its internal <c>SupportedNormalizations</c>
+    /// mask. This is the wiring gate: declaring an enum member without adding it
+    /// to that mask makes every caller that requests it throw, and this fails
+    /// rather than letting the gap surface at a call site.
+    /// </summary>
+    [Fact]
+    public void EveryDeclaredNormalization_IsAcceptedByCompare()
+    {
+        var body = Decode([0x2a]); // ret
+
+        foreach (var option in Enum.GetValues<IlBodyDiffNormalization>())
+        {
+            var result = Record.Exception(() => IlBodyDiff.Compare(body, body, option));
+            Assert.True(result is null, $"{option} was rejected by Compare: {result?.Message}");
+            }
+    }
 
     [Fact]
     public void NormalizeVariableLayout_ToleratesLocalMacroAndSlotLayout()
@@ -204,6 +224,20 @@ public class IlBodyDiffNormalizationTests
             () => IlBodyDiff.Compare(body, body, (IlBodyDiffNormalization)(1 << 10)));
     }
 
+    /// <summary>
+    /// Bit 3 was the unsound per-side synthesized-member rewrite retired by #3645.
+    /// Keep the hole in the flag space so a stale numeric caller fails visibly rather
+    /// than silently selecting another normalization.
+    /// </summary>
+    [Fact]
+    public void Compare_RejectsRetiredSynthesizedMemberOrdinalOption()
+    {
+        var body = Decode([0x2a]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => IlBodyDiff.Compare(body, body, (IlBodyDiffNormalization)(1 << 3)));
+    }
+
     static MethodInstructions Decode(byte[] il)
         => MethodInstructions.Decode(il, il.Length, exceptionRegions: []);
 
@@ -237,7 +271,11 @@ public class IlBodyDiffNormalizationTests
             normalization: normalization).Diff;
     }
 
-    static byte[] BuildCallImage(string assemblyName, string? referenceAssemblyName = null)
+    static byte[] BuildCallImage(
+        string assemblyName,
+        string? referenceAssemblyName = null,
+        string? memberName = null,
+        string? typeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -271,10 +309,10 @@ public class IlBodyDiffNormalizationTests
             var type = metadata.AddTypeReference(
                 reference,
                 selfReference ? default : metadata.GetOrAddString("System"),
-                metadata.GetOrAddString(selfReference ? "C" : "Probe"));
+                metadata.GetOrAddString(typeName ?? (selfReference ? "C" : "Probe")));
             target = metadata.AddMemberReference(
                 type,
-                metadata.GetOrAddString(selfReference ? "Caller" : "Target"),
+                metadata.GetOrAddString(memberName ?? (selfReference ? "Caller" : "Target")),
                 metadata.GetOrAddBlob(new byte[] { 0x00, 0x00, 0x01 }));
         }
 

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
@@ -668,6 +670,910 @@ public class ApiOutputFormatterTests
         Assert.Contains("\"is_finalizer\": true", json, System.StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Real-artifact canary for issue #3664. The single-member decompiled-source
+    /// view supplies its own generic-parameter names, which makes the ApiSignature
+    /// renderer decline; the text path it falls back to used to drop the `where`
+    /// clauses, so a constrained generic method rendered as C# that no longer
+    /// compiles. Runs against this test assembly's own compiled metadata, so it
+    /// pins the whole chain — constraint decoding, the member view, and the
+    /// whole-type listing — rather than a hand-built signature model.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericMethod_KeepsConstraintsInBothDecompiledViews()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Compare));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains(
+            "where T : System.IComparable<T>",
+            sections.DecompiledSourceCode.Content,
+            StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("where T : IComparable<T>", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same chain must drop the parts of an inherited constraint that C# forbids
+    /// restating: `Run&lt;T&gt;` is declared `where T : class, new()`, and `new()` is
+    /// CS0460 on an override while the bare `class` is the permitted carve-out.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericOverride_OmitsTheConstraintsCSharpForbidsRestating()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Run));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains("void Run<T>", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.Contains("where T : class", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("new()", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("void Run<T>", typeSource, StringComparison.Ordinal);
+        Assert.Contains("where T : class", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class, new()", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every row of the restatement table, through the real chain over real compiled
+    /// metadata. An override may not repeat its inherited constraints (CS0460) but must
+    /// restate exactly one fact about each type parameter, because that fact decides
+    /// whether `T?` binds as a nullable reference type or as Nullable&lt;T&gt;. Omitting
+    /// it is CS0453/CS0115/CS0534; naming the wrong one is CS8822 or CS8665.
+    /// </summary>
+    /// <remarks>
+    /// The rows cannot be told apart by constraint spelling, which is why this runs
+    /// against compiler-produced metadata rather than a hand-built model: `Enumish` and
+    /// `Named` are both class constraints, and `Interface` and `Named` are both named
+    /// type constraints, yet each pair needs opposite restatements. This is the gate for
+    /// <c>TypeParameterKindClassifier</c>; the writer's reduction from the classified
+    /// kind is gated separately by
+    /// <c>CSharpDeclarationWriterTests.OverrideGenericMethod_RestatesWhatTheClassifiedKindRequires</c>.
+    /// </remarks>
+    [Theory]
+    // No constraint, and constraints that prove nothing about T being a reference or
+    // value type. `default` is required: omitting the clause does not compile.
+    [InlineData(nameof(RestatementRowFixture.None), "default")]
+    [InlineData(nameof(RestatementRowFixture.NotNull), "default")]
+    [InlineData(nameof(RestatementRowFixture.Ctor), "default")]
+    // An interface constraint proves nothing either -- T may still be a struct.
+    [InlineData(nameof(RestatementRowFixture.Interface), "default")]
+    // System.Enum is the trap: it is a class, but it is one of the three base types
+    // that does not make T known to be a reference type, so `class` here is CS8665.
+    [InlineData(nameof(RestatementRowFixture.Enumish), "default")]
+    // Any other named class constraint does make T known to be a reference type.
+    [InlineData(nameof(RestatementRowFixture.Named), "class")]
+    // `where T : U` inherits U's answer, so the chain has to be followed rather than
+    // treated as unknowable: U is class-constrained here and unconstrained below.
+    [InlineData(nameof(RestatementRowFixture.Transitive), "class")]
+    [InlineData(nameof(RestatementRowFixture.OpenChain), "default")]
+    public void ConstraintRestatement_MatchesWhatCSharpRequires(string memberName, string expected)
+    {
+        string path = typeof(RestatementRowFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(RestatementRowFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == memberName);
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        // A second type parameter exists only on the rows that need one to constrain T.
+        string signature = memberName is nameof(RestatementRowFixture.Transitive)
+            or nameof(RestatementRowFixture.OpenChain)
+            ? $"{memberName}<T, U>(T? value) where T : {expected} where U : {expected}"
+            : $"{memberName}<T>(T? value) where T : {expected}";
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains(signature, sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains(signature, typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The three core types that prove nothing about a type parameter are recognized by
+    /// typed identity, never by display name. An assembly may declare its own
+    /// <c>System.Enum</c>, and a parameter constrained to that type IS known to be a
+    /// reference type -- so treating the impostor as the real one would emit
+    /// <c>where T : default</c> and produce CS8822 rather than merely incomplete output.
+    /// </summary>
+    /// <remarks>
+    /// Non-vacuous: dropping the resolution-scope check from the classifier's
+    /// <c>TypeReference</c> arm classifies this parameter as
+    /// <see cref="TypeParameterTypeKind.NeitherReferenceNorValue"/> and fails this test.
+    /// The metadata is synthesized because the attack needs a second assembly that
+    /// declares <c>System.Enum</c> without a core-library strong name, which a compiled
+    /// in-repo fixture cannot express.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_RejectsACoreLibraryLookalike()
+    {
+        string dllPath = EmitCoreLibraryLookalikeSample();
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "LookalikeSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = Assert.Single(member.SignatureModel!.TypeParameters);
+
+            // The constraint really is a TypeReference spelled `System.Enum`, so the
+            // display name alone would have matched.
+            Assert.Contains(
+                typeParameter.StructuredConstraints ?? [],
+                constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
+
+            Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for the same-module half of core-type identity. An ordinary assembly may
+    /// declare its own <c>System.Enum</c>; that type is a plain class, so a parameter
+    /// constrained to it IS known to be a reference type and the override must restate
+    /// <c>class</c>. Matching the name alone yields <c>default</c>, which is CS8822.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_RejectsASameModuleCoreLibraryLookalike()
+    {
+        string dllPath = EmitSameModuleLookalikeSample();
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "SameModuleLookalikeSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = Assert.Single(member.SignatureModel!.TypeParameters);
+
+            // The constraint really is spelled `System.Enum`, and it really is a
+            // same-module TypeDefinition, so neither the name nor the handle kind
+            // distinguishes it from the core library's.
+            Assert.Contains(
+                typeParameter.StructuredConstraints ?? [],
+                constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
+
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for reconvergence. Two `where T : U` branches that meet at the same
+    /// parameter must both be answered: the shared parameter is not on the second
+    /// branch's path, so treating it as a cycle would drop a clause C# requires
+    /// (CS0115/CS0534 on the override).
+    /// </summary>
+    /// <remarks>
+    /// Two mechanisms in <c>TypeParameterKindClassifier.ClassifySibling</c> are each
+    /// independently sufficient here -- releasing a parameter from the path once its own
+    /// subtree is done, and reusing an answer already reached -- so this fails only when
+    /// both are absent, which is the state it was written against. The long-chain gate
+    /// below isolates the answer cache.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_AnswersAReconvergingConstraintChain()
+    {
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                parameters[0].SetInterfaceConstraints(parameters[1], parameters[2]);
+                parameters[1].SetInterfaceConstraints(parameters[3]);
+                parameters[2].SetInterfaceConstraints(parameters[3]);
+            },
+            ["T", "A", "B", "X"]);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            var typeParameter = member.SignatureModel!.TypeParameters[0];
+
+            Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The gate for memoization. Following `where T : U` without reusing answers
+    /// reclassifies the whole remaining chain from every parameter, which is quadratic:
+    /// a 4,000-parameter chain measured over twenty seconds before answers were cached.
+    /// The bound is loose enough that only the missing cache can trip it -- the cached
+    /// walk finishes in milliseconds.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ClassifiesALongConstraintChainWithoutRewalkingIt()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+            },
+            names);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name == "ChainSample");
+            var member = Assert.Single(type.Members, candidate => candidate.Name == "Pick");
+            Assert.Equal(Length, member.SignatureModel!.TypeParameters.Count);
+            Assert.All(
+                member.SignatureModel.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// A parameter whose only route to a proof runs through a cycle still gets the proof.
+    /// Both parameters here are reference types, and the cycle between them is incidental
+    /// to that; an answer that came out different depending on which parameter was asked
+    /// first would drop a <c>class</c> clause C# requires (CS0115/CS0534).
+    /// </summary>
+    /// <remarks>
+    /// The shape: <c>T1 : T2</c>, <c>T2 : T1, T4</c>, <c>T3 : T1</c>, <c>T4 : class</c>.
+    /// T1 reaches T4 by way of T2, so T1 is a reference type; T3's only route is through
+    /// T1, so T3 is one too. This was the counterexample that retired a design in which
+    /// meeting the <c>T2 : T1</c> edge made T1's answer belong to the route rather than
+    /// to T1 -- T3 then inherited a verdict that was never about it.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_AnswersEveryParameterOnARouteThroughACycle()
+    {
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                parameters[3].SetGenericParameterAttributes(GenericParameterAttributes.ReferenceTypeConstraint);
+                parameters[0].SetInterfaceConstraints(parameters[1]);
+                parameters[1].SetInterfaceConstraints(parameters[0], parameters[3]);
+                parameters[2].SetInterfaceConstraints(parameters[0]);
+            },
+            ["T1", "T2", "T3", "T4"],
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            var typeParameters = type.TypeParameters;
+
+            // T1 is a reference type by way of T2 -> T4, despite the T2 -> T1 cycle.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[0].TypeKind);
+
+            // T3's only route is through T1, so it must reach the same answer rather than
+            // one that belonged to the route T1 was reached by.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameters[2].TypeKind);
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// A parameter list that is one long cycle. Nothing in it is knowable, and finding
+    /// that out has to cost about what reading the list costs -- a cycle is the shape that
+    /// invites re-deriving the same parameters once per parameter, which is quadratic and
+    /// reachable from malformed metadata.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ResolvesALongCyclicConstraintChain()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                // Every parameter constrained to the next, and the last back to the first.
+                for (int index = 0; index < parameters.Length; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[(index + 1) % parameters.Length]);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            Assert.Equal(Length, type.TypeParameters.Count);
+
+            // Nothing is knowable from a chain that only leads back to itself.
+            Assert.All(
+                type.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {Length}-parameter cyclic chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// The same bound, through the other consumer. <c>MetadataDeclarationQuery</c>
+    /// classifies parameters independently of <c>ApiSurfaceExtractor</c>, so it needs its
+    /// own proof that it shares one chain state across a parameter list rather than
+    /// allocating one per parameter, which rewalks the chain's whole tail.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ClassifiesALongChainWithoutRewalkingItInDeclarationQuery()
+    {
+        const int Length = 4000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var reader = pe.GetMetadataReader();
+            var typeDefinition = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate => reader.GetString(candidate.Name) == "ChainSample");
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var typeParameters = MetadataDeclarationQuery.GetTypeParameters(reader, typeDefinition);
+            stopwatch.Stop();
+
+            Assert.Equal(Length, typeParameters.Count);
+            Assert.All(
+                typeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.NeitherReferenceNorValue, typeParameter.TypeKind));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Reading a {Length}-parameter constraint chain took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// Emits one assembly declaring its own <c>System.Enum</c> alongside a generic
+    /// virtual method constrained to it, so the constraint is a same-module
+    /// TypeDefinition rather than a cross-assembly TypeReference.
+    /// </summary>
+    static string EmitSameModuleLookalikeSample()
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("SameModuleLookalikeEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("SameModuleLookalikeEmit");
+        var impostor = module.DefineType(
+            "System.Enum",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class);
+        var tb = module.DefineType(
+            "SameModuleLookalikeSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var mb = tb.DefineMethod(
+            "Pick",
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+        var typeParameters = mb.DefineGenericParameters("T");
+        typeParameters[0].SetBaseTypeConstraint(impostor);
+        mb.SetReturnType(typeParameters[0]);
+        mb.SetParameters(typeParameters[0]);
+        var il = mb.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        impostor.CreateType();
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"same-module-lookalike-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Emits a generic virtual method whose type parameters are wired to each other by
+    /// <paramref name="constrain"/>, which is how `where T : U` chains -- absent from
+    /// every assembly measured, but expressible -- reach the classifier.
+    /// </summary>
+    /// <summary>
+    /// The gate on resolving the constraint graph without recursion. A chain this long
+    /// exhausts the call stack when each link is a stack frame -- measured at roughly
+    /// 21,000 frames, which a 30,000-link chain passes -- and the process dies rather
+    /// than answering. Nothing about such a chain is invalid: it is acyclic, every link
+    /// is readable, and the proof at the far end is real, so the answer is required to
+    /// arrive.
+    /// </summary>
+    /// <remarks>
+    /// Asserting the proof reaches every link, rather than merely that the call returns,
+    /// is what keeps this from passing on a depth-limited walk that fails closed instead
+    /// of overflowing. A limit would answer <c>Undetermined</c> here and drop 30,000
+    /// required clauses.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_ResolvesADeepConstraintChainWithoutRecursion()
+    {
+        const int Length = 30_000;
+        string[] names = [.. Enumerable.Range(0, Length).Select(index => $"T{index}")];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                for (int index = 0; index < parameters.Length - 1; index++)
+                    parameters[index].SetInterfaceConstraints(parameters[index + 1]);
+
+                // The one witness, as far from the start of the chain as it can be.
+                parameters[^1].SetGenericParameterAttributes(
+                    System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            Assert.Equal(Length, type.TypeParameters.Count);
+
+            // Every link inherits the far end's answer, however far away it is.
+            Assert.All(
+                type.TypeParameters,
+                typeParameter => Assert.Equal(TypeParameterTypeKind.ReferenceType, typeParameter.TypeKind));
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// A proof that sits past a cycle still arrives. Parameters here reach both a cycle
+    /// and, further on, a parameter constrained to <c>class</c>; the cycle is genuinely
+    /// unanswerable, and the proof is genuinely a proof, so the two must not contaminate
+    /// each other.
+    /// </summary>
+    /// <remarks>
+    /// The shape, from adversarial review: <c>TCycle : TCycle</c>, then a fan of
+    /// <c>Ti : TCycle, Ti+1, Ti+2</c>, with <c>T0 : T1, TClass</c> and
+    /// <c>TClass : class</c>. A design that treats meeting a cycle as a reason to
+    /// distrust everything computed around it answers <c>T0</c> as <c>Undetermined</c>
+    /// and drops its required clause; one that re-derives the fan for every path through
+    /// it does not finish. Both were real behaviors of the walk this replaced, which is
+    /// why the assertions below pin the answer and the time together.
+    /// </remarks>
+    [Fact]
+    public void ConstraintRestatement_ProvesAReferenceTypeReachedPastACycle()
+    {
+        const int Depth = 30;
+
+        // T0 .. T31, then TCycle, then TClass.
+        string[] names =
+        [
+            .. Enumerable.Range(0, Depth + 2).Select(index => $"T{index}"),
+            "TCycle",
+            "TClass",
+        ];
+        string dllPath = EmitConstraintChainSample(
+            static parameters =>
+            {
+                var cycle = parameters[^2];
+                var proof = parameters[^1];
+                cycle.SetInterfaceConstraints(cycle);
+                proof.SetGenericParameterAttributes(
+                    System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint);
+
+                for (int index = 1; index < Depth; index++)
+                    parameters[index].SetInterfaceConstraints(cycle, parameters[index + 1], parameters[index + 2]);
+
+                parameters[0].SetInterfaceConstraints(parameters[1], proof);
+            },
+            names,
+            onType: true);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var type = Assert.Single(surface.Types, candidate => candidate.Name.StartsWith("ChainSample", StringComparison.Ordinal));
+            var byName = type.TypeParameters.ToDictionary(typeParameter => typeParameter.Name);
+
+            // The proof is reached, past the cycle every parameter between also reaches.
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, byName["T0"].TypeKind);
+            Assert.Equal(TypeParameterTypeKind.ReferenceType, byName["TClass"].TypeKind);
+
+            // The cycle itself remains unanswerable, and says nothing about anything else.
+            Assert.Equal(TypeParameterTypeKind.Undetermined, byName["TCycle"].TypeKind);
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying a {names.Length}-parameter graph around a cycle took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    /// <summary>
+    /// Many declarations, each with its own cyclic parameter list. Resolution is per
+    /// declaration, so a module pays for each one; this pins that the per-declaration
+    /// cost stays proportional to that declaration rather than to a fixed allowance that
+    /// each list is free to spend in full.
+    /// </summary>
+    [Fact]
+    public void ConstraintRestatement_ResolvesManyCyclicListsWithoutPerListWaste()
+    {
+        const int Lists = 512;
+        const int Length = 317;
+        string dllPath = EmitManyCyclicListsSample(Lists, Length);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(dllPath));
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            stopwatch.Stop();
+
+            var types = surface.Types
+                .Where(candidate => candidate.Name.StartsWith("Many", StringComparison.Ordinal))
+                .ToList();
+            Assert.Equal(Lists, types.Count);
+            Assert.All(
+                types,
+                type => Assert.All(
+                    type.TypeParameters,
+                    typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            File.Delete(dllPath);
+        }
+    }
+
+    static string EmitConstraintChainSample(
+        Action<System.Reflection.Emit.GenericTypeParameterBuilder[]> constrain,
+        string[] names,
+        bool onType = false)
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ChainEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("ChainEmit");
+        var tb = module.DefineType(
+            "ChainSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        if (onType)
+        {
+            constrain(tb.DefineGenericParameters(names));
+        }
+        else
+        {
+            var mb = tb.DefineMethod(
+                "Pick",
+                System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+            var typeParameters = mb.DefineGenericParameters(names);
+            constrain(typeParameters);
+            mb.SetReturnType(typeParameters[0]);
+            mb.SetParameters(typeParameters[0]);
+            var il = mb.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"chain-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Emits one module holding <paramref name="lists"/> generic types, each with its own
+    /// self-contained cycle of <paramref name="length"/> type parameters.
+    /// </summary>
+    static string EmitManyCyclicListsSample(int lists, int length)
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ManyEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("ManyEmit");
+        string[] names = [.. Enumerable.Range(0, length).Select(index => $"T{index}")];
+
+        for (int list = 0; list < lists; list++)
+        {
+            var tb = module.DefineType(
+                $"Many{list}",
+                System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+            var parameters = tb.DefineGenericParameters(names);
+            for (int index = 0; index < parameters.Length; index++)
+                parameters[index].SetInterfaceConstraints(parameters[(index + 1) % parameters.Length]);
+
+            tb.CreateType();
+        }
+
+        string path = Path.Combine(Path.GetTempPath(), $"many-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// Emits two assemblies: one declaring a <c>System.Enum</c> that is not the core
+    /// library's, and one whose generic virtual method is constrained to it. Returns the
+    /// path of the second.
+    /// </summary>
+    static string EmitCoreLibraryLookalikeSample()
+    {
+        var fakeCore = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName($"FakeCoreLib{Guid.NewGuid():N}"), typeof(object).Assembly);
+        var fakeModule = fakeCore.DefineDynamicModule("FakeCoreLib");
+        fakeModule.DefineType(
+            "System.Enum",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Abstract
+                | System.Reflection.TypeAttributes.Class)
+            .CreateType();
+        string fakePath = Path.Combine(Path.GetTempPath(), $"fake-corelib-{Guid.NewGuid():N}.dll");
+        fakeCore.Save(fakePath);
+
+        var impostor = System.Reflection.Assembly.LoadFrom(fakePath).GetType("System.Enum")!;
+
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("LookalikeEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("LookalikeEmit");
+        var tb = module.DefineType(
+            "LookalikeSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+        var mb = tb.DefineMethod(
+            "Pick",
+            System.Reflection.MethodAttributes.Public | System.Reflection.MethodAttributes.Virtual);
+        var typeParameters = mb.DefineGenericParameters("T");
+        typeParameters[0].SetBaseTypeConstraint(impostor);
+        mb.SetReturnType(typeParameters[0]);
+        mb.SetParameters(typeParameters[0]);
+        var il = mb.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"lookalike-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// The same chain must reduce, not drop, the constraints an override inherits.
+    /// C# allows exactly a bare `class` or `struct` to be restated, and that carve-out
+    /// decides how `T?` binds: without it `T?` becomes Nullable&lt;T&gt; and the render
+    /// stops compiling (CS0453/CS0115). Real compiled metadata records the constraint
+    /// as `class?`, which is itself CS0460, so this also pins the normalization.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericOverride_RestatesTheNullabilityDecidingConstraint()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(ConstraintFixture.Pick));
+        var collected = Assert.Single(MemberCodeProvider.Collect(
+            type,
+            [member],
+            path,
+            overloadIndex: 0,
+            new MemberCodeProvider.Request(
+                DecompiledSource: true,
+                AnnotatedSource: false,
+                CostOverlay: false,
+                SemanticsOverlay: false,
+                IL: false,
+                Attributes: false,
+                Calls: false,
+                Callers: false,
+                CallGraph: false,
+                UnsafeOperations: false)));
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+        Assert.Contains("where T : class", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        // The annotated spelling metadata records is itself CS0460 on an override.
+        Assert.DoesNotContain("class?", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("where T : class", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("class?", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An explicit interface implementation reaches the text fallback by a second route:
+    /// the signature-model path renders only <c>method</c>, so this kind falls through it
+    /// even in the whole-type view, where no caller supplies a generic-parameter list.
+    /// The recovery has to fire on that route too — the rendered parameter is spelled
+    /// <c>Nullable&lt;T&gt;</c>, which is not even legal without the <c>struct</c> clause.
+    /// </summary>
+    [Fact]
+    public void ConstrainedGenericExplicitImplementation_KeepsItsConstraintInTheWholeTypeView()
+    {
+        string path = typeof(ConstraintFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ConstraintFixture).FullName);
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("Wrap<T>", typeSource, StringComparison.Ordinal);
+        Assert.Contains("where T : struct", typeSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Both decompiled-source routes preserve the compiler-produced distinction between
+    /// structural <c>Nullable&lt;T&gt;</c> and bare <c>T</c> under a value-type constraint.
+    /// This is the end-to-end gate for issue #3729; applying the enclosing nullable context
+    /// to <c>T</c> produces invalid <c>Nullable&lt;T?&gt;</c> and changes bare <c>T</c> to
+    /// <c>T?</c>.
+    /// </summary>
+    [Fact]
+    public void ValueConstrainedGenericParameters_IgnoreNullableAnnotationBytes()
+    {
+        string path = typeof(ValueTypeNullabilityFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName == typeof(ValueTypeNullabilityFixture).FullName);
+
+        foreach (var member in type.Members.Where(candidate =>
+                     candidate.Name is nameof(ValueTypeNullabilityFixture.NullableValue)
+                         or nameof(ValueTypeNullabilityFixture.PlainValue)))
+        {
+            var collected = Assert.Single(MemberCodeProvider.Collect(
+                type,
+                [member],
+                path,
+                overloadIndex: 0,
+                new MemberCodeProvider.Request(
+                    DecompiledSource: true,
+                    AnnotatedSource: false,
+                    CostOverlay: false,
+                    SemanticsOverlay: false,
+                    IL: false,
+                    Attributes: false,
+                    Calls: false,
+                    Callers: false,
+                    CallGraph: false,
+                    UnsafeOperations: false)));
+            var sections = new MemberCodeView();
+            Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
+
+            if (member.Name == nameof(ValueTypeNullabilityFixture.NullableValue))
+            {
+                Assert.Contains("Nullable<T> value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+                Assert.DoesNotContain("T?>", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains("PlainValue<T>(T value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+                Assert.DoesNotContain("PlainValue<T>(T? value", sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+            }
+        }
+
+        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
+        Assert.NotNull(typeSource);
+        Assert.Contains("Nullable<T> value", typeSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("T?>", typeSource, StringComparison.Ordinal);
+        var plainStart = typeSource.IndexOf("PlainValue<T>", StringComparison.Ordinal);
+        Assert.True(plainStart >= 0);
+        var plainEnd = typeSource.IndexOf('{', plainStart);
+        Assert.True(plainEnd > plainStart);
+        var plainDeclaration = typeSource[plainStart..plainEnd];
+        Assert.Contains("T value", plainDeclaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("T? value", plainDeclaration, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -948,4 +1854,89 @@ public static class RuntimeAsyncHeaderFixture
     }
 
     public static unsafe int ReadAddress(nint address) => *(int*)address;
+}
+
+/// <summary>
+/// Real compiled witness for issue #3664: generic methods whose constraints the
+/// decompiled-source views have to spell, and an override whose inherited
+/// constraints they must not restate (CS0460).
+/// </summary>
+public abstract class ConstraintFixtureBase
+{
+    public abstract void Run<T>(T value) where T : class, new();
+
+    /// <summary>
+    /// The `class` constraint here is what makes `T?` a nullable reference type rather
+    /// than Nullable&lt;T&gt;, so an override that drops it renders uncompilable C#.
+    /// </summary>
+    public abstract T? Pick<T>(T? value) where T : class;
+}
+
+public class ConstraintFixture : ConstraintFixtureBase, IConstraintFixture
+{
+    public static int Compare<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b);
+
+    public override void Run<T>(T value) => value.ToString();
+
+    public override T? Pick<T>(T? value) where T : class => value;
+
+    void IConstraintFixture.Wrap<T>(T? value) { }
+}
+
+/// <summary>
+/// The explicit implementation of <see cref="Wrap"/> is rendered by the text fallback in
+/// the whole-type view — the signature-model path declines the kind — so it is the case
+/// that reaches the constraint recovery without a caller-supplied parameter list.
+/// </summary>
+public interface IConstraintFixture
+{
+    void Wrap<T>(T? value) where T : struct;
+}
+
+/// <summary>
+/// One row per line of the restatement table an override has to satisfy. The rows are
+/// distinguished by what the base constrains, not by how the constraint is spelled:
+/// <see cref="Enumish"/> and <see cref="Named"/> are both class constraints in
+/// metadata, yet C# requires opposite restatements for them.
+/// </summary>
+public class RestatementRowBase
+{
+    public virtual T? None<T>(T? value) => value;
+
+    public virtual T? NotNull<T>(T? value) where T : notnull => value;
+
+    public virtual T? Interface<T>(T? value) where T : IConstraintFixture => value;
+
+    public virtual T? Enumish<T>(T? value) where T : Enum => value;
+
+    public virtual T? Named<T>(T? value) where T : ConstraintFixtureBase => value;
+
+    public virtual T? Ctor<T>(T? value) where T : new() => value;
+
+    /// <summary>
+    /// `where T : U` makes T exactly as known as U, so these two rows differ only in
+    /// what the *other* parameter is constrained to.
+    /// </summary>
+    public virtual T? Transitive<T, U>(T? value) where T : U where U : ConstraintFixtureBase => value;
+
+    public virtual T? OpenChain<T, U>(T? value) where T : U => value;
+}
+
+public class RestatementRowFixture : RestatementRowBase
+{
+    public override T? None<T>(T? value) where T : default => value;
+
+    public override T? NotNull<T>(T? value) where T : default => value;
+
+    public override T? Interface<T>(T? value) where T : default => value;
+
+    public override T? Enumish<T>(T? value) where T : default => value;
+
+    public override T? Named<T>(T? value) where T : class => value;
+
+    public override T? Ctor<T>(T? value) where T : default => value;
+
+    public override T? Transitive<T, U>(T? value) where T : class where U : class => value;
+
+    public override T? OpenChain<T, U>(T? value) where T : default where U : default => value;
 }

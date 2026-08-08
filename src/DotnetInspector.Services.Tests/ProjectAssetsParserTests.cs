@@ -157,7 +157,12 @@ public class ProjectAssetsParserTests
             var results = ProjectAssetsParser.Parse(assetsPath, null, s => messages.Add(s));
             Assert.Empty(results);
             Assert.Single(messages);
-            Assert.Contains("Warning", messages[0]);
+            Assert.Contains("Failed to parse project.assets.json", messages[0]);
+
+            // The parser reports the condition; the severity prefix belongs to
+            // the CLI writer that contains the message. Composing one here gave
+            // the rendered line two of them.
+            Assert.DoesNotContain("Warning:", messages[0], StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

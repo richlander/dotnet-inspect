@@ -72,8 +72,8 @@ public static class LensProjection
             : options.Urls ? "--urls"
             : "--paths";
 
-        Console.Error.WriteLine(
-            $"Error: {flag} is not available with {lens}, which renders its own payload rather " +
+        CommandError.Write(
+            $"{flag} is not available with {lens}, which renders its own payload rather " +
             "than a section. Use --count to count that payload.");
         exitCode = 1;
         return true;

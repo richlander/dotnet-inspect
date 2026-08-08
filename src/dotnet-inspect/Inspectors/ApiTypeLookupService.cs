@@ -1,3 +1,5 @@
+using System.Text;
+using DotnetInspector.Output;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -8,16 +10,31 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
     public string? Match => Lookup.Match;
     public IReadOnlyList<string> Suggestions => Lookup.Suggestions;
 
-    public void WriteNotFoundError(TextWriter error)
-    {
-        error.WriteLine($"Error: Type '{Query}' not found.");
-        if (Suggestions.Count == 0)
-            return;
+    /// <summary>
+    /// Writes the not-found diagnostic, suggestions included, as one message.
+    /// </summary>
+    /// <remarks>
+    /// This used to take a <see cref="TextWriter"/> and write line by line.
+    /// Every caller passed <c>Console.Error</c>, so the parameter bought no
+    /// flexibility while moving the write to a place where nothing names the
+    /// banned symbol: the stream arrives as a <see cref="TextWriter"/>
+    /// argument, which is a hole no rule about <c>Console.Error</c> can close.
+    /// Composing the message and handing it to
+    /// <see cref="CommandError"/> puts the prefix, the containment, and the
+    /// continuation indent all in one place.
+    /// </remarks>
+    public void WriteNotFoundError()
+        => CommandError.Write($"Type '{Query}' not found.", [.. SuggestionDetails(Suggestions)]);
 
-        error.WriteLine();
-        error.WriteLine("Did you mean:");
-        foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {suggestion}");
+    internal static IEnumerable<string> SuggestionDetails(IReadOnlyList<string> suggestions)
+    {
+        if (suggestions.Count == 0)
+            yield break;
+
+        yield return string.Empty;
+        yield return "Did you mean:";
+        foreach (var suggestion in suggestions)
+            yield return $"  {suggestion}";
     }
 }
 
@@ -33,30 +50,26 @@ internal sealed record MemberFilterValidationResult(
 
     public bool IsValid => MissedFilters.Count == 0;
 
-    public void WriteError(TextWriter error)
+    /// <inheritdoc cref="ApiTypeLookupResult.WriteNotFoundError"/>
+    public void WriteError()
     {
         if (IsValid)
             return;
 
-        error.WriteLine($"Error: No members matched filter '{string.Join(", ", MissedFilters)}'");
+        List<string> details = [];
 
         // The ranking/graph surfaces (Top Leverage, Call Graph) walk the full
         // IL index, so they surface non-public members that member selection hides without
         // --all. Point the user at the flag instead of a dead end.
         if (NonPublicMatches.Count > 0)
         {
-            error.WriteLine();
+            details.Add(string.Empty);
             foreach (var name in NonPublicMatches)
-                error.WriteLine($"Member '{name}' is non-public; pass --all to include it.");
+                details.Add($"Member '{name}' is non-public; pass --all to include it.");
         }
 
-        if (Suggestions.Count == 0)
-            return;
-
-        error.WriteLine();
-        error.WriteLine("Did you mean:");
-        foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {suggestion}");
+        details.AddRange(ApiTypeLookupResult.SuggestionDetails(Suggestions));
+        CommandError.Write($"No members matched filter '{string.Join(", ", MissedFilters)}'", [.. details]);
     }
 }
 

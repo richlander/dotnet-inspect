@@ -1296,11 +1296,29 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             IrExpression defaultValue;
             IReadOnlyList<Arm> innerArms;
             if (current + 4 == children.Count
-                && children[current + 3] is Return { Value: { } tailDefault }
-                && TryReturnArms(firstIf.Then.Children, valueStore.Index, out var tailArms))
+                && children[current + 3] is Return { Value: { } tailDefault })
             {
                 defaultValue = tailDefault;
-                innerArms = tailArms;
+                if (TryReturnArms(firstIf.Then.Children, valueStore.Index, out var tailArms))
+                {
+                    innerArms = tailArms;
+                }
+                else if (TryReturnArmsWithDefault(
+                        firstIf.Then.Children,
+                        valueStore.Index,
+                        out var duplicatedDefaultArms,
+                        out var duplicatedDefault)
+                    && SameTailExpression(tailDefault, duplicatedDefault))
+                {
+                    // Structuring duplicates a scattered default into the guarded
+                    // arm and keeps the same tail for a sibling type-test
+                    // trampoline. Consume the proven-identical clone once.
+                    innerArms = duplicatedDefaultArms;
+                }
+                else
+                {
+                    return false;
+                }
             }
             else if (current + 3 == children.Count
                 && TryReturnArmsWithDefault(firstIf.Then.Children, valueStore.Index, out var embeddedArms, out var embeddedDefault))

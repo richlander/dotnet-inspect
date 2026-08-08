@@ -21,11 +21,12 @@ public class RenderStyleConfigTests
     // ---- parsing ----
 
     [Fact]
-    public void Parse_EmptyText_IsDefaultsWithNoWarnings()
+    public void Parse_EmptyText_IsCliDefaultsWithNoWarnings()
     {
         var result = RenderStyleConfig.Parse("", origin: null);
 
-        Assert.Equal(PrinterOptions.Default, result.Options);
+        Assert.Equal(RenderStyleResolution.None.Options, result.Options);
+        Assert.True(result.Options.ReadableLocalNames);
         Assert.False(result.Options.QualifyFieldAccess);
         Assert.False(result.Options.QualifyPropertyAccess);
         Assert.Empty(result.Warnings);
@@ -356,46 +357,29 @@ public class RenderStyleConfigTests
     {
         var sink = new RenderConfigWarningSink(
             ["line 1: unknown key 'foo' (ignored)", "line 2: malformed entry 'bar'"]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-
-        var lines = writer.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(l => l.TrimEnd('\r'))
-            .ToArray();
+        // The "Warning: " prefix is CommandError's, not the sink's, so the
+        // seam hands back bare messages (issue #3319).
         Assert.Equal(
             [
-                $"Warning: {RenderStyleConfig.FileName}: line 1: unknown key 'foo' (ignored)",
-                $"Warning: {RenderStyleConfig.FileName}: line 2: malformed entry 'bar'",
+                $"{RenderStyleConfig.FileName}: line 1: unknown key 'foo' (ignored)",
+                $"{RenderStyleConfig.FileName}: line 2: malformed entry 'bar'",
             ],
-            lines);
+            sink.TakePending());
     }
 
     [Fact]
     public void WarningSink_EmitOnce_IsLatched_SecondCallIsNoOp()
     {
         var sink = new RenderConfigWarningSink(["line 1: unknown key 'foo' (ignored)"]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-        sink.EmitOnce(writer);
-
-        var count = writer.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Length;
-        Assert.Equal(1, count);
+        Assert.Single(sink.TakePending());
+        Assert.Empty(sink.TakePending());
     }
 
     [Fact]
     public void WarningSink_EmitOnce_WithNoWarnings_WritesNothing()
     {
         var sink = new RenderConfigWarningSink([]);
-        var writer = new StringWriter();
-
-        sink.EmitOnce(writer);
-
-        Assert.Equal(string.Empty, writer.ToString());
+        Assert.Empty(sink.TakePending());
     }
 
     [Fact]
@@ -411,9 +395,7 @@ public class RenderStyleConfigTests
         var dirty = Resolve("bogus_key = true");
         Assert.NotEmpty(dirty.Warnings);
         var sink = new RenderConfigWarningSink(dirty.Warnings);
-        var writer = new StringWriter();
-        sink.EmitOnce(writer);
-        Assert.Contains("bogus_key", writer.ToString());
+        Assert.Contains(sink.TakePending(), m => m.Contains("bogus_key", StringComparison.Ordinal));
     }
 
     private static RenderStyleResolution Resolve(string configText)
@@ -489,7 +471,8 @@ public class RenderStyleConfigTests
 
             Assert.Same(RenderStyleResolution.None, resolution);
             Assert.Null(resolution.Origin);
-            Assert.Equal(PrinterOptions.Default, resolution.Options);
+            Assert.True(resolution.Options.ReadableLocalNames);
+            Assert.Equal(StyleOptionCatalog.DefaultOptions, resolution.Options);
         }
         finally
         {
@@ -720,6 +703,25 @@ public class RenderStyleConfigTests
             appliedTasteOnly, PrinterOptions.Default with { QualifyFieldAccess = true });
 
         Assert.Null(code.DecompiledResult);
+        Assert.True(code.StyledProjectionProduced);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void OverlayOnlyRequest_MarksStyledProjectionProduced(
+        bool costOverlay,
+        bool semanticsOverlay)
+    {
+        var overlayOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false,
+            CostOverlay: costOverlay, SemanticsOverlay: semanticsOverlay,
+            IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false);
+
+        var code = CollectSpecimenCompute(
+            overlayOnly, StyleOptionCatalog.DefaultOptions);
+
         Assert.True(code.StyledProjectionProduced);
     }
 
@@ -969,8 +971,8 @@ public class RenderStyleConfigTests
     {
         // Knobs with no config key (formatting) are API-only and must not be
         // reachable through the file vocabulary; a made-up key still warns. The
-        // whitespace-only wrappers are the standing API-only examples (synthesis's
-        // readable-local-names is now file-reachable under a tool-owned key).
+        // whitespace-only wrappers are the standing API-only examples (the
+        // synthesis tier's slot-local-names is file-reachable under a tool-owned key).
         var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
         Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
         Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
@@ -983,8 +985,9 @@ public class RenderStyleConfigTests
     [Fact]
     public void ReadableLocalNamesConfigKey_RoundTrips()
     {
-        // readable-local-names is byte-preserving synthesis, so it is not in the
-        // oracle-endorsed taste aggregate; it carries its own tool-owned key.
+        // Readable names are the CLI default and remain independently configurable:
+        // false restores V_index, while --readable-names overrides that config at
+        // the command edge.
         var on = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = true", origin: "cfg");
         Assert.Empty(on.Warnings);
         Assert.True(on.Options.ReadableLocalNames);
@@ -993,9 +996,34 @@ public class RenderStyleConfigTests
         Assert.Empty(off.Warnings);
         Assert.False(off.Options.ReadableLocalNames);
 
-        // The aggregate must not turn it on (it is not oracle-endorsed).
-        var taste = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+        // The registry exposes the inverse default-off choice for picker hosts.
+        var slotOn = RenderStyleConfig.Parse("dotnet_inspect_style_slot_local_names = true", origin: "cfg");
+        Assert.Empty(slotOn.Warnings);
+        Assert.False(slotOn.Options.ReadableLocalNames);
+
+        var slotOff = RenderStyleConfig.Parse("dotnet_inspect_style_slot_local_names = false", origin: "cfg");
+        Assert.Empty(slotOff.Warnings);
+        Assert.True(slotOff.Options.ReadableLocalNames);
+
+        // The aggregate must not change it (it is not oracle-endorsed).
+        var taste = RenderStyleConfig.Parse(
+            """
+            dotnet_inspect_style_readable_local_names = false
+            dotnet_inspect_style_full_taste = true
+            """,
+            origin: "cfg");
         Assert.False(taste.Options.ReadableLocalNames);
+    }
+
+    [Fact]
+    public void UnrelatedConfig_PreservesReadableLocalNamesDefault()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_style_qualification_for_field = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.ReadableLocalNames);
+        Assert.True(result.Options.QualifyFieldAccess);
     }
 
     private static string CreateTempDirectory()

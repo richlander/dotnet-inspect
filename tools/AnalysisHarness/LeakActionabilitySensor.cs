@@ -154,7 +154,7 @@ public static class LeakActionabilitySensor
 
     public static string Format(LeakActionabilityReport report, int maxExamples, LeakActionabilityFormat format)
     {
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == LeakActionabilityFormat.Markdown)
         {
             MarkoutSerializer.Serialize(

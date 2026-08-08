@@ -39,10 +39,12 @@ public enum LibraryBodyAnalysisFeatures
 /// <summary>
 /// Materialized IL body evidence for one assembly.
 /// <para>
-/// Derived call-graph maps are populated lazily on first use and then retained, so an instance is
-/// not safe for concurrent use without external synchronization — the same as the evidence
-/// accessors that already cached this way. Use <see cref="ReleaseScopeGraph"/> or
-/// <see cref="ReleaseCallGraphCaches"/> to hand that memory back.
+/// Derived single-assembly call-graph maps are populated lazily on first use
+/// and then retained, so an instance is not safe for concurrent use without
+/// external synchronization — the same as the evidence accessors that already
+/// cached this way. Use <see cref="ReleaseCallGraphCaches"/> to hand that
+/// memory back. Cross-assembly graph storage belongs to
+/// <see cref="CatalogCallGraphScope"/>.
 /// </para>
 /// </summary>
 public sealed class LibraryBodyIndex
@@ -134,32 +136,18 @@ public sealed class LibraryBodyIndex
     MethodDefinitionMap? _methodMap;
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
-    ScopeGraph? _scopeGraph;
-
     /// <summary>
-    /// Drops the cross-assembly maps cached for the last-requested scope set.
-    /// <para>
-    /// These are by far the largest thing this index retains — indexing one root plus 22 scopes
-    /// holds roughly 370 MB — and they are specific to one scope set, so a consumer that has
-    /// finished rendering for a scope (or is moving to a different one) can release them without
-    /// giving up the single-assembly caches. Everything rebuilds on next use; this only trades
-    /// time for memory.
-    /// </para>
-    /// </summary>
-    public void ReleaseScopeGraph() => _scopeGraph = null;
-
-    /// <summary>
-    /// Drops the maps that back the call-tree builders: the scope graph, the definition map, the
-    /// distinct-caller counts and edges, and the direct-call grouping.
+    /// Drops the maps that back the single-assembly call-tree builders: the
+    /// definition map, distinct-caller counts and edges, and direct-call
+    /// grouping.
     /// <para>
     /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
     /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
     /// evidence, root-reach roll-ups, unsafe-evidence grouping, generated-framework type sets, and
     /// the optimization-opportunity arrays — which serve other producers and together retain well
-    /// under a megabyte. Prefer <see cref="ReleaseScopeGraph"/> between
-    /// renders that keep visiting members of this same assembly: the single-assembly maps are
-    /// comparatively small and are what make repeated requests cheap. Everything rebuilds on next
-    /// use, so this only trades time for memory.
+    /// under a megabyte. Cross-assembly storage is released through
+    /// <see cref="CatalogCallGraphScope.ReleaseGraph"/>. Everything rebuilds
+    /// on next use, so this only trades time for memory.
     /// </para>
     /// <para>
     /// <c>ReleaseMethods_DropExactlyTheCachesTheyDocument</c> derives this type's cache fields by
@@ -168,7 +156,6 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public void ReleaseCallGraphCaches()
     {
-        _scopeGraph = null;
         _methodMap = null;
         _distinctCallersByCallee = null;
         _distinctCallerEdgesByCallee = null;
@@ -1077,148 +1064,19 @@ public sealed class LibraryBodyIndex
             .Where(group => group.Key != 0)
             .ToDictionary(
                 group => group.Key,
-                group => group
+                group => CallTreeOrdering.OrderCallers(
+                        group,
+                        call => call.Caller.AssemblyName,
+                        call => CallTreeMember.ToQualifiedDisplayString(
+                            call.Caller),
+                        call => call.Caller.ParameterTypes.Length,
+                        call => call.Caller.ModuleVersionId,
+                        call => call.Caller.MetadataToken,
+                        call => call.ILOffset)
                     .GroupBy(call => call.Caller.MetadataToken)
                     .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
                     .ToImmutableArray(),
                 EqualityComparer<int>.Default);
-
-    /// <summary>
-    /// The cross-assembly structural maps for one caller/callee scope set, cached on the index
-    /// that roots the request.
-    ///
-    /// Both directions are keyed by <c>CallerGraphKey</c> and depend only on the participating
-    /// assemblies' calls, methods and signals — never on which member was selected — so a scope set
-    /// can be indexed once and reused across requests. Each direction is built on first use, so a
-    /// caller-only or callee-only consumer never pays for the other.
-    /// </summary>
-    sealed class ScopeGraph(LibraryBodyIndex root, IReadOnlyList<LibraryBodyIndex> scopes)
-    {
-        // Snapshot the scope references. The caller owns the list it passed and may mutate or reuse
-        // it, and Participants() is a lazy iterator, so holding the live list would let a later
-        // mutation both invalidate Matches (it would compare the list against itself) and change
-        // which assemblies get indexed after the fact.
-        readonly ImmutableArray<LibraryBodyIndex> _scopes = [.. scopes];
-
-        Dictionary<string, List<ForwardCalleeEdge>>? _forward;
-        Dictionary<string, HashSet<string>>? _incoming;
-        Dictionary<string, (string Assembly, MethodSignals Signals)>? _definitions;
-        Dictionary<string, List<ReverseCallerEdge>>? _reverse;
-
-        /// <summary>True when this cache was built for exactly the same scope instances, in order.</summary>
-        /// <remarks>
-        /// The root is part of the key because it is itself a graph participant, not merely the
-        /// object holding the cache. That clause cannot currently fail — the only storage is
-        /// <c>_scopeGraph</c> on the same instance <c>ScopeGraphFor</c> passes as <c>this</c> — so it
-        /// is an uncoverable branch, worth knowing if branch coverage here is ever read as
-        /// meaningful. It stays because dropping it would leave the key incomplete rather than
-        /// simplified, and silently wrong if a graph were ever cached anywhere but its own root.
-        /// </remarks>
-        public bool Matches(LibraryBodyIndex requestRoot, IReadOnlyList<LibraryBodyIndex> requested)
-        {
-            if (!ReferenceEquals(root, requestRoot) || _scopes.Length != requested.Count)
-                return false;
-            for (int i = 0; i < _scopes.Length; i++)
-            {
-                if (!ReferenceEquals(_scopes[i], requested[i]))
-                    return false;
-            }
-
-            return true;
-        }
-
-        public (Dictionary<string, List<ForwardCalleeEdge>> Forward,
-                Dictionary<string, HashSet<string>> Incoming,
-                Dictionary<string, (string Assembly, MethodSignals Signals)> Definitions) ForwardMaps()
-        {
-            if (_forward is not null && _incoming is not null && _definitions is not null)
-                return (_forward, _incoming, _definitions);
-
-            var forward = new Dictionary<string, List<ForwardCalleeEdge>>(StringComparer.Ordinal);
-            var incoming = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            var definitions = new Dictionary<string, (string Assembly, MethodSignals Signals)>(StringComparer.Ordinal);
-            foreach (var assembly in Participants())
-            {
-                var signals = assembly.Signals;
-                foreach (var call in assembly.DirectCalls)
-                {
-                    if (call.Callee.Kind == MemberKind.Unsupported)
-                        continue;
-                    var callerKey = CallerGraphKey(call.Caller);
-                    var calleeKey = CallerGraphKey(call.Callee);
-                    var edge = new ForwardCalleeEdge(call.Callee, calleeKey, call.Kind, call.InLoop);
-                    if (forward.TryGetValue(callerKey, out var list))
-                        list.Add(edge);
-                    else
-                        forward[callerKey] = [edge];
-                    if (incoming.TryGetValue(calleeKey, out var callers))
-                        callers.Add(callerKey);
-                    else
-                        incoming[calleeKey] = new HashSet<string>(StringComparer.Ordinal) { callerKey };
-                }
-
-                foreach (var method in assembly.Methods)
-                {
-                    var key = CallerGraphKey(method);
-                    if (!definitions.ContainsKey(key))
-                        definitions[key] = (method.AssemblyName, signals.GetValueOrDefault(method.MetadataToken, MethodSignals.None));
-                }
-            }
-
-            _forward = forward;
-            _incoming = incoming;
-            _definitions = definitions;
-            return (forward, incoming, definitions);
-        }
-
-        public Dictionary<string, List<ReverseCallerEdge>> ReverseMap()
-        {
-            if (_reverse is not null)
-                return _reverse;
-
-            var reverse = new Dictionary<string, List<ReverseCallerEdge>>(StringComparer.Ordinal);
-            foreach (var assembly in Participants())
-            {
-                var signals = assembly.Signals;
-                foreach (var call in assembly.DirectCalls)
-                {
-                    if (call.Callee.Kind == MemberKind.Unsupported)
-                        continue;
-                    var calleeKey = CallerGraphKey(call.Callee);
-                    var caller = call.Caller;
-                    var callerKey = CallerGraphKey(caller);
-                    var edge = new ReverseCallerEdge(caller, callerKey, signals.GetValueOrDefault(caller.MetadataToken, MethodSignals.None), call.InLoop);
-                    if (reverse.TryGetValue(calleeKey, out var list))
-                        list.Add(edge);
-                    else
-                        reverse[calleeKey] = [edge];
-                }
-            }
-
-            return _reverse = reverse;
-        }
-
-        IEnumerable<LibraryBodyIndex> Participants()
-        {
-            yield return root;
-            foreach (var scope in _scopes)
-                yield return scope;
-        }
-    }
-
-    /// <summary>
-    /// The <see cref="ScopeGraph"/> for <paramref name="scopes"/>, reusing the cached one when the
-    /// same scope instances are requested again. A progressive render asks for the same scope set
-    /// in both directions, and indexing it is proportional to every edge in every participating
-    /// assembly.
-    /// </summary>
-    ScopeGraph ScopeGraphFor(IReadOnlyList<LibraryBodyIndex> scopes)
-    {
-        if (_scopeGraph is { } cached && cached.Matches(this, scopes))
-            return cached;
-
-        return _scopeGraph = new ScopeGraph(this, scopes);
-    }
 
     public IReadOnlyDictionary<int, ImmutableArray<UnsafeEvidence>> GetUnsafeEvidenceByMember()
         => _unsafeEvidenceByMember ??= UnsafeEvidence
@@ -1518,7 +1376,7 @@ public sealed class LibraryBodyIndex
                     Call = call,
                     CalledType = GenericMemberIdentity.OpenDeclaringType(call.Callee.DeclaringType),
                     CallerType = GenericMemberIdentity.OpenDeclaringType(call.Caller.DeclaringType),
-                    CalleeKey = CallerGraphKey(call.Callee),
+                    CalleeKey = GraphNodeIdentity.FromMember(call.Callee),
                 })
                 .Where(item => !item.CalledType.Equals(item.CallerType))
                 .GroupBy(item => item.CalledType)
@@ -1529,7 +1387,7 @@ public sealed class LibraryBodyIndex
                         type,
                         FormatCalledTypeAssembly(type.Assembly),
                         Calls: group.Count(),
-                        Members: group.Select(item => item.CalleeKey).Distinct(StringComparer.Ordinal).Count(),
+                        Members: group.Select(item => item.CalleeKey).Distinct().Count(),
                         CallKinds: [.. group
                             .Select(item => item.Call.Kind)
                             .Distinct()
@@ -1566,9 +1424,10 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public CallTreeNode BuildCallTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
     {
-        var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        var root = DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == rootMethodToken);
         var rootMember = root is { } identity
-            ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
+            ? CallTreeMember.FromDefinition(identity)
             : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
 
         var callsByCaller = GetDirectCallsByCaller();
@@ -1639,13 +1498,13 @@ public sealed class LibraryBodyIndex
     /// </summary>
     public CallTreeNode BuildCallerTree(int rootMethodToken, int maxDepth = 3, int maxNodes = 25)
     {
-        var root = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
-        // When the selected method has no body of its own (abstract/interface/extern) it is
-        // absent from Methods, but its callers reference it by operand token and carry the
-        // resolved callee signature. Recover the root label from any such inbound edge so the
-        // graph names the member instead of printing a bare token.
+        var root = DeclaredMethods.FirstOrDefault(
+            method => method.MetadataToken == rootMethodToken);
+        // DeclaredMethods supplies the label even when the selected method has no body of its
+        // own. For a token with no local declaration, recover the label from an inbound edge so
+        // the graph can still name the member instead of printing a bare token.
         var rootMember = root is { } identity
-            ? new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method)
+            ? CallTreeMember.FromDefinition(identity)
             : DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
                 && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolvedCallee }
                 ? resolvedCallee
@@ -1685,7 +1544,15 @@ public sealed class LibraryBodyIndex
                     .Where(group => group.Key != 0)
                     .ToDictionary(
                         group => group.Key,
-                        group => group
+                        group => CallTreeOrdering.OrderCallers(
+                                group,
+                                call => call.Caller.AssemblyName,
+                                call => CallTreeMember.ToQualifiedDisplayString(
+                                    call.Caller),
+                                call => call.Caller.ParameterTypes.Length,
+                                call => call.Caller.ModuleVersionId,
+                                call => call.Caller.MetadataToken,
+                                call => call.ILOffset)
                             .GroupBy(call => call.Caller.MetadataToken)
                             .Select(callerGroup => callerGroup.FirstOrDefault(call => call.InLoop) ?? callerGroup.First())
                             .ToImmutableArray(),
@@ -1732,7 +1599,7 @@ public sealed class LibraryBodyIndex
                 created++;
                 var caller = edge.Caller;
                 children.Add(Build(
-                    new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
+                    CallTreeMember.FromDefinition(caller),
                     caller.MetadataToken,
                     depth + 1,
                     edge.InLoop));
@@ -1748,294 +1615,42 @@ public sealed class LibraryBodyIndex
         return Build(rootMember, rootMethodToken, 0, false);
     }
 
-    readonly record struct ReverseCallerEdge(MethodIdentity Caller, string CallerKey, MethodSignals Signals, bool InLoop);
-
     /// <summary>
-    /// Like <see cref="BuildCallerTree(int,int,int)"/>, but extends the bounded reverse graph
-    /// across additional caller assemblies (the <c>--bin</c>/<c>--project</c>/
-    /// <c>--caller-package</c> scope). The graph is keyed by structural member identity rather
-    /// than assembly-local tokens, so a dependency member can surface the product entry points
-    /// and callers that reach it. Nodes from an assembly other than the selected member's own
-    /// carry their source assembly in <see cref="CallTreePerf.Source"/>.
-    ///
-    /// <paramref name="callerScopes"/> distinguishes "no cross-assembly scope was requested"
-    /// (<see langword="null"/>, which falls back to the single-assembly token-keyed builder) from
-    /// "a scope was requested but contributed no additional assemblies" (an empty list, which still
-    /// takes the structural walk). The two builders key the reverse graph differently and do not
-    /// produce identical trees, so the choice must follow what the user asked for and never the
-    /// incidental number of assemblies that survived scope filtering.
+    /// Builds a bounded reverse tree through one catalog-owned assembly-group
+    /// graph. The scope owns graph storage and correspondence work so caller
+    /// and callee views reuse one acquisition.
     /// </summary>
-    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex>? callerScopes, int maxDepth = 3, int maxNodes = 25)
+    public CallTreeNode BuildCallerTree(
+        int rootMethodToken,
+        CatalogCallGraphScope scope,
+        int maxDepth = 3,
+        int maxNodes = 25)
     {
-        if (callerScopes is null)
-            return BuildCallerTree(rootMethodToken, maxDepth, maxNodes);
-
-        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
-        MemberRef rootMember;
-        string rootKey;
-        if (rootIdentity is { } identity)
-        {
-            rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
-            rootKey = CallerGraphKey(identity);
-        }
-        else
-        {
-            // Bodiless member (abstract/interface/extern): recover its label and key from any
-            // inbound edge in this assembly so the graph still names the target.
-            rootMember = DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
-                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolved }
-                ? resolved
-                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
-            rootKey = rootMember.Kind != MemberKind.Unsupported
-                ? CallerGraphKey(rootMember)
-                : "";
-        }
-
-        string targetAssembly = rootIdentity?.AssemblyName
-            ?? Methods.FirstOrDefault()?.AssemblyName
-            ?? "";
-
-        // Structural reverse map across the selected member's assembly plus the caller scopes:
-        // callee structural key -> inbound caller edges (each carrying the caller's own-assembly
-        // signals captured at index time, since signal tables are assembly-local by token).
-        // Cached per scope set: it depends on the participating assemblies, not on the selection.
-        var reverse = ScopeGraphFor(callerScopes).ReverseMap();
-
-        int budget = Math.Max(1, maxNodes);
-        int created = 1;
-        var expanded = new HashSet<string>(StringComparer.Ordinal);
-
-        CallTreeNode Build(MemberRef member, string key, string assembly, MethodSignals sig, int depth, bool inLoop)
-        {
-            bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
-            string? source = external ? assembly : null;
-            string? classification = depth == 0
-                ? "target"
-                : member.Name is "Main" or "<Main>$" ? "entrypoint" : null;
-            string? loopHint = inLoop ? "loop call" : null;
-
-            if (key.Length == 0 || !reverse.TryGetValue(key, out var rawEdges))
-            {
-                var leafStatus = key.Length == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, null, leafStatus, [], new CallTreePerf(0, 0, 1, inLoop, loopHint, classification, sig, source));
-            }
-
-            // One edge per distinct caller (the graph reports callers, not call sites);
-            // preserve an in-loop edge if any call site from that caller hit a loop. Sort by
-            // structural key so output is deterministic across assemblies.
-            var edges = rawEdges
-                .GroupBy(edge => edge.CallerKey, StringComparer.Ordinal)
-                .Select(group => group.FirstOrDefault(edge => edge.InLoop, group.First()))
-                .OrderBy(edge => edge.CallerKey, StringComparer.Ordinal)
-                .ToList();
-
-            var fanin = edges.Count;
-            if (depth >= maxDepth)
-                return new CallTreeNode(member, null, CallTreeStatus.DepthLimited, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig, source));
-            if (!expanded.Add(key))
-                return new CallTreeNode(member, null, CallTreeStatus.AlreadyShown, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, classification, sig, source));
-
-            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
-            bool truncated = false;
-            foreach (var edge in edges)
-            {
-                if (created >= budget)
-                {
-                    truncated = true;
-                    break;
-                }
-                created++;
-                var caller = edge.Caller;
-                children.Add(Build(
-                    new MemberRef(caller.DeclaringType, caller.Name, caller.ParameterTypes, caller.ReturnType, MemberKind.Method),
-                    edge.CallerKey,
-                    caller.AssemblyName,
-                    edge.Signals,
-                    depth + 1,
-                    edge.InLoop));
-            }
-
-            var nodeStatus = truncated
-                ? CallTreeStatus.Truncated
-                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
-            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, null, nodeStatus, children.ToImmutable(), new CallTreePerf(0, fanin, maxTreeDepth, inLoop, loopHint, classification, sig, source));
-        }
-
-        var rootSignals = rootIdentity is { } rootId ? Signals.GetValueOrDefault(rootId.MetadataToken, MethodSignals.None) : MethodSignals.None;
-        return Build(rootMember, rootKey, targetAssembly, rootSignals, 0, false);
+        ArgumentNullException.ThrowIfNull(scope);
+        return scope.BuildCallerTree(
+            this,
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
     }
 
-    readonly record struct ForwardCalleeEdge(MemberRef Callee, string CalleeKey, CallKind Kind, bool InLoop);
-
     /// <summary>
-    /// Like <see cref="BuildCallTree(int,int,int)"/>, but extends the bounded outbound (callee)
-    /// graph across additional assemblies (the <c>--bin</c>/<c>--project</c>/<c>--caller-package</c>
-    /// scope), the forward mirror of <see cref="BuildCallerTree(int,IReadOnlyList{LibraryBodyIndex},int,int)"/>.
-    /// A single-assembly callee tree stops at the assembly boundary (a callee defined elsewhere is an
-    /// <see cref="CallTreeStatus.External"/> leaf); with <paramref name="calleeScopes"/> the callee's
-    /// own body — decoded in whichever scope defines it — is expanded, so a callee chain can cross a
-    /// package boundary. The graph is keyed by structural member identity (<see cref="CallerGraphKey(MemberRef)"/>)
-    /// rather than assembly-local tokens, so a constructed call site links to its open-definition
-    /// callee across assemblies. Nodes defined in an assembly other than the selected member's own
-    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Unlike the single-assembly
-    /// builder (which keeps one child per call site in IL order), this deduplicates to one child per
-    /// distinct callee and orders children by structural key, so output is independent of scope order.
-    /// Falls back to the single-assembly builder when no scopes are supplied.
+    /// Builds a bounded forward tree through one catalog-owned assembly-group
+    /// graph. The scope owns graph storage and correspondence work so caller
+    /// and callee views reuse one acquisition.
     /// </summary>
-    public CallTreeNode BuildCallTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> calleeScopes, int maxDepth = 3, int maxNodes = 25)
+    public CallTreeNode BuildCallTree(
+        int rootMethodToken,
+        CatalogCallGraphScope scope,
+        int maxDepth = 3,
+        int maxNodes = 25)
     {
-        if (calleeScopes is not { Count: > 0 })
-            return BuildCallTree(rootMethodToken, maxDepth, maxNodes);
-
-        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
-        MemberRef rootMember;
-        string rootKey;
-        if (rootIdentity is { } identity)
-        {
-            rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
-            rootKey = CallerGraphKey(identity);
-        }
-        else
-        {
-            // Bodiless/absent selected member (abstract/interface/extern): it has no body of its own,
-            // so it has no outbound callees and renders as a leaf. Recover its label from any inbound
-            // edge in this assembly so the graph still names the target.
-            rootMember = DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
-                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolved }
-                ? resolved
-                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
-            rootKey = rootMember.Kind != MemberKind.Unsupported ? CallerGraphKey(rootMember) : "";
-        }
-
-        string targetAssembly = rootIdentity?.AssemblyName
-            ?? Methods.FirstOrDefault()?.AssemblyName
-            ?? "";
-
-        // Structural forward map across the selected member's assembly plus the callee scopes:
-        // caller structural key -> outbound callee edges. A companion definition map records each
-        // decoded method's home assembly and signals (both assembly-local by token), so an expanded
-        // callee reports its source assembly and perf signals from wherever it is actually defined.
-        // Distinct callers per callee, not call sites — same leverage semantics as the
-        // single-assembly builder and as the reverse graph's one-edge-per-caller shape.
-        // Cached per scope set: these depend on the participating assemblies, not the selection.
-        var (forward, incoming, definitions) = ScopeGraphFor(calleeScopes).ForwardMaps();
-
-        int budget = Math.Max(1, maxNodes);
-        int created = 1;
-        var expanded = new HashSet<string>(StringComparer.Ordinal);
-
-        CallTreeNode Build(MemberRef member, string key, CallKind? kind, int depth, bool inLoop)
-        {
-            (string Assembly, MethodSignals Signals)? def =
-                key.Length > 0 && definitions.TryGetValue(key, out var found) ? found : null;
-            string assembly = def?.Assembly
-                ?? (member.Kind != MemberKind.Unsupported ? member.DeclaringType.Assembly : "");
-            var sig = def?.Signals ?? MethodSignals.None;
-            bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
-            string? source = external ? assembly : null;
-            string? loopHint = inLoop ? "loop" : null;
-            int fanin = incoming.TryGetValue(key, out var inboundCallers) ? inboundCallers.Count : 0;
-
-            if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
-            {
-                // No outbound edges: classify the boundary. A callee with no definition entry here
-                // (Unsupported, or a real member whose declaring assembly is neither the target nor
-                // any callee scope) is an unexpandable External boundary, not a proven leaf. An
-                // indexed callee with no outbound edges is a leaf. This reads "indexed" as "decoded",
-                // which holds when the in-scope assemblies were fully decoded — the contract the
-                // product's cross-library layer guarantees by passing full-assembly indexes. As with
-                // the single-assembly builder, a body-scoped index can hold an indexed-but-undecoded
-                // body that would read as a leaf here; hardening that is tracked by issue #3275.
-                var leafStatus = depth > 0 && def is null ? CallTreeStatus.External : CallTreeStatus.Leaf;
-                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, null, sig, source));
-            }
-
-            // One edge per distinct callee (the graph reports callees by identity, not call sites);
-            // preserve an in-loop edge if any call site to that callee sat in a loop. Sort by
-            // structural key so output is deterministic across scope order.
-            var edges = rawEdges
-                .GroupBy(edge => edge.CalleeKey, StringComparer.Ordinal)
-                .Select(group => group.FirstOrDefault(edge => edge.InLoop, group.First()))
-                .OrderBy(edge => edge.CalleeKey, StringComparer.Ordinal)
-                .ToList();
-
-            // Fan-out is the true outbound call-site count (matching the single-assembly builder),
-            // independent of the deduplication that collapses repeat call sites into one child.
-            var fanout = rawEdges.Count;
-            if (depth >= maxDepth)
-                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
-            if (!expanded.Add(key))
-                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
-
-            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
-            bool truncated = false;
-            foreach (var edge in edges)
-            {
-                if (created >= budget)
-                {
-                    truncated = true;
-                    break;
-                }
-                created++;
-                children.Add(Build(edge.Callee, edge.CalleeKey, edge.Kind, depth + 1, edge.InLoop));
-            }
-
-            var nodeStatus = truncated
-                ? CallTreeStatus.Truncated
-                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
-            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
-            return new CallTreeNode(member, kind, nodeStatus, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, loopHint, null, sig, source));
-        }
-
-        return Build(rootMember, rootKey, null, 0, false);
-    }
-
-    // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
-    // structurally (tokens are assembly-local), so the key leads with the declaring type's
-    // assembly and adds parameter arity and the return type to the qualified declaring type,
-    // name, and parameters. The assembly prefix is required so that same-namespace/type/member
-    // members in different assemblies do not match the selected target (callee side) and so that
-    // identically-signed callers from different caller scopes are not collapsed into one node
-    // (caller side) (#1579).
-    //
-    // Generic members are normalized to their open declaring definition + name + parameter arity
-    // (#1339): a constructed call site (e.g. List<int>.Add / Id<int>) keys identically to its
-    // open-definition target (List<T>.Add / Id<T>) instead of on the instantiation, so generic
-    // dependency members surface their external callers. Both sides compute the same erased
-    // identity from the data they carry — the open definition (MethodIdentity, whose signature
-    // still mentions generic parameters) and the constructed call site (MemberRef, whose declaring
-    // type is a GenericInstance or which carries method type arguments). See GenericMemberIdentity.
-    //
-    // Remaining limitation: type forwarding beyond the corelib facade canonicalization
-    // (TypeRef.CanonicalAssembly): a type physically defined in assembly B but referenced through a
-    // [TypeForwardedTo] facade A keys as B on the definition side and A at the referencing call
-    // site, so such a forwarded member may not link its callers. This is an honest missed edge,
-    // preferred over the prior false positive of attributing unrelated same-FQN callers.
-    static string CallerGraphKey(MethodIdentity member)
-        => CallerGraphKey(
-            member.DeclaringType,
-            member.Name,
-            member.ParameterTypes,
-            member.ParameterTypes,
-            member.ReturnType,
-            GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, []));
-
-    static string CallerGraphKey(MemberRef member)
-        => CallerGraphKey(
-            member.DeclaringType,
-            member.Name,
-            member.ParameterTypes,
-            member.OpenSignatureParameters,
-            member.OpenSignatureReturn,
-            GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments));
-
-    static string CallerGraphKey(TypeRef declaringType, string name, ImmutableArray<TypeRef> parameterTypes, ImmutableArray<TypeRef> openParameterTypes, TypeRef openReturnType, bool eraseGenericSignature)
-    {
-        var openDeclaring = GenericMemberIdentity.OpenDeclaringType(declaringType);
-        return eraseGenericSignature
-            ? $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{GenericMemberIdentity.ErasedParameterShape(openParameterTypes)}|{GenericMemberIdentity.KeyFragment(openReturnType)}"
-            : $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{name}|{parameterTypes.Length}|{string.Join(",", parameterTypes.Select(GenericMemberIdentity.KeyFragment))}|{GenericMemberIdentity.KeyFragment(openReturnType)}";
+        ArgumentNullException.ThrowIfNull(scope);
+        return scope.BuildCallTree(
+            this,
+            rootMethodToken,
+            maxDepth,
+            maxNodes);
     }
 
     static string FormatCalledTypeAssembly(string assembly)
@@ -2056,8 +1671,13 @@ public sealed class LibraryBodyIndex
         readonly string _path;
         readonly MetadataReader _reader;
         readonly PEReader _peReader;
-        readonly IAssemblyReferenceResolver? _resolver;
-        readonly Dictionary<AssemblyReferenceIdentity, ReferencedAssemblyMetadata?> _referencedAssemblyCache = new();
+        readonly TypeResolutionCatalog? _resolutionCatalog;
+        readonly AssemblyReferenceBindingPolicy? _bindingPolicy;
+        readonly ResolvedAssemblyReference? _rootAssembly;
+        readonly Dictionary<
+            AssemblyAcquisitionRegistration,
+            ReferencedAssemblyMetadata?> _referencedAssemblyCache =
+                new(ReferenceEqualityComparer.Instance);
         readonly string _assemblyName;
         readonly Guid _mvid;
         readonly bool _memorySafetyRulesEnabled;
@@ -2067,10 +1687,22 @@ public sealed class LibraryBodyIndex
             _path = path;
             _reader = reader;
             _peReader = peReader;
-            _resolver = resolver;
             _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
             _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
             _memorySafetyRulesEnabled = DetectMemorySafetyRules();
+            if (resolver is not null && reader.IsAssembly)
+            {
+                string fullPath = System.IO.Path.GetFullPath(path);
+                _rootAssembly = ResolvedAssemblyReference.Create(
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+                    fullPath,
+                    () => File.OpenRead(fullPath),
+                    AssemblyResolutionProvenance.Local(
+                        "LibraryBodyIndex"));
+                _bindingPolicy =
+                    new AssemblyReferenceBindingPolicy(resolver);
+                _resolutionCatalog = new TypeResolutionCatalog();
+            }
         }
 
         public void Dispose()
@@ -2078,6 +1710,7 @@ public sealed class LibraryBodyIndex
             foreach (var assembly in _referencedAssemblyCache.Values)
                 assembly?.Dispose();
             _referencedAssemblyCache.Clear();
+            _resolutionCatalog?.Dispose();
         }
 
         // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
@@ -2088,6 +1721,40 @@ public sealed class LibraryBodyIndex
         sealed class ReferencedAssemblyMetadata(Stream stream, PEReader peReader) : IDisposable
         {
             public MetadataReader Reader { get; } = peReader.GetMetadataReader();
+
+            internal static ReferencedAssemblyMetadata? TryOpen(
+                ResolvedAssemblyReference assembly)
+            {
+                Stream? stream = null;
+                PEReader? peReader = null;
+                try
+                {
+                    stream = assembly.OpenRead();
+                    peReader = new PEReader(stream);
+                    if (!peReader.HasMetadata)
+                        return null;
+                    var metadata =
+                        new ReferencedAssemblyMetadata(stream, peReader);
+                    stream = null;
+                    peReader = null;
+                    return metadata;
+                }
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException
+                        or InvalidOperationException
+                        or NotSupportedException
+                        or ArgumentException)
+                {
+                    return null;
+                }
+                finally
+                {
+                    peReader?.Dispose();
+                    stream?.Dispose();
+                }
+            }
 
             public void Dispose()
             {
@@ -2129,73 +1796,42 @@ public sealed class LibraryBodyIndex
             string ns,
             string name)
         {
+            if (_resolutionCatalog is null
+                || _bindingPolicy is null
+                || _rootAssembly is null
+                || MetadataTypeDefinitionName.Create(ns, [name])
+                    is not MetadataTypeDefinitionNameResult.Valid valid)
+            {
+                return null;
+            }
+
             var identity = AssemblyReferenceIdentity.From(_reader, assemblyReference);
             var scope = ScopeForReference(assemblyReference);
-            string fullTypeName = ns.Length == 0 ? name : $"{ns}.{name}";
-
-            // A TypeRef names the assembly the compiler bound against, which is routinely
-            // a facade that type-forwards to the definer -- every framework reference in a
-            // reference-assembly or facade-only shared-framework layout resolves this way.
-            // Opening only the named assembly finds no TypeDef there and reports the type
-            // as unresolvable, so follow ExportedType forwarders to the defining assembly.
-            //
-            // Decoding a forwarder is TypeForwardResolver's mechanism and is reused here.
-            // The traversal itself runs in the builder because the defining MetadataReader
-            // must outlive this call under _referencedAssemblyCache's ownership, whereas
-            // TypeForwardResolver.LocateType disposes every assembly it opens.
-            HashSet<AssemblyReferenceIdentity>? visited = null;
-            for (int hop = 0; hop <= TypeForwardResolver.DefaultMaxHops; hop++)
+            var request = TypeResolutionRequest.FromReference(
+                identity,
+                AssemblyBindingOrigin.FromAssembly(_rootAssembly),
+                scope,
+                valid.Name);
+            using TypeResolutionContext context =
+                _resolutionCatalog.CreateContext(
+                    _bindingPolicy,
+                    [_rootAssembly],
+                    [request]);
+            if (context.Resolve(request)
+                is not TypeResolutionOutcome.Resolved resolved)
             {
-                var metadata = ResolveReferencedAssembly(identity, scope);
-                if (metadata is null)
-                    return null;
-
-                if (FindTopLevelTypeDefinition(metadata.Reader, ns, name) is { } definition)
-                    return (metadata.Reader, definition);
-
-                if (TypeForwardResolver.ForwardTargetAssemblyIdentity(metadata.Reader, fullTypeName) is not { } forwarded)
-                    return null;
-
-                visited ??= new HashSet<AssemblyReferenceIdentity> { identity };
-                if (!visited.Add(forwarded))
-                    return null;
-                identity = forwarded;
-                scope = NextHopScope(scope, forwarded);
+                return null;
             }
 
-            return null;
-        }
-
-        /// <summary>
-        /// Scope for the next forwarder hop. A forwarder must not launder a platform
-        /// assembly into an unconstrained lookup: an <see cref="AssemblyResolutionScope.Any"/>
-        /// reference can forward into a framework-signed assembly, and resolving that hop
-        /// under <c>Any</c> would let a confusable local copy satisfy it. Scope only ever
-        /// tightens, never the reverse. The function is gated by the <c>NextHopScope_*</c>
-        /// tests; the call site below is gated by
-        /// <c>ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope</c>, which is
-        /// the one test that fails if this call is dropped from the loop.
-        /// </summary>
-        internal static AssemblyResolutionScope NextHopScope(
-            AssemblyResolutionScope current, AssemblyReferenceIdentity forwarded)
-            => current == AssemblyResolutionScope.Any
-                && FrameworkAssemblyKeys.IsFrameworkToken(forwarded.PublicKeyToken)
-                    ? AssemblyResolutionScope.Platform
-                    : current;
-
-        static TypeDefinitionHandle? FindTopLevelTypeDefinition(MetadataReader reader, string ns, string name)
-        {
-            foreach (var candidateHandle in reader.TypeDefinitions)
-            {
-                var candidate = reader.GetTypeDefinition(candidateHandle);
-                if (candidate.IsNested)
-                    continue;
-                if (reader.StringComparer.Equals(candidate.Namespace, ns)
-                    && reader.StringComparer.Equals(candidate.Name, name))
-                    return candidateHandle;
-            }
-
-            return null;
+            ReferencedAssemblyMetadata? metadata =
+                OpenReferencedAssembly(
+                    resolved.Definition.Assembly.Assembly);
+            return metadata is not null
+                && resolved.Definition.Address.TryResolve(
+                    metadata.Reader,
+                    out TypeDefinitionHandle definition)
+                    ? (metadata.Reader, definition)
+                    : null;
         }
 
         (MetadataReader DefiningReader, TypeDefinitionHandle Definition)? TryResolveNestedExternalType(
@@ -2220,63 +1856,22 @@ public sealed class LibraryBodyIndex
             return null;
         }
 
-        ReferencedAssemblyMetadata? ResolveReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        ReferencedAssemblyMetadata? OpenReferencedAssembly(
+            ResolvedAssemblyReference assembly)
         {
-            // Guarded because parallel full builds resolve referenced assemblies concurrently
-            // from many method-analysis threads. Resolution is per unique referenced assembly
-            // (bounded and cached), so lock contention is negligible; the lock is reentrant on
-            // the same thread for any transitive resolution. Holding it across the open keeps
-            // single-resolve semantics (no duplicate opens leaking undisposed metadata).
             lock (_referencedAssemblyCache)
             {
-                if (_referencedAssemblyCache.TryGetValue(identity, out var cached))
+                if (_referencedAssemblyCache.TryGetValue(
+                        assembly.Registration,
+                        out ReferencedAssemblyMetadata? cached))
+                {
                     return cached;
+                }
 
-                var resolved = OpenReferencedAssembly(identity, scope);
-                _referencedAssemblyCache[identity] = resolved;
-                return resolved;
-            }
-        }
-
-        ReferencedAssemblyMetadata? OpenReferencedAssembly(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        {
-            if (_resolver is null)
-                return null;
-
-            ResolvedAssemblyReference? resolved;
-            try
-            {
-                resolved = _resolver.Resolve(identity, scope);
-            }
-            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
-            {
-                return null;
-            }
-
-            if (resolved?.Path is not { Length: > 0 } path || !File.Exists(path))
-                return null;
-
-            Stream? stream = null;
-            PEReader? peReader = null;
-            try
-            {
-                stream = File.OpenRead(path);
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
-                    return null;
-                var metadata = new ReferencedAssemblyMetadata(stream, peReader);
-                stream = null;
-                peReader = null;
-                return metadata;
-            }
-            catch (Exception ex) when (IsRecoverableReferenceResolutionFailure(ex))
-            {
-                return null;
-            }
-            finally
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
+                ReferencedAssemblyMetadata? opened =
+                    ReferencedAssemblyMetadata.TryOpen(assembly);
+                _referencedAssemblyCache[assembly.Registration] = opened;
+                return opened;
             }
         }
 
@@ -2284,14 +1879,6 @@ public sealed class LibraryBodyIndex
             => FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
                 ? AssemblyResolutionScope.Platform
                 : AssemblyResolutionScope.Any;
-
-        static bool IsRecoverableReferenceResolutionFailure(Exception ex)
-            => ex is IOException
-                or UnauthorizedAccessException
-                or BadImageFormatException
-                or InvalidOperationException
-                or NotSupportedException
-                or ArgumentException;
 
         sealed class DecodedBody
         {
@@ -3095,7 +2682,12 @@ public sealed class LibraryBodyIndex
                     signature.ParameterTypes,
                     signature.ReturnType,
                     MetadataTokens.GetToken(methodHandle),
-                    (methodDef.Attributes & MethodAttributes.Static) != 0);
+                    (methodDef.Attributes & MethodAttributes.Static) != 0)
+                {
+                    SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
+                };
 
                 var body =
                     _peReader.GetMethodBody(methodDef.RelativeVirtualAddress);
@@ -3303,16 +2895,22 @@ public sealed class LibraryBodyIndex
             var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
             ImmutableArray<TypeRef> parameterTypes;
             TypeRef returnType;
+            byte signatureHeader;
+            int requiredParameterCount;
             if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
             {
                 var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
                 parameterTypes = signature.ParameterTypes;
                 returnType = signature.ReturnType;
+                signatureHeader = signature.Header.RawValue;
+                requiredParameterCount = signature.RequiredParameterCount;
             }
             else
             {
                 parameterTypes = [];
                 returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
+                signatureHeader = 0;
+                requiredParameterCount = -1;
             }
             return new MethodIdentity(
                 _assemblyName,
@@ -3326,7 +2924,11 @@ public sealed class LibraryBodyIndex
                 IsExtensionMethod(typeHandle, methodDef),
                 ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
                 methodDef.GetGenericParameters().Count,
-                GenericParameterNames(methodDef));
+                GenericParameterNames(methodDef))
+            {
+                SignatureHeader = signatureHeader,
+                RequiredParameterCount = requiredParameterCount,
+            };
         }
 
         ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
@@ -6214,6 +5816,8 @@ public sealed class LibraryBodyIndex
                 {
                     HasThis = signature.Header.IsInstance,
                     SignatureHeader = signature.Header.RawValue,
+                    RequiredParameterCount =
+                        signature.RequiredParameterCount,
                     GenericArity = signature.GenericParameterCount,
                     OpenParameterTypes = signature.ParameterTypes,
                     OpenReturnType = signature.ReturnType,

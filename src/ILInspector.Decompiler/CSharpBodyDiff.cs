@@ -495,11 +495,19 @@ public static class CSharpBodyDiff
     // diff aligns over: text is the exact SplitLines rendering (untrimmed, so line
     // identity and LCS stay unchanged), and each line carries the smallest source
     // offset among the statements that start on it (-1 when the line owns none).
+    //
+    // Expression ranges are skipped deliberately. The map records them so a caret
+    // can underline a sub-statement, but they also land on the continuation lines
+    // of a wrapped statement, which own no statement and are contracted to report
+    // -1. Honouring them here would move 215 diff-row offsets as a side effect of
+    // a caret feature; the diff's coordinate is a statement coordinate.
     static IReadOnlyList<SourceLine> BuildSourceLines(string? output, PrintedRangeMap printedRanges)
     {
         var lineOffsets = new Dictionary<int, int>();
         foreach (var (node, _) in printedRanges)
         {
+            if (node is IrExpression)
+                continue;
             int start = StatementStartOffset(node);
             if (start < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;

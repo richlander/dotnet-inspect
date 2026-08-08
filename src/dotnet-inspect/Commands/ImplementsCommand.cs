@@ -97,7 +97,7 @@ public class ImplementsCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -129,7 +129,7 @@ public class ImplementsCommand
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error scanning {assemblyPath}: {ex.Message}");
+            logger.LogWarning($"Error scanning {assemblyPath}: {ex.Message}");
         }
 
         return results;
@@ -153,7 +153,7 @@ public class ImplementsCommand
 
         if (view.Rows == null && view.Description != null)
         {
-            Console.Error.WriteLine(view.Description);
+            CommandError.WriteLine(view.Description);
             return;
         }
 

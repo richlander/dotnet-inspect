@@ -6,9 +6,22 @@ It is built for both humans and agents. Markdown is the default output because h
 
 ## Core architecture
 
+The target [inspection space architecture](inspection-space.md) defines the
+core: workspace contexts, typed query planning, acquisition and caching, shared
+identity and provenance, owner-issued correspondence, and safe presentation
+boundaries. The first typed query-planning slices are implemented for library
+metadata-image and direct-reference inspection; workspace contexts and the
+remaining query families are not implemented yet. The components below are the
+current hosts, shared substrates, and inspection producers that will extend that
+space.
+
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
-- `src/ILInspector.Metadata/` reads PE metadata, API surfaces, SourceLink/PDB data, method classification, and assembly details. `MetadataFindings` projects API, source-document, member-source, and portable-PDB build-context observations and comparisons onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
-- `src/ILInspector.CSharp/` is the lightweight C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
+- `src/DotnetInspector.Queries/` contains host-neutral typed query definitions, deterministic sequential execution, prerequisite-aware cost, and the first content-shaped assembly queries. It has no Markout, console, or filesystem-path dependency.
+- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
+- `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
+- `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
+- `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and type-view layer over Metadata shapes. `CSharpFormatter` is the declaration-spelling seam; `CSharpTypePrinter` composes exact typed requests, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes, without taking a Decompiler or Research dependency.
 - `src/ILInspector.Analysis/` indexes IL method-body evidence such as direct call sites, allocation and unsafety occurrences, method signals, and whole-assembly leverage without decompiling to C#. `AnalysisFindings` exposes reusable typed censuses and comparisons for allocations, call sites, unsafe operations, and unsafe declaration/body evidence.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
@@ -29,14 +42,18 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 
 ## Important systems
 
+- [Inspection space architecture](inspection-space.md): the target Rich, Fast, and Safe core that will be shared by hosts and inspection producers.
 - [Architecture](architecture.md): command and metadata architecture.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
+- [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
-- [Progressive disclosure](design/progressive-disclosure.md): verbosity, `-D`/`-S`, opt-in sections, `-S @All`, and limiter behavior.
+- [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
+  discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
@@ -54,9 +71,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Capability section registry spike](design/capability-section-registry-spike.md): measured static lambda-table and precompiled-plan pilot layered on `SectionPipeline`.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
+- [Caret stacking](design/caret-stacking.md): `--focus` caret display model — one numbered caret per fact extent, with the fact texts listed below.
 - [Member Index](design/member-index.md): overload selector and digest contract.
 - [Member target resolution](design/member-target-resolution.md): typed member selector, anchor, and body-target resolution.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
+- [Package source model](design/package-source-model.md): source eligibility,
+  mapping, local stores, source-bound caches, selection, and enrichment.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

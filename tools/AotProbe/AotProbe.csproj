@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Measures how the two Native AOT codegen knobs - the instruction-set baseline
+    (IlcInstructionSet) and OptimizationPreference - affect the two shapes of code the
+    CLI spends its text-handling time in: a scalar per-scalar walk and a vectorized
+    span search. dotnet-inspect ships primarily as Native AOT, so these are settled by
+    measurement on the AOT binary rather than by JIT benchmarks. See run.sh.
+
+    This is a contained runnable evaluation, not a shipping component.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>aot-probe</AssemblyName>
+    <RootNamespace>AotProbe</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/InertText/InertText.csproj" />
+  </ItemGroup>
+
+</Project>

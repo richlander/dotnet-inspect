@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -97,10 +98,11 @@ public class AssemblyInspectionSessionTests
     [Fact]
     public void Open_FromResolvedReference_MatchesPathOpen()
     {
-        var reference = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(SelfName, Version: null, Culture: null, PublicKeyToken: null),
+        var reference = ResolvedAssemblyReference.Create(
+            ReadIdentity(SelfPath),
             SelfPath,
-            () => File.OpenRead(SelfPath));
+            () => File.OpenRead(SelfPath),
+            AssemblyResolutionProvenance.Local("test"));
 
         using var fromRef = AssemblyInspectionSession.Open(reference);
         using var fromPath = AssemblyInspectionSession.Open(SelfPath);
@@ -123,10 +125,11 @@ public class AssemblyInspectionSessionTests
     public void AssemblyImage_DisposesBackingStreamExactlyOnce()
     {
         using var stream = new DisposeCountingStream(File.OpenRead(SelfPath));
-        var reference = new ResolvedAssemblyReference(
-            new AssemblyReferenceIdentity(SelfName, Version: null, Culture: null, PublicKeyToken: null),
+        var reference = ResolvedAssemblyReference.Create(
+            ReadIdentity(SelfPath),
             SelfPath,
-            () => stream);
+            () => stream,
+            AssemblyResolutionProvenance.Local("test"));
 
         var image = AssemblyImage.Open(reference);
         try
@@ -140,6 +143,14 @@ public class AssemblyInspectionSessionTests
         }
 
         Assert.Equal(1, stream.DisposeCount);
+    }
+
+    static AssemblyReferenceIdentity ReadIdentity(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            peReader.GetMetadataReader());
     }
 
     sealed class DisposeCountingStream(Stream inner) : Stream

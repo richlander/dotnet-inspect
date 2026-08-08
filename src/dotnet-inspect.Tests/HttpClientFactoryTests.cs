@@ -14,14 +14,14 @@ public class HttpClientFactoryTests : IDisposable
 
     public HttpClientFactoryTests()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
-        DotnetInspector.Core.HttpClientFactory.Initialize(offline: false);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_cacheDir))
             Directory.Delete(_cacheDir, recursive: true);
@@ -53,21 +53,181 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
-    public void CreateNew_ReturnsDifferentInstances()
+    public void CreateClient_ReturnsDifferentInstances()
     {
-        var client1 = DotnetInspector.Core.HttpClientFactory.CreateNew();
-        var client2 = DotnetInspector.Core.HttpClientFactory.CreateNew();
+        var client1 = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        var client2 = DotnetInspector.Core.HttpClientFactory.CreateClient();
 
         Assert.NotSame(client1, client2);
     }
 
     [Fact]
-    public void CreateNew_RespectsTimeout()
+    public void CreateClient_UsesConfiguredDefaultTimeout()
     {
-        var timeout = TimeSpan.FromSeconds(5);
-        var client = DotnetInspector.Core.HttpClientFactory.CreateNew(timeout);
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(5),
+        });
 
-        Assert.Equal(timeout, client.Timeout);
+        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
+
+        Assert.Equal(TimeSpan.FromSeconds(5), client.Timeout);
+    }
+
+    [Fact]
+    public async Task CreateClient_CapturesOneOptionsSnapshot()
+    {
+        const string ClosedPort = "http://127.0.0.1:1/";
+        using var decoratorEntered = new ManualResetEventSlim();
+        using var continueCreation = new ManualResetEventSlim();
+
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            Offline = false,
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
+        DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(handler =>
+        {
+            decoratorEntered.Set();
+            if (!continueCreation.Wait(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken))
+                throw new TimeoutException("Timed out waiting to continue client creation.");
+            return handler;
+        });
+
+        Task<HttpClient> creation = Task.Run(
+            DotnetInspector.Core.HttpClientFactory.CreateClient,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(decoratorEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken));
+
+            DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+            {
+                Offline = true,
+                DefaultTimeout = TimeSpan.FromSeconds(9),
+            });
+            continueCreation.Set();
+
+            using HttpClient client = await creation;
+            Assert.Equal(TimeSpan.FromSeconds(45), client.Timeout);
+            Exception? failure = await Record.ExceptionAsync(
+                () => client.GetAsync(ClosedPort, TestContext.Current.CancellationToken));
+            Assert.NotNull(failure);
+            Assert.Null(FindOffline(failure));
+        }
+        finally
+        {
+            continueCreation.Set();
+            DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(null);
+        }
+    }
+
+    /// <summary>
+    /// The SSRF-hardened client visits URLs that come from untrusted artifacts, so its timeout
+    /// is containment rather than a feed-performance knob and must not follow the configured
+    /// default.
+    /// </summary>
+    [Fact]
+    public void CreateUntrustedFetchClient_DoesNotFollowTheConfiguredDefaultTimeout()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(600),
+        });
+
+        var untrusted = DotnetInspector.Core.HttpClientFactory.CreateUntrustedFetchClient();
+        var standard = DotnetInspector.Core.HttpClientFactory.CreateClient();
+
+        Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, untrusted.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(600), standard.Timeout);
+    }
+
+    /// <summary>
+    /// Initializing with default options has to clear a previously configured timeout. The field is
+    /// static, so a leak here would make one test's flag change another test's client.
+    /// </summary>
+    [Fact]
+    public void Initialize_WithDefaultOptions_ClearsAPreviouslyConfiguredTimeout()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+
+        var client = DotnetInspector.Core.HttpClientFactory.CreateClient();
+
+        Assert.Equal(HttpClientFactoryOptions.BaselineTimeout, client.Timeout);
+    }
+
+    /// <summary>
+    /// Gates the precondition stated on <c>Initialize</c>. Both option properties are consumed
+    /// in <c>CreateClient</c>, so a call made once <c>Shared</c> exists governs the next client
+    /// built and leaves the cached one alone. Documented rather than fixed: resetting the cache
+    /// on every call would discard a client that may be mid-request and disturb the
+    /// authentication decorator wiring, and the CLI never hits it because <c>Program.cs</c>
+    /// initializes before any command runs.
+    /// </summary>
+    /// <remarks>
+    /// Both settings are asserted, not just the timeout. An earlier version of this test
+    /// passed <c>offline: false</c> throughout, so making the offline flag a per-request check
+    /// left it green while breaking the very claim it was named as the gate for. The requests
+    /// go to a closed loopback port, so an online client is refused at the socket and an
+    /// offline one is short-circuited before it gets there.
+    /// </remarks>
+    [Fact]
+    public async Task Initialize_OnceSharedExists_GovernsOnlyLaterClients()
+    {
+        const string ClosedPort = "http://127.0.0.1:1/";
+
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            DefaultTimeout = TimeSpan.FromSeconds(45),
+        });
+        var shared = DotnetInspector.Core.HttpClientFactory.Shared;
+        Assert.Equal(TimeSpan.FromSeconds(45), shared.Timeout);
+
+        DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
+        {
+            Offline = true,
+            DefaultTimeout = TimeSpan.FromSeconds(9),
+        });
+
+        // The cached client keeps the instance, the timeout, and the handler chain it was
+        // built with. Reaching the socket and being refused is what proves it is still online.
+        // The failure is asserted to exist as well as to not be offline, since an assertion
+        // only that it is not offline would also pass if no request had been made at all.
+        Assert.Same(shared, DotnetInspector.Core.HttpClientFactory.Shared);
+        Assert.Equal(TimeSpan.FromSeconds(45), DotnetInspector.Core.HttpClientFactory.Shared.Timeout);
+        var cachedFailure = await Record.ExceptionAsync(() => shared.GetAsync(ClosedPort, TestContext.Current.CancellationToken));
+        Assert.NotNull(cachedFailure);
+        Assert.Null(FindOffline(cachedFailure));
+
+        // The same call does govern the next client built.
+        var later = DotnetInspector.Core.HttpClientFactory.CreateClient();
+        Assert.Equal(TimeSpan.FromSeconds(9), later.Timeout);
+        Assert.NotNull(FindOffline(await Record.ExceptionAsync(() => later.GetAsync(ClosedPort, TestContext.Current.CancellationToken))));
+    }
+
+    /// <summary>
+    /// Walks the inner-exception chain, because <c>HttpClient</c> is free to wrap whatever the
+    /// handler pipeline throws and asserting on the outermost type would be brittle.
+    /// </summary>
+    private static OfflineException? FindOffline(Exception? exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OfflineException offline)
+            {
+                return offline;
+            }
+        }
+
+        return null;
     }
 
     [Fact]
@@ -111,7 +271,7 @@ public class HttpClientFactoryTests : IDisposable
     public async Task EnableNetworkTrafficLogging_PrintsTrafficKindWithoutBlocking()
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),
@@ -139,7 +299,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -179,7 +339,7 @@ public class HttpClientFactoryTests : IDisposable
     {
         using var error = new StringWriter();
         var transport = new StubHttpMessageHandler();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         using (var client = new HttpClient(new NetworkTelemetryHandler(
             transport,
             NetworkClientKinds.Shared)))
@@ -236,7 +396,7 @@ public class HttpClientFactoryTests : IDisposable
                 NetworkClientKinds.Shared);
         }
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
 
         Assert.Contains("flowchart TD", mermaid);
         Assert.Contains("n0[\"dotnet-inspect\"]", mermaid);
@@ -291,7 +451,7 @@ public class HttpClientFactoryTests : IDisposable
         _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "forbidden");
         _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "miss");
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
 
         Assert.Contains("cache store<br/>symbol-misses/forbidden", mermaid);
         Assert.Contains("cache miss<br/>symbol-misses/miss", mermaid);
@@ -312,7 +472,7 @@ public class HttpClientFactoryTests : IDisposable
         CacheTelemetry.Record(category, key, CacheAccessResult.Store);
         CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(CSharpText.CSharpIdentifier.ContainRenderedText);
         var label = $"{category} {key}";
 
         Assert.Equal(1, CountOccurrences(mermaid, $"cache hit<br/>{label}"));
@@ -325,7 +485,7 @@ public class HttpClientFactoryTests : IDisposable
         bool allowTrafficKind)
     {
         using var error = new StringWriter();
-        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(error))
+        using (DotnetInspector.Core.HttpClientFactory.EnableNetworkTrafficLogging(CSharpText.CSharpIdentifier.ContainRenderedText, error))
         {
             using var client = new HttpClient(new NetworkTelemetryHandler(
                 new StubHttpMessageHandler(),

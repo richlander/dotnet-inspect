@@ -33,7 +33,7 @@ internal static class SourceTextDiffRenderer
             $"@@ -1,{comparison.OldAtoms.Length} +1,{comparison.NewAtoms.Length} @@"
         };
         output.AddRange(diff.Select(item => $"{item.Prefix}{item.Text}"));
-        return string.Join(Environment.NewLine, output);
+        return string.Join("\n", output);
     }
 
     static List<(char Prefix, string Text)> RenderLines(

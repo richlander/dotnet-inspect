@@ -28,8 +28,9 @@ public interface ISectionDescriptor<TModel>
     static virtual bool ExplicitOnly => false;
 
     /// <summary>
-    /// When true, this section is part of the command/context's curated @Default preset
-    /// selected by bare <c>-S</c>.
+    /// When true, this section is part of the command/context's curated default preset
+    /// selected by bare <c>-S</c>. The preset has no user-spellable name; it is reachable only
+    /// through bare <c>-S</c>.
     /// </summary>
     static virtual bool Info => false;
 
@@ -80,8 +81,8 @@ public interface ISectionDescriptor<TModel>
     static virtual SectionCost Cost => SectionCost.NetworkFree;
 
     /// <summary>
-    /// Scanner key identifying the data collection step this section requires.
-    /// Null means the section's data is always collected (core metadata).
+    /// Transitional scanner key identifying a legacy data collection step this section requires.
+    /// Null means the section uses a typed query or data collected by another explicit baseline.
     /// Multiple sections may share a scanner key (e.g., Unsafe and P/Invoke
     /// both require "ClassifiedMethods").
     /// </summary>

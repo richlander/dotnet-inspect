@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
+using ILInspector.Text;
 
 namespace ILInspector.Instructions;
 
@@ -49,9 +50,25 @@ public static class IlDiffPrinter
             $"IL_{row.Operation.Offset:X4}",
             row.Operation.OpcodeFamily,
             row.Operation.Operand?.Kind,
-            row.Operation.Operand?.Value,
-            row.Operation.Display,
-            row.Message);
+            row.Operation.Operand?.Value is { } operand ? Printable(operand) : null,
+            Printable(row.Operation.Display),
+            Printable(row.Message));
+
+    /// <summary>
+    /// Drops NUL from text on its way to display. Two things can put one there: the elided
+    /// ordinal placeholder, whose NUL exists to be unspellable rather than to be read, and
+    /// an <c>ldstr</c> operand, since the <c>#US</c> heap is length-prefixed and may carry
+    /// one. Either way a redirected report would otherwise stop being text.
+    /// </summary>
+    /// <remarks>
+    /// This is a display projection and runs after comparison, so it cannot affect whether
+    /// two bodies match — the comparison reads <see cref="IlBodyDiffResult"/>, not these
+    /// rows. Pinned by <c>DisplayRows_DoNotCarryNul</c>.
+    /// </remarks>
+    static string Printable(string value)
+        => !value.Contains('\0', StringComparison.Ordinal)
+            ? value
+            : value.Replace("\0", "", StringComparison.Ordinal);
 
     public static ImmutableArray<IlDiffDisplayRow> ToDisplayRows(IEnumerable<IlDiffRow> rows)
     {
@@ -113,7 +130,7 @@ public static class IlDiffPrinter
 
         var builder = new StringBuilder();
         foreach (string line in lines)
-            builder.AppendLine(line);
+            builder.AppendLf(line);
         return builder.ToString().TrimEnd();
     }
 

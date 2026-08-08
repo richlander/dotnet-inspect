@@ -22,7 +22,7 @@ namespace Shared
         }
 
         // Distinct callers of the int and string Ping overloads. A caller graph rooted at one
-        // overload must report only its own caller; a CallerGraphKey that drops parameter
+        // overload must report only its own caller; correspondence that drops parameter
         // types would collapse these onto Ping and cross-link them (#1623 rung 1).
         public static void RunInt() => Target.Api.Ping(1);
 
@@ -43,5 +43,22 @@ namespace Shared
         public static void UseBox2() => new Target.Box<int, string>().Store(1);
 
         public static void UseEcho() => Target.GenericApi.Echo(1);
+
+        // #3340: one caller per method-generic arity.
+        public static void UseNonGenericStore() =>
+            Target.ArityApi.Store(1);
+
+        public static void UseGenericStore() =>
+            Target.ArityApi.Store<string>(1);
+
+        public static void CallBodiless(Target.IBodilessApi target) =>
+            target.Invoke();
+
+        public static void UseVararg() =>
+            Target.VarargApi.Sink(
+                new Target.VarargArg(),
+                __arglist(
+                    new Target.VarargArg(),
+                    new Target.VarargArg()));
     }
 }

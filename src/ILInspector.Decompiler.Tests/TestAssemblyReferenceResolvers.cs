@@ -36,7 +36,9 @@ static class TestAssemblyReferenceResolvers
     }
 
     static ResolvedAssemblyReference FromPath(AssemblyReferenceIdentity identity, string path, string provenance)
-        => new(identity, path, () => File.OpenRead(path), provenance);
+        => ResolvedAssemblyReference.CreateFromPath(
+            path,
+            AssemblyResolutionProvenance.Local(provenance));
 
     sealed class DelegateResolver(Func<AssemblyReferenceIdentity, AssemblyResolutionScope, ResolvedAssemblyReference?> resolve) : IAssemblyReferenceResolver
     {

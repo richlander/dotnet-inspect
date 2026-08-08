@@ -40,10 +40,10 @@ public partial record ApiOptions : IProjectionOptions
     /// <summary>
     /// Decompiler spelling options resolved from the tool-owned
     /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
-    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
-    /// shipped defaults; the render path treats null and
-    /// <see cref="PrinterOptions.Default"/> identically, keeping output
-    /// byte-for-byte unchanged when no config is present.
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). The CLI edge
+    /// supplies registry-derived product defaults even when no config file is
+    /// present. Null is reserved for low-level callers and selects the stable
+    /// <see cref="PrinterOptions.Default"/> rendering.
     /// </summary>
     public PrinterOptions? RenderOptions { get; init; }
 
@@ -78,9 +78,10 @@ public partial record ApiOptions : IProjectionOptions
     public bool RequestAllTaste { get; init; }
 
     /// <summary>
-    /// The <c>--readable-names</c> gesture: for this run, synthesize a readable
-    /// identifier (from a local's type and role) for any local that has no usable
-    /// PDB source name, instead of the <c>V_index</c> fallback (see
+    /// The <c>--readable-names</c> gesture: for this run, retain the CLI's default
+    /// readable local-name synthesis even when configuration disables it. A
+    /// readable identifier is derived from a local's type and role when no usable
+    /// PDB source name exists, instead of the <c>V_index</c> fallback (see
     /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
     /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
     /// do not affect IL, so it is not a byte-divergent lens and leaves the
@@ -154,6 +155,29 @@ public partial record ApiOptions : IProjectionOptions
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
     public string[]? Select { get; init; }
+
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
+
+    /// <summary>
+    /// Set when the preamble rejected <see cref="Select"/> against the single-type pipeline but the
+    /// same values resolve against the type listing, so the decision has to wait until the command
+    /// knows which of the two it renders.
+    /// </summary>
+    /// <remarks>
+    /// A dotted name that does not resolve to a type renders a listing, and the preamble cannot
+    /// know that: it picks its pipeline from the argument shape, long before the assembly is read.
+    /// Carrying the deferral means <see cref="IncludeSections"/> stays unset and
+    /// <see cref="Select"/> stays raw, so each render path resolves it against the pipeline that
+    /// will actually render it. Every site that can receive a deferred select either re-resolves
+    /// (the listing fallbacks) or rejects it (the single-type view); leaving it unhandled would
+    /// silently ignore the selector. See #3547.
+    /// </remarks>
+    public bool SelectDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }
@@ -180,7 +204,7 @@ public partial record ApiOptions : IProjectionOptions
     /// Such queries produce a focused section view, not the default tree shape.
     /// </summary>
     public bool HasSectionQuery =>
-        Select is { Length: > 0 } || Columns is { Length: > 0 } || Fields is { Length: > 0 };
+        Select is { Length: > 0 } || SelectDefault || Columns is { Length: > 0 } || Fields is { Length: > 0 };
 
     /// <summary>
     /// Returns the appropriate Markout formatter for the current output format.

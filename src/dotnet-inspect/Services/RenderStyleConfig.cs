@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DotnetInspector.Output;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Services;
@@ -17,8 +18,11 @@ internal sealed record RenderStyleResolution(
     string? Origin,
     IReadOnlyList<string> Warnings)
 {
-    /// <summary>No config file found: shipped defaults, no origin, no warnings.</summary>
-    public static RenderStyleResolution None { get; } = new(PrinterOptions.Default, null, []);
+    /// <summary>No config file found: CLI defaults, no origin, no warnings.</summary>
+    public static RenderStyleResolution None { get; } = new(
+        StyleOptionCatalog.DefaultOptions,
+        null,
+        []);
 }
 
 /// <summary>
@@ -71,6 +75,7 @@ internal static class RenderStyleConfig
     // aggregate with no editorconfig equivalent. Applied in file order like every
     // other key, so a later explicit per-knob line overrides it (last write wins).
     private const string FullTasteKey = "dotnet_inspect_style_full_taste";
+    private const string ReadableLocalNamesKey = "dotnet_inspect_style_readable_local_names";
 
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
@@ -106,7 +111,9 @@ internal static class RenderStyleConfig
     /// <summary>
     /// Discovers the nearest style file from <paramref name="startDirectory"/>,
     /// reads it, and parses it. Returns <see cref="RenderStyleResolution.None"/>
-    /// when no file is found, so the caller renders with shipped defaults.
+    /// when no file is found, so the caller renders with the user-facing CLI
+    /// defaults. Library and harness callers continue to use
+    /// <see cref="PrinterOptions.Default"/> directly.
     /// </summary>
     public static RenderStyleResolution Resolve(string startDirectory)
     {
@@ -122,7 +129,7 @@ internal static class RenderStyleConfig
         catch (Exception ex)
         {
             return new RenderStyleResolution(
-                PrinterOptions.Default,
+                RenderStyleResolution.None.Options,
                 path,
                 [$"could not read '{path}': {ex.Message}"]);
         }
@@ -138,7 +145,7 @@ internal static class RenderStyleConfig
     /// </summary>
     public static RenderStyleResolution Parse(string text, string? origin)
     {
-        var options = PrinterOptions.Default;
+        var options = RenderStyleResolution.None.Options;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -190,6 +197,14 @@ internal static class RenderStyleConfig
                     // subset shares no conflict group.
                     if (TryParseBool(value, out var fullTaste))
                         options = StyleOptionCatalog.ApplyFullTaste(options, fullTaste);
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case ReadableLocalNamesKey:
+                    // Compatibility spelling from the original opt-in option. The
+                    // registry now exposes the inverse, default-off slot-name knob.
+                    if (TryParseBool(value, out var readableLocalNames))
+                        options = options with { ReadableLocalNames = readableLocalNames };
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
@@ -250,16 +265,30 @@ internal sealed class RenderConfigWarningSink
     public RenderConfigWarningSink(IReadOnlyList<string> warnings) => _warnings = warnings;
 
     /// <summary>Emits the pending warnings to stderr the first time it is called; a no-op thereafter.</summary>
-    public void EmitOnce() => EmitOnce(Console.Error);
+    public void EmitOnce()
+    {
+        foreach (var message in TakePending())
+            CommandError.WriteWarning(message);
+    }
 
-    /// <summary>Test seam: emits to <paramref name="writer"/> so the latch and format are checkable without touching global console state.</summary>
-    internal void EmitOnce(TextWriter writer)
+    /// <summary>
+    /// Test seam: applies the latch and returns the messages that
+    /// <see cref="EmitOnce"/> would write, without touching global console
+    /// state.
+    /// </summary>
+    /// <remarks>
+    /// The seam used to be an overload taking a <see cref="TextWriter"/>, which
+    /// meant the warning was spelled -- prefix and all -- outside
+    /// <c>CommandError</c>, and a config-supplied message reached stderr
+    /// uncontained. Handing back the messages keeps the latch checkable while
+    /// leaving exactly one place that writes them (issue #3319).
+    /// </remarks>
+    internal IReadOnlyList<string> TakePending()
     {
         if (_emitted || _warnings.Count == 0)
-            return;
+            return [];
 
         _emitted = true;
-        foreach (var warning in _warnings)
-            writer.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
+        return [.. _warnings.Select(warning => $"{RenderStyleConfig.FileName}: {warning}")];
     }
 }

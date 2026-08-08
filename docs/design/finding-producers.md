@@ -251,9 +251,10 @@ projects it only when rendering. A complete empty census, absent method body,
 and failed inspection therefore remain distinct product outcomes.
 
 Portable-PDB source observations follow the same product-first path.
-`MetadataFindings` exposes source documents, member-to-document mappings,
-compilation options, and compilation references as separate identity-set
-censuses. Source reachability, checksum verification, authored/decompiled
+`SourceLinkFindings` exposes SourceLink-decorated documents and
+member-to-document mappings; `MetadataFindings` retains compilation options and
+references over raw portable-PDB data. Each is a separate identity-set census.
+Source reachability, checksum verification, authored/decompiled
 correspondence, and rebuild fidelity remain consumer operations over those raw
 observations. See [Source Finding Producers](source-finding-producers.md).
 

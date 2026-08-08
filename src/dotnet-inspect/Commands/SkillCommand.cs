@@ -60,7 +60,7 @@ public class SkillCommand
         var baseline = ReadResource(RouterResourceName);
         if (baseline is null)
         {
-            Console.Error.WriteLine($"Error: skill resource '{RouterResourceName}' not found.");
+            CommandError.Write($"skill resource '{RouterResourceName}' not found.");
             return 1;
         }
 
@@ -86,15 +86,15 @@ public class SkillCommand
 
         if (entry is null)
         {
-            Console.Error.WriteLine($"Error: Unknown skill '{name}'.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Available skills:");
+            CommandError.Write($"Unknown skill '{name}'.");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Available skills:");
             foreach (var s in Skills)
             {
-                Console.Error.WriteLine($"  {s.Name}");
+                CommandError.WriteLine($"  {s.Name}");
             }
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Run 'dotnet-inspect skill list' for descriptions.");
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine("Run 'dotnet-inspect skill list' for descriptions.");
             return 1;
         }
 
@@ -160,7 +160,7 @@ public class SkillCommand
         var content = ReadResource(resourceName);
         if (content is null)
         {
-            Console.Error.WriteLine($"Error: skill resource '{resourceName}' not found.");
+            CommandError.Write($"skill resource '{resourceName}' not found.");
             return 1;
         }
 

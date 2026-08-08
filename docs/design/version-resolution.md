@@ -4,6 +4,11 @@ dotnet-inspect uses Docker-style version tags to balance freshness against
 latency. Version discovery is cached briefly; package contents are cached
 permanently by exact version.
 
+The command modes, listing rules, source-scoped candidate caches, and
+payload-provenance rules describe current behavior. Package source mapping and
+the remaining source-policy boundaries are tracked by the
+[package source model](package-source-model.md).
+
 ## Four modes
 
 | Syntax | Behavior | Network I/O |
@@ -16,36 +21,61 @@ permanently by exact version.
 
 ### Pinned (`Name@version`)
 
-The version is treated as immutable. If the package is already in the NuGet
-global cache (`~/.nuget/packages`) or the app cache, it is used immediately.
-No network request is made. If the version has never been downloaded, it is
-fetched once and cached permanently.
+The version is treated as immutable and the caller supplies the candidate. If
+the package is already in a payload cache under an eligible producer, it is
+used immediately. A global-folder entry qualifies only when its
+`.nupkg.metadata.source` matches an eligible feed. No network request is made
+on a qualifying hit. Otherwise, the package is fetched from an eligible source
+and cached permanently under that producer.
 
 ### Latest stable (`Name`)
 
 This is the default and the most common case. Resolution follows this order:
 
-1. **Version cache** — check the version-resolution cache (1-hour TTL). If a
-   cached version string exists, use it.
+1. **Version cache** — check each eligible feed's version-resolution cache
+   (1-hour TTL) for a source-scoped candidate list.
 2. **Network** — if the version cache misses, query NuGet for the latest stable
    version.
-3. **Package cache** — after resolving the version, use the NuGet global cache
-   or app package cache for that exact version; download only if missing.
+3. **Package cache** — after resolving the version and retaining the feeds that
+   reported it, use only a payload cached under one of those producers;
+   otherwise download from one of them.
+
+When usable local package versions exist but freshness metadata has expired, the
+network lookup has a one-second budget. A timeout remains a visible resolution
+failure rather than silently selecting stale content, but the diagnostic lists
+the newest local versions and shows an exact `Name@Version` command that works
+without version discovery. Explicit `Name@latest` keeps its always-check
+behavior and is not subject to this shortened budget.
 
 Adding `--preview`/`--prerelease` switches step 1/2 to a separate prerelease-aware
 version cache/feed query and may resolve to a preview version.
 
-For platform ref packs (e.g., `Microsoft.NETCore.App.Ref`), the same strategy
-applies: if a pack directory exists on disk, use it without querying NuGet.
+SDK-installed ref and runtime packs are direct platform inputs, not NuGet
+package candidates, and may be selected from the installed SDK/runtime. A pack
+projected into dotnet-inspect's `packs-v2` cache is different: it is a
+source-derived payload. Its version comes from an eligible feed or candidate
+cache, and the projected payload must retain that producer's authorization.
 
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 
 Those aggregate metadata services are NuGet.org-specific. They are queried only
-when `api.nuget.org` is present in the resolved source list; a custom-only feed
-does not leak its package identity to NuGet.org or reuse a NuGet.org metadata
-cache entry for a same-named private package. Package acquisition and RID
-companion-package verification continue to follow the configured sources.
+when the resolved source list contains the canonical
+`https://api.nuget.org/v3/index.json` service index (an optional trailing slash
+is equivalent). Another path on that host, a subdomain, or an endpoint with a
+query or fragment is a custom source and goes through service-index discovery.
+A query on a configured custom service-index URL is preserved as part of that
+request; path completion, when needed for a feed root, happens before the
+query.
+A custom-only feed therefore does not leak its package identity to NuGet.org or
+reuse a NuGet.org metadata cache entry for a same-named private package. Package
+acquisition and RID companion-package verification continue to follow the
+configured sources.
+
+This describes the current gate. The target
+[package source model](package-source-model.md#enrichment-is-a-separate-capability)
+narrows it further when package source mapping is enabled: NuGet.org must be
+eligible for the package id, not merely active somewhere in configuration.
 
 ### Always check (`Name@latest`)
 
@@ -175,10 +205,11 @@ the nuget.org gallery:
   stable "latest" path already uses the listing-aware search API and is
   unaffected. This is nuget.org-only; other feeds have no listed concept and are
   returned unfiltered.
-- **Explicit access is preserved.** A pinned `Name@Version` (including
-  `Name@latest` and the addressable-vector endpoints) never enumerates, so a
-  known unlisted version still resolves and loads — matching NuGet's own
-  behavior of restoring a known unlisted version.
+- **Explicit access is preserved.** A pinned concrete `Name@Version` never
+  enumerates, so a known unlisted version still resolves and loads — matching
+  NuGet's own behavior of restoring a known unlisted version. `Name@latest`,
+  wildcard versions, and addressable-vector endpoints are discovered
+  coordinates; they retain the feeds that reported each selected version.
 - **Fail-open vs. fail-closed on outage.** If the registration index cannot be
   fetched or parsed (network failure, or a valid-JSON document whose shape
   defies the expected schema), the condition is logged and behavior depends on
@@ -190,9 +221,17 @@ the nuget.org gallery:
   unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
   cache TTL; only an authoritatively filtered list is persisted. The version
-  cache category is versioned (`versions-v2`) so lists written by an older,
-  pre-filter build are never read after upgrading — the filter takes effect
-  immediately rather than being delayed by up to the cache TTL.
+  cache category is versioned (`versions-v5`). Every key has unambiguous
+  producer, cache-kind, and package-id fields; latest entries additionally
+  identify stable or prerelease selection. Latest selection uses only the
+  matching flavor unless an authoritative listing snapshot is available; a
+  stable-only latest entry cannot prove that no newer preview exists.
+  Package-existence probes accept either flavor because they do not select a
+  coordinate. Neither another feed nor a suffix-bearing package id can alias
+  it. Candidate versions are accepted only as unpadded strings that parse as
+  NuGet versions, and selected values are normalized before they are cached or
+  used as coordinates. The category bump also fences older source-blind,
+  pre-filter, ambiguous-key, and noncanonical-NuGet.org-attribution entries.
 
 ### Revealing unlisted versions
 
@@ -211,10 +250,10 @@ listing, so verifying a known unlisted version reports it rather than
 feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions 1 --include-unlisted`) it takes the listing-aware path — every
-single-version shortcut (the local package cache, a pinned `Name@Version`, and
-`Name@latest`) still emits a one-row tagged table rather than a bare version, so
-the result always carries the `listed`/`unlisted` column the flag requests.
+(`--versions 1 --include-unlisted`) it takes the listing-aware path. A pinned
+`Name@Version` and `Name@latest` still emit a one-row tagged table rather than a
+bare version, so the result always carries the `listed`/`unlisted` column the
+flag requests.
 (`Name@latest` resolves through the listing-aware latest path, so its single row
 is listed by construction.) With an addressable range (`Name@A..B --versions
 --include-unlisted`) the vector is resolved from the full listing set — unlisted
@@ -226,21 +265,29 @@ range (without the flag) resolves against listed versions only, matching the
 hidden default.
 
 The version-list cache stores the listed bit per version. Each cache line
-carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
-the encoding is unambiguous for any version text; a legacy suffix-less line is
-read as listed.
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted).
+Publication is atomic. A malformed or empty latest entry falls through to the
+listing snapshot or feed, while a missing listing suffix, invalid version, or
+empty snapshot is a cache miss rather than authoritative candidate metadata.
 
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
 | --- | --- | --- | --- |
-| NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
-| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
+| NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client; payload-only, with producer in `.nupkg.metadata` |
+| App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v5/{name}/{version}/{source}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v5/` | 1 hour | dotnet-inspect; one entry per producer, cache kind, package id, and latest flavor where applicable |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
+
+The app package cache carries a `{source}` segment because cached content is
+scoped to the source that supplied it; see
+[Source conformance](cache-concurrency.md#source-conformance). The NuGet global
+cache has no such segment. dotnet-inspect reads its
+`.nupkg.metadata.source` before using it as a payload replica of an authorized
+feed.
 
 ## Network download/cache behavior
 
@@ -250,9 +297,10 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 
 | Download or check | Cache behavior |
 | --- | --- |
-| Pinned package `.nupkg` extraction | Uses NuGet global cache or app package cache permanently; downloads only when missing. |
-| Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet; package caches are used only after the version is resolved. |
+| Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
+| Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
+| Single-version listing (`--version` or `--versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
@@ -277,11 +325,59 @@ complete app-cache entries transactionally. Separate processes may duplicate
 immutable work, but readers observe only a marked, atomically published winner.
 Platform-pack projection uses the same model in a separate cache namespace.
 
-Cache identity is the cache root, normalized package id, and version.
-Source order selects the producer on a miss and is not a separate durable cache
-identity. See [cache concurrency and publication](cache-concurrency.md) for the
+Cache identity is the cache root, normalized package id, version, and the source
+that supplied the bytes. A discovered coordinate may be fulfilled only by a
+feed that reported it; a pinned coordinate may be fulfilled by any eligible
+feed. See the
+[cache concurrency and publication](cache-concurrency.md) for the
 single-flight boundary, dependency-overlap safety, filesystem rename semantics,
 failure model, and NuGet, Docker, and Git precedents.
+
+The NuGet global folder participates only in payload fulfillment. Its recorded
+source must be authorized for the exact coordinate; installed versions do not
+expand the candidate set. `--no-nuget-cache` excludes it entirely.
+
+## Multiple sources
+
+The active sources form an eligible set, not a precedence list. Package source
+mapping may narrow that set for a package id; see the
+[package source model](package-source-model.md). Version operations combine all
+eligible sources.
+
+| Operation | Combination | Order sensitive |
+| --- | --- | --- |
+| `--latest-version` | Highest semantic version carried by any eligible source. | No |
+| `--versions` | Union across all sources, deduplicated. | No |
+| `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
+
+An added private or nightly feed can therefore raise the latest-version answer
+even when NuGet.org also carries the package. Source declaration order cannot
+make one feed shadow another. Use package source mapping, or select a single
+source, when only one feed may answer for an id.
+
+`--versions-with-feed` keeps provenance that the merged views discard. It shows
+which feeds carry each coordinate, including a coordinate published by more than
+one feed.
+
+### Listing status across sources
+
+Listing status is a nuget.org concept; see
+[listed vs. unlisted versions](#listed-vs-unlisted-versions). Other feeds do not
+publish one, so their versions are reported as listed. That leaves the merged
+views with a question they cannot answer well: when a version is unlisted on
+nuget.org but also published to a private feed, is it listed?
+
+The merged views answer "listed" — a version listed on any source counts as
+listed. This keeps a version that is genuinely available from a private feed from
+disappearing, but it does mean adding a private feed that mirrors nuget.org can
+re-surface a version nuget.org has hidden.
+
+`--versions-with-feed` does not have to answer, because it has already split the
+version by feed. It applies listing per row, so the nuget.org row is hidden while
+the private-feed row survives. When the two views disagree about a version, this
+is why.
+
+These semantics are pinned by `SourcePrecedenceTests`.
 
 ## Design rationale
 
@@ -291,11 +387,13 @@ request deduplication is covered separately in
 
 | Docker command | dotnet-inspect command | Version behavior |
 | --- | --- | --- |
-| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Uses a pinned, reproducible coordinate. |
-| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Uses the newest locally cached stable version, or resolves from NuGet when absent. |
+| `docker run nginx:1.25` | `dotnet-inspect package System.Text.Json@10.0.0` | Fixes the version; producer provenance determines the bytes. |
+| `docker run nginx` | `dotnet-inspect package System.Text.Json` | Resolves the newest stable candidate from selected feeds, then uses a matching cached payload when available. |
 | `docker pull nginx` | `dotnet-inspect package System.Text.Json@latest` | Always checks NuGet for the current version. |
 
-NuGet packages are immutable once published (a given version string always
-refers to the same content), so pinned versions never go stale. The bare-name
-default optimizes for the interactive CLI use case where sub-second response
-time matters more than always having the absolute latest version.
+A pinned version does not by itself guarantee byte reproducibility across
+feeds: two feeds may publish different payloads for one coordinate. A pinned
+coordinate plus one authorized producer, or another verified content identity,
+is reproducible. The bare-name default optimizes for the interactive CLI use
+case where sub-second response time matters more than always having the
+absolute latest version.

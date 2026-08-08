@@ -27,11 +27,35 @@ public class MemberIdentityValueEqualityTests
         var differentDuplicates = Method(
             ImmutableArray.Create(Int32, String, String),
             ImmutableArray.Create("T", "U"));
+        MethodIdentity differentHeader = first with
+        {
+            SignatureHeader = 0x05,
+        };
+        MethodIdentity capturedNonVarargCount = first with
+        {
+            SignatureHeader = 0x10,
+            RequiredParameterCount = first.ParameterTypes.Length,
+        };
+        MethodIdentity vararg = first with
+        {
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        MethodIdentity differentRequiredCount = vararg with
+        {
+            RequiredParameterCount = 2,
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.Equal(first, capturedNonVarargCount);
+        Assert.Equal(
+            first.GetHashCode(),
+            capturedNonVarargCount.GetHashCode());
         Assert.NotEqual(first, reordered);
         Assert.NotEqual(first, differentDuplicates);
+        Assert.NotEqual(first, differentHeader);
+        Assert.NotEqual(first, differentRequiredCount);
     }
 
     [Fact]
@@ -71,12 +95,30 @@ public class MemberIdentityValueEqualityTests
             ImmutableArray.Create(Int32, String),
             ImmutableArray.Create(String),
             ImmutableArray.Create(String));
+        MemberRef capturedNonVarargCount = first with
+        {
+            RequiredParameterCount = first.ParameterTypes.Length,
+        };
+        MemberRef vararg = first with
+        {
+            SignatureHeader = 0x05,
+            RequiredParameterCount = 1,
+        };
+        MemberRef differentRequiredCount = vararg with
+        {
+            RequiredParameterCount = 2,
+        };
 
         Assert.Equal(first, equivalent);
         Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.Equal(first, capturedNonVarargCount);
+        Assert.Equal(
+            first.GetHashCode(),
+            capturedNonVarargCount.GetHashCode());
         Assert.NotEqual(first, reordered);
         Assert.NotEqual(first, differentTypeArguments);
         Assert.NotEqual(first, differentOpenParameters);
+        Assert.NotEqual(first, differentRequiredCount);
     }
 
     [Fact]

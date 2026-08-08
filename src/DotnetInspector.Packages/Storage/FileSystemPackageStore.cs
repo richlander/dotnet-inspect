@@ -13,29 +13,44 @@ namespace DotnetInspector.Packages;
 public sealed class FileSystemPackageStore : IPackageStore
 {
     /// <inheritdoc />
-    public IPackageContent? TryGetCached(string packageName, string version, Action<string>? log = null)
+    public IPackageContent? TryGetCached(
+        string packageName,
+        string version,
+        IReadOnlyList<string>? allowedSourceKeys,
+        Action<string>? log = null)
     {
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        string? cachedPath;
+        CachedPackage? cached;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
         {
-            cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
+            cached = NuGetCache.TryGetCachedPackageContent(
+                normalizedName,
+                normalizedVersion,
+                allowedSourceKeys);
         }
 
-        if (cachedPath == null || !NuGetCache.IsCachedPackageValid(cachedPath))
+        if (cached == null || !NuGetCache.IsCachedPackageValid(cached.ExtractPath))
             return null;
 
-        log?.Invoke($"Using cached package: {cachedPath}");
-        var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
-        return new FileSystemPackageContent(cachedPath, cachedNupkg, fromCache: true);
+        log?.Invoke($"Using cached package: {cached.ExtractPath}");
+        var cachedNupkg = FindNupkgInDirectory(
+            cached.ExtractPath,
+            normalizedName,
+            normalizedVersion);
+        return new FileSystemPackageContent(
+            cached.ExtractPath,
+            cachedNupkg,
+            fromCache: true,
+            cached.ProducerKey);
     }
 
     /// <inheritdoc />
     public async ValueTask<IPackageContent> CommitAsync(
         string packageName,
         string version,
+        string sourceKey,
         Stream nupkg,
         CancellationToken cancellationToken = default)
     {
@@ -65,12 +80,14 @@ public sealed class FileSystemPackageStore : IPackageStore
                 extractPath,
                 nupkgPath,
                 packageName,
-                version);
+                version,
+                sourceKey);
 
             return new FileSystemPackageContent(
                 committed.ExtractPath,
                 committed.NupkgPath,
-                fromCache: true);
+                fromCache: true,
+                committed.ProducerKey);
         }
         finally
         {
@@ -90,10 +107,6 @@ public sealed class FileSystemPackageStore : IPackageStore
             }
         }
     }
-
-    /// <inheritdoc />
-    public string? TryGetLatestCachedVersion(string packageName)
-        => NuGetCache.TryGetLatestCachedVersion(packageName);
 
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {

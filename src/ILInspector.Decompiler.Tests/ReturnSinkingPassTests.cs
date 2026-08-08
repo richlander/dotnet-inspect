@@ -299,6 +299,139 @@ public class ReturnSinkingPassTests
         Assert.IsType<LoadLocal>(ret.Value);
     }
 
+    // ---- rethrowing catch arms (#3552) -------------------------------------
+    // A `return` inside `using { try { … } catch { … throw; } }` was left as an
+    // accumulator because the rethrowing arm has no fall-through tail and the
+    // old rule demanded one from every arm. A `using` reaches this pass as its
+    // underlying try/finally (UsingStatementPass runs later), so these fixtures
+    // build that shape.
+
+    static IrFunction RaisedSample(string methodName) => RaisedSample(methodName, typeof(ReturnSinkSamples));
+
+    static IrFunction RaisedSample(string methodName, Type declaringType)
+    {
+        using var source = MetadataSource.Open(declaringType.Assembly.Location);
+        var function = IrImporter.Import(source, declaringType.FullName!, methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        function!.CheckInvariant();
+        return function;
+    }
+
+    // Positive control: the plain using body already sank before this change.
+    // It pins that the new arm rule did not regress the simple shape.
+    [Fact]
+    public void ReturnFromUsingBody_SinksIntoTheUsing()
+    {
+        var function = RaisedSample(nameof(ReturnSinkSamples.ReturnFromUsingBody));
+
+        var usingStatement = Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Contains(usingStatement.Body.Descendants.OfType<Return>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<Return>(), r => r.Value is LoadLocal);
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("return V_", output);
+    }
+
+    // The Azure TableClient.Create shape, and the reason for the change.
+    [Fact]
+    public void ReturnFromTryInsideUsing_SinksThroughRethrowingCatchArm()
+    {
+        var function = RaisedSample(nameof(ReturnSinkSamples.ReturnFromTryInsideUsing));
+
+        var tryCatch = Assert.Single(function.Descendants.OfType<TryCatch>());
+        Assert.Contains(tryCatch.TryBody.Descendants.OfType<Return>(), _ => true);
+        Assert.DoesNotContain(function.Descendants.OfType<Return>(), r => r.Value is LoadLocal);
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.DoesNotContain("return V_", output);
+    }
+
+    [Fact]
+    public void CatchArmStoringAccumulatorBeforeRethrow_StaysAccumulator()
+    {
+        // The new rule skips a catch arm that cannot fall through, but this arm
+        // *stores* the accumulator before rethrowing. That store can never
+        // become a return, so the all-stores-consumed guard must reject the
+        // whole plan rather than silently dropping it.
+        var exception = TypeRef.CoreLib("System", "Exception");
+        var tryBody = Container(Block(1, new StoreLocal(0, Int32, new Constant(1, Int32))));
+        var catchBody = Container(Block(2,
+            new StoreLocal(0, Int32, new Constant(2, Int32)),
+            new Throw(new CaughtException(exception))));
+        var entry = Block(
+            new TryCatch(tryBody, [new CatchClause(exception, catchBody)]),
+            new Return(new LoadLocal(0, Int32)));
+        var function = Function(Container(entry), Int32);
+
+        new ReturnSinkingPass().Run(function, PassContext.None);
+
+        Assert.Equal(2, StoreCount(function, 0));
+        var ret = Assert.Single(entry.Children.OfType<Return>());
+        Assert.IsType<LoadLocal>(ret.Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void RethrowingCatchArmWithNoAccumulatorStore_Sinks()
+    {
+        // Positive control for the negative above: identical shape minus the
+        // stranded catch-arm store, so the plan is complete and sinks.
+        var exception = TypeRef.CoreLib("System", "Exception");
+        var tryBody = Container(Block(1, new StoreLocal(0, Int32, new Constant(1, Int32))));
+        var catchBody = Container(Block(2, new Throw(new CaughtException(exception))));
+        var entry = Block(
+            new TryCatch(tryBody, [new CatchClause(exception, catchBody)]),
+            new Return(new LoadLocal(0, Int32)));
+        var function = Function(Container(entry), Int32);
+
+        new ReturnSinkingPass().Run(function, PassContext.None);
+
+        Assert.Equal(0, StoreCount(function, 0));
+        Assert.Empty(entry.Children.OfType<Return>());
+        var sunk = Assert.Single(function.Descendants.OfType<Return>());
+        Assert.IsType<Constant>(sunk.Value);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CatchArmBreakingOutOfLoop_KeepsTheBreakAndTheAccumulator()
+    {
+        // A catch arm ending in `break` transfers to the enclosing loop and
+        // skips the trailing return, so it must not be folded. CollectBlockTail
+        // accepts a `StoreLocal; Break` pair as a tail and Apply detaches the
+        // Break, so misclassifying this arm as falling through would rewrite the
+        // loop `break` into a method `return`.
+        AssertBreakSurvives(nameof(ReturnSinkBreakSamples.CatchArmBreaksOutOfLoop));
+    }
+
+    // The same misclassification on the non-catch paths. The try-body and
+    // finally-protected-body cases were wrong on main: the arm's `break` was
+    // detached and its store became a `return`, silently deleting a loop exit.
+    // Both fail without the fall-through guard. The if/else case already
+    // printed correctly on main -- Roslyn's lowering does not present that
+    // shape to the pass -- so it pins the uniform arm rule rather than
+    // witnessing a repaired regression.
+    [Theory]
+    [InlineData(nameof(ReturnSinkBreakSamples.TryBodyBreaksOutOfLoop))]
+    [InlineData(nameof(ReturnSinkBreakSamples.FinallyProtectedBodyBreaksOutOfLoop))]
+    [InlineData(nameof(ReturnSinkBreakSamples.IfElseArmBreaksOutOfLoop))]
+    public void ArmBreakingOutOfLoop_KeepsTheBreakAndTheAccumulator(string methodName) =>
+        AssertBreakSurvives(methodName);
+
+    static void AssertBreakSurvives(string methodName)
+    {
+        var function = RaisedSample(methodName, typeof(ReturnSinkBreakSamples));
+
+        string? output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("break;", output);
+        // The accumulator survives: the trailing `return V` is left untouched.
+        Assert.Contains(function.Descendants.OfType<Return>(), r => r.Value is LoadLocal);
+    }
+
     static Block Block(int startOffset, params IrNode[] statements)
     {
         var block = new Block(startOffset);

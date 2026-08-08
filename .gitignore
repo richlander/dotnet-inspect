@@ -482,7 +482,6 @@ $RECYCLE.BIN/
 *.swp
 *.nettrace
 *.speedscope.json
-docs/field-parser.md
 .claude/worktrees/
 
 # Local development worktrees (AGENTS.md: all work happens in worktrees)

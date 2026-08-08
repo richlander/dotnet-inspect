@@ -48,7 +48,7 @@ public sealed record PackageVersionRange
             || separatorIndex + 2 >= versionRange.Length
             || versionRange.IndexOf("..", separatorIndex + 2, StringComparison.Ordinal) >= 0)
         {
-            error = $"Error: Invalid package version range '{packageReference}'. Expected Package@A..B.";
+            error = $"Invalid package version range '{packageReference}'. Expected Package@A..B.";
             return false;
         }
 
@@ -56,13 +56,13 @@ public sealed record PackageVersionRange
         string endText = versionRange[(separatorIndex + 2)..];
         if (!NuGetVersion.TryParse(startText, out var start))
         {
-            error = $"Error: Invalid package version '{startText}' in range '{packageReference}'.";
+            error = $"Invalid package version '{startText}' in range '{packageReference}'.";
             return false;
         }
 
         if (!NuGetVersion.TryParse(endText, out var end))
         {
-            error = $"Error: Invalid package version '{endText}' in range '{packageReference}'.";
+            error = $"Invalid package version '{endText}' in range '{packageReference}'.";
             return false;
         }
 
@@ -76,16 +76,21 @@ public sealed record PackageVersionRange
 /// </summary>
 public sealed record PackageVersionAddress
 {
-    internal PackageVersionAddress(int position, NuGetVersion version)
+    internal PackageVersionAddress(
+        int position,
+        NuGetVersion version,
+        IReadOnlyList<string>? reportingSourceUrls = null)
     {
         Position = position;
         Version = version;
+        ReportingSourceUrls = reportingSourceUrls ?? [];
     }
 
     public int Position { get; }
     public int Ordinal => Position + 1;
     public string Selector => $"#{Ordinal}";
     public NuGetVersion Version { get; }
+    public IReadOnlyList<string> ReportingSourceUrls { get; }
 }
 
 /// <summary>
@@ -125,18 +130,44 @@ public sealed class PackageVersionVector
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(range);
 
-        var versions = await PackageExtractor.GetVersionsAsync(
+        var candidates = await PackageExtractor.GetVersionCandidatesAsync(
             client,
             range.PackageId,
             range.IncludesPrerelease || includePrerelease,
-            int.MaxValue,
             log,
             sourceOptions);
 
-        if (versions is null)
+        if (candidates is null)
             throw new InvalidOperationException($"Could not retrieve versions for package '{range.PackageId}'.");
 
-        return Create(range, versions, includePrerelease);
+        PackageVersionVector vector = Create(
+            range,
+            candidates.Select(candidate => candidate.Version),
+            includePrerelease);
+        var addresses = vector.Addresses
+            .Select(address =>
+            {
+                PackageVersionResolution candidate = candidates.Single(
+                    item => NuGetVersion.TryParse(
+                            item.Version,
+                            out var parsed)
+                        && VersionComparer.Equals(
+                            parsed,
+                            address.Version));
+                return new PackageVersionAddress(
+                    address.Position,
+                    address.Version,
+                    [
+                        .. candidate.ReportingSources.Select(
+                            source => source.Url),
+                    ]);
+            })
+            .ToImmutableArray();
+        return new PackageVersionVector(
+            vector.PackageId,
+            vector.Start,
+            vector.End,
+            addresses);
     }
 
     public static PackageVersionVector Create(

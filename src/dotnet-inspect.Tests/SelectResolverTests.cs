@@ -61,6 +61,32 @@ public class SelectResolverTests
     }
 
     [Fact]
+    public void ResolveSelect_DependencyAlias_ResolvesToReferences()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Dependencies"], ["References"]);
+
+        Assert.Equal("References", Assert.Single(result.Sections!));
+        Assert.Empty(result.Unresolved);
+    }
+
+    [Fact]
+    public void TryResolveCategory_AliasDoesNotOverrideExactSection()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Performance"] = ["Performance: Boxing"]
+        };
+
+        Assert.False(SelectResolver.TryResolveCategory(
+            "Performance", categories, ["Performance"], out _, out _));
+        Assert.True(SelectResolver.TryResolveCategory(
+            "Performance", categories, [], out var category, out var sections));
+        Assert.Equal("@Performance", category);
+        Assert.Equal("Performance: Boxing", Assert.Single(sections));
+    }
+
+    [Fact]
     public void ResolveSelect_AllSelector_ReturnsAllSections()
     {
         var result = SelectResolver.ResolveSelectAsSections(["@All"], TestSections);
@@ -70,14 +96,28 @@ public class SelectResolverTests
         Assert.Equal(TestSections.OrderBy(s => s), result.Sections!.OrderBy(s => s));
     }
 
+    /// <summary>
+    /// The default preset is reached only through bare <c>-S</c>, which arrives as its own flag.
+    /// <c>@Default</c> is not a selector value, so spelling it is an ordinary miss (#3547).
+    /// </summary>
     [Fact]
-    public void ResolveSelect_DefaultSelector_ReturnsDefaultSections()
+    public void ResolveSelect_SelectDefaultFlag_ReturnsDefaultSections()
     {
-        var result = SelectResolver.ResolveSelectAsSections(["@Default"], TestSections, ["Package Info"]);
+        var result = SelectResolver.ResolveSelectAsSections(
+            null, TestSections, ["Package Info"], selectDefault: true);
 
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(["Package Info"], result.Sections!.ToArray());
+    }
+
+    [Fact]
+    public void ResolveSelect_DefaultPoleSpelledOut_DoesNotResolve()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(["@Default"], TestSections, ["Package Info"]);
+
+        Assert.Null(result.Sections);
+        Assert.Equal("@Default", Assert.Single(result.Unresolved).Value);
     }
 
     [Fact]
@@ -135,6 +175,21 @@ public class SelectResolverTests
         Assert.Single(result.Unresolved);
         Assert.False(result.Unresolved[0].IsGlob);
         Assert.Contains("Package Info", result.Unresolved[0].Suggestions);
+    }
+
+    [Fact]
+    public void ResolveSelect_ExactMiss_SuggestsCategoriesAndSectionsTogether()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Library"] = ["Library Info"]
+        };
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Library"], ["Library Info"], categories: categories);
+
+        var miss = Assert.Single(result.Unresolved);
+        Assert.Equal(["@Library", "Library Info"], miss.Suggestions);
     }
 
     [Fact]

@@ -228,7 +228,7 @@ internal static class NotMyTypeCensus
 
     static string Format(DecompilerHarnessReport<NmtCensusReport> report, int maxExamples, NmtCensusFormat format)
     {
-        var output = new StringWriter();
+        var output = new StringWriter { NewLine = "\n" };
         if (format == NmtCensusFormat.Markdown)
         {
             MarkoutSerializer.Serialize(

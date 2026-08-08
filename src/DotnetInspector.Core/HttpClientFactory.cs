@@ -5,33 +5,85 @@ using System.Net.Sockets;
 namespace DotnetInspector.Core;
 
 /// <summary>
+/// Process-wide configuration captured by clients when they are constructed.
+/// </summary>
+public sealed record HttpClientFactoryOptions
+{
+    public static TimeSpan BaselineTimeout { get; } = TimeSpan.FromSeconds(30);
+
+    public bool Offline { get; init; }
+
+    public TimeSpan DefaultTimeout { get; init; } = BaselineTimeout;
+}
+
+/// <summary>
 /// Factory for creating HttpClient instances with consistent configuration.
-/// Call <see cref="Initialize"/> once at startup to configure offline mode.
+/// Call <see cref="Initialize"/> once at startup to configure new clients.
 /// </summary>
 public static class HttpClientFactory
 {
     private const string UserAgent = "dotnet-inspect";
-    private static bool _offline;
+    private static HttpClientFactoryOptions _options = new();
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
     private static HttpClient? _untrustedFetchOverride;
     private static IDisposable? _networkTrafficLoggingSubscription;
+    private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
 
     /// <summary>
     /// Configure the factory before first use. Safe to call multiple times;
     /// the shared instance is created lazily on first access.
     /// </summary>
-    public static void Initialize(bool offline = false)
+    /// <param name="options">Configuration captured by clients constructed after this call.</param>
+    /// <remarks>
+    /// "Before first use" is a real precondition, not advice, and it covers both settings.
+    /// Each is consumed when a client is constructed rather than per request:
+    /// <see cref="HttpClientFactoryOptions.DefaultTimeout"/> becomes <see cref="HttpClient.Timeout"/>,
+    /// and <see cref="HttpClientFactoryOptions.Offline"/> decides whether an offline handler joins
+    /// the chain. A call made once <see cref="Shared"/> exists therefore governs later <see cref="CreateClient"/>
+    /// calls and leaves that instance alone. <see cref="ResetSharedForTesting"/> is how the
+    /// tests reconfigure; the CLI is unaffected because <c>Program.cs</c> calls this in
+    /// top-level code before any command runs. Pinned by
+    /// <c>HttpClientFactoryTests.Initialize_OnceSharedExists_GovernsOnlyLaterClients</c>.
+    /// </remarks>
+    public static void Initialize(HttpClientFactoryOptions options)
     {
-        _offline = offline;
+        ArgumentNullException.ThrowIfNull(options);
+        _options = options;
     }
 
-    public static bool IsOffline => _offline;
+    public static bool IsOffline => _options.Offline;
+
+    /// <summary>
+    /// Installs a decorator around the outermost handler of shared clients, so that a source
+    /// answering 401 can have credentials supplied and its request replayed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This layer knows nothing about NuGet credential plugins on purpose: it sits below
+    /// NuGetFetch and cannot reference it. The composition root installs
+    /// <c>NuGetFetch.Plugins.PluginAuthenticationHandler</c> through this seam.
+    /// </para>
+    /// <para>
+    /// The decorator is captured when a client is constructed, so it must be set before first
+    /// use of <see cref="Shared"/>. It is deliberately not applied to
+    /// <see cref="SharedUntrustedFetch"/>: that client fetches URLs that originate in untrusted
+    /// artifacts, and feed credentials have no business being offered to them.
+    /// </para>
+    /// </remarks>
+    public static void SetAuthenticationDecorator(Func<HttpMessageHandler, HttpMessageHandler>? decorator) =>
+        _authenticationDecorator = decorator;
 
     /// <summary>
     /// Enables logging for managed HTTP request observations. Requests are still
     /// allowed to proceed; use offline mode to block network access.
     /// </summary>
+    /// <param name="contain">
+    /// Applied to every composed line before it reaches the sink. Required, not
+    /// defaulted: the logged URL carries the package id from argv, so a line
+    /// terminator in it would forge an unindented stderr line, and a seam a caller
+    /// can omit is one a caller will omit.
+    /// </param>
     /// <param name="sink">
     /// Where to write the log. The default (<c>null</c>) binds <see cref="Console.Error"/>
     /// once, as a process-lifetime subscription kept in a static field. Pass an explicit
@@ -39,13 +91,18 @@ public static class HttpClientFactory
     /// unsubscribe. The sink is captured here, not read at publish time, so logging never
     /// follows a later <see cref="Console.Error"/> swap (issue #705).
     /// </param>
-    public static IDisposable EnableNetworkTrafficLogging(System.IO.TextWriter? sink = null)
+    public static IDisposable EnableNetworkTrafficLogging(
+        Func<string, string> contain, System.IO.TextWriter? sink = null)
     {
+        ArgumentNullException.ThrowIfNull(contain);
+
         if (sink is not null)
-            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink));
+            return NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(sink, contain));
 
         return _networkTrafficLoggingSubscription ??=
-            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error));
+#pragma warning disable RS0030 // An accounted stderr sink: NetworkTrafficLogConsumer applies `contain` to every line before writing it (issue #3319).
+            NetworkTelemetry.Subscribe(new NetworkTrafficLogConsumer(Console.Error, contain));
+#pragma warning restore RS0030
     }
 
     /// <summary>
@@ -65,7 +122,7 @@ public static class HttpClientFactory
     /// Gets the shared HttpClient instance for the application.
     /// This instance should be used throughout the app lifetime and not disposed.
     /// </summary>
-    public static HttpClient Shared => _shared ??= CreateNew();
+    public static HttpClient Shared => _shared ??= CreateClient();
 
     /// <summary>
     /// Shared, process-lifetime SSRF-hardened client for fetching content from URLs that originate
@@ -96,14 +153,15 @@ public static class HttpClientFactory
     /// In offline mode, all requests will throw <see cref="OfflineException"/>.
     /// When traffic logging is enabled (DEBUG startup), requests log their traffic kind and URL to stderr.
     /// </summary>
-    public static HttpClient CreateNew(TimeSpan? timeout = null)
+    public static HttpClient CreateClient()
     {
+        HttpClientFactoryOptions options = _options;
         HttpMessageHandler handler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.All
         };
 
-        if (_offline)
+        if (options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
@@ -111,9 +169,16 @@ public static class HttpClientFactory
 
         handler = new NetworkTelemetryHandler(handler, NetworkClientKinds.Shared);
 
+        // Outermost, so each replayed attempt is observed by the telemetry and counting
+        // handlers below it. A 401 followed by an authenticated retry really is two requests.
+        if (_authenticationDecorator is not null)
+        {
+            handler = _authenticationDecorator(handler);
+        }
+
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        client.Timeout = options.DefaultTimeout;
         return client;
     }
 
@@ -123,7 +188,13 @@ public static class HttpClientFactory
     /// including redirect hops — is validated to resolve to a public IP address, and automatic
     /// redirects are capped. Offline mode and DEBUG traffic logging are still honored.
     /// </summary>
-    public static HttpClient CreateUntrustedFetchClient(TimeSpan? timeout = null)
+    /// <remarks>
+    /// The 30 second default here is fixed on purpose. It does not follow
+    /// <see cref="HttpClientFactoryOptions.DefaultTimeout"/>, because the URLs this client visits
+    /// come from untrusted artifacts rather than from a feed the operator chose. Pinned by
+    /// <c>HttpClientFactoryTests.CreateUntrustedFetchClient_DoesNotFollowTheConfiguredDefaultTimeout</c>.
+    /// </remarks>
+    public static HttpClient CreateUntrustedFetchClient()
     {
         HttpMessageHandler handler = new SocketsHttpHandler
         {
@@ -133,7 +204,7 @@ public static class HttpClientFactory
             ConnectCallback = SsrfGuardedConnectAsync,
         };
 
-        if (_offline)
+        if (_options.Offline)
             handler = new OfflineHandler(handler);
 
         if (InfoTracker.Enabled)
@@ -143,7 +214,7 @@ public static class HttpClientFactory
 
         var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Add("User-Agent", UserAgent);
-        client.Timeout = timeout ?? TimeSpan.FromSeconds(30);
+        client.Timeout = HttpClientFactoryOptions.BaselineTimeout;
         return client;
     }
 

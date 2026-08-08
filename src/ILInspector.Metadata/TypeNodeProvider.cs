@@ -80,13 +80,17 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {
         string name = NameDecoder.GetGenericMethodParameter(context, index);
-        return new GenericParameterNode(name);
+        return new GenericParameterNode(
+            name,
+            hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true);
     }
 
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
     {
         string name = NameDecoder.GetGenericTypeParameter(context, index);
-        return new GenericParameterNode(name);
+        return new GenericParameterNode(
+            name,
+            hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);
     }
 
     public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature) => new FunctionPointerTypeNode(signature);

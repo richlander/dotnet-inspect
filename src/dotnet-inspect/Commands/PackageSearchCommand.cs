@@ -20,12 +20,34 @@ public class PackageSearchCommand
 
         try
         {
-            var results = await NuGetSearchService.SearchAsync(
+            var outcome = await NuGetSearchService.SearchAsync(
                 context.HttpClient,
                 options.Query,
                 options.Take,
                 options.Prerelease,
-                logger.Log);
+                logger.Log,
+                options.SourceOptions);
+
+            var results = outcome.Results;
+
+            // Sources that could not be searched are reported even when other sources
+            // succeeded: a partial answer must not read like a complete one.
+            foreach (var failure in outcome.Failures)
+            {
+                CommandError.WriteWarning($"could not search {failure}");
+            }
+
+            // A genuine zero-result search succeeded; an incomplete one did not.
+            var exitCode = outcome.Failures.Count > 0 ? 1 : 0;
+
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
+            {
+                CountOutput.WriteCount(results.Count);
+                return exitCode;
+            }
 
             if (options.JsonOutput)
             {
@@ -34,13 +56,13 @@ public class PackageSearchCommand
                     Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(
                         result, PackageSearchJsonlContext.Default.NuGetSearchResult));
                 }
-                return 0;
+                return exitCode;
             }
 
             if (results.Count == 0)
             {
-                Console.Error.WriteLine($"No packages found for \"{options.Query}\".");
-                return 0;
+                CommandError.WriteLine($"No packages found for \"{options.Query}\".");
+                return exitCode;
             }
 
             var view = new PackageSearchResultView
@@ -51,15 +73,14 @@ public class PackageSearchCommand
                     r.Version,
                     PackageSearchOutputFormatter.FormatDownloads(r.TotalDownloads),
                     PackageSearchOutputFormatter.TruncateDescription(r.Description, 60)
-                )).ToList(),
-                Description = $"{results.Count} package(s) found"
+                )).ToList()
             };
-            MarkoutSerializer.Serialize(view, Console.Out, new PlainTextFormatter(), PackageSearchResultContext.Default);
-            return 0;
+            MarkoutSerializer.Serialize(view, Console.Out, new MarkdownFormatter(), PackageSearchResultContext.Default);
+            return exitCode;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            CommandError.Write(ex);
             return 1;
         }
     }
@@ -87,4 +108,10 @@ public record PackageSearchOptions
 
     /// <summary>Show verbose progress messages.</summary>
     public bool Verbose { get; init; }
+
+    /// <summary>Reduce the result table to a single row count.</summary>
+    public bool Count { get; init; }
+
+    /// <summary>NuGet sources to search. Defaults to nuget.org when unset.</summary>
+    public NuGetSourceOptions? SourceOptions { get; init; }
 }

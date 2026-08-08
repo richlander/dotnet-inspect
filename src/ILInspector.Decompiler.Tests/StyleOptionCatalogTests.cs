@@ -84,9 +84,9 @@ public class StyleOptionCatalogTests
             Assert.All(tokens, t => Assert.False(string.IsNullOrWhiteSpace(t)));
             Assert.Equal(tokens.Length, tokens.Distinct(StringComparer.Ordinal).Count());
             // The declared default must be a real token on the axis, and it must be
-            // the value in effect on the shipped default options.
+            // the value in effect on the registry-derived product defaults.
             Assert.Contains(o.DefaultValue, tokens);
-            Assert.Equal(o.DefaultValue, o.GetValue(PrinterOptions.Default));
+            Assert.Equal(o.DefaultValue, o.GetValue(StyleOptionCatalog.DefaultOptions));
         });
     }
 
@@ -102,11 +102,9 @@ public class StyleOptionCatalogTests
     {
         foreach (var o in Options)
         {
-            Assert.Equal(o.DefaultValue, o.GetValue(PrinterOptions.Default));
-
             foreach (var value in o.Values)
             {
-                var selected = o.WithValue(PrinterOptions.Default, value.Token);
+                var selected = o.WithValue(StyleOptionCatalog.DefaultOptions, value.Token);
                 Assert.Equal(value.Token, o.GetValue(selected));
 
                 // Returning to the default token clears the axis again.
@@ -114,6 +112,16 @@ public class StyleOptionCatalogTests
                 Assert.Equal(o.DefaultValue, o.GetValue(cleared));
             }
         }
+    }
+
+    [Fact]
+    public void ProductDefaults_EnableReadableNames_WithoutChangingLibraryDefaults()
+    {
+        var slotNames = Options.Single(o => o.Id == "slot-local-names");
+
+        Assert.Equal("false", slotNames.DefaultValue);
+        Assert.True(StyleOptionCatalog.DefaultOptions.ReadableLocalNames);
+        Assert.False(PrinterOptions.Default.ReadableLocalNames);
     }
 
     [Fact]
@@ -125,7 +133,7 @@ public class StyleOptionCatalogTests
         foreach (var subject in Options)
         {
             var nonDefault = subject.Values.First(v => !string.Equals(v.Token, subject.DefaultValue, StringComparison.Ordinal));
-            var mutated = subject.WithValue(PrinterOptions.Default, nonDefault.Token);
+            var mutated = subject.WithValue(StyleOptionCatalog.DefaultOptions, nonDefault.Token);
 
             foreach (var other in Options)
             {
@@ -150,7 +158,7 @@ public class StyleOptionCatalogTests
             Assert.Equal(onValue.Token, o.GetValue(enabled));
 
             var disabled = onValue.SetSelected(enabled, false);
-            Assert.Equal(o.DefaultValue, o.GetValue(disabled));
+            Assert.Equal("false", o.GetValue(disabled));
         }
     }
 
@@ -257,11 +265,12 @@ public class StyleOptionCatalogTests
     [Fact]
     public void ApplyFullTaste_SelectsExactlyTheEndorsedValueOnEachAxis()
     {
-        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+        var defaults = StyleOptionCatalog.DefaultOptions;
+        var full = StyleOptionCatalog.ApplyFullTaste(defaults);
 
         foreach (var o in Options)
         {
-            var expected = o.EndorsedValue?.Token ?? o.DefaultValue;
+            var expected = o.EndorsedValue?.Token ?? o.GetValue(defaults);
             Assert.Equal(expected, o.GetValue(full));
         }
     }
@@ -444,5 +453,85 @@ public class StyleOptionCatalogTests
         // Full taste leaves the axis on its explicit default.
         var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
         Assert.Equal("explicit", varStyle.GetValue(full));
+    }
+
+    [Fact]
+    public void Tiers_CoverEveryTierExactlyOnce()
+    {
+        // The registry drives the grouping a host lays the catalog out with, so it
+        // has to be total: a StyleOptionTier value with no descriptor would drop
+        // its knobs out of a grouped picker silently. Set equality fails both a
+        // missing entry and a stale one.
+        var declared = Enum.GetValues<StyleOptionTier>().ToHashSet();
+        var registered = StyleOptionCatalog.Tiers.Select(t => t.Id).ToArray();
+
+        Assert.Equal(declared, registered.ToHashSet());
+        Assert.Equal(registered.Length, registered.Distinct().Count());
+    }
+
+    [Fact]
+    public void Tiers_AreListedInAscendingDisplayOrder_WithUniquePositions()
+    {
+        // Order is the product's presentation fact, so the list is already sorted
+        // by it — a host renders Tiers as-is and never sorts. Positions are unique
+        // so the layout cannot depend on an unstable tie-break.
+        var orders = StyleOptionCatalog.Tiers.Select(t => t.Order).ToArray();
+
+        Assert.Equal(orders.OrderBy(o => o).ToArray(), orders);
+        Assert.Equal(orders.Length, orders.Distinct().Count());
+    }
+
+    [Fact]
+    public void Tiers_HaveNonEmptyTitlesAndSummaries()
+    {
+        Assert.All(StyleOptionCatalog.Tiers, tier =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(tier.Title));
+            Assert.False(string.IsNullOrWhiteSpace(tier.Summary));
+        });
+    }
+
+    [Fact]
+    public void ByteDivergence_IsATierProperty()
+    {
+        // The tier states the contract its knobs honor, so a host can warn about a
+        // whole group. Per-knob agreement makes that statement enforced rather than
+        // documented: a byte-divergent knob filed under a byte-neutral tier fails
+        // here, as does the reverse.
+        Assert.All(Options, option =>
+            Assert.Equal(StyleOptionCatalog.GetTier(option.Tier).ByteDivergent, option.ByteDivergent));
+
+        // Non-vacuity in the other direction: a tier cannot claim byte-divergence
+        // with no knob to witness it, so the registry's flag stays a statement
+        // about real knobs. ByteDivergent_IsExactlyTheLensTier pins which tier
+        // that is; this pins that the registry agrees with the knobs.
+        Assert.Equal(
+            StyleOptionCatalog.Tiers.Where(t => t.ByteDivergent).Select(t => t.Id).ToHashSet(),
+            Options.Where(o => o.ByteDivergent).Select(o => o.Tier).ToHashSet());
+    }
+
+    [Fact]
+    public void GetTier_ResolvesEveryTier_AndRejectsAnUnregisteredOne()
+    {
+        foreach (var tier in Enum.GetValues<StyleOptionTier>())
+            Assert.Equal(tier, StyleOptionCatalog.GetTier(tier).Id);
+
+        // A miss is a catalog defect, so it throws instead of yielding an unlabeled
+        // group that renders as if it were fine.
+        Assert.Throws<ArgumentOutOfRangeException>(() => StyleOptionCatalog.GetTier((StyleOptionTier)(-1)));
+    }
+
+    [Fact]
+    public void EveryOption_GroupsUnderARegisteredTier()
+    {
+        // The grouped-picker walk a host performs: every knob lands in exactly one
+        // rendered group, so none is invisible to a consumer that trusts Tiers.
+        var grouped = StyleOptionCatalog.Tiers
+            .SelectMany(tier => Options.Where(o => o.Tier == tier.Id))
+            .Select(o => o.Id)
+            .ToArray();
+
+        Assert.Equal(Options.Select(o => o.Id).ToHashSet(StringComparer.Ordinal), grouped.ToHashSet(StringComparer.Ordinal));
+        Assert.Equal(Options.Count, grouped.Length);
     }
 }

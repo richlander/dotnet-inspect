@@ -28,10 +28,9 @@ public class LibraryFindingConsumerTests
     {
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ScanClassifiedMethods(
+        inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(
             typeof(SampleUnsafeClass).Assembly.Location,
-            inspection,
-            new VerboseLogger(enabled: false));
+            new VerboseLogger(enabled: false)));
 
         var finding = Assert.Single(
             inspection.ClassifiedMethodInspection.Findings(),
@@ -49,10 +48,9 @@ public class LibraryFindingConsumerTests
     {
         var inspection = new LibraryInspection();
 
-        LibraryMetadataService.ScanExtensionMembers(
+        inspection.Apply(LibraryMetadataService.ScanExtensionMembers(
             typeof(ExtensionsCommandTests).Assembly.Location,
-            inspection,
-            new VerboseLogger(enabled: false));
+            new VerboseLogger(enabled: false)));
 
         var finding = Assert.Single(
             inspection.ExtensionMemberInspection.Findings(),
@@ -170,10 +168,10 @@ public class LibraryFindingConsumerTests
             SwitchInspection = LibraryMetadataService.ScanSwitches(missingPath, logger),
         };
 
-        LibraryMetadataService.ScanClassifiedMethods(missingPath, inspection, logger);
-        LibraryMetadataService.ScanExtensionMembers(missingPath, inspection, logger);
-        LibraryMetadataService.ScanCustomAttributes(missingPath, inspection, logger);
-        LibraryMetadataService.ScanTypeForwarders(missingPath, inspection, logger);
+        inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(missingPath, logger));
+        inspection.Apply(LibraryMetadataService.ScanExtensionMembers(missingPath, logger));
+        inspection.Apply(LibraryMetadataService.ScanCustomAttributes(missingPath, logger));
+        inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
         LibraryMetadataService.ScanIntegrations(missingPath, inspection, logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);

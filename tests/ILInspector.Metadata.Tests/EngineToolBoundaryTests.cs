@@ -12,6 +12,39 @@ namespace ILInspector.Metadata.Tests;
 public class EngineToolBoundaryTests
 {
     [Fact]
+    public void MetadataHasNoSourceLinkDependencyOrProductSymbols()
+    {
+        string metadataDir = Path.Combine(FindRepoRoot(), "src", "ILInspector.Metadata");
+        string project = Path.Combine(metadataDir, "ILInspector.Metadata.csproj");
+
+        Assert.DoesNotContain(
+            ReadProjectReferences(project),
+            reference => Path.GetFileNameWithoutExtension(
+                    reference.Replace('\\', '/'))
+                .Equals("SourceLinkFetch", StringComparison.Ordinal));
+
+        var violations = Directory
+            .EnumerateFiles(metadataDir, "*.cs", SearchOption.AllDirectories)
+            .Where(file => !file.Contains(
+                $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)
+                && !file.Contains(
+                    $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                    StringComparison.Ordinal))
+            .Where(file => File.ReadAllText(file)
+                .Contains("SourceLink", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "ILInspector.Metadata must contain only PE/PDB extraction and raw correlations; "
+            + "SourceLink product symbols belong to ILInspector.SourceLink. Violations: "
+            + string.Join(", ", violations));
+    }
+
+    [Fact]
     public void NoProductionEngineProjectReferencesTheToolTier()
     {
         var srcDir = Path.Combine(FindRepoRoot(), "src");

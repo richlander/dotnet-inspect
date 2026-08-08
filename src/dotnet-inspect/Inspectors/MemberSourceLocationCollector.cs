@@ -52,7 +52,7 @@ internal static class MemberSourceLocationCollector
             // no sequence points. Shared across both paths below so ordering cannot regress it.
             var appliedRank = new Dictionary<ApiMember, int>(ReferenceEqualityComparer.Instance);
 
-            var sourceInspection = MetadataFindings.InspectMemberSources(
+            var sourceInspection = SourceLinkFindings.InspectMemberSources(
                 service,
                 subject,
                 new MemberSourceQuery(membersByToken.Keys.ToHashSet()));
@@ -69,14 +69,14 @@ internal static class MemberSourceLocationCollector
             // members. Token queries are direct lookups, so this fallback remains O(selected).
             foreach (var (token, members) in membersByToken)
             {
-                var tokenInspection = MetadataFindings.InspectMemberSources(
+                var tokenInspection = SourceLinkFindings.InspectMemberSources(
                     service,
                     subject,
                     new MemberSourceQuery(new HashSet<int> { token }));
                 if (tokenInspection.Value is FindingInspection<MemberSourceObservation>.Failed failed)
                 {
-                    logger.Log(
-                        $"Warning: Failed to resolve source location for {members[0].Member.Name}: "
+                    logger.LogWarning(
+                        $"Failed to resolve source location for {members[0].Member.Name}: "
                         + failed.Error.Reason);
                     continue;
                 }
@@ -94,7 +94,7 @@ internal static class MemberSourceLocationCollector
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
+            logger.LogWarning($"Failed to resolve member source locations for {apiType.FullName}: {ex.Message}");
             return null;
         }
     }

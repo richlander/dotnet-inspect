@@ -318,7 +318,7 @@ public sealed record DecompilerResult(
     /// expression — a <c>return &lt;expression&gt;;</c> or a single void
     /// <c>&lt;expression&gt;;</c> statement — a single wrapped expression with
     /// nothing else in the body. The member layer
-    /// (<see cref="ILInspector.CSharp.CSharpMemberLayout"/>) consumes this typed
+    /// (<see cref="CSharpText.CSharpMemberLayout"/>) consumes this typed
     /// structural fact to render the member expression-bodied
     /// (<c>head =&gt; &lt;expr&gt;;</c>) instead of a brace block wrapping the lone
     /// statement — a raised multi-line switch return (issue #3088) or any other

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Findings;
@@ -117,6 +118,21 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsFacadeAssembly { get; set; }
+
+    /// <summary>
+    /// Typed classification evidence for platform assemblies. Presentation
+    /// continues to project the compatible nullable facade field.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblySurfaceClassificationOutcome? SurfaceClassification { get; set; }
+
+    /// <summary>
+    /// Finding projection of <see cref="SurfaceClassification"/> for composed
+    /// inspection and failure reporting.
+    /// </summary>
+    [JsonIgnore]
+    public FindingInspection<AssemblySurfaceClassification>?
+        SurfaceClassificationInspection { get; set; }
 
     /// <summary>
     /// File last modified timestamp.
@@ -472,8 +488,7 @@ public class LibraryInspection
     }
 
     /// <summary>
-    /// Image-level metadata facts for the <c>@Metadata</c> lens: the metadata version, heap
-    /// sizes, and the per-table physical row counts.
+    /// Typed result of the metadata-image query backing the <c>@Metadata</c> lens.
     ///
     /// This is deliberately the *cheap* half of the lens. It is what the per-table sections'
     /// <c>CanRender</c> consults, so a table with no rows never renders an empty section, and it
@@ -481,17 +496,32 @@ public class LibraryInspection
     /// happens at render time for the selected tables only, so selecting one table never pays to
     /// project the other sixteen.
     ///
-    /// Null when the metadata scanner did not run (no metadata section was requested) or when the
-    /// image carries no metadata at all. Those are different facts, and the lens distinguishes
-    /// them: an image with no metadata reports that rather than rendering success-shaped empty
-    /// sections.
+    /// Null means the query did not run. <see cref="MetadataImageResult.NoMetadata"/> and
+    /// <see cref="MetadataImageResult.Failed"/> remain distinct so absence and acquisition failure
+    /// cannot collapse into the same empty rendering.
     /// </summary>
     [JsonIgnore]
-    public MetadataImageOverview? MetadataOverview { get; set; }
+    public MetadataImageResult? MetadataImageResult
+    {
+        get;
+        set
+        {
+            field = value;
+            _inspectionFailuresInitialized = false;
+            _inspectionFailures = null;
+        }
+    }
+
+    /// <summary>The available metadata overview, or null when the query did not produce one.</summary>
+    [JsonIgnore]
+    public MetadataImageOverview? MetadataOverview =>
+        MetadataImageResult is MetadataImageResult.Available available
+            ? available.Overview
+            : null;
 
     /// <summary>
     /// The path the metadata lens re-opens to project rows at render time. Captured from the
-    /// scanner rather than recovered from <see cref="FileName"/>, which is a display name and
+    /// query adapter rather than recovered from <see cref="FileName"/>, which is a display name and
     /// not always a resolvable path (extracted package assemblies resolve elsewhere).
     /// </summary>
     [JsonIgnore]
@@ -592,6 +622,13 @@ public class LibraryInspection
             AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
+            if (MetadataImageResult is MetadataImageResult.Failed metadataFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    MetadataSectionNames.Image,
+                    MetadataImageQuery.Definition.Name,
+                    metadataFailure.Error.Message));
+            }
             AddFailure(
                 failures,
                 DotnetInspector.Sections.SectionNames.ArrayPoolEscapes,
@@ -702,6 +739,18 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<AuditSignal>? AuditSignals { get; set; }
+
+    /// <summary>
+    /// Assembly-derived audit metadata, cached from the one session the audit scanner ran in.
+    ///
+    /// Audit signals are recomputed after the source-audit and integrity passes fold in evidence
+    /// those passes produce. Recomputing them used to reopen the assembly each time — up to four
+    /// opens per run, and a window in which a retargeted path could mix two assemblies into one
+    /// Signals section. Only the model-derived half actually changes, so the assembly-derived half
+    /// is captured once here and reused. Never serialized; it is an intermediate, not output.
+    /// </summary>
+    [JsonIgnore]
+    public AssemblyAuditMetadata? AuditMetadata { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<TypeForwarderInfo>? TypeForwarders =>
@@ -957,11 +1006,6 @@ public class LibraryInspection
     [JsonIgnore]
     public int SwitchCount { get; set; }
 
-    /// <summary>
-    /// View routing flag: when true, show nested dependency tree instead of flat references.
-    /// </summary>
-    [JsonIgnore]
-    public bool UseDependenciesView { get; set; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);
@@ -1185,6 +1229,12 @@ public sealed record ResourceBoundarySummary(
 public record class DependencyAgeSummary(int Count, int MinDays, int MedianDays, int MaxDays);
 
 public sealed record LibraryIntegrationSummaryJson(string Integration, int Count);
+
+/// <summary>
+/// One version of a package as carried by one feed. A version present on two feeds
+/// produces two of these.
+/// </summary>
+public sealed record VersionFeedJson(string Version, string Feed, bool Listed);
 
 public sealed record LibraryIntegrationSignalJson(
     string Kind,

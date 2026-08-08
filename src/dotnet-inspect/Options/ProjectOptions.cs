@@ -53,6 +53,13 @@ public record ProjectOptions : IProjectionOptions
 
     public string[]? Select { get; init; }
 
+    /// <summary>
+    /// Bare <c>-S</c>: a request for this command's default preset rather than for any named
+    /// section or category. Tracked separately from <see cref="Select"/> so the marker is never
+    /// spellable as a selector value. See #3547.
+    /// </summary>
+    public bool SelectDefault { get; init; }
+
     public string[]? Columns { get; init; }
 
     public string[]? Fields { get; init; }

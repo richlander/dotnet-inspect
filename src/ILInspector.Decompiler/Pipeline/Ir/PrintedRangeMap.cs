@@ -1,4 +1,5 @@
 using System.Collections;
+using ILInspector.Decompiler;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -9,6 +10,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// Always a non-empty slice — see <see cref="PrintedRangeMap"/>.
 /// </summary>
 public readonly record struct PrintedRange(IrNode Node, Range Characters);
+
+/// <summary>A named printed region while it is still bound to absolute character offsets.</summary>
+internal readonly record struct BoundPrintedRegion(PrintedRegionRole Role, Range Characters);
 
 /// <summary>
 /// Which characters of the printer's own output each IR node emitted, recorded
@@ -24,11 +28,68 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// lookups, while the correlation seams enumerate to build line tables.
 /// </para>
 /// <para>
-/// Enumeration order is <em>emission-completion</em> order — a node completes
-/// after its children, so nesting reads post-order. Ordering by start position
-/// is deliberately <em>not</em> part of this contract: promising it would force
-/// a sort that no current consumer needs. Anything requiring sorted or
-/// containment-ordered access should say so explicitly at its own call site.
+/// Named construct and clause regions are recorded in a separate channel.
+/// They carry no <see cref="IrNode"/> identity and do not participate in this
+/// list's count, index, or descendants-before-ancestors enumeration contract.
+/// </para>
+/// <para>
+/// Enumeration order promises exactly one thing: <em>every node follows all of
+/// its descendants</em>. Nothing else. That held with zero violations on every
+/// corpus it has been measured against; three independent sweeps agree on zero
+/// while disagreeing on the denominator, because "a check" is only defined once
+/// the pairing is. Counting one check per (recorded parent, direct child with a
+/// non-empty subtree extent) over <c>System.Private.CoreLib</c>, it is 0 of
+/// 434,843 across 41,952 printed methods.
+/// </para>
+/// <para>
+/// Sibling order is <em>unspecified</em> — not textual order, and not child
+/// order either. Two independent effects break it, and both are real:
+/// </para>
+/// <para>
+/// A printer may emit an operand out of child order.
+/// <c>UnionSwitchExpression</c> stores the null arm after the type arms but
+/// prints <c>null =&gt; ...</c> first, so the null arm's value is recorded last
+/// although its characters come first — child order, not textual order.
+/// </para>
+/// <para>
+/// More broadly, a structured statement records its <em>body</em> before its
+/// <em>condition</em>, because the printer recurses into the block while
+/// composing the statement and only then records the condition expression. So
+/// an <c>IfStatement</c>'s then-block subtree enumerates before its condition
+/// subtree — textual order and child order at once. A <c>CatchClause</c> does
+/// the same to its filter, a filter being a condition. Under the pairing above
+/// — consecutive children with non-empty subtree extents — 20,145 of 222,205
+/// sibling checks invert, across <c>IfStatement</c> (17,480), <c>ForLoop</c>,
+/// <c>WhileLoop</c>, <c>Fixed</c>, <c>Lock</c>, <c>Switch</c>,
+/// <c>UsingStatement</c>, <c>ForeachStatement</c> and <c>CatchClause</c>.
+/// Pair siblings differently and the totals move; the inversions do not.
+/// </para>
+/// <para>
+/// That second effect is easy to miss and was missed three times here, because
+/// a <c>Block</c> records no range of its own: a sweep that compares only those
+/// children which are themselves recorded never compares the condition against
+/// the body at all, and reports a confident zero. Any future check of this
+/// contract must compare subtree extents.
+/// </para>
+/// <para>
+/// A consumer needing either textual or child order must sort and say so at its
+/// own call site.
+/// </para>
+/// <para>
+/// The promise is also deliberately weaker than "the order the printer finished
+/// composing each node", which it would be tempting to claim and which is
+/// <em>not</em> true. <c>CallText</c> builds an instance call's arguments before
+/// its receiver, so <c>sink.Add(new object())</c> genuinely completes
+/// <c>new object()</c> first even though <c>sink</c> is printed to its left.
+/// Composition order is an artefact of which interpolation hole a printing
+/// method happens to fill first; it would flip under a refactor that changed
+/// nothing observable.
+/// </para>
+/// <para>
+/// Sorting the whole map by start position is still <em>not</em> promised —
+/// that would order a parent before its children and force a sort no consumer
+/// needs. Anything requiring globally sorted or containment-ordered access
+/// should say so explicitly at its own call site.
 /// </para>
 /// <para>
 /// Every recorded range is <em>non-empty</em>: a node the printer visits but
@@ -71,6 +132,7 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     public static PrintedRangeMap Empty { get; } = new();
 
     readonly List<PrintedRange> _ranges = [];
+    readonly List<BoundPrintedRegion> _printedRegions = [];
     readonly Dictionary<IrNode, int> _index = [];
     readonly Dictionary<IrNode, int> _insertionPoints = [];
     int[]? _lineStarts;
@@ -81,6 +143,9 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     public int Count => _ranges.Count;
 
     public PrintedRange this[int index] => _ranges[index];
+
+    /// <summary>Named regions recorded directly by the printer.</summary>
+    internal IReadOnlyList<BoundPrintedRegion> PrintedRegions => _printedRegions;
 
     /// <summary>Struct enumerator, so <c>foreach</c> over this map allocates nothing.</summary>
     public List<PrintedRange>.Enumerator GetEnumerator() => _ranges.GetEnumerator();
@@ -167,6 +232,16 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     }
 
     /// <summary>
+    /// Records one named syntactic region at the exact character offsets where
+    /// the printer emitted it.
+    /// </summary>
+    internal void RecordRegion(PrintedRegionRole role, int start, int end)
+    {
+        if (end > start)
+            _printedRegions.Add(new BoundPrintedRegion(role, start..end));
+    }
+
+    /// <summary>
     /// Binds the text the ranges were measured against, so a range and the
     /// string it indexes always travel together.
     /// </summary>
@@ -184,6 +259,79 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
         Output = output;
         _lineStarts = null;
         return this;
+    }
+
+    /// <summary>
+    /// Where <paramref name="node"/>'s characters sit in text coordinates.
+    /// The end position is exclusive and may be on a later line.
+    /// </summary>
+    public bool TryGetExtent(IrNode node, out PrintedExtent extent)
+    {
+        if (TryGetRange(node, out var range))
+            return TryGetExtent(range, out extent);
+        extent = default;
+        return false;
+    }
+
+    /// <summary>
+    /// Projects an absolute character range into portable, end-exclusive text
+    /// coordinates.
+    /// </summary>
+    internal bool TryGetExtent(Range range, out PrintedExtent extent)
+    {
+        extent = default;
+        int start = range.Start.GetOffset(Output.Length);
+        int end = range.End.GetOffset(Output.Length);
+
+        // A statement's range runs through the line break appended with it. The
+        // break separates statements; it is not part of the statement's visible
+        // extent. The same normalization applies to named regions recorded
+        // around line-oriented emission.
+        while (end > start && (Output[end - 1] == '\n' || Output[end - 1] == '\r'))
+            end--;
+        if (end == start)
+            return false;
+
+        var starts = _lineStarts ??= BuildLineStarts(Output);
+        int startLine = LineAt(start);
+        int endLine = LineAt(end);
+        extent = new PrintedExtent(
+            startLine,
+            start - starts[startLine],
+            endLine,
+            end - starts[endLine]);
+        return true;
+    }
+
+    /// <summary>
+    /// Where <paramref name="node"/>'s characters sit on one line: the 0-based
+    /// <paramref name="line"/>, the 0-based <paramref name="column"/> within it,
+    /// and the <paramref name="length"/> in characters.
+    /// </summary>
+    /// <remarks>
+    /// This is the projection that lets a range leave the process. A
+    /// <see cref="PrintedRange"/> is keyed by <see cref="IrNode"/>, whose identity
+    /// is the object reference, so it is meaningless outside the decompiler that
+    /// built it; a line/column/length triple is meaningful to anything that has
+    /// the text.
+    /// <para>
+    /// Returns false for a range that spans a line break. Such a range has no
+    /// single column, and silently reporting its first line would hand a caller a
+    /// position that understates the extent — the failure is explicit so that a
+    /// consumer chooses what to do rather than being given a wrong answer.
+    /// </para>
+    /// </remarks>
+    public bool TryGetLineColumn(IrNode node, out int line, out int column, out int length)
+    {
+        line = column = length = 0;
+        if (!TryGetExtent(node, out var extent)
+            || extent.StartLine != extent.EndLine)
+            return false;
+
+        line = extent.StartLine;
+        column = extent.StartColumn;
+        length = extent.EndColumn - extent.StartColumn;
+        return true;
     }
 
     int LineAt(int position)

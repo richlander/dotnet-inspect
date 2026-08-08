@@ -1,3 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
+using ILInspector.CSharp;
+using InertText;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -23,14 +26,30 @@ public class InspectionResultView
         _includeTitleVersion = includeTitleVersion;
     }
 
+    /// <inheritdoc cref="PackageViewText"/>
     [MarkoutPropertyName("Package")]
-    public string PackageName => _data.PackageName;
+    public string PackageName => PackageViewText.Contain(_data.PackageName);
 
-    public string Version => _data.Version;
+    /// <inheritdoc cref="PackageViewText"/>
+    public string Version => PackageViewText.Contain(_data.Version);
 
-    public string? TitleVersion => _includeTitleVersion ? _data.Version : null;
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? TitleVersion => _includeTitleVersion ? PackageViewText.Contain(_data.Version) : null;
 
-    public string? Description => _data.Description;
+    /// <inheritdoc cref="PackageViewText.QuoteProse"/>
+    public string? Description => PackageViewText.QuoteProse(_data.Description);
+
+    /// <summary>
+    /// Whether any typed artifact text carried by this view required visual containment.
+    /// </summary>
+    /// <remarks>
+    /// Aggregated before properties such as <see cref="Description"/> unwrap their
+    /// <see cref="InertString"/> values for a structural serializer. The CLI owns what to do
+    /// with the signal; the view only reports it.
+    /// </remarks>
+    [MarkoutIgnore]
+    public bool RequiredContainment =>
+        _data.Description?.RequiredContainment == true;
 
     // ===== Field Collections for Serializer =====
 
@@ -150,12 +169,18 @@ public class InspectionResultView
     [MarkoutIgnoreInTable]
     public List<PackageVulnerability>? Vulnerabilities => _data.Vulnerabilities;
 
-    public string? Authors => _data.Authors;
-    public string? License => _data.License;
-    public string? LicenseUrl => _data.LicenseUrl;
-    public string? Repository => _data.Repository;
-    public string? RepositoryType => _data.RepositoryType;
-    public string? RepositoryCommit => _data.RepositoryCommit;
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? Authors => PackageViewText.Contain(_data.Authors);
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? License => PackageViewText.Contain(_data.License);
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? LicenseUrl => PackageViewText.Contain(_data.LicenseUrl);
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? Repository => PackageViewText.Contain(_data.Repository);
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? RepositoryType => PackageViewText.Contain(_data.RepositoryType);
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? RepositoryCommit => PackageViewText.Contain(_data.RepositoryCommit);
 
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutPropertyName("Built")]
@@ -165,7 +190,8 @@ public class InspectionResultView
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Owners")]
-    public List<string>? Owners => _data.Owners;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? Owners => _data.Owners?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutIgnoreInTable]
     public PackageDeprecation? Deprecation => _data.Deprecation;
@@ -188,7 +214,8 @@ public class InspectionResultView
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Package Types")]
-    public List<string>? PackageTypes => _data.PackageTypes;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? PackageTypes => _data.PackageTypes?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutPropertyName("Package Type")]
     public string PackageType => _data.ToolFormat?.Contains("Version=\"2\"") == true
@@ -197,23 +224,27 @@ public class InspectionResultView
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Content")]
-    public List<string>? ContentDirectories => _data.ContentDirectories;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? ContentDirectories => _data.ContentDirectories?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Target Frameworks")]
-    public List<string>? TargetFrameworks => _data.TargetFrameworks;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? TargetFrameworks => _data.TargetFrameworks?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutPropertyName("TFM Count")]
     public int TargetFrameworkCount => _data.TargetFrameworks?.Count ?? 0;
 
     [MarkoutPropertyName("Highest TFM")]
+    /// <inheritdoc cref="PackageViewText"/>
     public string? HighestTfm => _data.TargetFrameworks is { Count: > 0 }
-        ? TfmSelector.SelectHighestTfm(_data.TargetFrameworks)
+        ? PackageViewText.Contain(TfmSelector.SelectHighestTfm(_data.TargetFrameworks))
         : null;
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Supported RIDs")]
-    public List<string>? SupportedRids => _data.SupportedRids;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? SupportedRids => _data.SupportedRids?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutPropertyName("Runtime Identifiers")]
     public int SupportedRidCount => _data.SupportedRids?.Count ?? 0;
@@ -234,7 +265,8 @@ public class InspectionResultView
     public bool HasNativeDependencies => _data.HasNativeDependencies;
 
     [MarkoutPropertyName("Tool Format")]
-    public string? ToolFormat => _data.ToolFormat;
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? ToolFormat => PackageViewText.Contain(_data.ToolFormat);
 
     [MarkoutPropertyName("RID Pointer Package")]
     [MarkoutSkipDefault]
@@ -242,14 +274,17 @@ public class InspectionResultView
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Tool Commands")]
-    public List<string>? ToolCommands => _data.ToolCommands;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? ToolCommands => _data.ToolCommands?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     [MarkoutPropertyName("Runtime Target RID")]
-    public string? RuntimeTargetRid => _data.RuntimeTargetRid;
+    /// <inheritdoc cref="PackageViewText"/>
+    public string? RuntimeTargetRid => PackageViewText.Contain(_data.RuntimeTargetRid);
 
     [MarkoutJoin(", ")]
     [MarkoutPropertyName("Native Files")]
-    public List<string>? NativeFiles => _data.NativeFiles;
+    /// <inheritdoc cref="PackageViewText"/>
+    public List<string>? NativeFiles => _data.NativeFiles?.Select(value => PackageViewText.Contain(value)).ToList()!;
 
     private static PackageFileRow ToFileRow(PackageFile file)
         => new(file.Path, file.Size);
@@ -275,7 +310,7 @@ public class InspectionResultView
         else if (_data.Published.HasValue)
             fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
         if (!string.IsNullOrEmpty(_data.Source))
-            fields.Add(new("Source", _data.Source));
+            fields.Add(new("Source", PackageViewText.Contain(_data.Source)));
         if (_data.Deprecation != null)
             fields.Add(new("Deprecated", "Yes"));
         if (_data.Vulnerabilities is { Count: > 0 })
@@ -301,52 +336,52 @@ public class InspectionResultView
         if (_data.Published.HasValue)
             fields.Add(new("Published", _data.Published.Value.ToString("yyyy-MM-dd")));
         if (!string.IsNullOrEmpty(_data.Source))
-            fields.Add(new("Source", _data.Source));
+            fields.Add(new("Source", PackageViewText.Contain(_data.Source)));
 
         if (_data.Deprecation?.Summary != null)
-            fields.Add(new("Deprecated Note", _data.Deprecation.Summary));
+            fields.Add(new("Deprecated Note", PackageViewText.Contain(_data.Deprecation.Summary)));
 
         if (!string.IsNullOrWhiteSpace(_data.Authors))
-            fields.Add(new("Authors", _data.Authors));
+            fields.Add(new("Authors", PackageViewText.Contain(_data.Authors)));
         if (_data.Owners is { Count: > 0 })
-            fields.Add(new("Owners", string.Join(", ", _data.Owners)));
+            fields.Add(new("Owners", PackageViewText.Contain(string.Join(", ", _data.Owners))));
         if (!string.IsNullOrWhiteSpace(_data.License))
-            fields.Add(new("License", _data.License));
+            fields.Add(new("License", PackageViewText.Contain(_data.License)));
         if (!string.IsNullOrWhiteSpace(_data.LicenseUrl))
-            fields.Add(new("License URL", _data.LicenseUrl));
+            fields.Add(new("License URL", PackageViewText.Contain(_data.LicenseUrl)));
         if (!string.IsNullOrWhiteSpace(_data.Repository))
-            fields.Add(new("Repository", _data.Repository));
+            fields.Add(new("Repository", PackageViewText.Contain(_data.Repository)));
         if (!string.IsNullOrWhiteSpace(_data.RepositoryType))
-            fields.Add(new("Repository Type", _data.RepositoryType));
+            fields.Add(new("Repository Type", PackageViewText.Contain(_data.RepositoryType)));
         if (!string.IsNullOrWhiteSpace(_data.RepositoryCommit))
-            fields.Add(new("Repository Commit", _data.RepositoryCommit));
+            fields.Add(new("Repository Commit", PackageViewText.Contain(_data.RepositoryCommit)));
 
         if (_data.IsVerified == true)
             fields.Add(new("Verified", "Yes"));
 
         if (_data.Signed.HasValue)
-            fields.Add(new("Signed", _data.Signed.Value ? "Yes" : "No"));
+            fields.Add(new("Signed", PackageViewText.Contain(_data.Signed.Value ? "Yes" : "No")));
 
         if (_data.ContentDirectories is { Count: > 0 })
-            fields.Add(new("Content", string.Join(", ", _data.ContentDirectories)));
+            fields.Add(new("Content", PackageViewText.Contain(string.Join(", ", _data.ContentDirectories))));
         if (SupportedRidCount > 0)
             fields.Add(new("Runtime Identifiers", SupportedRidCount.ToString()));
         if (_data.AssemblyCount > 1)
             fields.Add(new("Libraries", _data.AssemblyCount.ToString()));
         if (_data.HasReadme)
-            fields.Add(new("Readme", _data.PackageReadmeFile ?? _data.ReadmeFile ?? "README.md"));
+            fields.Add(new("Readme", PackageViewText.Contain(_data.PackageReadmeFile ?? _data.ReadmeFile ?? "README.md")));
         if (_data.Vulnerabilities is { Count: > 0 })
             fields.Add(new("Vulnerabilities", _data.Vulnerabilities.Count.ToString()));
 
         if (_data.ToolCommands is { Count: > 0 })
-            fields.Add(new("Tool Commands", string.Join(", ", _data.ToolCommands)));
+            fields.Add(new("Tool Commands", PackageViewText.Contain(string.Join(", ", _data.ToolCommands))));
 
         if (_data.IsFrameworkDependent)
             fields.Add(new("Framework Dependent", "Yes"));
         if (_data.IsRidSpecificPointerPackage)
             fields.Add(new("RID-Specific Pointer", "Yes"));
         if (!string.IsNullOrWhiteSpace(_data.RuntimeTargetRid))
-            fields.Add(new("Runtime Target RID", _data.RuntimeTargetRid));
+            fields.Add(new("Runtime Target RID", PackageViewText.Contain(_data.RuntimeTargetRid)));
 
         return fields;
     }
@@ -387,27 +422,99 @@ public class SigningSection
     public string? Status { get; init; }
 }
 
+/// <inheritdoc cref="PackageViewText"/>
 [MarkoutSerializable]
 public record ManifestRow(
     string Kind,
     string Name,
     string Value,
-    string? Available);
+    string? Available)
+{
+    public string Kind { get; init; } = PackageViewText.Contain(Kind);
+    public string Name { get; init; } = PackageViewText.Contain(Name);
+    public string Value { get; init; } = PackageViewText.Contain(Value);
+    public string? Available { get; init; } = PackageViewText.Contain(Available);
+}
 
+/// <inheritdoc cref="PackageViewText"/>
 [MarkoutSerializable]
-public record TargetFrameworkRow(
-    [property: MarkoutPropertyName("TFM")] string Tfm);
+public record TargetFrameworkRow(string Tfm)
+{
+    [MarkoutPropertyName("TFM")]
+    public string Tfm { get; init; } = PackageViewText.Contain(Tfm);
+}
+
+/// <summary>
+/// Containment for text rendered by the package views.
+/// </summary>
+/// <remarks>
+/// A .nupkg is untrusted input: its ZIP entry names and nuspec text are chosen
+/// by whoever built it. Text carrying a line terminator, ANSI escape, or bidi
+/// override breaks out of its Markdown table cell and injects text that reads
+/// as genuine tool output (issue #3319). These rows are presentation-only --
+/// path filtering runs against <c>PackageFile</c>, the model, not against these
+/// rows -- so containment here cannot affect matching.
+/// </remarks>
+internal static class PackageViewText
+{
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+
+    /// <summary>
+    /// Renders contained prose as a Markdown quotation.
+    /// </summary>
+    /// <remarks>
+    /// The value reaches this sink as an <see cref="InertString"/>, so visual containment is
+    /// already a property of the object model. The quotation is the separate structural
+    /// containment Markdown requires: package-authored headings and tables remain inside a
+    /// visibly quoted block instead of becoming peer structures in tool output.
+    /// </remarks>
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? QuoteProse(InertString? value)
+    {
+        if (value is not { } prose || prose.IsEmpty)
+            return value?.ToString();
+
+        // Markout's DescriptionProperty writes a paragraph verbatim. Prefixing every line
+        // makes the package's prose a quotation, so headings, tables, and other block syntax
+        // remain visibly package-authored instead of becoming peer sections in tool output.
+        string text = prose.ToString().ReplaceLineEndings("\n");
+        return string.Join(
+            "\n",
+            text.Split('\n').Select(static line => line.Length == 0 ? ">" : $"> {line}"));
+    }
+}
 
 [MarkoutSerializable]
 public record PackageFileRow(
-    [property: MarkoutPropertyName("Path")] string Path,
-    [property: MarkoutPropertyName("Size")] long Size);
+    string Path,
+    long Size)
+{
+    /// <inheritdoc cref="PackageViewText"/>
+    [MarkoutPropertyName("Path")]
+    public string Path { get; init; } = PackageViewText.Contain(Path);
+
+    [MarkoutPropertyName("Size")]
+    public long Size { get; init; } = Size;
+}
 
 [MarkoutSerializable]
 public record PackageSourceFileRow(
     string Library,
     string Type,
-    [property: MarkoutSkipNull] string? Url);
+    string? Url)
+{
+    /// <inheritdoc cref="PackageViewText"/>
+    public string Library { get; init; } = PackageViewText.Contain(Library);
+
+    /// <inheritdoc cref="PackageViewText"/>
+    public string Type { get; init; } = PackageViewText.Contain(Type);
+
+    /// <inheritdoc cref="PackageViewText"/>
+    [MarkoutSkipNull]
+    public string? Url { get; init; } = PackageViewText.Contain(Url);
+}
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]

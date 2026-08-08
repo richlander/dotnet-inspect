@@ -26,7 +26,7 @@ namespace ILInspector.DecompilerHarness;
 /// completeness is the <c>--gaps</c> floor).
 /// It closes the loop named in docs/decompiler.md: decompile → recompile →
 /// compare IL. A decompiled body that compiles and reads plausibly but recompiles
-/// to a different contract V1 body changed the measured program shape
+/// to a different contract body changed the measured program shape
 /// (docs/decompiler-taste.md), invisible to the validity check.
 ///
 /// Unlike <see cref="ValidityCheck"/>'s per-method <c>__Shell</c> — which cannot
@@ -40,11 +40,70 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class FidelityCheck
 {
-    internal const int CurrentContractVersion = 1;
-    internal const IlBodyDiffNormalization ContractV1BodyDiffNormalization =
+    /// <summary>
+    /// Maximum top-level source types one structured <see cref="Evaluate(string, Func{string, bool}?)"/>
+    /// call may send through compile-back. <c>FidelityCheckSelectionGuardTests</c>
+    /// gates both sides: the large test assembly is rejected even through an
+    /// all-matching predicate, while a focused predicate over that assembly runs.
+    /// </summary>
+    internal const int MaxEvaluationTypeCount = 256;
+
+    /// <summary>
+    /// The compile-back fidelity contract: which differences the comparison treats as
+    /// noise rather than defect. Persisted alongside corpus metrics, so a change to
+    /// <see cref="ContractBodyDiffNormalization"/> must bump this — otherwise a baseline
+    /// and a current run claim the same contract under different equality rules, and the
+    /// corpus sensor compares numbers that were never comparable.
+    /// </summary>
+    /// <remarks>
+    /// v2 (#3580) added generated-member ordinal correspondence. Roslyn's local-function
+    /// and state-machine names embed an ordinal over the containing type's members, which
+    /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
+    /// operand differences between identical bodies.
+    /// <para>
+    /// v3 (#3645) removes the older per-side synthesized-member rewrite. That rewrite
+    /// masked real differences between overloads because uniqueness is not a property
+    /// either side can establish alone. The correspondence now owns lambda methods and
+    /// their cache fields as well as local functions and state machines, so the unsafe
+    /// fallback is no longer needed.
+    /// </para>
+    /// <para>
+    /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
+    /// whole of what it protects: the equality rules also include how
+    /// <c>IlBodyDiff</c> renders an operand, and a renderer change moves them without
+    /// moving any flag. Nothing detects that — the guard compares versions, and the
+    /// version only moves when a human moves it. Treat a change to operand rendering as
+    /// a contract change and reason about it explicitly here.
+    /// </para>
+    /// <para>
+    /// #3491 is the first such change and deliberately does not bump: it added the
+    /// signature this-attributes to the rendered text (<c>SignatureThisPrefix</c>), which
+    /// only ever <em>appends</em> to an operand and so is monotone toward stricter — a
+    /// body that compared unequal before cannot compare equal after. Measured on the
+    /// pinned corpus, it moved nothing: <c>Area=Fidelity</c> is 68/0 before and after,
+    /// because the corpus carries no <c>EXPLICITTHIS</c> signature and no instance
+    /// function pointer. A baseline therefore stays comparable within one contract
+    /// version. A renderer
+    /// change that is not monotone, or that moves a corpus number, does not get this
+    /// argument and must bump.
+    /// </para>
+    /// </remarks>
+    internal const int CurrentContractVersion = 3;
+
+    internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        // Compile-back recompiles a reconstructed unit, whose member ordering
+        // is the harness's rather than the original source file's, so Roslyn
+        // renumbers the containing-method ordinal in every closure name it
+        // synthesizes. That renumbering is not decompiler evidence (#3503).
+        //
+        // The correspondence folds only where the ordinal-free key is one-to-one on
+        // both sides. That two-sided evidence is the entire contract: the retired
+        // per-side rewrite could not distinguish overloads and masked real differences
+        // (#3645), so contract v3 removes it rather than layering the two mechanisms.
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
 
@@ -242,11 +301,11 @@ static class FidelityCheck
     /// <summary>The fidelity check outcome for one method.</summary>
     public enum CompileBackStatus
     {
-        /// <summary>Recompiled to the same body under compile-back fidelity contract V1 — the goal.</summary>
+        /// <summary>Recompiled to the same body under the compile-back fidelity contract — the goal.</summary>
         Exact,
         /// <summary>Rendered at Full fidelity but recompiled to a different stream (a defect).</summary>
         OpcodeDiff,
-        /// <summary>Opcode names matched, but a V1-observable operand or branch target differed.</summary>
+        /// <summary>Opcode names matched, but a contract-observable operand or branch target differed.</summary>
         OperandDiff,
         /// <summary>The product body comparison could not produce a verdict.</summary>
         FidelityUnavailable,
@@ -337,6 +396,11 @@ static class FidelityCheck
     /// the same rows. Filtering does not change how any individual result is computed,
     /// because the reconstruction skeleton is rebuilt from whole-module metadata inside
     /// the compile step.
+    ///
+    /// A supplied predicate that leaves no processable top-level class or struct
+    /// throws instead of returning a vacuous green result. Selection is also
+    /// limited to <see cref="MaxEvaluationTypeCount"/> processable types after
+    /// filtering, so an all-matching predicate cannot disguise an unbounded sweep.
     /// </param>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<string, bool>? typeFilter = null)
         => Evaluate(assemblyPath, lowered: false, typeFilter);
@@ -375,19 +439,79 @@ static class FidelityCheck
         var results = new List<CompileBackResult>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)
+        {
+            if (typeFilter is not null)
+            {
+                throw new ArgumentException(
+                    $"The type filter selected no processable top-level class or struct because "
+                    + $"'{assemblyPath}' does not contain managed metadata.",
+                    nameof(typeFilter));
+            }
+
             return results;
+        }
         var parseOptions = CompilerFeatureOptions.ParseOptions(pe);
         var reader = pe.GetMetadataReader();
+        var selectedTypes = SelectEvaluationTypes(reader, assemblyPath, typeFilter);
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered);
         var references = RuntimeReferences(assemblyPath);
 
-        foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode, typeFilter: typeFilter);
+        foreach (var typeHandle in selectedTypes)
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode);
 
         return results;
+    }
+
+    static IReadOnlyList<TypeDefinitionHandle> SelectEvaluationTypes(
+        MetadataReader reader,
+        string assemblyPath,
+        Func<string, bool>? typeFilter)
+    {
+        var selected = new List<TypeDefinitionHandle>();
+
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (!typeDef.GetDeclaringType().IsNil
+                || ShapeOf(reader, typeDef) is not (TypeKind.Class or TypeKind.Struct))
+            {
+                continue;
+            }
+
+            string fullType = reader.GetFullTypeName(typeDef);
+            if (typeFilter is not null)
+            {
+                if (!typeFilter(fullType))
+                    continue;
+            }
+
+            if (!IsGeneratedType(reader, typeDef, fullType))
+                selected.Add(typeHandle);
+        }
+
+        if (typeFilter is not null && selected.Count == 0)
+        {
+            throw new ArgumentException(
+                $"The type filter selected no processable top-level class or struct in '{assemblyPath}'. "
+                + "Nested types are not independent broad-sweep roots; select their containing top-level type. "
+                + "Metadata paths elsewhere use 'Outer.Inner', not reflection's nested-type '+' spelling.",
+                nameof(typeFilter));
+        }
+
+        if (selected.Count > MaxEvaluationTypeCount)
+        {
+            throw new InvalidOperationException(
+                $"FidelityCheck.Evaluate selected {selected.Count} processable top-level types from "
+                + $"'{assemblyPath}', exceeding its budget of {MaxEvaluationTypeCount}. "
+                + $"Pass a type filter that admits at most {MaxEvaluationTypeCount} types, or use the "
+                + "bounded multi-assembly Evaluate overload for corpus sampling. "
+                + "The budget applies after filtering, so an all-matching predicate does not bypass it.");
+        }
+
+        return selected;
     }
 
     public static IReadOnlyList<CompileBackResult> Evaluate(IReadOnlyList<string> assemblies, int perAssemblyCap, bool lowered, int? workers = null, bool sequential = false)
@@ -704,7 +828,8 @@ static class FidelityCheck
         IReadOnlyList<string> assemblies,
         IReadOnlyList<CompileBackTarget> targets,
         bool lowered,
-        PrinterOptions? options)
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         var methodTargets = targets
             .Select(target => new MethodTarget(
@@ -717,7 +842,7 @@ static class FidelityCheck
                 DisplayMethod: $"{target.Type}::{target.Method}"))
             .ToArray();
 
-        return EvaluateTargets(assemblies, methodTargets, lowered, options)
+        return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
             .Select(row => row.Result)
             .ToArray();
     }
@@ -725,7 +850,12 @@ static class FidelityCheck
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
         => EvaluateTargets(assemblies, targets, lowered, options: null);
 
-    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered, PrinterOptions? options)
+    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<MethodTarget> targets,
+        bool lowered,
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         if (targets.Count == 0)
             return [];
@@ -753,7 +883,12 @@ static class FidelityCheck
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(assemblyPath, context: metadata); }
+                try
+                {
+                    source = readSymbols
+                        ? MetadataSource.Open(assemblyPath, context: metadata)
+                        : MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata);
+                }
                 catch { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
@@ -4328,7 +4463,7 @@ static class FidelityCheck
             recompiled.Handle,
             oldLabel: $"{fullType}::{methodName}",
             newLabel: $"{fullType}::{methodName}",
-            normalization: ContractV1BodyDiffNormalization).Diff;
+            normalization: ContractBodyDiffNormalization).Diff;
     }
 
     static string CanonicalOpcode(string op)
@@ -4369,7 +4504,12 @@ static class FidelityCheck
                     builder.Add(reference);
                     if (TryReadAssemblyIdentity(fullPath) is { } identity)
                         resolvedReferences.Add(new CompilerReference(
-                            new ResolvedAssemblyReference(identity, fullPath, () => File.OpenRead(fullPath), provenance?.ToString() ?? "CompilerReference"),
+                            ResolvedAssemblyReference.Create(
+                                identity,
+                                fullPath,
+                                () => File.OpenRead(fullPath),
+                                AssemblyResolutionProvenance.Local(
+                                    provenance?.ToString() ?? "CompilerReference")),
                             PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
                                 or AssemblyDependencyProvenance.SharedFramework));
                 }

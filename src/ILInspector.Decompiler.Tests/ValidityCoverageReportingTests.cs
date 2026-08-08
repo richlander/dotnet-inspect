@@ -59,21 +59,21 @@ public class ValidityCoverageReportingTests
         // return-tail candidate now keeps the interleaved default-goto default
         // as the region's trailing terminator, so it returns instead of falling
         // off the end.
-        string[] expected =
-#if DEBUG
-        [
-            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
-        ];
-#else
-        [
-            "ILInspector.Decompiler.MemberBodyProducer::DecompileBody",
-            "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
-            "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
-            "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
-            "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
-        ];
-#endif
-        Assert.Equal(expected, actual);
+        // #3514 removed four siblings: BooleanFoldingPass::
+        // IsNullableCoalesceExpressionContext, DeconstructionAssignmentPass::
+        // TryMatchTupleSeed, IndexFromEndPass::LengthReceiver, and SwapIdiomPass::
+        // MatchCarrier. Each switch-expression default was reached by one direct
+        // `when`-guard failure and one sibling type-test failure routed through a
+        // pure goto trampoline. Structuring now counts that source conditional as
+        // a scattered-dispatch predecessor and keeps the shared default reachable
+        // from both paths.
+        // #3840 removed the final two rows, MemberBodyProducer::DecompileBody
+        // and CSharpPrinter::ForLoopIncrementText. Structuring cloned an earlier
+        // past-region arm through a shared return, then dropped that return even
+        // though another control transfer outside the cloned range still entered
+        // it. Clone targets with an external predecessor now remain as the
+        // region's trailing return.
+        Assert.Empty(actual);
     }
 
     static string CaptureConsole(Func<int> action)

@@ -1,0 +1,16 @@
+<Project>
+
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- Harnesses are outside the CLI's reference closure and outside the
+         stderr-ownership rule (#3319). A harness owns orchestration, comparison,
+         and reporting, and reports to its own operator on its own stream; it
+         cannot reach dotnet-inspect's CommandError, and routing it through one
+         would make the harness a consumer of the product surface it exists to
+         test. StderrOwnershipTests pins that nothing in the CLI's closure is
+         covered by this declaration. -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
+  </PropertyGroup>
+
+</Project>

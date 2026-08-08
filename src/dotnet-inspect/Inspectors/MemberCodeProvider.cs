@@ -1,3 +1,4 @@
+using DotnetInspector.Output;
 using DotnetInspector.Services;
 using ILInspector.CSharp;
 using ILInspector.Decompiler.Pipeline;
@@ -215,12 +216,13 @@ internal static class MemberCodeProvider
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts,
                         MethodToken: methodToken,
-                        // Annotated Source spells the same member as Decompiled
-                        // Source, so it renders with the same resolved style options
-                        // -- otherwise the two views of one member disagree. The
-                        // other projections here (cost/semantics overlays, fact rows)
-                        // are style-invariant evidence and keep the shipped defaults.
-                        PrinterOptions: request.AnnotatedSource ? renderOptions : null,
+                        // Every C# body view uses the same local-name policy, so one
+                        // document never mixes readable names with V_index. Research
+                        // keeps overlays isolated from byte-divergent lenses and other
+                        // spelling knobs; fact rows remain style-invariant.
+                        PrinterOptions: request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay
+                            ? renderOptions
+                            : null,
                         CaretFocus: request.CaretFocus));
 
                 // Promotion never hides a fact, so a focus that matched nothing
@@ -228,8 +230,8 @@ internal static class MemberCodeProvider
                 // families this member does have, or a typo is invisible.
                 if (researchProjection.UnmatchedFocusAlternatives is { Count: > 0 } alternatives)
                 {
-                    Console.Error.WriteLine(
-                        $"note: --focus '{request.CaretFocus}' matched no facts here; "
+                    CommandError.WriteNote(
+                        $"--focus '{request.CaretFocus}' matched no facts here; "
                         + $"available: {string.Join(", ", alternatives)}");
                 }
             }
@@ -266,6 +268,12 @@ internal static class MemberCodeProvider
                     ? TrimOutput(semantics)
                     : null;
 
+            if ((request.CostOverlay && costOverlayResult?.Output is not null)
+                || (request.SemanticsOverlay && semanticsOverlayResult?.Output is not null))
+            {
+                styledProjectionProduced = true;
+            }
+
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
             {
@@ -288,7 +296,7 @@ internal static class MemberCodeProvider
                         IReadOnlyList<Decompiler.SourceLine> ilLines = instructions
                             .Select(i => new Decompiler.SourceLine(i.ToString(), i.Offset))
                             .ToList();
-                        ilText = string.Join(Environment.NewLine, ilLines.Select(line => line.Text));
+                        ilText = string.Join("\n", ilLines.Select(line => line.Text));
                     }
                 }
                 catch (Exception ex)

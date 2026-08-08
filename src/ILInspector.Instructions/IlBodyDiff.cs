@@ -43,6 +43,24 @@ public enum IlBodyDiffNormalization
     /// Replace known platform assembly reference scopes with a shared scope.
     /// </summary>
     NormalizePlatformAssemblyScope = 1 << 2,
+
+    // Bit 3 held the retired unsound per-side ordinal rewrite. It is deliberately not
+    // reused: stale numeric callers must be rejected rather than silently selecting a
+    // different normalization. Gated by
+    // Compare_RejectsRetiredSynthesizedMemberOrdinalOption.
+
+    /// <summary>
+    /// Compare Roslyn compiler-generated lambdas, local functions and state machines
+    /// under an ordinal-free name when the two sides correspond one-to-one.
+    /// </summary>
+    /// <remarks>
+    /// The ordinal Roslyn embeds in these names indexes the containing type's members,
+    /// so it shifts whenever that type's member population differs — which it always
+    /// does when one side is a reconstructed skeleton. Requires both readers; see
+    /// <see cref="CompilerGeneratedOrdinalCorrespondence"/> for why the decision is
+    /// two-sided.
+    /// </remarks>
+    NormalizeCompilerGeneratedOrdinals = 1 << 4,
 }
 
 public enum IlBodyDiffOutcome
@@ -127,7 +145,8 @@ public static class IlBodyDiff
     const IlBodyDiffNormalization SupportedNormalizations =
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope;
+        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);
@@ -157,11 +176,16 @@ public static class IlBodyDiff
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(newBody);
 
+        var (oldCorrespondence, newCorrespondence) =
+            (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0
+                ? CompilerGeneratedOrdinalCorrespondence.Build(oldReader, newReader)
+                : (CompilerGeneratedOrdinalCorrespondence.Empty, CompilerGeneratedOrdinalCorrespondence.Empty);
+
         return Compare(
             MethodInstructions.Decode(oldBody),
             MethodInstructions.Decode(newBody),
-            new MetadataOperandResolver(oldReader, normalization),
-            new MetadataOperandResolver(newReader, normalization),
+            new MetadataOperandResolver(oldReader, normalization, oldCorrespondence),
+            new MetadataOperandResolver(newReader, normalization, newCorrespondence),
             normalization);
     }
 
@@ -184,7 +208,7 @@ public static class IlBodyDiff
             return false;
         }
 
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None);
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None, CompilerGeneratedOrdinalCorrespondence.Empty);
         return TryBuildOperations(
             body.Instructions,
             resolver,
@@ -605,7 +629,8 @@ public static class IlBodyDiff
 
     sealed class MetadataOperandResolver(
         MetadataReader reader,
-        IlBodyDiffNormalization normalization)
+        IlBodyDiffNormalization normalization,
+        CompilerGeneratedOrdinalCorrespondence correspondence)
     {
         // Malformed metadata can make a declaring type or resolution-scope chain cyclic,
         // so the type-name climbs below would recurse until an uncatchable
@@ -717,7 +742,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs: null);
         }
 
         string FormatMemberReference(MemberReferenceHandle handle)
@@ -771,12 +796,18 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), MethodName(handle, method), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
         {
             var member = reader.GetMemberReference(handle);
+
+            // A method specification can name a member reference that is actually a
+            // field. Reject that malformed shape before decoding it as a method.
+            if (member.GetKind() != MemberReferenceKind.Method)
+                throw new BadImageFormatException("Expected method member reference.");
+
             var signature = GuardedProviderDecode.TryMemberRefMethod(
                 reader,
                 member,
@@ -800,7 +831,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{reader.GetString(field.Name)}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{FieldName(handle, field)}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -817,12 +848,14 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
+            // A MemberReference names a field the definition-handle correspondence never
+            // indexed, so it keeps its raw name.
             return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
         {
-            string instance = signature.Header.IsInstance ? "instance " : "";
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
             string arity = signature.GenericParameterCount > 0
                 ? $"`{signature.GenericParameterCount}"
@@ -863,7 +896,9 @@ public static class IlBodyDiff
         string FormatTypeDefinition(TypeDefinitionHandle handle)
         {
             var type = reader.GetTypeDefinition(handle);
-            string name = reader.GetString(type.Name);
+            string name = correspondence.TryGetTypeName(handle, out var elided)
+                ? elided
+                : reader.GetString(type.Name);
             var declaring = type.GetDeclaringType();
             string fullName;
             if (!declaring.IsNil && s_climbDepth < MaxClimbDepth)
@@ -893,6 +928,25 @@ public static class IlBodyDiff
                 finally { s_climbDepth--; }
             }
             return $"[{CurrentAssemblyName()}]{fullName}";
+        }
+
+        string MethodName(MethodDefinitionHandle handle, MethodDefinition method)
+        {
+            if (correspondence.TryGetMethodName(handle, out var elided))
+                return elided;
+
+            // A recognized name that the correspondence declines keeps its raw spelling.
+            // Declining means the ordinal-free key was ambiguous on a side, so the two
+            // members are not known to correspond (#3645).
+            return reader.GetString(method.Name);
+        }
+
+        string FieldName(FieldDefinitionHandle handle, FieldDefinition field)
+        {
+            if (correspondence.TryGetFieldName(handle, out var elided))
+                return elided;
+
+            return reader.GetString(field.Name);
         }
 
         string CurrentAssemblyName()
@@ -1029,8 +1083,9 @@ public static class IlBodyDiff
             => $"{(isRequired ? "modreq" : "modopt")}({modifier}) {unmodifiedType}";
         public string GetFunctionPointerType(MethodSignature<string> signature)
         {
+            string instance = SignatureThisPrefix(signature.Header);
             string convention = CallingConventionPrefix(signature.Header.CallingConvention);
-            return $"method {convention}{signature.ReturnType} *({FormatParameterList(signature)})";
+            return $"method {instance}{convention}{signature.ReturnType} *({FormatParameterList(signature)})";
         }
 
         static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
@@ -1080,6 +1135,49 @@ public static class IlBodyDiff
         for (int i = requiredCount; i < signature.ParameterTypes.Length; i++)
             builder.Add(signature.ParameterTypes[i]);
         return string.Join(", ", builder);
+    }
+
+    /// <summary>
+    /// Spells the <c>this</c> attributes of a method signature header the way ILAsm
+    /// does: <c>instance</c> for <c>HASTHIS</c>, and <c>explicit</c> for
+    /// <c>EXPLICITTHIS</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every bit of a signature header that distinguishes two methods has to reach the
+    /// rendered operand, because the operand is the whole of what the comparison sees.
+    /// <c>EXPLICITTHIS</c> was silently dropped, which made two methods with different
+    /// calling conventions render identically. That was latent while names were compared
+    /// literally — differing names still differed — and became a masked difference as
+    /// soon as <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>
+    /// folded the names, since the operand was then the only remaining discriminator.
+    /// <para>
+    /// Fixing it here rather than by widening the correspondence key is deliberate. A key
+    /// term would have to encode the signature, and a signature blob encodes type
+    /// references as metadata tokens, which legitimately differ between the two
+    /// assemblies being compared for the same logical signature — so keying on it would
+    /// suppress real folds. The renderer already decodes to a side-independent spelling,
+    /// so the difference belongs there, where it also protects every comparison that does
+    /// not fold names at all.
+    /// </para>
+    /// <para>
+    /// The bit is spelled independently of <c>HASTHIS</c>. ECMA-335 II.15.3 only defines
+    /// <c>EXPLICITTHIS</c> alongside <c>HASTHIS</c>, but untrusted metadata can set it
+    /// alone, and rendering it only in the pair would leave that shape colliding with a
+    /// static signature.
+    /// </para>
+    /// <para>
+    /// Gated end-to-end by
+    /// <c>IlBodyDiffNormalizationTests.MethodsDifferingOnlyInExplicitThis_DoNotFold</c>
+    /// and <c>..._FunctionPointersDifferingOnlyInTheirThisAttributes_AreNotEqual</c>.
+    /// </para>
+    /// </remarks>
+    static string SignatureThisPrefix(SignatureHeader header)
+    {
+        string instance = header.IsInstance ? "instance " : "";
+        string explicitThis = (header.Attributes & SignatureAttributes.ExplicitThis) != 0
+            ? "explicit "
+            : "";
+        return instance + explicitThis;
     }
 
     static string CallingConventionPrefix(SignatureCallingConvention convention)

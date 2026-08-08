@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
+using InertText;
 
 namespace DotnetInspector.Core;
 
@@ -205,7 +206,7 @@ public static class NetworkTelemetry
 
 public sealed record NetworkRequestObservation(
     string Method,
-    string? Url,
+    InertString? Url,
     string? Scheme,
     string? Host,
     string ClientKind,
@@ -243,8 +244,8 @@ public sealed record NetworkRequestObservation(
             ["dotnet_inspect.network.policy.allowed"] = IsAllowedByPolicy
         };
 
-        if (Url != null)
-            tags["url.full"] = Url;
+        if (Url is { } url)
+            tags["url.full"] = url.ToString();
         if (Scheme != null)
             tags["url.scheme"] = Scheme;
         if (Host != null)
@@ -257,13 +258,13 @@ public sealed record NetworkRequestObservation(
         return tags;
     }
 
-    internal static string? RedactUrl(Uri? uri)
+    internal static InertString? RedactUrl(Uri? uri)
     {
         if (uri == null)
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return RedactRelativeUrl(uri.ToString());
+            return new InertString(TextPolicy.Field, RedactRelativeUrl(uri.ToString()));
 
         var builder = new UriBuilder(uri)
         {
@@ -272,29 +273,58 @@ public sealed record NetworkRequestObservation(
         };
 
         builder.Query = RedactQuery(builder.Query);
-        return builder.Uri.ToString();
+        builder.Path = RedactPath(builder.Path);
+
+        // Redaction removes the secrets; this removes the ability to act on the terminal that
+        // prints them. Uri normalization percent-encodes C0 controls, which makes it look as
+        // though this were already handled, but it passes Cf straight through — so a bidi
+        // override in a source URL survives into a failure message and reorders it.
+        return new InertString(TextPolicy.Field, builder.Uri.ToString());
     }
 
-    internal static string RedactSensitiveUrlText(string value)
+    internal static InertString RedactSensitiveUrlText(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
-            return RedactUrl(absolute) ?? value;
+            return RedactUrl(absolute) ?? new InertString(TextPolicy.Field, value);
 
         if (Uri.TryCreate(value, UriKind.Relative, out var relative))
-            return RedactRelativeUrl(relative.ToString());
+            return new InertString(TextPolicy.Field, RedactRelativeUrl(relative.ToString()));
 
-        return value;
+        return new InertString(TextPolicy.Field, value);
     }
 
     private static string RedactRelativeUrl(string url)
     {
         var queryIndex = url.IndexOf('?', StringComparison.Ordinal);
         if (queryIndex < 0)
-            return url;
+            return RedactPath(url);
 
         var path = url[..queryIndex];
         var query = url[queryIndex..];
-        return $"{path}?{RedactQuery(query)}";
+        return $"{RedactPath(path)}?{RedactQuery(query)}";
+    }
+
+    // Some feeds carry the credential in the path rather than the query. MyGet publishes
+    // service index URLs shaped like https://host/F/<feed>/auth/<token>/api/v3/index.json,
+    // so the segment following an "auth" segment is a secret. Only that segment is removed:
+    // the rest of the path is the feed's identity (an Azure DevOps organization, project and
+    // feed all live in the path) and is exactly what a reader needs to tell sources apart.
+    private static string RedactPath(string path)
+    {
+        if (string.IsNullOrEmpty(path) || !path.Contains("auth", StringComparison.OrdinalIgnoreCase))
+            return path;
+
+        var segments = path.Split('/');
+        for (var i = 1; i < segments.Length; i++)
+        {
+            if (segments[i].Length > 0
+                && segments[i - 1].Equals("auth", StringComparison.OrdinalIgnoreCase))
+            {
+                segments[i] = "REDACTED";
+            }
+        }
+
+        return string.Join('/', segments);
     }
 
     private static string RedactQuery(string query)
@@ -319,15 +349,28 @@ public sealed record NetworkRequestObservation(
         return string.Join('&', parts);
     }
 
+    // Matched on fragments rather than whole names: the same secret travels under
+    // access_token, accessToken, apiKey, x-api-key and personalAccessToken depending on the
+    // feed, and an exact-name list silently passes every spelling it has not met yet.
+    private static readonly string[] SensitiveNameFragments =
+        ["token", "key", "secret", "password", "credential", "auth", "sig"];
+
     private static bool IsSensitiveQueryName(string name)
-        => name.Equals("access_token", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("api_key", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("apikey", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("code", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("password", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("sig", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("signature", StringComparison.OrdinalIgnoreCase)
-           || name.Equals("token", StringComparison.OrdinalIgnoreCase);
+    {
+        if (name.Equals("code", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var normalized = name.Replace("_", "", StringComparison.Ordinal)
+                             .Replace("-", "", StringComparison.Ordinal);
+
+        foreach (var fragment in SensitiveNameFragments)
+        {
+            if (normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 }
 
 public static class CacheTelemetry
@@ -381,7 +424,7 @@ public static class CacheTelemetry
 
 public sealed record CacheObservation(
     string Category,
-    string Key,
+    InertString Key,
     CacheAccessResult Result,
     NetworkTrafficKind TrafficKind,
     string? RequestWhat,
@@ -405,7 +448,7 @@ public sealed record CacheObservation(
         var tags = new ActivityTagsCollection
         {
            ["dotnet_inspect.cache.category"] = Category,
-           ["dotnet_inspect.cache.key"] = Key,
+           ["dotnet_inspect.cache.key"] = Key.ToString(),
            ["dotnet_inspect.cache.result"] = Result.ToTelemetryName(),
            ["dotnet_inspect.network.kind"] = TrafficKind.ToTelemetryName()
         };
@@ -493,17 +536,24 @@ internal static class NetworkClientKinds
 // pipeline, so a write that targeted the ambient Console.Error could land after a
 // test had swapped/disposed it (issue #705); binding the sink up front removes that
 // coupling, and the caller scopes the subscription's lifetime around the sink's.
-internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink) : IObserver<NetworkRequestObservation>
+//
+// The observed URL carries the package id the user asked for, so every line here is
+// attacker-reachable and lands on stderr at column 0. Containment is a required
+// constructor parameter for the same reason it is one on RequestMermaidDiagram: this
+// assembly cannot reach ILInspector.CSharp (runfaster depends on Core and must not
+// grow a metadata dependency), and a defaulted seam is one a caller can forget.
+internal sealed class NetworkTrafficLogConsumer(System.IO.TextWriter sink, Func<string, string> contain)
+    : IObserver<NetworkRequestObservation>
 {
     public void OnNext(NetworkRequestObservation observation)
     {
-        sink.WriteLine(
-            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}");
+        sink.WriteLine(contain(
+            $"Network traffic [{observation.TrafficKind.ToTelemetryName()}]: {observation.Method} {observation.Url}"));
 
         if (observation is { TrafficKind: NetworkTrafficKind.VulnerabilityData, IsAllowedByPolicy: false })
         {
-            sink.WriteLine(
-                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}");
+            sink.WriteLine(contain(
+                $"Network policy error [vulnerability-data]: NuGet vulnerability service was accessed outside detailed view or an explicit network-using section: {observation.Method} {observation.Url}"));
         }
     }
 
@@ -588,14 +638,35 @@ public sealed class RequestMermaidDiagram :
         _breadcrumbSubscription.Dispose();
     }
 
-    public void WriteTo(TextWriter writer)
+    public void WriteTo(TextWriter writer, Func<string, string> containLabel)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        writer.Write(ToMermaid());
+        ArgumentNullException.ThrowIfNull(containLabel);
+        writer.Write(ToMermaid(containLabel));
     }
 
-    public string ToMermaid()
+    /// <summary>
+    /// Renders the diagram, containing every node label with
+    /// <paramref name="containLabel"/>.
+    /// </summary>
+    /// <remarks>
+    /// A label carries the request URL and the cache key, both built from the
+    /// package reference the user asked for, so it is untrusted text on a
+    /// stream whose other lines are structure. Escaping only the two Mermaid
+    /// metacharacters left that text able to end its line: <c>package
+    /// "Hostile\nError: FORGED"</c> printed <c>Error: FORGED"]</c> unindented
+    /// on stderr, which reads as a real diagnostic.
+    ///
+    /// Containment is a required parameter rather than a default because this
+    /// assembly deliberately does not reference the containment library --
+    /// runfaster depends on it and should not grow a metadata dependency -- and
+    /// a defaulted seam is one a caller can forget. There is no spelling of
+    /// this call that renders a raw label.
+    /// </remarks>
+    public string ToMermaid(Func<string, string> containLabel)
     {
+        ArgumentNullException.ThrowIfNull(containLabel);
+
         List<string> nodes;
         lock (_gate)
         {
@@ -616,7 +687,7 @@ public sealed class RequestMermaidDiagram :
         for (var i = 0; i < nodes.Count; i++)
         {
             var node = $"n{i + 1}";
-            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(nodes[i])}\"]");
+            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(containLabel(nodes[i]))}\"]");
             builder.AppendLine($"  {previous} --> {node}");
             previous = node;
         }

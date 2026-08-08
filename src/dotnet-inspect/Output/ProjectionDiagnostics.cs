@@ -83,11 +83,11 @@ public static class ProjectionDiagnostics
             {
                 if (resolvedSomewhere.Contains(name))
                     continue;
-                var msg = $"warning: {kind} '{name}' not found in section '{section}'";
+                var msg = $"{kind} '{name}' not found in section '{section}'";
                 if (validation.Suggestions.TryGetValue(name, out var suggestions))
                     msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
                 msg += $" Run -D \"{section}\" to list available {kind}s.";
-                Console.Error.WriteLine(msg);
+                CommandError.WriteWarning(msg);
             }
         }
 
@@ -96,7 +96,7 @@ public static class ProjectionDiagnostics
         if (resolvedSomewhere.Count > 0)
             return true;
 
-        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
+        CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 
@@ -111,7 +111,7 @@ public static class ProjectionDiagnostics
             return;
 
         var label = missing.Length == 1 ? "field has" : "fields have";
-        Console.Error.WriteLine($"note: {missing.Length} {label} no data: {string.Join(", ", missing)}");
+        CommandError.WriteNote($"{missing.Length} {label} no data: {string.Join(", ", missing)}");
     }
 
     private static bool ValidateNames(DocumentSchema schema, string sectionName,
@@ -123,17 +123,17 @@ public static class ProjectionDiagnostics
 
         foreach (var name in validation.Unresolved)
         {
-            var msg = $"warning: {kind} '{name}' not found in section '{sectionName}'";
+            var msg = $"{kind} '{name}' not found in section '{sectionName}'";
             if (validation.Suggestions.TryGetValue(name, out var suggestions))
                 msg += $" (did you mean: {string.Join(", ", suggestions)}?)";
             msg += $" Run -D \"{sectionName}\" to list available {kind}s.";
-            Console.Error.WriteLine(msg);
+            CommandError.WriteWarning(msg);
         }
 
         if (validation.Resolved.Length > 0)
             return true;
 
-        Console.Error.WriteLine($"Error: No {kind}s matched projection: {string.Join(", ", names)}");
+        CommandError.Write($"No {kind}s matched projection: {string.Join(", ", names)}");
         return false;
     }
 }

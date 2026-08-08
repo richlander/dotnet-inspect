@@ -24,6 +24,19 @@ public sealed record AssemblyReferenceIdentity(
             TokenOrNull(reader, reference.PublicKeyOrToken, (reference.Flags & AssemblyFlags.PublicKey) != 0));
     }
 
+    public static AssemblyReferenceIdentity FromAssemblyDefinition(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            throw new BadImageFormatException("The metadata image is not an assembly.");
+
+        var definition = reader.GetAssemblyDefinition();
+        return new AssemblyReferenceIdentity(
+            reader.GetString(definition.Name),
+            definition.Version,
+            StringOrNull(reader, definition.Culture),
+            TokenOrNull(reader, definition.PublicKey, isPublicKey: true));
+    }
+
     static string? StringOrNull(MetadataReader reader, StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
 
@@ -53,15 +66,6 @@ public sealed record AssemblyReferenceIdentity(
         return Convert.ToHexString(token).ToLowerInvariant();
     }
 }
-
-/// <summary>
-/// Roslyn-free descriptor for an assembly resolved by identity.
-/// </summary>
-public sealed record ResolvedAssemblyReference(
-    AssemblyReferenceIdentity Identity,
-    string? Path,
-    Func<Stream> OpenRead,
-    string? Provenance = null);
 
 /// <summary>
 /// Callback boundary for consumers that know metadata assembly identity but not

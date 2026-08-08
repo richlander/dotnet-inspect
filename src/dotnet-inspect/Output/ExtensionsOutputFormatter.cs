@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Views;
@@ -16,7 +17,7 @@ public static class ExtensionsOutputFormatter
         {
             return new ExtensionsResultView
             {
-                Title = $"Extension Methods for {targetType}",
+                Title = $"Extension Methods for {CSharpIdentifier.ContainRenderedText(targetType)}",
                 Description = "No extension methods found."
             };
         }
@@ -48,7 +49,7 @@ public static class ExtensionsOutputFormatter
 
         return new ExtensionsResultView
         {
-            Title = $"Extension Methods for {targetType}",
+            Title = $"Extension Methods for {CSharpIdentifier.ContainRenderedText(targetType)}",
             Counts = counts
         };
     }
@@ -74,7 +75,7 @@ public static class ExtensionsOutputFormatter
 
         return new ExtensionsResultView
         {
-            Title = $"Extension Methods for {targetType}",
+            Title = $"Extension Methods for {CSharpIdentifier.ContainRenderedText(targetType)}",
             Extensions = rows
         };
     }

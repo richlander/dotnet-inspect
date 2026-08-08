@@ -15,7 +15,10 @@
 # real-world corpus. The pool is the union of:
 #
 #   1. The top-ranked NuGet packages (docs/data/nuget-top-packages.json), acquired
-#      by eng/prepare-decompiler-package-sweep.cs.
+#      by eng/prepare-decompiler-package-sweep.cs at the exact versions pinned in
+#      docs/data/nuget-top-packages.lock.json, so the pool is reproducible and a
+#      run's pool identity can be compared against a recorded baseline (#3353).
+#      Refresh the pin deliberately with --refresh-pin; that records a new pool.
 #   2. The 14 pinned real-world corpus assemblies (eng/prepare-decompiler-corpus.sh),
 #      so the two corpora share affinity and can grow in lock step.
 #

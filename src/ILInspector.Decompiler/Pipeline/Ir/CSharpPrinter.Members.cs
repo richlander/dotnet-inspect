@@ -172,7 +172,7 @@ public sealed partial class CSharpPrinter
             var pointerMember = field.BackingPropertyName
                 ?? CSharpNaming.PrimaryConstructorCaptureName(field.Name)
                 ?? field.Name;
-            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(pointerMember)}";
+            return $"{pointerReceiver}->{CSharpNaming.ContainedIdentifier(pointerMember)}";
         }
         // An auto-property backing field, <Prop>k__BackingField, has no spellable
         // C# name; render it as the property it backs. `this.` qualifies the
@@ -181,9 +181,9 @@ public sealed partial class CSharpPrinter
         if (field.BackingPropertyName is { } property)
             return instance switch
             {
-                null => $"{TypeQualifierText(field.DeclaringType)}.{CSharpNaming.EscapeIdentifier(property)}",
-                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.EscapeIdentifier(property)}",
-                _ => $"{ReceiverText(instance)}.{CSharpNaming.EscapeIdentifier(property)}",
+                null => $"{TypeQualifierText(field.DeclaringType)}.{CSharpNaming.ContainedIdentifier(property)}",
+                LoadArgument { Index: 0, Name: "this" } => $"this.{CSharpNaming.ContainedIdentifier(property)}",
+                _ => $"{ReceiverText(instance)}.{CSharpNaming.ContainedIdentifier(property)}",
             };
         // A C# 12 primary-constructor capture field, <param>P, has no spellable C#
         // name; its source spelling is the primary-constructor parameter, which is
@@ -192,7 +192,7 @@ public sealed partial class CSharpPrinter
         // parameter shadows it, so `this.` reaches the field).
         if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
         {
-            string captured = CSharpNaming.EscapeIdentifier(capture);
+            string captured = CSharpNaming.ContainedIdentifier(capture);
             return instance switch
             {
                 null => $"{TypeQualifierText(field.DeclaringType)}.{captured}",
@@ -266,7 +266,7 @@ public sealed partial class CSharpPrinter
         {
             if (indexArguments.Count > 0)
                 return $"(*{pointerReceiver})[{Arguments(indexArguments)}]";
-            return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
+            return $"{pointerReceiver}->{CSharpNaming.ContainedIdentifier(name)}";
         }
 
         bool thisQualifiedByKnob = false;
@@ -293,7 +293,7 @@ public sealed partial class CSharpPrinter
         // decision so an indexer never records one.
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
-        string escapedName = CSharpNaming.EscapeIdentifier(name);
+        string escapedName = CSharpNaming.ContainedIdentifier(name);
         // Same byte-preserving gate as the field and method sites: a property or
         // event declared on a base type (hidden or inherited) reached through this.
         // is not a self-type opt-in, so it must not record. A virtual inherited
@@ -579,7 +579,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
-        string name = CSharpNaming.SourceMethodName(method.Name);
+        string name = CSharpNaming.SourceMethodName(method);
+        // A raised local function is declared IN the host body, not on the type, so it
+        // is referenced unqualified. Taking the static arm below would spell it
+        // `Type.Name`, which is CS0117 — the shape #3631's method-group sibling hit.
+        if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
+            return name;
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
@@ -666,7 +671,14 @@ public sealed partial class CSharpPrinter
         string typeArguments = method.TypeArguments.IsEmpty
             ? ""
             : $"<{string.Join(", ", method.TypeArguments.Select(TypeText))}>";
-        string name = $"{CSharpNaming.SourceMethodName(method.Name)}{typeArguments}";
+        string name = $"{CSharpNaming.SourceMethodName(method)}{typeArguments}";
+        // As in MethodGroupText: a raised local function is never type-qualified. It is
+        // also never spelled with type arguments. A local function that declares its own
+        // type parameters is always declined (LocalFunctionRaisingPass), so every type
+        // argument on a raised one belongs to the ENCLOSING method and is already implicit
+        // at the declaration site — `&Core<T>` against `static T Core(T v)` is CS0308.
+        if (method.LocalFunctionRaise == LocalFunctionRaiseState.Raised)
+            return $"&{CSharpNaming.SourceMethodName(method)}";
         return IsCrossType(method.DeclaringType)
             ? $"&{TypeQualifierText(method.DeclaringType)}.{name}"
             : $"&{name}";
@@ -697,10 +709,10 @@ public sealed partial class CSharpPrinter
                     : [.. call.Callee.ParameterRefKinds.Skip(1)];
                 string extensionArgs = Arguments(arguments.Skip(1), restTypes, restRefKinds);
                 if (PointerRefExtensionReceiver(call.Callee, arguments[0]) is { } extensionReceiver)
-                    return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+                    return $"{extensionReceiver}->{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({extensionArgs})";
                 if (arguments[0].ResultType is { Kind: TypeRefKind.Pointer })
-                    return $"{TypeQualifierText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
-                return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({extensionArgs})";
+                    return $"{TypeQualifierText(call.Callee.DeclaringType)}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+                return $"{ReceiverText(arguments[0])}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({extensionArgs})";
             }
             // A static abstract/virtual interface member invoked through a type
             // parameter compiles to `constrained. T; call IInterface<…>::Method`.
@@ -709,7 +721,7 @@ public sealed partial class CSharpPrinter
             // static abstract member: CS0119/CS0314). The constrained type is the
             // receiver, and the spelling recompiles to the same constrained call.
             if (call.ConstrainedTo is { } staticReceiver)
-                return $"{TypeQualifierText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
+                return $"{TypeQualifierText(staticReceiver)}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds)})";
             // A static call to a member of the current type needs no type
             // qualifier — `M(args)`, not `SelfType.M(args)` — just as a this-
             // receiver instance call drops `this.` and a same-type static method
@@ -728,7 +740,7 @@ public sealed partial class CSharpPrinter
             // generic type), or when a local/parameter shadows the name — the type
             // qualifier is the only disambiguator for a static call (there is no
             // `this.`), so an unqualified call would bind to the local.
-            string sourceName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            string sourceName = CSharpNaming.SourceMethodName(call.Callee);
             string staticName = $"{sourceName}{typeArguments}";
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
             return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
@@ -751,7 +763,7 @@ public sealed partial class CSharpPrinter
             return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
         if (IsBoxedThisReceiver(receiver))
         {
-            string boxedMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            string boxedMethodName = CSharpNaming.SourceMethodName(call.Callee);
             // A non-virtual call through a boxed this to a base-class member
             // (System.ValueType or System.Object) is base.M(): base-suppression
             // (`call`, no dispatch) reaches the base member and `base.M()` lowers to
@@ -780,10 +792,10 @@ public sealed partial class CSharpPrinter
         // call[virt] I::M`; bare `(x).M()` would be CS1061 for a DIM/explicit impl,
         // or a silent rebind to the value type's own method otherwise.
         if (TryBoxedNonThisInterfaceReceiver(receiver, call.Callee.DeclaringType, out var boxedNonThisPlace))
-            return $"(({TypeText(call.Callee.DeclaringType)}){boxedNonThisPlace}).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+            return $"(({TypeText(call.Callee.DeclaringType)}){boxedNonThisPlace}).{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
-            string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            string thisMethodName = CSharpNaming.SourceMethodName(call.Callee);
             // A default-interface-member (or explicit interface impl) call over
             // this: the callee is declared on an interface `this` was implicitly
             // upcast to (no IL), so the member is not a member of the implementing
@@ -806,8 +818,8 @@ public sealed partial class CSharpPrinter
             return $"{thisMethodName}{typeArguments}({rest})";
         }
         if (PointerMethodReceiver(receiver) is { } pointerReceiver)
-            return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
-        return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+            return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
+        return $"{ReceiverText(receiver)}.{CSharpNaming.SourceMethodName(call.Callee)}{typeArguments}({rest})";
     }
 
     // Taste class 3 (no IL anchor): once a re-composed fluent chain is long, the

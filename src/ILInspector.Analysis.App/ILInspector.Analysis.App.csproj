@@ -8,6 +8,10 @@
     <LangVersion>preview</LangVersion>
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
+
+    <!-- A separate development entry point, outside the CLI's reference closure
+         and outside the stderr-ownership rule (#3319). -->
+    <OwnsItsOwnStderr>true</OwnsItsOwnStderr>
   </PropertyGroup>
 
   <ItemGroup>

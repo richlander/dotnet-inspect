@@ -22,7 +22,7 @@ public class SharedOptions
     public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
-    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Synthesize readable names (from a local's type/role) for locals that have no usable PDB source name, instead of the V_index fallback; byte-preserving (names do not affect IL)" };
+    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Use the default readable local-name synthesis even when configuration disables it; byte-preserving (names do not affect IL)" };
     public Option<string?> Focus { get; } = new("--focus") { Description = "Report a fact family with the caret gesture (underlined beneath the statement) instead of a trailing comment: a category (allocation), a descriptor id (alloc.box), or an id prefix (alloc). Promotes, never filters: unmatched facts keep their trailing comment", Arity = ArgumentArity.ExactlyOne };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
@@ -31,6 +31,7 @@ public class SharedOptions
 
     // Verbosity options
     public Option<bool> Verbose { get; } = new("--verbose") { Description = "Show progress messages on stderr" };
+    public Option<bool> Trace { get; } = new("--trace") { Description = "Report which sections were selected, which scanners ran and for how long, and which expensive resources were built, on stderr" };
     public Option<string?> Verbosity { get; } = new("-v") { Description = "Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)", Arity = ArgumentArity.ZeroOrOne, DefaultValueFactory = _ => null };
 
     // Output control options
@@ -60,7 +61,11 @@ public class SharedOptions
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
     public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
-    public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
+    public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
+    public Option<bool> Effective { get; } = new("--effective")
+    {
+        Description = "With -D: run the producers needed to identify sections with data"
+    };
 
     // Performance Triage row predicates
     public Option<bool> PerformanceTriageLoop { get; } = new("--loop") { Description = "Performance Triage: show only opportunities inside loops" };
@@ -120,7 +125,7 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections/categories by name, wildcard, or @All (comma/semicolon-separated)",
+            Description = "Select sections/categories by name or wildcard (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");
@@ -162,6 +167,21 @@ public class SharedOptions
         // `package` does not (dotnet-inspect#3494 review).
         AddDuplicateNameValidator(Columns, "--columns");
         AddDuplicateNameValidator(Fields, "--fields");
+
+        // A config the user names explicitly must be usable. Reporting it here gives every
+        // command that takes --nugetconfig the same clean parse-time error, instead of an
+        // unhandled exception from whichever service happens to resolve sources first.
+        NuGetConfig.Validators.Add(result =>
+        {
+            var token = result.Tokens.Count > 0 ? result.Tokens[^1].Value : null;
+            if (token is not null && NuGetSourceResolver.DescribeConfigProblem(token) is string problem)
+                result.AddError(problem);
+        });
+
+        // Credentials in the URL authenticate against no feed, so left alone they surface as a
+        // bare 401 that looks like the credential was wrong rather than never sent.
+        Source.Validators.Add(ValidateSourceUrls);
+        AddSource.Validators.Add(ValidateSourceUrls);
     }
 
     /// <summary>
@@ -198,6 +218,15 @@ public class SharedOptions
                 }
             }
         });
+    }
+
+    private static void ValidateSourceUrls(System.CommandLine.Parsing.OptionResult result)
+    {
+        foreach (var token in result.Tokens)
+        {
+            if (!NuGetFetch.SourceResolver.IsSupportedSource(token.Value, out InertText.InertString? problem))
+                result.AddError(problem.Value.ToString());
+        }
     }
 
     /// <summary>
@@ -541,12 +570,24 @@ public class SharedOptions
 
     /// <summary>
     /// Parses select list from parse result.
-    /// Returns null if not specified, @Default for bare -S, or populated array with section/category names.
+    /// Returns null if not specified or if bare (see <see cref="ParseSelectDefault"/>), otherwise
+    /// a populated array with section/category names.
     /// </summary>
     public string[]? ParseSelect(ParseResult parseResult)
         => IsBareFlag(parseResult, Select)
-            ? [SelectResolver.InfoSelector]
+            ? null
             : ParseCommaSeparatedList(parseResult.GetValue(Select));
+
+    /// <summary>
+    /// Whether <c>-S</c> was given with no value. Bare <c>-S</c> asks for the command's default
+    /// preset, which is a distinct request from naming a section or category — so it travels as
+    /// its own flag rather than as a selector string. Encoding it as the public value
+    /// <c>@Default</c> made the marker indistinguishable from a hand-typed selector, which leaked
+    /// the internal spelling into user-facing "not found" diagnostics and kept <c>@Default</c>
+    /// resolvable on commands that had dropped it. See #3547.
+    /// </summary>
+    public bool ParseSelectDefault(ParseResult parseResult)
+        => IsBareFlag(parseResult, Select);
 
     /// <summary>
     /// Parses discover flag from parse result.
@@ -611,13 +652,13 @@ public class SharedOptions
 
         if (jsonFlag)
         {
-            Console.Error.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
+            CommandError.WriteLine("--json cannot be combined with --table, --tsv, or --jsonl.");
             throw new OperationCanceledException();
         }
 
         if (markdownFlag || plainTextFlag || mermaidFlag || hasVerbosity)
         {
-            Console.Error.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
+            CommandError.WriteLine("--table/--tsv/--jsonl cannot be combined with --markdown, --plaintext, --mermaid, or -v.");
             throw new OperationCanceledException();
         }
     }

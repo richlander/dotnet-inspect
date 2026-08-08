@@ -1,4 +1,6 @@
+using DotnetInspector.Output;
 using DotnetInspector.Services;
+using ILInspector.CSharp;
 
 namespace DotnetInspector.Commands;
 
@@ -9,7 +11,8 @@ internal static class NamespacePrefixHints
         if (!LooksLikePlatformNamespacePrefix(value))
             return;
 
-        Console.Error.WriteLine($"Note: '{value}' looks like a namespace prefix. Use `type {value}` to browse matching platform types, or `find \"{value}*\" --platform` to see source libraries.");
+        var shown = CSharpIdentifier.ContainRenderedText(value);
+        CommandError.WriteNote($"'{shown}' looks like a namespace prefix. Use `type {shown}` to browse matching platform types, or `find \"{shown}*\" --platform` to see source libraries.");
     }
 
     public static void WriteIfLikelyBareTypeName(string value)
@@ -17,9 +20,13 @@ internal static class NamespacePrefixHints
         if (!LooksLikeBareTypeName(value))
             return;
 
-        Console.Error.WriteLine($"Note: If '{value}' is a type name, use `find {value} --platform` to locate its library, or add --package/--library/--platform.");
+        var shown = CSharpIdentifier.ContainRenderedText(value);
+        CommandError.WriteNote($"If '{shown}' is a type name, use `find {shown} --platform` to locate its library, or add --package/--library/--platform.");
     }
 
+    // The predicates below match the raw value: they are identity questions
+    // ("is this a namespace prefix?"), and containment belongs at presentation
+    // only. Containing before matching would let a hazard change the answer.
     private static bool LooksLikePlatformNamespacePrefix(string value)
         => value.Contains('.')
            && !value.Contains('*')

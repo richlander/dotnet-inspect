@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using CSharpText;
 using ILInspector.Text;
 
 namespace ILInspector.Metadata;
@@ -71,131 +72,8 @@ public static class TypeMatcher
            && candidate.AsSpan(candidate.Length - suffix.Length)
                .Equals(suffix, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Normalizes a type name by converting C#-style generic arguments to CLR backtick notation.
-    /// "IEnumerable&lt;T&gt;" → "IEnumerable`1"
-    /// "Dictionary&lt;string, int&gt;" → "Dictionary`2"
-    /// "List&lt;T&gt;+Enumerator" → "List`1+Enumerator" (trailing suffix preserved)
-    /// Already-normalized names like "List`1" pass through unchanged.
-    /// This is the single canonical C#→CLR name converter for the tool.
-    /// </summary>
-    public static string Normalize(string typeName)
-    {
-        if (string.IsNullOrEmpty(typeName))
-            return typeName;
-
-        var trimmed = typeName.Trim();
-        if (typeName.Equals(trimmed, StringComparison.Ordinal)
-            && PrimitiveTypeNames.TryToClrFullName(typeName, out var primitiveFullName))
-            return primitiveFullName;
-
-        var angleIdx = typeName.IndexOf('<');
-        if (angleIdx <= 0)
-            return typeName;
-
-        var closeIdx = typeName.LastIndexOf('>');
-        if (closeIdx <= angleIdx)
-            return typeName;
-
-        var baseName = typeName[..angleIdx];
-        int arity = CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx));
-        var suffix = closeIdx + 1 < typeName.Length ? typeName[(closeIdx + 1)..] : "";
-        return $"{baseName}`{arity}{suffix}";
-    }
-
     private static string NormalizeForLookup(string typeName)
-        => Normalize(typeName).Replace('+', '.');
-
-    /// <summary>
-    /// Normalizes a member selector to metadata member names.
-    /// "Deserialize&lt;TValue&gt;" -> "Deserialize", "ctor" -> ".ctor", "operator+" -> "op_Addition".
-    /// Malformed/non-aliased names pass through unchanged.
-    /// </summary>
-    public static string NormalizeMemberName(string memberName)
-    {
-        memberName = memberName.Trim();
-        var angleIdx = memberName.IndexOf('<');
-        if (angleIdx > 0)
-        {
-            var closeIdx = memberName.LastIndexOf('>');
-            if (closeIdx > angleIdx && closeIdx == memberName.Length - 1)
-                memberName = memberName[..angleIdx];
-        }
-
-        return NormalizeOperatorOrSpecialMemberName(memberName);
-    }
-
-    private static string NormalizeOperatorOrSpecialMemberName(string memberName)
-    {
-        if (memberName.Equals("ctor", StringComparison.OrdinalIgnoreCase)
-            || memberName.Equals("constructor", StringComparison.OrdinalIgnoreCase))
-            return ".ctor";
-
-        if ((memberName.StartsWith("this[", StringComparison.OrdinalIgnoreCase)
-                && memberName.EndsWith("]", StringComparison.Ordinal))
-            || memberName.Equals("this", StringComparison.OrdinalIgnoreCase)
-            || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
-            return "this[]";
-
-        if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
-            memberName = memberName["operator".Length..].Trim();
-        else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
-            return memberName;
-
-        var compact = memberName.Replace(" ", "", StringComparison.Ordinal);
-        return compact.ToLowerInvariant() switch
-        {
-            "implicit" => "op_Implicit",
-            "explicit" => "op_Explicit",
-            "checkedimplicit" => "op_CheckedImplicit",
-            "checkedexplicit" => "op_CheckedExplicit",
-            "+" => "op_Addition",
-            "checked+" => "op_CheckedAddition",
-            "-" => "op_Subtraction",
-            "checked-" => "op_CheckedSubtraction",
-            "*" => "op_Multiply",
-            "checked*" => "op_CheckedMultiply",
-            "/" => "op_Division",
-            "%" => "op_Modulus",
-            "++" => "op_Increment",
-            "checked++" => "op_CheckedIncrement",
-            "--" => "op_Decrement",
-            "checked--" => "op_CheckedDecrement",
-            "==" => "op_Equality",
-            "!=" => "op_Inequality",
-            "<" => "op_LessThan",
-            ">" => "op_GreaterThan",
-            "<=" => "op_LessThanOrEqual",
-            ">=" => "op_GreaterThanOrEqual",
-            "&" => "op_BitwiseAnd",
-            "|" => "op_BitwiseOr",
-            "^" => "op_ExclusiveOr",
-            "~" => "op_OnesComplement",
-            "!" => "op_LogicalNot",
-            "<<" => "op_LeftShift",
-            ">>" => "op_RightShift",
-            ">>>" => "op_UnsignedRightShift",
-            "true" => "op_True",
-            "false" => "op_False",
-            _ => memberName
-        };
-    }
-
-    private static int CountTypeParameters(ReadOnlySpan<char> typeParams)
-    {
-        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
-            return 0;
-
-        int count = 1;
-        int depth = 0;
-        foreach (char c in typeParams)
-        {
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ',' && depth == 0) count++;
-        }
-        return count;
-    }
+        => FqnParser.NormalizeTypeName(typeName).Replace('+', '.');
 
     /// <summary>
     /// Gets the base name without generic arity suffixes.
@@ -285,7 +163,7 @@ public static class TypeMatcher
         if (string.IsNullOrEmpty(target))
             yield break;
 
-        var targetBase = GetBaseName(GetSimpleName(Normalize(target)));
+        var targetBase = GetBaseName(GetSimpleName(FqnParser.NormalizeTypeName(target)));
 
         List<(string Name, double Similarity)> scored = [];
 
@@ -298,7 +176,7 @@ public static class TypeMatcher
             if (Matches(candidate, target))
                 continue;
 
-            var candidateBase = GetBaseName(GetSimpleName(Normalize(candidate)));
+            var candidateBase = GetBaseName(GetSimpleName(FqnParser.NormalizeTypeName(candidate)));
             var similarity = StringDistance.Similarity(candidateBase, targetBase);
 
             if (similarity >= minSimilarity)
@@ -352,7 +230,7 @@ public static class TypeMatcher
             return -1; // No generic notation, arity unspecified
 
         // -1 (unspecified) for empty/whitespace args; otherwise the top-level type-parameter count.
-        var arity = CountTypeParameters(pattern.AsSpan((startIdx + 1)..endIdx));
+        var arity = FqnParser.CountTypeParameters(pattern.AsSpan((startIdx + 1)..endIdx));
         return arity == 0 ? -1 : arity;
     }
 
@@ -465,7 +343,7 @@ public static class TypeMatcher
                     return new LookupResult(arityMatch, []);
             }
 
-            var normalizedPattern = Normalize(pattern);
+            var normalizedPattern = FqnParser.NormalizeTypeName(pattern);
             var exactSimpleNameMatch = matches.FirstOrDefault(c =>
                 GetGenericArity(GetSimpleName(c)) == 0
                 && GetSimpleName(c).Equals(normalizedPattern, StringComparison.OrdinalIgnoreCase));

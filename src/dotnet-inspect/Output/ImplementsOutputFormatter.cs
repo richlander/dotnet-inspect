@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using DotnetInspector.Models;
 using DotnetInspector.Views;
 
@@ -12,7 +13,7 @@ public static class ImplementsOutputFormatter
     {
         return new ImplementsResultView
         {
-            Title = $"Types Implementing {targetType}",
+            Title = $"Types Implementing {CSharpIdentifier.ContainRenderedText(targetType)}",
             Matches = results.Count,
             Description = results.Count == 0 ? "No implementing types found." : null,
             Rows = results.Count == 0 ? null : results

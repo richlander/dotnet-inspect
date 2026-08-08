@@ -35,6 +35,11 @@ public interface IPackageContent
     bool FromCache { get; }
 
     /// <summary>
+    /// Canonical identity of the source that produced this package payload.
+    /// </summary>
+    string ProducerKey { get; }
+
+    /// <summary>
     /// Opens a package entry addressed by its <c>/</c>-separated, package-root
     /// relative path (for example <c>lib/net8.0/Foo.dll</c>). Returns
     /// <c>false</c> when no such entry exists.

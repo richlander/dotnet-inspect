@@ -1,6 +1,8 @@
 using DotnetInspector.Views;
 using Markout;
 
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Output;
 
 /// <summary>
@@ -48,13 +50,20 @@ public static class PackageOutputFormatter
         foreach (var kvp in dict.OrderBy(k => k.Key))
         {
             var children = (Dictionary<string, object>)kvp.Value;
+
+            // A ZIP entry name is attacker-chosen, and a tree node is rendered
+            // straight into the gutter, so contain it here at the presentation
+            // boundary. The dictionary is still keyed and ordered by the raw
+            // path so grouping stays identity-based (issue #3319).
+            var label = CSharpIdentifier.ContainRenderedText(kvp.Key);
+
             if (children.Count == 0)
             {
-                nodes.Add(new TreeNode(kvp.Key));
+                nodes.Add(new TreeNode(label));
             }
             else
             {
-                nodes.Add(new TreeNode(kvp.Key) { Children = BuildTreeNodes(children) });
+                nodes.Add(new TreeNode(label) { Children = BuildTreeNodes(children) });
             }
         }
 

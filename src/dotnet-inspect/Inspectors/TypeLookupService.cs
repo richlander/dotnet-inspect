@@ -152,7 +152,7 @@ public static class TypeLookupService
 
         if (error != null)
         {
-            logger.Log($"Warning: Could not resolve assembly path: {error}");
+            logger.LogWarning($"Could not resolve assembly path: {error}");
             return null;
         }
 

@@ -22,7 +22,7 @@ public class CliSchemaCommand
             var match = commands.FirstOrDefault(c => c.Name.Equals(commandFilter, StringComparison.OrdinalIgnoreCase));
             if (match == null)
             {
-                Console.Error.WriteLine($"Error: Command '{commandFilter}' not found.");
+                CommandError.Write($"Command '{commandFilter}' not found.");
                 return 1;
             }
             commands = [match];

@@ -16,26 +16,33 @@ namespace ILInspector.Decompiler.Tests;
 /// The discriminator that recognizes this shape (an interior block entered by a
 /// jump from before the guard span) must not fire on a contiguous short-circuit
 /// <c>&amp;&amp;</c> guard chain, which threads entirely within its own span and
-/// must stay combined under one condition — the #640 fidelity canary. The two
-/// canaries below (<see cref="ScatteredReturnDispatchSample.PlainAnd"/> and
+/// must stay combined under one condition — the #640 fidelity canary. The
+/// canaries below (<see cref="ScatteredReturnDispatchSample.PlainAnd"/>,
+/// <see cref="ScatteredReturnDispatchSample.LoopBeforeAndChain"/>, and
 /// <see cref="ScatteredReturnDispatchSample.ThrowTernaryChain"/>) pin that the
 /// shared return is not unrolled and the condition stays a single <c>&amp;&amp;</c>.
 /// </summary>
 [Trait("Area", "Pass")]
 public class ScatteredReturnDispatchStructuringTests
 {
-    static IrFunction Raised(string methodName)
+    static IrFunction Raised(Type type, string methodName)
     {
-        using var source = MetadataSource.Open(typeof(ScatteredReturnDispatchSample).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(ScatteredReturnDispatchSample).FullName!, methodName);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
         return function;
     }
 
+    static IrFunction Raised(string methodName) =>
+        Raised(typeof(ScatteredReturnDispatchSample), methodName);
+
     static string Print(string methodName) =>
         CSharpPrinter.Print(Raised(methodName)).Output!.ReplaceLineEndings("\n").TrimEnd();
+
+    static string Print(Type type, string methodName) =>
+        CSharpPrinter.Print(Raised(type, methodName)).Output!.ReplaceLineEndings("\n").TrimEnd();
 
     // ── Compiler-backed positive ───────────────────────────────────────────
 
@@ -60,6 +67,87 @@ public class ScatteredReturnDispatchStructuringTests
         Assert.DoesNotContain("goto", output);
     }
 
+    [Fact]
+    public void TypeTestTrampolineAndGuardFailure_ShareDefaultWithoutLosingReturn()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.GuardedTypeAfterSibling));
+
+        Assert.Contains("if (V_3 is Exception error)", output);
+        Assert.Contains("if (error.Message.Length > 0)", output);
+        Assert.Equal(2, output.Split("return -1;", StringSplitOptions.None).Length - 1);
+        Assert.EndsWith("return -1;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void FallthroughArmAndCoalescedFallback_RetainSharedReturn()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.ConditionalWithCoalescedFallback));
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+    }
+
+    [Fact]
+    public void RealForLoopIncrementText_RetainsNonNullReturn()
+    {
+        string output = Print(typeof(CSharpPrinter), "ForLoopIncrementText");
+
+        Assert.Contains("return \"\";", output);
+        Assert.EndsWith("return S_0;", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void RealMemberBodyProducer_RetainsFallbackReturn()
+    {
+        string output = Print(typeof(MemberBodyProducer), "DecompileBody");
+
+        Assert.Equal(2, output.Split("return DecompileMethod(", StringSplitOptions.None).Length - 1);
+        Assert.EndsWith("printerOptions);", output);
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
+    public void FullyConsumedClone_DoesNotRetainUnreachableTail()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Buffers.AhoCorasickNode")!;
+        string output = Print(type, "TryGetChild");
+
+        Assert.EndsWith("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);", output);
+        Assert.DoesNotContain("return Unsafe.As<Dictionary<char, int>>(V_0).TryGetValue(c, out index);\nindex = 0;", output);
+    }
+
+    [Fact]
+    public void PartiallyOwnedClone_RetainsOriginalLoopBody()
+    {
+        string output = Print(typeof(System.Data.DataSet), "set_RemotingFormat");
+
+        Assert.Equal(2, output.Split("_remotingFormat = value;", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, output.Split("Tables[V_0].RemotingFormat = value;", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("while (V_0 < Tables.Count)\n{\n}", output);
+    }
+
+    [Fact]
+    public void PartiallyOwnedClone_RetainsOriginalThrowArm()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Reflection.Emit.RuntimeTypeBuilder")!;
+        string output = Print(type, "VerifyTypeAttributes");
+
+        Assert.Equal(3, output.Split("throw new ArgumentException(SR.Argument_BadTypeAttrReservedBitsSet);", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("if ((attr & TypeAttributes.ReservedMask) != 0)\n{\n}", output);
+    }
+
+    [Fact]
+    public void BranchBearingCloneWithExternalEntry_DeclinesInsteadOfDuplicatingLabels()
+    {
+        Type type = typeof(object).Assembly.GetType("System.Globalization.DateTimeFormatInfo")!;
+        string output = Print(type, "InsertHash");
+
+        Assert.Equal(1, output.Split("V_2 = Culture.TextInfo.ToLower(str[0]);", StringSplitOptions.None).Length - 1);
+        Assert.Contains("IL_007E:", output);
+    }
+
     // ── Compiler-backed negatives (the #640 canary) ────────────────────────
 
     [Fact]
@@ -70,6 +158,25 @@ public class ScatteredReturnDispatchStructuringTests
         // Two contiguous guards on the shared `return 2` stay one condition.
         Assert.Contains("if (a > 0 && b > 0)", output);
         Assert.EndsWith("return 2;", output);
+    }
+
+    [Fact]
+    public void LoopExitTrampoline_DoesNotWidenLaterShortCircuitChain()
+    {
+        string output = Print(nameof(ScatteredReturnDispatchSample.LoopBeforeAndChain));
+
+        Assert.Contains("if (a > 0 && b > 0)", output);
+        Assert.EndsWith("return 2;", output);
+    }
+
+    [Fact]
+    public void ValidTrailingDefault_DoesNotBecomeAnEarlyReturn()
+    {
+        string output = Print(typeof(MemberIdentity), nameof(MemberIdentity.GetAppendFormattedFormat));
+
+        Assert.Contains("if (second.Equals(MemberIdentity.s_string))", output);
+        Assert.DoesNotContain("if (!second.Equals(MemberIdentity.s_string))", output);
+        Assert.EndsWith("return null;", output);
     }
 
     [Fact]

@@ -129,6 +129,6 @@ public class TypeOptionsParserTests
 
         var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
         var error = Assert.IsType<TypeOptionsParser.VersionError>(result);
-        Assert.Contains("--project cannot be combined", error.Message);
+        Assert.Contains("--project cannot be combined", error.Error.Message);
     }
 }

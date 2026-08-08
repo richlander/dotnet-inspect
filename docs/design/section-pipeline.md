@@ -1,207 +1,258 @@
-# Section Pipeline
+# Section pipeline
 
-The section pipeline is the runtime implementation of the [rendering model](rendering-model.md). It makes section visibility, data collection, and verbosity mapping declarative and data-driven rather than scattered across command handlers.
-
-## Problem
-
-Before the pipeline, each command managed sections imperatively:
-
-- Verbosity gating was inline (`if (verbosity >= Detailed) { ... }`)
-- Section filtering (`-S`) required each command to parse and apply filters
-- Data collection always ran at the broadest scope, even when only one section was requested
-- Adding a section meant editing multiple code paths
-
-## Architecture
-
-The pipeline has three layers, each with a single responsibility.
-
-### Layer 1: Section Descriptors
-
-`ISectionDescriptor<T>` declares metadata about a section using C# static abstract interface members:
-
-```csharp
-public interface ISectionDescriptor<T>
-{
-    static abstract string Name { get; }
-    static abstract Verbosity MinVerbosity { get; }
-    static abstract string? ScannerKey { get; }
-    static abstract bool CanRender(T model);
-}
-```
-
-Each section is a small struct implementing this interface. The struct is never instantiated — only its static members are read during registration. This is zero-allocation and NativeAOT-compatible (no reflection).
-
-| Member | Purpose |
-| ------ | ------- |
-| `Name` | Section key used in `-S` filtering and Markout `IncludeSections` |
-| `MinVerbosity` | Lowest verbosity level at which this section appears |
-| `ScannerKey` | Scanner that collects this section's data (`null` = always collected) |
-| `CanRender` | Whether the section has data worth rendering |
-
-### Layer 2: Section Pipeline
-
-`SectionPipeline<T>` is the decision engine. It stores section entries extracted from descriptors and answers four questions:
-
-| Method | Question |
-| ------ | -------- |
-| `ComputeIncludeSections(verbosity, userSections)` | Which sections should the Markout serializer render? |
-| `GetEffectiveSections(model, verbosity, userSections)` | Which sections actually have data? (for `-S` discovery) |
-| `GetRequiredVerbosity(userSections)` | What's the minimum verbosity needed for the requested sections? |
-| `GetRequiredScanners(includedSections)` | Which scanner keys are needed? |
-
-The pipeline does not render anything. It computes a `HashSet<string>` of section names that is passed to the Markout serializer as `IncludeSections`. The serializer handles all rendering declaratively. Section visibility is always additive: the pipeline computes which sections to include based on verbosity and explicit `-S` selection. There is no exclude mechanism.
-
-### Layer 3: Scanner Registry
-
-`ScannerRegistry` maps scanner keys to scan functions:
-
-```csharp
-registry.Add("ExtensionMethods", ctx =>
-    LibraryMetadataService.ScanExtensionMethods(ctx.AssemblyPath, ctx.Model, ctx.Logger));
-```
-
-`RunScanners(requiredKeys, context)` executes only the scanners needed for the current request. When a user runs `dotnet-inspect library Foo.dll -S "Extension Methods"`, only the `ExtensionMethods` scanner runs — not the full set of Detailed-level scans.
-
-## Data Flow
+The section pipeline is the runtime implementation of the
+[section model](section-model.md). It separates user intent from producer
+execution:
 
 ```text
-CLI input
-  │
-  ▼
-Pipeline.GetRequiredVerbosity(userSections)
-  │  auto-promotes verbosity when -S targets Detailed-only sections
-  ▼
-Pipeline.ComputeIncludeSections(effectiveVerbosity, userSections)
-  │  returns HashSet<string> of section names
-  ▼
-Pipeline.GetRequiredScanners(includedSections)
-  │  returns unique scanner keys for those sections
-  ▼
-Registry.RunScanners(requiredKeys, context)
-  │  collects data into model — only needed scanners run
-  ▼
-Markout serializer renders with IncludeSections filter
+user gesture
+  -> candidate sections
+  -> direct scanner demand
+  -> prerequisite closure
+  -> scanner execution
+  -> effectiveness
+  -> rendering
 ```
 
-For effective discovery (list effective sections):
+The command owns the gesture and budget. `SectionPipeline<TModel>` owns section
+and category planning. `ScannerRegistry` owns producer cost, prerequisites,
+execution, and shared resource declarations.
+
+## Section descriptors
+
+`ISectionDescriptor<TModel>` declares typed section metadata. Descriptors are
+read through static members and are never instantiated, preserving
+NativeAOT-friendly product behavior.
+
+| Concept | Purpose |
+| --- | --- |
+| `Name` | Stable selector and rendered heading |
+| `SizeClass` | Output cardinality: fixed, terse, informative, or verbose |
+| `Cost` | Section-specific lower bound on production cost |
+| `ScannerKey` | Producer demand key; `null` means core inspection |
+| `ExplicitOnly` | Excludes the section from automatic verbosity |
+| `CanRender` | Post-production effectiveness predicate |
+| Applicability predicate | Cheap structural gate supplied at registration |
+
+`SizeClass`, `Cost`, and `ExplicitOnly` are independent. A fixed-size section
+can require expensive work, and a cheap producer can feed verbose output.
+`ExplicitOnly` is execution policy, not user-facing section identity; discovery
+does not label sections as "opt-in".
+
+## Categories and candidates
+
+Categories are authored through `AddBaseCategory` and `AddCategory`.
+
+- Base categories define automatic verbosity, bare-`-S`, and flat discovery
+  scope.
+- Domain categories are explicit doors.
+- A section can belong to more than one category.
+- Membership is never inferred from a display-name prefix.
+
+Automatic candidate selection intersects:
+
+- the base-category union;
+- the verbosity preset;
+- size and effective cost policy;
+- explicit-only policy.
+
+Exact section selection overrides automatic scope. Category selection expands
+to authored members before scanner demand is computed. Bare `-S` uses the
+fixed, network-free subset of the base union.
+
+The library catalog calls `WithoutComputedPoles`; it does not expose computed
+`@All` or `@Hidden` selectors.
+
+## Scanner registry
+
+`ScannerRegistry` maps each scanner key to a scan function, declared
+`SectionCost`, and immutable prerequisite list:
+
+```csharp
+registry.Add(
+    "ExtensionMethods",
+    SectionCost.NetworkFree,
+    ctx => LibraryMetadataService.ScanExtensionMethods(
+        ctx.AssemblyPath,
+        ctx.Model,
+        ctx.Logger));
+```
+
+`AddBundle` registers prerequisite closure without adding work or declaring a
+synthetic cost. A bundle costs the maximum of the scanners it requires.
+
+The registry rejects:
+
+- duplicate keys;
+- unregistered requested keys or prerequisites;
+- dependency cycles;
+- missing cost declarations;
+- mutation of prerequisite state after registration.
+
+`ExpandRequired` computes transitive prerequisite closure.
+`RunScanners` executes prerequisites first and each scanner once.
+
+## Scanner-owned cost
+
+Production cost belongs to the scanner because multiple sections can be views
+over the same work. `UseScannerCosts(registry.CostOf)` binds a pipeline to the
+registry before any section is added.
+
+A section's effective cost is:
 
 ```text
-Pipeline.GetEffectiveSections(model, verbosity, userSections)
-  │  filters by MinVerbosity, then CanRender(model)
-  ▼
-Print section names that have data
+max(descriptor cost, scanner prerequisite-closure cost)
 ```
 
-## Scanner Key Deduplication
+A descriptor may raise cost for section-specific work or output, but it cannot
+lower scanner-owned cost. `CostOf` uses the maximum cost over the full
+prerequisite closure, so a nominally cheap scanner that requires an unbounded
+scanner is itself unbounded.
 
-Multiple sections can share a scanner key. For example:
+The three production tiers are:
 
-| Section | Scanner Key |
-| ------- | ----------- |
-| Unsafe Methods | `ClassifiedMethods` |
-| P/Invoke Methods | `ClassifiedMethods` |
-| Async Methods | `ClassifiedMethods` |
+| Cost | Automatic behavior |
+| --- | --- |
+| `NetworkFree` | Eligible for ordinary automatic views |
+| `Moderated` | Eligible only for detailed automatic output |
+| `Unbounded` | Never enters an automatic verbosity preset |
 
-The `ClassifiedMethods` scanner runs once and populates both lists. `GetRequiredScanners` deduplicates keys, so requesting both sections does not scan twice.
+An unbounded section remains reachable through exact selection, explicit
+category selection, or effective category discovery.
 
-Sections with a `null` scanner key have their data collected unconditionally as part of core metadata loading.
+`LibrarySectionCatalog` constructs one scanner registry, one typed-query
+registry, and one cost-bound pipeline. Commands use that catalog for planning
+and execution so the pipeline cannot snapshot costs from one registry while
+another registry performs the work.
 
-## Library Sections
+## Resource declarations
 
-The library command currently has 16 registered sections:
+Whole-assembly body analysis is acquired through `ScannerContext.BodyIndex()`.
+Member drill data is acquired through `ScannerContext.DrillMap()`.
 
-| Section | MinVerbosity | Scanner Key |
-| ------- | ------------ | ----------- |
-| Library Info | Minimal | — |
-| Async Methods | Normal | `ClassifiedMethods` |
-| Custom Attributes | Normal | `CustomAttributes` |
-| Dependencies | Normal | `TransitiveRefs` |
-| Extension Methods | Normal | `ExtensionMethods` |
-| Non-normalized Paths | Normal | — |
-| P/Invoke Methods | Normal | `ClassifiedMethods` |
-| References | Normal | — |
-| Resources | Normal | `Resources` |
-| Signals | Normal | `AuditSignals` |
-| Symbols | Normal | `Symbols` |
-| Type Forwarders | Normal | `TypeForwarders` |
-| Unsafe Methods | Normal | `ClassifiedMethods` |
-| SourceLink: Availability | Explicit | — |
-| SourceLink: Integrity | Explicit | — |
-| SourceLink: Missing Files | Explicit | — |
+Only a scanner declared `Unbounded` may acquire either resource. A cheaper
+scanner that calls one throws at the acquisition boundary. The production
+scanner catch boundary does not convert that declaration violation into a
+success-shaped result.
 
-## Fallback Path
+Typed queries use the same host-side resource guard. The query registry enters
+an execution scope with each query's maximum transitive `InspectionCost`; the
+CLI adapter maps that cost to `SectionCost`. Query planning, contract, and
+executor failures remain fail-visible, while cancellation and cost-declaration
+failures retain their specific exception types.
 
-When `scannerRegistry` is null (tests, non-pipeline callers), `InspectAsync` falls back to the original `if (verbosity == Detailed)` gating. This preserves backward compatibility during incremental adoption.
+Declarations are scoped to one registry run and cannot leak into later work.
+This is a correctness mechanism for well-behaved product-owned scanner and query
+wiring, not an in-process security boundary.
 
-## Headless Sections
+Metadata scanners share the command's open inspection session. They do not
+reopen the target independently, and they continue to observe the image the
+command opened even if the path is retargeted during the run.
 
-Some content logically belongs to a section (for addressing and filtering) but should not render a `##` heading. The canonical example is the package **Summary** — the compact inline fields (`Version: 2.0.3 | Type: Library | ...`) that appear as preamble in the default view.
+## Gesture planning
 
-Markout's `[MarkoutSection(Headless = true)]` enables this:
+The command translates a user gesture into candidate scope and command-level
+demand before the registry runs.
 
-```csharp
-[MarkoutSection(Name = "Summary", Headless = true)]
-public List<MarkoutField> Summary => GetCompactFields();
-```
+For library discovery:
 
-A headless section:
-- **Is addressable** — appears in `-S` discovery (`Summary  section`)
-- **Is filterable** — `-S Summary` includes it; `-S "Package Info"` omits it
-- **Emits no heading** — `WriteSectionStart(headless: true)` calls `UpdateSectionState` for filtering but skips the `##` render
-- **Uses inline rendering** — headless `FieldCollection` sections use `WriteFieldsInline` rather than `WriteFieldsTable`
+| Gesture | Candidate scope | Scanner behavior |
+| --- | --- | --- |
+| `-D` | Base sections and category doors | Metadata presence only |
+| `-D --effective` | Base-category union | Full base scanner closure |
+| `-D @Category` | Authored category members | Structural; no member scanners |
+| `-D @Category --effective` | Authored category members | Full category scanner closure |
+| `-D --schema` | Complete graph | No target scanners |
 
-The pipeline always uses `IncludeSections`:
+Plain discovery therefore stays within the local-target latency budget.
+Explicit effective discovery may request unbounded work. In particular,
+`-D @Performance` does not build the body index, while
+`-D @Performance --effective` does.
 
-```csharp
-// BuildWriterOptions — clean, additive model
-var includeSections = pipeline.ComputeIncludeSections(
-    result, options.Verbosity, options.IncludeSections);
+Some command facts are not expressed by a section producer. The command passes
+those scanners or typed queries as attributed command demand so the same closure
+and trace machinery still owns execution.
 
-return new MarkoutWriterOptions { IncludeSections = includeSections };
-```
+`References` is core metadata rather than scanner work:
 
-When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` — no Summary, so preamble is hidden. In the default view, the pipeline returns `{"Summary", "Package Info", ...}` — Summary is included, preamble renders.
+- `-S References` collects direct assembly references and renders a flat table.
+- `-S References --tree` additionally resolves the transitive graph.
+- `--depth N` limits traversal; depth 1 contains direct references.
 
-## Package Sections
+The planner enables direct or tree collection from the candidate set instead
+of creating synonymous sections.
 
-The package command has 17 registered sections:
+## Effectiveness
 
-| Section | MinVerbosity | Scanner Key | Notes |
-| ------- | ------------ | ----------- | ----- |
-| Summary | Quiet | — | Headless; compact inline fields |
-| Dependencies | Normal | — | Only when dependency groups present |
-| Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
-| Package files | Explicit | — | Full-depth package file listing with `Path` and `Size`; `Unbounded` cost, so verbosity never reaches it |
-| Package Info | Minimal | — | Full metadata field table |
-| Package nuspec file | Minimal | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
-| Package README file | Minimal | — | Best README candidate with `Path` and `Size`; at most one row |
-| Package skill files | Normal | — | `skills/**/SKILL.md` files with `Path` and `Size`; only when the package ships skills |
-| Runtime Dependencies | Minimal | — | Only when runtime deps present |
-| Signals | Detailed | — | Package metadata/assets, dependency, provenance, and NuGet registry observations; `Moderated` cost |
-| Signature | Normal | — | Only when signature information is available |
-| Statistics | Detailed | — | Published date, download counts |
-| Target Frameworks | Normal | — | Explicit package TFM directories |
-| Vulnerabilities | Detailed | — | Only when vulnerabilities present |
+The pipeline exposes separate queries for:
 
-## Format Auto-Promotion
+- structural applicability;
+- candidate selection;
+- post-production renderability.
 
-When the pipeline computes multiple sections and the output format is the default table format, the command auto-promotes to markdown. If the user explicitly requested `--table` or `--tsv`, a diagnostic error is returned instead.
+Structural applicability answers whether a section can apply without running
+its producer. Post-production effectiveness answers whether the producer
+actually found renderable evidence.
 
-This is tracked on options objects, which distinguish the default format from an explicit tabular flag.
+For example, method bodies make performance analysis applicable but do not
+prove that any performance finding exists. Structural performance discovery
+uses the former; `--effective` uses the latter.
 
-## Design Decisions
+Full bare discovery remains scoped to base categories. Domain applicability
+can preserve a category door without placing its members in the flat base
+catalog.
 
-**Static abstract interfaces over instances.** Descriptors are never instantiated. The pipeline extracts static members into delegate-based `SectionEntry<T>` records at registration time. This avoids allocations and keeps metadata in a format that NativeAOT can optimize.
+## Rendering
 
-**Manual registration over reflection.** Each command has a `CreatePipeline()` factory that calls `Add<TDescriptor>()` for each section. This is explicit, ordered, and has zero startup cost from assembly scanning.
+`ComputeIncludeSections` produces the section-name set passed to Markout.
+Markout owns serialization and section filtering.
 
-**`CanRender` is static.** It takes the model as a parameter rather than being an instance method. This means the pipeline can answer "does this section have data?" without constructing a renderer or section object.
+The curated verbosity contract is:
 
-**Pipeline computes, serializer renders.** The pipeline never touches Markout directly. It produces a set of section names. The Markout serializer's existing `IncludeSections` mechanism handles the rest. This keeps the boundary clean: pipeline = decision logic, Markout = rendering.
+| Verbosity | Automatic candidates |
+| --- | --- |
+| Quiet | Headless compact summary only |
+| Minimal | High-value info section, excluding unbounded work |
+| Normal | Terse and informative, network-free base sections |
+| Detailed | All bounded base sections |
 
-## Future Work
+Compact identity fields are reserved for quiet verbosity. Minimal does not
+inherit the headless quiet summary.
 
-- **Comma-separated multi-value `-S`.** Support `dotnet-inspect ... -S "Stats*,files,Foo"` as a single argument with comma-delimited section names. Wrong names should not block valid ones.
-- **Discovery as renderable data.** `-S --markdown` and `-S --json` should render discovery output through the same Markout pipeline as actual data.
-- **Lightweight pre-scanners for `CanRender`.** Currently, `-S` discovery runs full scanners to determine which sections have data. A future optimization would add cheap pre-scan checks (e.g., "does the assembly have any resources?" via PE header flags) that can answer `CanRender` without full data collection.
-- **Static execution table.** Some scanners share intermediate results. The [capability section registry spike](capability-section-registry-spike.md) evaluates a process-wide lambda table with precompiled dependency order and authorization policy while keeping selection and rendering here. Reusable acquisition and common-plan lookup are allocation-free; cold initialization remains explicit, so the conclusion is a generated static-table pilot for expensive, multi-prerequisite sections rather than a full replacement of `ScannerKey`.
+Row-oriented formats require one concrete schema or a homogeneous family.
+Heterogeneous categories are rejected before producers run.
+
+## Registration and behavior gates
+
+The test suite names the properties that enforce this architecture:
+
+- `LibraryScannerRegistry_RegistrationMatchesDeclaration`
+- `LibraryScannerCosts_AreDeclaredForEveryRegisteredScanner`
+- `LibraryScannerPrerequisites_AreAllRegisteredAndAcyclic`
+- `CostOf_IsTheMaximumOverTheTransitivePrerequisiteClosure`
+- `Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost`
+- `Scanner_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `TypedQuery_CannotTakeTheBodyIndexWithoutDeclaringItsTransitiveCost`
+- `TypedQuery_CannotTakeTheDrillMapWithoutDeclaringItsCost`
+- `ProductionQueryCatchBoundary_DoesNotSwallowExecutorFailure`
+- `PrerequisiteCost_CannotShiftAfterSectionsSnapshotIt`
+- `SectionsBackedByUnboundedScanners_LeaveTheDetailedLadderButKeepTheirDoor`
+- `SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened`
+
+Category ownership and output-shape gates live with the section model. Tests
+derive sets from declarations where possible so both stale and missing entries
+fail.
+
+## Tracing
+
+Library `--trace` records:
+
+- section-to-scanner demand;
+- section-to-query demand;
+- command-level demand;
+- prerequisite expansion;
+- scanner and query execution time and failure;
+- body-index and drill-map acquisition;
+- shared metadata-session use.
+
+Trace output is diagnostic stderr and never changes document stdout.

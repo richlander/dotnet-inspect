@@ -23,7 +23,7 @@ public static class OutputFormatter
 {
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
-        var sw = new StringWriter();
+        var sw = new StringWriter { NewLine = "\n" };
         serialize(sw, new TableFormatter(showHeader));
         return sw.ToString();
     }
@@ -200,6 +200,71 @@ public static class OutputFormatter
     public static void WriteLimitedMarkdown(TextWriter output, string markdown, RowWindow? rows) =>
         output.WriteLine(ApplyRowLimit(markdown, rows));
 
+    /// <summary>
+    /// Writes <paramref name="payload"/> followed by a single LF, for payloads whose interior is
+    /// already LF on every platform.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TextWriter.WriteLine(string)"/> terminates with the writer's <c>NewLine</c>,
+    /// which is CRLF on Windows for <see cref="Console.Out"/>. Using it on an LF-interior payload
+    /// yields a document that is LF throughout except for its last line, which is the mixed-ending
+    /// shape this method exists to avoid.
+    ///
+    /// This is deliberately *not* the terminator used by <see cref="WriteLimitedMarkdown"/>: those
+    /// callers still receive CRLF interiors from the string-returning <c>MarkoutSerializer</c>
+    /// overloads, so switching only their terminator would introduce the very mixing described
+    /// above. Interior and terminator have to move together; that coherent platform-native
+    /// terminal path is outside this artifact-framing helper's contract.
+    /// </remarks>
+    public static void WriteLfLine(TextWriter output, string payload)
+    {
+        output.Write(payload);
+        output.Write('\n');
+    }
+
+    /// <summary>
+    /// Writes version/feed rows in whichever format the caller selected.
+    /// </summary>
+    /// <remarks>
+    /// A version carried by two feeds appears twice, once per feed. That is the point of the
+    /// view: every other listing collapses feeds together, so this is where cross-feed
+    /// duplication becomes visible.
+    /// </remarks>
+    /// <summary>
+    /// Writes versions with the feed that served each one. A <c>Listing</c> column appears only
+    /// when the set actually contains an unlisted version, so the common case stays two columns.
+    /// </summary>
+    public static void WriteVersionFeedTable(
+        IEnumerable<PackageVersionSourceInfo> versionFeeds,
+        InspectionOptions options,
+        TextWriter output)
+    {
+        var items = versionFeeds.ToArray();
+
+        if (options.JsonOutput)
+        {
+            var objects = items.Select(v => new VersionFeedJson(v.Version, v.Feed, v.Listed)).ToList();
+            output.WriteLine(JsonSerializer.Serialize(objects, JsonContext.Default.ListVersionFeedJson));
+            return;
+        }
+
+        bool showListing = items.Any(v => !v.Listed);
+        string[] display = showListing ? ["Version", "Feed", "Listing"] : ["Version", "Feed"];
+        string[] stable = showListing ? ["version", "feed", "listing"] : ["version", "feed"];
+        var rows = items
+            .Select(v => showListing
+                ? new[] { v.Version, v.Feed, v.Listed ? "listed" : "unlisted" }
+                : new[] { v.Version, v.Feed })
+            .ToArray();
+
+        WriteTable(output, showHeader: !options.NoHeader, (writer, formatter) =>
+        {
+            var markoutWriter = new MarkoutWriter(writer, formatter, CreateTableWriterOptions(options.Tsv, options.Jsonl));
+            markoutWriter.WriteTable(display, stable, rows);
+            markoutWriter.Flush();
+        });
+    }
+
     public static void WriteStringList(IEnumerable<string> values, string displayName, string stableName,
         bool tsv, bool jsonl, TextWriter output)
     {
@@ -232,6 +297,33 @@ public static class OutputFormatter
         });
     }
 
+    /// <summary>
+    /// The ordered sections a <c>--count</c> map should report, or <c>null</c> when the selection
+    /// names at most one section and a scalar count is the answer.
+    /// </summary>
+    /// <remarks>
+    /// Bare <c>-S</c> on a curated pipeline carries its selection as
+    /// <see cref="LibraryOptions.FixedOverview"/> rather than as an include set, so a map decision
+    /// that reads only <paramref name="includeSections"/> silently degrades a multi-section
+    /// overview to one meaningless total across heterogeneous tables (#3547). The request - not the
+    /// rendered set - is what the map describes, so a requested section with no rows reports zero
+    /// rather than disappearing, matching how a category renders.
+    /// </remarks>
+    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+        SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
+    {
+        var requested = includeSections is { Count: > 0 }
+            ? includeSections
+            : fixedOverview
+                ? new HashSet<string>(pipeline.BareSelectSectionNames, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+        if (requested is not { Count: > 1 })
+            return null;
+
+        return pipeline.AlphabeticalSectionOrder.Where(requested.Contains).ToList();
+    }
+
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
@@ -241,10 +333,9 @@ public static class OutputFormatter
         }
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
-        bool includeContext = ShouldRenderPackageContext(options);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var view = new InspectionResultView(result, includeTitleVersion: false);
-        var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
+        var writerOptions = BuildWriterOptions(result, options, pipeline);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
@@ -256,15 +347,20 @@ public static class OutputFormatter
 
         // A category selects many sections at once; report each member's count, including the
         // members that rendered nothing, so the map describes the whole category.
-        if (options.IncludeSections is { Count: > 1 })
-        {
-            var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
+        var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+        if (ordered != null)
             return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
-        }
 
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// Renders one package section as tabular output (TSV/JSONL/pretty table). The caller has
+    /// already narrowed <paramref name="options"/> to a single section, so the rendered text is a
+    /// single table and <c>--rows</c> windows it exactly as it windows every other tabular section.
+    /// Forwarding <c>options.Rows</c> is what keeps this path agreeing with <c>--count</c>, which
+    /// windows the same section through <see cref="FormatResult"/> (#3457).
+    /// </summary>
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline, bool showHeader)
     {
@@ -272,7 +368,8 @@ public static class OutputFormatter
         ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
         var view = new InspectionResultView(result);
         WriteTable(Console.Out, showHeader,
-            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts));
+            (writer, formatter) => MarkoutSerializer.Serialize(view, writer, formatter, InspectionContext.Default, writerOpts),
+            options.Rows);
     }
 
     /// <summary>
@@ -290,19 +387,19 @@ public static class OutputFormatter
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
+        SectionPipeline<InspectionResult> pipeline)
     {
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        var selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
+        var selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
-        if (includeContext && includeSections is { Count: > 0 })
-            includeSections = [PackageSections.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext && !selectInfo,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+                && options.IncludeSections is not { Count: > 0 }
+                && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -325,23 +422,21 @@ public static class OutputFormatter
         {
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
             }
             return;
         }
 
-        if (inspection.UseDependenciesView)
+        if (options.Tree && options.Discover == null)
         {
-            Console.Error.WriteLine("Tip: use 'depends --library' for dependency trees.");
-            var view = AssemblyDependenciesView.FromInspection(inspection);
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            WriteReferenceTree(inspection);
             return;
         }
 
@@ -353,26 +448,50 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
+            // would otherwise terminate lines whose interiors this branch already emits as LF —
+            // the appended metadata is LF on every platform. Buffering matches the Markdown
+            // sibling below, which composes its document before writing for the same reason.
+            var plain = new StringWriter { NewLine = "\n" };
+            MarkoutSerializer.Serialize(auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            var plainText = plain.ToString().TrimEnd();
             if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
-                Console.WriteLine(plainMetadata);
+            {
+                var trimmedMetadata = plainMetadata.TrimEnd();
+                // A single separator, not a blank line: the streamed original ended its last body
+                // line and wrote the metadata on the next one. The Markdown sibling below joins
+                // with a blank line because Markdown sections require one; plain text does not.
+                plainText = plainText.Length == 0 ? trimmedMetadata : plainText + "\n" + trimmedMetadata;
+            }
+            WriteLfLine(Console.Out, plainText);
         }
         else if (options.VerbosityEnabled)
         {
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            WriteLfLine(Console.Out, ApplyRowLimit(markdown, options.Rows));
         }
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    private static void WriteReferenceTree(LibraryInspection inspection)
+    {
+        var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
+        var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
+        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
+        writer.WriteHeading(2, SectionNames.References);
+        writer.WriteTree([.. tree]);
+        writer.Flush();
     }
 
     /// <summary>
@@ -390,12 +509,22 @@ public static class OutputFormatter
         MarkoutWriterOptions writerOpts,
         SectionPipeline<LibraryInspection> pipeline)
     {
-        var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+        // Serialize through an LF writer rather than the string-returning overload, which inherits
+        // Environment.NewLine. The metadata half appended below is LF on every platform, and
+        // MarkdownSectionOrderer rejoins on whichever ending it detects — so a CRLF shell here
+        // would both mix endings and normalize the metadata sections back to CRLF.
+        //
+        // TrimEnd restores parity with the string overload, which returns no trailing newline
+        // while the TextWriter overload writes one. Without it the callers' own terminator lands
+        // on top of it and emits a stray blank line on every platform.
+        var shell = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(auditView, shell, InspectionContext.Default, writerOpts);
+        var markdown = shell.ToString().TrimEnd();
 
         if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } metadata)
         {
             var body = markdown.TrimEnd();
-            markdown = body.Length == 0 ? metadata : body + Environment.NewLine + Environment.NewLine + metadata;
+            markdown = body.Length == 0 ? metadata : body + "\n" + "\n" + metadata;
         }
 
         return MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
@@ -423,7 +552,7 @@ public static class OutputFormatter
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
-                    inspection, writerOpts.IncludeSections, format, writer, Console.Error,
+                    inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
                 options.Rows);
             return;
@@ -470,14 +599,14 @@ public static class OutputFormatter
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
             }
             return;
         }
@@ -577,19 +706,5 @@ public static class OutputFormatter
     }
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
-        options.Verbosity == Verbosity.Quiet
-        || (options.IncludeSections is { Count: > 0 }
-            && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
-            && !options.Count
-            && !options.JsonOutput
-            && !options.Tabular);
-
-    internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
-        options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections)
-        && !options.Count
-        && !options.JsonOutput
-        && !options.Tabular;
+        options.Verbosity == Verbosity.Quiet;
 }

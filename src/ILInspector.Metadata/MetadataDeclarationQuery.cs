@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
-using ILInspector.CSharp;
+using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -265,10 +265,10 @@ public static class MetadataDeclarationQuery
         var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
         var isOverride = isVirtual && !isNewSlot;
         var typeParameters = MethodTypeParameters(reader, typeDef, method);
-        var csharpName = EscapeIdentifier(name);
+        var csharpName = SanitizeIdentifier(name);
         var methodName = typeParameters.Count == 0
             ? csharpName
-            : $"{csharpName}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+            : $"{csharpName}<{string.Join(", ", typeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>";
 
         return new MetadataMethodDeclaration(
             name,
@@ -360,7 +360,7 @@ public static class MetadataDeclarationQuery
 
         var parameters = PropertyParameters(reader, accessorParameters, signature).ToList();
         var name = reader.GetString(property.Name);
-        var csharpName = EscapeIdentifier(name);
+        var csharpName = SanitizeIdentifier(name);
         return new MetadataPropertyDeclaration(
             name,
             csharpName,
@@ -418,7 +418,7 @@ public static class MetadataDeclarationQuery
         var access = attributes & FieldAttributes.FieldAccessMask;
         return new MetadataFieldDeclaration(
             reader.GetString(field.Name),
-            EscapeIdentifier(reader.GetString(field.Name)),
+            SanitizeIdentifier(reader.GetString(field.Name)),
             AccessibilityKeyword(access),
             (attributes & FieldAttributes.Static) != 0,
             (attributes & FieldAttributes.InitOnly) != 0,
@@ -614,9 +614,10 @@ public static class MetadataDeclarationQuery
             var attributes = parameterInfo.Attributes.ToList();
             string? defaultValueText = null;
             var hasDefault = false;
-            if (TryFormatAttributedParameterDefault(
+            if (parameterInfo.CustomAttributes is { } customAttributes
+                && TryFormatAttributedParameterDefault(
                     reader,
-                    parameterInfo.CustomAttributes,
+                    customAttributes,
                     out var attributedDefaultValue,
                     out var attributedDefaultAttributes))
             {
@@ -670,7 +671,7 @@ public static class MetadataDeclarationQuery
         string? RefKind,
         IReadOnlyList<string> Attributes,
         Parameter? DefaultParameter,
-        CustomAttributeHandleCollection CustomAttributes);
+        CustomAttributeHandleCollection? CustomAttributes);
 
     static ParameterInfo GetParameterInfo(MetadataReader reader, ParameterHandleCollection handles, int sequenceNumber)
     {
@@ -702,7 +703,7 @@ public static class MetadataDeclarationQuery
                 attributes);
         }
 
-        return new ParameterInfo(null, false, null, [], null, default);
+        return new ParameterInfo(null, false, null, [], null, null);
     }
 
     static IReadOnlyList<string> ReturnAttributes(MetadataReader reader, ParameterHandleCollection handles)
@@ -752,6 +753,11 @@ public static class MetadataDeclarationQuery
         GenericContext context)
     {
         var parameters = new List<TypeParameter>();
+
+        // Shared across the list for the same reason `ApiSurfaceExtractor` shares one:
+        // `where T : U` chains run through it, and answering each parameter from scratch
+        // rewalks the chain's whole tail, which is quadratic in the number of parameters.
+        var chain = new TypeParameterKindClassifier.ChainState();
         foreach (var handle in handles)
         {
             var parameter = reader.GetGenericParameter(handle);
@@ -789,6 +795,12 @@ public static class MetadataDeclarationQuery
                 Constraints = constraints,
                 StructuredConstraints = structured,
                 Variance = GenericConstraintKeywords.VarianceKeyword(attributes),
+                TypeKind = TypeParameterKindClassifier.Classify(
+                    reader,
+                    handle,
+                    hasValueTypeConstraint: isStruct,
+                    hasReferenceTypeConstraint: (attributes & GenericParameterAttributes.ReferenceTypeConstraint) != 0,
+                    chain),
             });
         }
 
@@ -905,7 +917,8 @@ public static class MetadataDeclarationQuery
     {
         var parameters = $"({string.Join(", ", declaration.Signature.Parameters.Select(ParameterDeclaration))})";
         var returnType = declaration.Signature.ReturnType ?? "void";
-        return $"{returnType} {declaration.Signature.MemberName ?? declaration.MetadataName}{parameters}";
+        var name = declaration.Signature.MemberName ?? declaration.MetadataName;
+        return $"{returnType} {SanitizeMemberDisplayName(name)}{parameters}";
     }
 
     static string PropertySignatureText(MetadataPropertyDeclaration declaration)
@@ -930,7 +943,7 @@ public static class MetadataDeclarationQuery
             : $"{parameter.Modifier} {type}";
         var head = string.IsNullOrWhiteSpace(parameter.Name)
             ? typeWithModifier
-            : $"{typeWithModifier} {EscapeIdentifier(parameter.Name)}";
+            : $"{typeWithModifier} {SanitizeIdentifier(parameter.Name)}";
         var declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{head} = {parameter.DefaultValueText}"
             : head;
@@ -958,7 +971,7 @@ public static class MetadataDeclarationQuery
             string identifier = type[index..end];
             bool isTypeSyntaxKeyword = IsTypeSyntaxKeyword(type, identifier, index, end);
             if ((index == 0 || type[index - 1] != '@')
-                && EscapeIdentifier(identifier) != identifier
+                && SanitizeIdentifier(identifier) != identifier
                 && !isTypeSyntaxKeyword)
             {
                 builder.Append('@');
@@ -1050,7 +1063,7 @@ public static class MetadataDeclarationQuery
             }
 
             string segment = signature[start..end];
-            string escaped = EscapeIdentifier(segment);
+            string escaped = SanitizeIdentifier(segment);
             if (escaped != segment)
             {
                 builder.Append(escaped);
@@ -1330,7 +1343,9 @@ public static class MetadataDeclarationQuery
         '\r' => "\\r",
         '\t' => "\\t",
         '\v' => "\\v",
-        _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+        // Bidi overrides are Unicode category Cf, so char.IsControl is false for
+        // them and they would reach rendered output raw (issue #3319).
+        _ when CSharpIdentifierCore.RequiresLiteralEscape(ch) => $"\\u{(int)ch:x4}",
         _ => ch.ToString(),
     };
 
@@ -1370,6 +1385,23 @@ public static class MetadataDeclarationQuery
         return arity;
     }
 
-    static string EscapeIdentifier(string name)
-        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
+    /// <summary>
+    /// The spelling for a metadata name entering emitted C# declaration text.
+    /// Keyword escaping alone leaves an unspellable name (one carrying a line
+    /// terminator, say) intact, which lets it break out of the surrounding code
+    /// fence or tree layout; sanitizing folds it to identifier characters
+    /// instead (issue #3319). Byte-neutral for names that are already legal
+    /// identifiers, which covers every well-formed assembly.
+    /// </summary>
+    /// <summary>
+    /// The display spelling of a member name. A member name is not always a simple
+    /// identifier — <c>.ctor</c>, and an explicit interface implementation spells
+    /// <c>System.IConvertible.ToBoolean</c> — so this contains it rather than
+    /// sanitizing it into one, which would mangle both.
+    /// </summary>
+    static string SanitizeMemberDisplayName(string name)
+        => CSharpIdentifierCore.ContainComposedName(name);
+
+    static string SanitizeIdentifier(string name)
+        => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
 }

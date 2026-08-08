@@ -106,7 +106,7 @@ public static class InspectionCommandDefinitions
                 type = positional[positionalIndex++];
             if (positionalIndex < positional.Length)
             {
-                Console.Error.WriteLine("Error: too many positional arguments.");
+                CommandError.Write("too many positional arguments.");
                 return 1;
             }
 
@@ -120,8 +120,8 @@ public static class InspectionCommandDefinitions
             string? explicitFinding = parseResult.GetValue(findingOption);
             if (aliases.Count > 1 || (aliases.Count == 1 && explicitFinding is not null))
             {
-                Console.Error.WriteLine(
-                    "Error: specify only one of --finding, --members, --type-presence, or --attributes.");
+                CommandError.Write(
+                    "specify only one of --finding, --members, --type-presence, or --attributes.");
                 return 1;
             }
 
@@ -146,6 +146,7 @@ public static class InspectionCommandDefinitions
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
                 Select = opts.ParseSelect(parseResult),
+                SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
@@ -249,7 +250,7 @@ public static class InspectionCommandDefinitions
             switch (result)
             {
                 case DiffOptionsParser.VersionNumberError error:
-                    Console.Error.WriteLine($"Error: '{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
+                    CommandError.Write($"'{error.Value}' looks like a version number. Use '{error.VersionRange}@{error.Value}' to specify a version.");
                     return 1;
 
                 case DiffOptionsParser.Success success:
@@ -288,8 +289,9 @@ public static class InspectionCommandDefinitions
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
-        var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree (tip: use 'depends --library' instead)" };
+        var referencesOption = new Option<bool>("--references") { Description = "Legacy alias for -S References" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S References --tree" };
+        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
@@ -309,6 +311,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
+        assemblyCommand.Options.Add(referenceDepthOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
@@ -322,6 +325,11 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(opts.RawUrls);
         assemblyCommand.Options.Add(opts.BrowsableUrls);
         assemblyCommand.Options.Add(extractResourcesOption);
+        // Registered per-command rather than in AddOutputOptionsTo: only the commands that build a
+        // trace should advertise the flag. A flag every command accepts and only one honours is
+        // worse than an unrecognized argument, which at least fails loudly.
+        assemblyCommand.Options.Add(opts.Trace);
+        assemblyCommand.Options.Add(opts.Effective);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
         opts.AddPrintOptionTo(assemblyCommand);
@@ -385,11 +393,12 @@ public static class InspectionCommandDefinitions
 
             var typeFilter = parseResult.GetValue(typeFilterOption);
             var select = opts.ParseSelect(parseResult);
-            bool hasExplicitSelect = select is { Length: > 0 };
+            var selectDefault = opts.ParseSelectDefault(parseResult);
+            bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
             var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
-                Console.Error.WriteLine(triageShapeError);
+                CommandError.Write(triageShapeError);
                 return 1;
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
@@ -421,6 +430,7 @@ public static class InspectionCommandDefinitions
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
+                ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
                 PackagePath = packagePath,
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
                 PlatformAssembly = platformAssembly,
@@ -443,10 +453,13 @@ public static class InspectionCommandDefinitions
                 FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
                 Format = opts.ResolveFormat(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
+                Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
+                SelectDefault = selectDefault,
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),

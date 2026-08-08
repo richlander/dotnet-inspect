@@ -18,9 +18,10 @@ dnx dotnet-inspect -y -- <command>
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use a .NET 11 daily SDK.
-The decompiler tracks compiler-produced C# shapes, and some correctness work
-needs daily compiler/runtime packs before the next public preview ships.
+above. Contributors building this repository should use the latest .NET 11
+preview SDK. Published previews provide a coherent SDK, runtime, and workload
+pack set; daily builds are reserved for explicit work on compiler or runtime
+changes that have not reached a preview.
 
 First check how `dotnet` is installed and which SDK it selects:
 
@@ -29,7 +30,7 @@ command -v dotnet
 dotnet --version
 ```
 
-If that already resolves to a dotnetup-managed .NET 11 daily SDK, use normal
+If that already resolves to a dotnetup-managed .NET 11 preview SDK, use normal
 `dotnet` commands:
 
 ```bash
@@ -43,15 +44,15 @@ it or prepend another `dotnet` to PATH unless that is intentional for your
 machine. Use dotnetup in command-isolation mode, or ask your system
 administrator which setup is appropriate.
 
-Install and track the daily SDK with dotnetup:
+Install and track the latest preview SDK with dotnetup:
 
 ```bash
 curl -fsSL --retry 3 https://aka.ms/dotnetup/get-dotnetup.sh -o /tmp/get-dotnetup.sh
 bash /tmp/get-dotnetup.sh --install-dir "$HOME/.local/bin"
-dotnetup sdk install 11.0-daily --interactive false
+dotnetup sdk install preview --interactive false
 ```
 
-Then run repo commands through dotnetup when you want the nightly SDK without
+Then run repo commands through dotnetup when you want the preview SDK without
 making it your shell default:
 
 ```bash
@@ -79,10 +80,11 @@ dotnet --version
 dotnetup list
 ```
 
-The Deep Inspect `nightly` lane uses the same acquisition model in an isolated
-workspace install. It restores with a temporary NuGet config that includes both
-the .NET 11 daily feed and nuget.org: most projects target the nightly
-`net11.0` SDK, while a few fixture projects still target stable `net10.0` packs.
+The Deep Inspect `nightly` lane is the deliberate daily-build exception. It
+uses the same acquisition model in an isolated workspace install and restores
+with a temporary NuGet config that includes both the .NET 11 daily feed and
+nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
+projects still target stable `net10.0` packs.
 
 ## What it inspects
 
@@ -108,7 +110,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
-| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, references, resources, async method classification. |
+| Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
@@ -124,7 +126,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
 | `project [path]` | Inspect restored direct package references for skill files and package docs. |
-| `library X` | Inspect assembly metadata, symbols, SourceLink, references, resources, and async methods. |
+| `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
@@ -177,7 +179,8 @@ library while aggregate sections roll up rows across libraries and include
 library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
 require one concrete section, such as `Library Info`, `Switches`, or a focused
 `Integration:` section; use Markdown for category selectors such as
-`@Integrations`. Add `--count` to a category selector for per-section row counts.
+`@Integrations`. Add `--count` to a category selector for per-section row counts,
+or to bare `-S` for the same map over the fixed overview.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and
@@ -319,14 +322,21 @@ behind the grade. That section distinguishes Full fidelity, an absent method
 body, and inspection failure. Maintainers diagnose pipeline state with
 DecompilerHarness.
 
-The `Decompiled Source` view renders the shipped canonical C# by default. A
-tool-owned `.dotnet-inspectconfig` file (discovered by walking up from the
-working directory) selects opt-in class-3 spellings — today `this`-qualification
-of field and property access — using `.editorconfig` key names. `--taste`
-requests the whole oracle-endorsed set for one invocation without a config file.
-`Annotated Source` names the applied spellings in a trailing comment on the
-member signature, and drops its interleaved IL for any member a byte-divergent
-lens actually rewrote. See
+The `Decompiled Source` view renders readable local names by default when a PDB
+does not supply the source name, deriving conservative names such as `text`,
+`items`, or `stringBuilder` from the local's type and role. This is
+byte-preserving; fidelity and corpus tooling retain stable `V_index` slot names.
+Set `dotnet_inspect_style_slot_local_names = true` in the tool-owned
+`.dotnet-inspectconfig` file to restore slot names, or use `--readable-names` to
+override that configuration for one invocation. The original
+`dotnet_inspect_style_readable_local_names = false` spelling remains accepted
+for compatibility. The same config file
+(discovered by walking up from the working directory) selects other class-3
+spellings using `.editorconfig` key names. `--taste` requests the whole
+oracle-endorsed set for one invocation without a config file. `Annotated Source`
+names the applied spellings in a trailing comment on the member signature, and
+drops its interleaved IL for any member a byte-divergent lens actually rewrote.
+See
 [docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
 
 ```bash
@@ -353,8 +363,8 @@ second lookup. The `#` column is the real metadata row id, so
 position in the rendered page.
 
 These sections are **opt-in only**. A table such as `MethodDef` grows without a
-meaningful bound, so no verbosity renders one — not even `-v:d`, and not
-`-S @All`. They are reachable by exact name (`-S "Metadata: TypeRef"`) or
+meaningful bound, so no verbosity renders one — not even `-v:d`. They are
+reachable by exact name (`-S "Metadata: TypeRef"`) or
 through the `@Metadata` category door, and they are catalog-hidden like the
 `@Performance` kinds: the top-level `-D` catalog lists `@Metadata` as their
 single entrypoint. Drill in with `-D @Metadata` to list the tables that
@@ -449,7 +459,7 @@ dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files"
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders `@Default`, a curated high-density view; type/member summaries use `Method Groups`, while `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Use `-S @All` to select all sections; it renders the default section first, then remaining sections alphabetically. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
 
 ## Common examples
 

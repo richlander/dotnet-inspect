@@ -3,6 +3,8 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
+// Captures Console.Error, which is process-wide state.
+[Collection("Console")]
 public class ApiTypeLookupServiceTests
 {
     [Fact]
@@ -132,27 +134,23 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
-    public void WriteError_NonPublicMatch_HintsAtAllFlag()
+    public async Task WriteError_NonPublicMatch_HintsAtAllFlag()
     {
         var result = new MemberFilterValidationResult(
             ["SerializeObjectInternal"], [], ["SerializeObjectInternal"]);
 
-        var writer = new StringWriter();
-        result.WriteError(writer);
-        var output = writer.ToString();
+        var output = await CaptureErrorAsync(result.WriteError);
 
         Assert.Contains("No members matched filter 'SerializeObjectInternal'", output);
         Assert.Contains("Member 'SerializeObjectInternal' is non-public; pass --all to include it.", output);
     }
 
     [Fact]
-    public void WriteError_NoNonPublicMatch_OmitsHint()
+    public async Task WriteError_NoNonPublicMatch_OmitsHint()
     {
         var result = new MemberFilterValidationResult(["Bogus"], ["Serialize"]);
 
-        var writer = new StringWriter();
-        result.WriteError(writer);
-        var output = writer.ToString();
+        var output = await CaptureErrorAsync(result.WriteError);
 
         Assert.DoesNotContain("pass --all", output);
         Assert.Contains("Did you mean:", output);
@@ -182,5 +180,21 @@ public class ApiTypeLookupServiceTests
                 }
             ]
         };
+    }
+
+    /// <summary>
+    /// Captures stderr. These diagnostics now go to <c>CommandError</c>, which
+    /// owns the severity prefix and the containment, so the test can no longer
+    /// hand in a writer of its own.
+    /// </summary>
+    /// <remarks>
+    /// Routed through <see cref="ConsoleCapture"/> rather than redirecting
+    /// directly: the console is process-global and xUnit runs these in
+    /// parallel, which is the #3416 flake.
+    /// </remarks>
+    private static async Task<string> CaptureErrorAsync(Action action)
+    {
+        var (_, error) = await ConsoleCapture.RunAsync(action);
+        return error;
     }
 }

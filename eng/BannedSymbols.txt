@@ -1,0 +1,23 @@
+; Only CommandError may reach stderr, so that every line on the stream is
+; contained: a metadata name, an argv value, or a package path that carries a
+; line terminator must not be able to end the diagnostic it appears in and
+; start a line that reads as genuine tool output.
+;
+; This is enforced by the compiler's own semantic model rather than by a scan
+; of the source text. That distinction is the point. A textual scan has to
+; model C# to know what a name binds to, and every spelling it does not model
+; is a hole: `using static System.Console`, `using @C = System.Console`,
+; `System.\u0043onsole`, `Console.@Error`, an `#if`/`#elif` chain that is live
+; under a combination the scan never assigns, a generated file the scan never
+; opens. Each of those was a real evasion found by review against the scan this
+; file replaces. The binder has none of them, because it *is* the definition of
+; what a name binds to.
+;
+; The four legitimate sinks below pass Console.Error to a writer that contains,
+; and each suppresses this rule at the call site with a justification. Grep for
+; RS0030 to enumerate them.
+
+P:System.Console.Error;Write through DotnetInspector.Output.CommandError, which contains what it writes.
+M:System.Console.SetError(System.IO.TextWriter);Redirecting stderr moves the stream out from under CommandError's containment.
+M:System.Console.OpenStandardError();Opening the stream directly bypasses CommandError's containment.
+M:System.Console.OpenStandardError(System.Int32);Opening the stream directly bypasses CommandError's containment.

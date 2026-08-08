@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+    <!-- The audit story is carried in doc comments, so a cref that no longer resolves is a
+         defect and not a cosmetic one. With docs off, CS1574/CS1734/CS0419 are never raised
+         and the comments rot silently; a stale paramref and an ambiguous cref both survived
+         that way until review. On, they are build errors. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <Description>Makes untrusted text inert, so a sink cannot be made to act on what it contains</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The rule table and the scalar predicate are internal so no caller can supply one; the
+         sweeps that assert the encoder is total and invertible have to reach them anyway. -->
+    <InternalsVisibleTo Include="InertText.Tests" />
+  </ItemGroup>
+
+  <!-- Deliberately carries no ProjectReference. Every assembly that prints artifact-derived
+       text needs this, including the dependency-free leaves, so it has to sit below all of
+       them. Keep it that way: a reference added here is a reference added to everything. -->
+
+</Project>
