@@ -348,7 +348,7 @@ public static class RouterCommandDefinition
         {
             if (PackageExtractor.HasCachedCandidateVersion(
                     packageName,
-                    NuGetSourceResolver.ResolveSourceKeysForPackage(
+                    SourceResolver.ResolveSourceKeysForProbe(
                         sourceOptions,
                         packageName)))
             {

@@ -564,7 +564,7 @@ public static class TypeCommand
     {
         if (PackageExtractor.HasCachedCandidateVersion(
                 packageName,
-                NuGetSourceResolver.ResolveSourceKeysForPackage(
+                SourceResolver.ResolveSourceKeysForProbe(
                     options.SourceOptions,
                     packageName)))
         {

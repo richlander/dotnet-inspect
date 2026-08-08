@@ -528,6 +528,36 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.True(exists);
     }
 
+    [Fact]
+    public async Task TypePrefixProbe_TreatsUnmappedPackageAsAMiss()
+    {
+        string configPath = Path.Combine(_testRoot, "type-probe-mapping.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="excluded" value="{ExcludedSource}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="excluded">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        bool exists = await TypeCommand.PackageExistsAsync(
+            $"Unmapped{Guid.NewGuid():N}",
+            new TypeOptions
+            {
+                SourceOptions = new NuGetSourceOptions { ConfigFile = configPath },
+            },
+            new CommandContext(verbose: false));
+
+        Assert.False(exists);
+    }
+
     private static void SeedLatestCandidate(
         string packageName,
         string sourceUrl,

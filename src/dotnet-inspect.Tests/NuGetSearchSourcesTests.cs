@@ -722,6 +722,34 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_ConflictingEligibleAliasCredentialsFail()
+    {
+        const string index = "https://feed.example/v3/index.json";
+        const string search = "https://feed.example/v3/query";
+        using var config = new TempNuGetConfig(
+            [("anonymous", index), ("authenticated", index)],
+            credentialedSource: "authenticated",
+            mappings: [("anonymous", "Contoso.*"), ("authenticated", "Contoso.*")]);
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        PackageSourceMappingException exception =
+            await Assert.ThrowsAsync<PackageSourceMappingException>(
+                () => NuGetSearchService.SearchAsync(
+                    client,
+                    "Contoso",
+                    sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Equal(
+            PackageSourceMappingFailure.ConflictingCredentials,
+            exception.Failure);
+    }
+
+    [Fact]
     public async Task SearchByPrefixAsync_UsesSelectedSourcesAndFiltersTheirResults()
     {
         const string index = "https://private.example/v3/index.json";

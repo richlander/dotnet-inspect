@@ -337,7 +337,7 @@ public static class SourceResolver
             verbose,
             tryQualifiedTypeName).ConfigureAwait(false);
 
-    private static IReadOnlyList<string> ResolveSourceKeysForProbe(
+    internal static IReadOnlyList<string> ResolveSourceKeysForProbe(
         NuGetSourceOptions? sourceOptions,
         string packageId)
     {
