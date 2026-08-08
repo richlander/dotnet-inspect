@@ -588,9 +588,9 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
-                if (RejectEmptyExactSection(inspection, options, pipeline))
+                if (RejectEmptyExactSection([inspection], options, pipeline))
                     return 1;
-                WarnEmptySections(inspection, options, pipeline);
+                WarnEmptySections([inspection], options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return IntegrityExitCode(inspection);
@@ -682,9 +682,9 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
-                if (RejectEmptyExactSection(inspections[0], options, pipeline))
+                if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
-                WarnEmptySections(inspections[0], options, pipeline);
+                WarnEmptySections(inspections, options, pipeline);
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
@@ -762,9 +762,9 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
-                if (RejectEmptyExactSection(inspection, options, pipeline))
+                if (RejectEmptyExactSection([inspection], options, pipeline))
                     return 1;
-                WarnEmptySections(inspection, options, pipeline);
+                WarnEmptySections([inspection], options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
                 return IntegrityExitCode(inspection);
@@ -2129,17 +2129,20 @@ public class LibraryCommand
             filteredSections);
     }
 
-    private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
+    private static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count)
             return;
 
-        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
-        var failures = inspection.InspectionFailures;
-        List<LibraryInspectionFailureJson> relevantFailures = failures?
+        var (empty, requested) = GetEmptySections(inspections, options, pipeline);
+        var failures = inspections
+            .SelectMany(inspection => inspection.InspectionFailures ?? [])
+            .Distinct()
+            .ToList();
+        List<LibraryInspectionFailureJson> relevantFailures = failures
             .Where(failure => empty.Any(section => FailureAffectsSection(failure.Section, section)))
-            .ToList() ?? [];
+            .ToList();
         foreach (var failure in relevantFailures)
         {
             CommandError.WriteWarning(
@@ -2158,19 +2161,45 @@ public class LibraryCommand
         }
     }
 
-    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+    private static bool RejectEmptyExactSection(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count || options.IncludeSections is not { Count: 1 })
             return false;
 
-        var (empty, requested) = pipeline.GetEmptySections(
-            inspection, options.Verbosity, options.IncludeSections);
+        var (empty, requested) = GetEmptySections(inspections, options, pipeline);
         if (requested != 1 || empty.Count != 1)
             return false;
 
         CommandError.WriteLine($"This section ({empty[0]}) produced no output.");
         return true;
+    }
+
+    private static (List<string> Empty, int RequestedCount) GetEmptySections(
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        if (inspections.Count == 0)
+            return ([], 0);
+
+        var (firstEmpty, requested) = pipeline.GetEmptySections(
+            inspections[0], options.Verbosity, options.IncludeSections);
+        if (inspections.Count == 1 || firstEmpty.Count == 0)
+            return (firstEmpty, requested);
+
+        var emptyInEveryInspection = firstEmpty.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (int i = 1; i < inspections.Count && emptyInEveryInspection.Count > 0; i++)
+        {
+            var (empty, currentRequested) = pipeline.GetEmptySections(
+                inspections[i], options.Verbosity, options.IncludeSections);
+            emptyInEveryInspection.IntersectWith(empty);
+            requested = Math.Max(requested, currentRequested);
+        }
+
+        return (
+            firstEmpty.Where(emptyInEveryInspection.Contains).ToList(),
+            requested);
     }
 
     internal static bool FailureAffectsSection(string failureSection, string section)

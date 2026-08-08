@@ -320,6 +320,28 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalMixedAsyncPackage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var libDir = Path.Combine(tempDir, "content", "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+
+        var assemblyName = new AssemblyName("Empty");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType("Empty.Type", TypeAttributes.Public);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(Path.Combine(libDir, "A.Empty.dll"));
+
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, "Z.Async.dll"));
+
+        var packagePath = Path.Combine(tempDir, "Test.MixedAsync.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(Path.Combine(tempDir, "content"), packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
         string id,
         string readmeFile,
@@ -12396,6 +12418,44 @@ public partial class CommandExecutionTests
             var dataRows = lines.Where(l => !l.StartsWith("kind\t", StringComparison.Ordinal)).ToArray();
             Assert.NotEmpty(dataRows);
             Assert.All(dataRows, l => Assert.Contains(l.Split('\t')[0], kindLabels));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_ExactSectionTestsEveryAssemblyForData()
+    {
+        var (packagePath, tempDir) = CreateLocalMixedAsyncPackage();
+        try
+        {
+            var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
+                "library", "A.Empty.dll", "--package", packagePath,
+                "-S", "Async Methods", "--count", "--tips", "q");
+
+            Assert.Equal(0, emptyExit);
+            Assert.Equal("0", emptyOutput.Trim());
+            Assert.Empty(emptyError);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--tsv", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("StateMachineAsync", output);
+            Assert.Empty(error);
+
+            var (allEmptyExit, allEmptyOutput, allEmptyError) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "all",
+                "-S", "Resources", "--tsv", "--tips", "q");
+
+            Assert.Equal(1, allEmptyExit);
+            Assert.Empty(allEmptyOutput);
+            Assert.Equal(
+                "This section (Resources) produced no output.",
+                allEmptyError.Trim());
         }
         finally
         {
