@@ -81,8 +81,8 @@ public interface ISectionDescriptor<TModel>
     static virtual SectionCost Cost => SectionCost.NetworkFree;
 
     /// <summary>
-    /// Scanner key identifying the data collection step this section requires.
-    /// Null means the section's data is always collected (core metadata).
+    /// Transitional scanner key identifying a legacy data collection step this section requires.
+    /// Null means the section uses a typed query or data collected by another explicit baseline.
     /// Multiple sections may share a scanner key (e.g., Unsafe and P/Invoke
     /// both require "ClassifiedMethods").
     /// </summary>

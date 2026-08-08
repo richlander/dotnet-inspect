@@ -9941,7 +9941,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(output);
         Assert.Contains("category '@Performance' has no data for this query", error);
-        Assert.Contains("queries requested    Metadata image", error);
+        Assert.Contains(
+            "queries requested    Assembly references, Metadata image",
+            error);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
@@ -11876,8 +11878,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
+        Assert.Contains("| Dependencies | Direct assembly references |", output);
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ZeroReferences_PreservesOmittedJsonField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            "Signals",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\"references\":", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -12064,6 +12082,27 @@ public partial class CommandExecutionTests
             Assert.Contains("# Test.Primary.dll", output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_SelectedReferencesCollectsDirectReferences()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "References");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## References", output);
+            Assert.Contains("System.Runtime", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
