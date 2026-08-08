@@ -67,7 +67,8 @@ public sealed class CSharpTypePrinter
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
             .ToImmutableHashSet(StringComparer.Ordinal);
         var globalDeclaredTypeNames = preparedTypes
-            .Where(type => type.Namespace.Length == 0)
+            .Where(type => type.Namespace.Length == 0
+                && type.Type.TypeParameters.Count == 0)
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
             .ToImmutableHashSet(StringComparer.Ordinal);
         foreach (string globalTypeName in globalDeclaredTypeNames)

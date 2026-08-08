@@ -115,6 +115,41 @@ public sealed class CSharpFormatterTests
         Assert.Contains("Attributes.Other", declaration.Usings);
     }
 
+    [Fact]
+    public void PrimaryConstructorAttributeSuffixShadowKeepsQualifiedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class"
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = CSharpTypeNamePolicy.ShortWithUsings,
+            AdditionalRootShadowingNames = ["MarkerAttribute"]
+        });
+
+        var declaration = formatter.FormatTypeUnit(
+            type,
+            members: null,
+            primaryConstructorParameters:
+            [
+                new ApiParameter
+                {
+                    Type = "int",
+                    Name = "value",
+                    Attributes = ["External.Marker"]
+                }
+            ]);
+
+        Assert.Contains(
+            "public class Worker([External.Marker] int value)",
+            declaration.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("External", declaration.Usings);
+    }
+
     [Theory]
     [InlineData(CSharpTypeNamePolicy.Qualified, "public System.Threading.Tasks.Task Run()", false)]
     [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Task Run()", true)]

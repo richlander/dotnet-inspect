@@ -177,6 +177,9 @@ internal static class CSharpDeclarationWriter
         var primaryParameterAttributeReferences = parameters
             .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
             .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterDeclaredAttributeReferences = parameters
+            .SelectMany(parameter => CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+            .ToHashSet(StringComparer.Ordinal);
         var shortenableReferences = CollectTypeReferences(type)
             .Concat(memberList.SelectMany(member => CollectMemberTypeReferences(member)))
             .Concat(parameters.SelectMany(parameter =>
@@ -197,7 +200,8 @@ internal static class CSharpDeclarationWriter
             qualificationOnlyAttributeReferences,
             shortenableReferences,
             attributeValueReferences,
-            synthesizedAttributeReferences);
+            synthesizedAttributeReferences,
+            primaryParameterDeclaredAttributeReferences);
 
         string typeDeclaration = AddPrimaryConstructorParameters(
             type,
@@ -299,6 +303,9 @@ internal static class CSharpDeclarationWriter
             .Concat(parameters.SelectMany(parameter =>
                 ExtractQualifiedTypeNames(parameter.Type)))
             .ToHashSet(StringComparer.Ordinal);
+        var primaryParameterDeclaredAttributeReferences = parameters
+            .SelectMany(parameter => CollectDeclaredAttributeTypeReferences(parameter.Attributes))
+            .ToHashSet(StringComparer.Ordinal);
         var plan = TypeNamePlan.Create(
             shortenableReferences
                 .Concat(parameters.SelectMany(CollectParameterTypeReferences))
@@ -309,7 +316,8 @@ internal static class CSharpDeclarationWriter
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
             shortenableReferences,
-            attributeValueReferences);
+            attributeValueReferences,
+            attributeNameReferences: primaryParameterDeclaredAttributeReferences);
         string declaration = AddPrimaryConstructorParameters(
             type,
             RenderTypeDeclarationCore(type, options),
@@ -382,7 +390,8 @@ internal static class CSharpDeclarationWriter
                     CollectMemberTypeReferences(
                         member,
                         includeParameterAttributes: scope.Type.Kind != "delegate")))
-                .Concat(scope.AdditionalParameters.SelectMany(CollectParameterTypeReferences)))
+                .Concat(scope.AdditionalParameters.SelectMany(parameter =>
+                    ExtractQualifiedTypeNames(parameter.Type))))
             .Select(TypeRef.TryCreate)
             .Where(r => r is not null)
             .Select(r => r!)
@@ -2658,9 +2667,9 @@ internal static class CSharpDeclarationWriter
     }
 
     sealed record TypeNamePlan(
-        IReadOnlyList<KeyValuePair<string, (string Qualified, string? Shortened)>> Replacements,
+        IReadOnlyList<KeyValuePair<string, (string Qualified, string? Shortened, string? Diagnostic)>> Replacements,
         IReadOnlyList<string> GeneratedUsings,
-        IReadOnlyList<string> Diagnostics)
+        List<string> Diagnostics)
     {
         public string Apply(string text)
         {
@@ -2699,6 +2708,7 @@ internal static class CSharpDeclarationWriter
                         sb.Append(qualified.StartsWith("global::", StringComparison.Ordinal)
                             ? qualified["global::".Length..]
                             : qualified);
+                        AddDiagnostic(replacements.Diagnostic);
                     }
                     else
                     {
@@ -2706,9 +2716,12 @@ internal static class CSharpDeclarationWriter
                             text,
                             i,
                             i + token.Length);
-                        sb.Append(preserveQualification
+                        string replacement = preserveQualification
                             ? replacements.Qualified
-                            : replacements.Shortened ?? replacements.Qualified);
+                            : replacements.Shortened ?? replacements.Qualified;
+                        sb.Append(replacement);
+                        if (replacement == replacements.Qualified)
+                            AddDiagnostic(replacements.Diagnostic);
                     }
                     i += token.Length;
                     matched = true;
@@ -2720,6 +2733,15 @@ internal static class CSharpDeclarationWriter
             }
 
             return sb.ToString();
+
+            void AddDiagnostic(string? diagnostic)
+            {
+                if (diagnostic is not null
+                    && !Diagnostics.Contains(diagnostic, StringComparer.Ordinal))
+                {
+                    Diagnostics.Add(diagnostic);
+                }
+            }
         }
 
         public static TypeNamePlan Create(
@@ -2730,7 +2752,8 @@ internal static class CSharpDeclarationWriter
             IReadOnlySet<string>? qualificationOnlyReferences = null,
             IReadOnlySet<string>? shortenableReferences = null,
             IReadOnlySet<string>? valueReferences = null,
-            IReadOnlySet<string>? preferredSimpleNameReferences = null)
+            IReadOnlySet<string>? preferredSimpleNameReferences = null,
+            IReadOnlySet<string>? attributeNameReferences = null)
         {
             var qualificationOnlyFullNames = qualificationOnlyReferences?
                 .Select(TypeRef.TryCreate)
@@ -2761,6 +2784,12 @@ internal static class CSharpDeclarationWriter
                     .Select(reference => reference!.FullName));
             }
             var preferredSimpleNameFullNames = preferredSimpleNameReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            var attributeNameFullNames = attributeNameReferences?
                 .Select(TypeRef.TryCreate)
                 .Where(reference => reference is not null)
                 .Select(reference => reference!.FullName)
@@ -2840,8 +2869,7 @@ internal static class CSharpDeclarationWriter
             if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings)
                 potentiallyImportedNamespaces.UnionWith(shorteningTypeRefs.Select(reference => reference.Namespace));
             var collisionEvidence = bindingTypeRefs
-                .Where(reference => !qualificationOnlyFullNames.Contains(reference.FullName)
-                    || potentiallyImportedNamespaces.Contains(reference.Namespace))
+                .Where(reference => potentiallyImportedNamespaces.Contains(reference.Namespace))
                 .ToList();
             var collisions = CollidingSimpleNames(collisionEvidence);
             var allShadowingNames = lexicalShadowingNames
@@ -2855,14 +2883,15 @@ internal static class CSharpDeclarationWriter
                 bindingEvidence: bindingTypeRefs);
             var generatedUsings = new SortedSet<string>(StringComparer.Ordinal);
             var diagnostics = new List<string>();
-            var replacements = new Dictionary<string, (string Qualified, string? Shortened)>(
+            var replacements = new Dictionary<string, (string Qualified, string? Shortened, string? Diagnostic)>(
                 StringComparer.Ordinal);
             void ReplaceQualifiedName(
                 TypeRef typeRef,
                 string qualifiedReplacement,
-                string? shortenedReplacement = null)
+                string? shortenedReplacement = null,
+                string? diagnostic = null)
             {
-                var plan = (qualifiedReplacement, shortenedReplacement);
+                var plan = (qualifiedReplacement, shortenedReplacement, diagnostic);
                 Add(typeRef.FullName);
                 Add(EscapeQualifiedKeywordSegments(typeRef.FullName));
                 Add(EscapeNamespace(typeRef.FullName));
@@ -2875,21 +2904,25 @@ internal static class CSharpDeclarationWriter
             string ResolvableQualifiedName(TypeRef typeRef)
             {
                 string root = NamespaceRoot(typeRef.Namespace);
-                if (options.AdditionalUnresolvableRootNames.Contains(root)
-                    && IsKnownNamespaceRoot(root))
-                {
-                    diagnostics.Add(
-                        $"Type name '{typeRef.FullName}' conflicts with global type '{root}'; emitted the only available global-qualified spelling.");
-                }
-
                 string escapedFullName = EscapeNamespace(typeRef.FullName);
                 return rootShadowingNames.Contains(root)
                     ? $"global::{escapedFullName}"
                     : escapedFullName;
             }
+            string? UnresolvableRootDiagnostic(TypeRef typeRef)
+            {
+                string root = NamespaceRoot(typeRef.Namespace);
+                return options.AdditionalUnresolvableRootNames.Contains(root)
+                    && IsKnownNamespaceRoot(root)
+                        ? $"Type name '{typeRef.FullName}' conflicts with global type '{root}'; emitted the only available global-qualified spelling."
+                        : null;
+            }
             void KeepResolvableQualified(TypeRef typeRef)
             {
-                ReplaceQualifiedName(typeRef, ResolvableQualifiedName(typeRef));
+                ReplaceQualifiedName(
+                    typeRef,
+                    ResolvableQualifiedName(typeRef),
+                    diagnostic: UnresolvableRootDiagnostic(typeRef));
             }
             void KeepAttributeValueQualified(TypeRef typeRef)
             {
@@ -2898,7 +2931,10 @@ internal static class CSharpDeclarationWriter
                     && !IsKnownNamespaceRoot(root)
                         ? EscapeNamespace(typeRef.FullName)
                         : ResolvableQualifiedName(typeRef);
-                ReplaceQualifiedName(typeRef, qualified);
+                ReplaceQualifiedName(
+                    typeRef,
+                    qualified,
+                    diagnostic: UnresolvableRootDiagnostic(typeRef));
             }
             bool IsKnownNamespaceRoot(string root)
                 => options.AdditionalKnownNamespaces.Any(@namespace =>
@@ -2922,6 +2958,23 @@ internal static class CSharpDeclarationWriter
                 {
                     KeepResolvableQualified(typeRef);
                     continue;
+                }
+                if (attributeNameFullNames.Contains(typeRef.FullName)
+                    && !typeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                {
+                    string suffixedName = $"{typeRef.SimpleName}Attribute";
+                    bool suffixCanBind = rootShadowingNames.Contains(suffixedName)
+                        || allShadowingNames.Contains(suffixedName)
+                        || collisionEvidence.Any(reference =>
+                            reference.FullName != typeRef.FullName
+                            && reference.SimpleName == suffixedName);
+                    if (suffixCanBind)
+                    {
+                        diagnostics.Add(
+                            $"Attribute name '{typeRef.SimpleName}' can bind to '{suffixedName}'; kept '{typeRef.FullName}' qualified.");
+                        KeepResolvableQualified(typeRef);
+                        continue;
+                    }
                 }
                 var isSameNamespace = !string.IsNullOrWhiteSpace(options.ContainingNamespace)
                     && string.Equals(typeRef.Namespace, options.ContainingNamespace, StringComparison.Ordinal);
@@ -2962,7 +3015,8 @@ internal static class CSharpDeclarationWriter
                     valueFullNames.Contains(typeRef.FullName)
                         ? ResolvableQualifiedName(typeRef)
                         : EscapeNamespace(typeRef.FullName),
-                    EscapeIdentifier(typeRef.SimpleName));
+                    EscapeIdentifier(typeRef.SimpleName),
+                    UnresolvableRootDiagnostic(typeRef));
                 if (options.TypeNameMode == CSharpTypeNameMode.ShortWithUsings && !isSameNamespace)
                     generatedUsings.Add(typeRef.Namespace);
             }

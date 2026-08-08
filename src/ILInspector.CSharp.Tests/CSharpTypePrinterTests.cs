@@ -2691,6 +2691,34 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void PrimaryConstructorAttributeNameRemainsQualified()
+    {
+        var type = CreateEmptyType("Samples", "Host");
+        var method = CreateMethod("Get");
+        method.SignatureModel!.ReturnType = "B.Marker";
+        type.Members.Add(method);
+        var parameter = new ApiParameter
+        {
+            Type = "int",
+            Name = "value",
+            Attributes = ["External.Marker"]
+        };
+
+        var result = _printer.Print(new CSharpTypePrintRequest(
+            type,
+            primaryConstructorParameters: [parameter]));
+
+        Assert.Contains(
+            "public class Host([External.Marker] int value)",
+            result.Source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("using External;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("using B;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public Marker Get();", result.Source, StringComparison.Ordinal);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
     public void ExplicitInterfaceDualProvenanceRemainsQualified()
     {
         var property = new ApiMember
@@ -2795,6 +2823,25 @@ public sealed class CSharpTypePrinterTests
             "public global::Foo.Bar.Baz Get();",
             result.Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HiddenCustomAttributeDoesNotReportAnEmittedRootConflict()
+    {
+        var root = CreateEmptyType("", "Foo");
+        var type = CreateEmptyType("App", "Widget");
+        type.Attributes = ["Foo.Bar.Marker"];
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(root), new CSharpTypePrintRequest(type)],
+            new CSharpTypePrintOptions { IncludeCustomAttributes = false });
+
+        Assert.DoesNotContain("Marker", result.Source, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "Type name 'Foo.Bar.Marker' conflicts with global type 'Foo'",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -3455,6 +3502,23 @@ public sealed class CSharpTypePrinterTests
             result.Diagnostics,
             diagnostic => diagnostic.Message.Contains(
                 "conflicts with global type 'System'",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void GenericGlobalTypeDoesNotConflictWithNamespaceRoot()
+    {
+        var generic = CreateEmptyType("", "Foo`1");
+        generic.TypeParameters = [new TypeParameter { Name = "T" }];
+        var namespaced = CreateEmptyType("Foo.Bar", "Worker");
+
+        var result = _printer.PrintBatch(
+            [new CSharpTypePrintRequest(generic), new CSharpTypePrintRequest(namespaced)]);
+
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "Namespace root 'Foo' conflicts with global type 'Foo'",
                 StringComparison.Ordinal));
     }
 
