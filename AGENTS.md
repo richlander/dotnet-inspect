@@ -390,28 +390,38 @@ round:
 - **The PR is mergeable and green** — two questions, one consolidated status
   query. Prefer a single `gh api graphql` request that returns the PR's
   `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
-  contexts, and the query's `rateLimit` cost, remaining quota, and reset time.
-  Confirm that `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and
-  the current head's `ci-required` check run completed successfully. A
-  `CONFLICTING` mergeability result blocks, and `UNKNOWN` means GitHub has not
-  finished computing the merge. Do not read `mergeStateStatus` as check state:
-  it is a composite, and it reports `CLEAN` for a PR with no checks at all
-  (#3706). A missing `ci-required` is likewise inconclusive: the aggregate may
-  not have registered yet, or the ruleset may not cover the PR's base. Inspect
-  the base and all returned contexts; a PR targeting `main` is not green until
-  its current-head `ci-required` has passed. `skipping` is terminal and does
-  not block, but it is also not evidence: never cite a skipped job as
-  validation, and if a change should have triggered a job that skipped, the
-  path filter is the bug.
+  contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
+  and reset time. Request enough contexts for the normal check matrix; if
+  `pageInfo.hasNextPage` is true and `ci-required` is absent, fetch the
+  remaining context pages before concluding that it is missing. Confirm that
+  `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and the current
+  head's `ci-required` check run completed successfully. A `CONFLICTING`
+  mergeability result blocks, and `UNKNOWN` means GitHub has not finished
+  computing the merge. Do not read `mergeStateStatus` as check state: it is a
+  composite, and it reports `CLEAN` for a PR with no checks at all (#3706). A
+  missing `ci-required` is likewise inconclusive: the aggregate may not have
+  registered yet, or the ruleset may not cover the PR's base. Inspect the base
+  and all returned contexts; a PR targeting `main` is not green until its
+  current-head `ci-required` has passed. `skipping` is terminal and does not
+  block, but it is also not evidence: never cite a skipped job as validation,
+  and if a change should have triggered a job that skipped, the path filter is
+  the bug.
 
   Status discovery must conserve the shared GitHub API budget. After a push,
   wait at least 15 minutes before the first status query; use 20 minutes for
-  lanes known to run longer. If checks are still pending, wait at least 10
-  minutes plus small random jitter before querying again. Do not use `gh run
-  watch`, `gh pr checks --watch`, or a polling loop for long-running PR checks.
-  Reuse the known head SHA and returned run or check identifiers instead of
-  rediscovering them through separate list and view calls. If the query reports
-  low remaining quota, stop querying until its reported reset time. These
+  lanes known to run longer. After any inconclusive result — including pending
+  checks, `UNKNOWN` mergeability, or a missing `ci-required` — wait at least 10
+  minutes plus small random jitter before querying again. Yield the session or
+  schedule a delayed wake-up; do not hold a synchronous shell or agent turn
+  open with `sleep`. Do not use `gh run watch`, `gh pr checks --watch`, or a
+  polling loop for long-running PR checks.
+
+  Every status check must re-query the PR aggregate and compare its current
+  `headRefOid`; a run or check identifier is pinned to one commit and cannot
+  detect a later push. Retain the expected head SHA locally, and reuse returned
+  identifiers only for one-off detail or log queries after the aggregate has
+  confirmed that head. If the query reports low remaining quota, yield until
+  its reported reset time rather than sleeping or continuing to query. These
   intervals are minimums, not targets: wait longer when no decision depends on
   an immediate result.
 - **Every PR in a stack meets all of the above**, not only the slice under
