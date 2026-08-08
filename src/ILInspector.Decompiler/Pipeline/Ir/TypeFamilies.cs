@@ -23,6 +23,38 @@ public enum TypeShape { Unknown, Reference, ValueType, Enum }
 /// </summary>
 public enum TypeShapeKind { Unknown, Class, Struct, Enum, Interface, Delegate }
 
+/// <summary>Shared type facts for raised switch governing expressions.</summary>
+internal static class SwitchTypeFacts
+{
+    /// <summary>
+    /// Returns the enum type carried by a switch value, including an enum loaded
+    /// indirectly through its primitive storage opcode and an unresolved external
+    /// enum whose non-primitive definition is proven by type-safe switch IL.
+    /// </summary>
+    public static TypeRef? EnumType(IrFunction function, IrExpression value)
+    {
+        var type = value is LoadIndirect
+            {
+                Address.ResultType:
+                {
+                    Kind: TypeRefKind.ByRef or TypeRefKind.Pointer,
+                    ElementType: { } pointee,
+                },
+            }
+            ? pointee
+            : value.ResultType;
+        if (type is null)
+            return null;
+        if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
+            return type;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
+            && !TypeFamilies.IsNumericPrimitive(type)
+            ? type
+            : null;
+    }
+}
+
 /// <summary>
 /// The single home for type-family classification (review consolidation:
 /// this knowledge previously lived in the importer's slot merging, the

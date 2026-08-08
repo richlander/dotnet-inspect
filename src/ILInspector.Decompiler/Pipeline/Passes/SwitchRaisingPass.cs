@@ -31,6 +31,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// through <c>break;</c> (its join branch, or an appended one for a fall-through);
 /// the bodies are containers the structuring pass then raises.
 ///
+/// csc normalizes a dense enum range to zero before the IL <c>switch</c>, for
+/// example <c>switch (algorithm - 25)</c>. When the unchecked add/subtract has an
+/// enum operand, the pass reverses that lowering: the enum becomes the governing
+/// value and each jump-table index is translated back to its enum value with the
+/// same 32-bit wraparound. Checked arithmetic, non-enum arithmetic, and known
+/// 64-bit enum backing types retain the normalized selector.
+///
 /// When that model leaves the switch flat, a second attempt
 /// (<see cref="RaiseCaseTargetJoin"/>) handles tables whose default routes into
 /// shared case bodies: one case target is the post-switch join, so cases reaching
@@ -65,9 +72,9 @@ public sealed class SwitchRaisingPass : IIrPass
             for (int s = 0; s < blocks.Count; s++)
             {
                 if (blocks[s].Children is [.., SwitchBranch sw]
-                    && (RaiseSwitchExpressionReturn(container, s, sw, leaveTargets, stepper)
-                        || Raise(container, s, sw, leaveTargets, stepper)
-                        || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
+                    && (RaiseSwitchExpressionReturn(function, container, s, sw, leaveTargets, stepper)
+                        || Raise(function, container, s, sw, leaveTargets, stepper)
+                        || RaiseCaseTargetJoin(function, container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
                     && (RaiseComparisonChainSwitchExpression(container, s, leaveTargets, stepper)
@@ -81,7 +88,7 @@ public sealed class SwitchRaisingPass : IIrPass
         return false;
     }
 
-    static bool Raise(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool Raise(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -186,7 +193,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        Build(container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
+        Build(function, container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
         return true;
     }
 
@@ -205,7 +212,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// continuation. These are the TraceLoggingMetadataCollector::AddArray and
     /// NLoptSolver::CheckInequalityConstraintAvailability shapes.
     /// </summary>
-    static bool RaiseCaseTargetJoin(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool RaiseCaseTargetJoin(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -224,7 +231,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
         foreach (int joinCandidate in caseTargets.Distinct())
         {
-            if (TryCaseTargetJoin(container, blocks, s, sw, caseTargets, defaultIndex,
+            if (TryCaseTargetJoin(function, container, blocks, s, sw, caseTargets, defaultIndex,
                     offsetToIndex, preds, leaveTargets, joinCandidate, stepper))
                 return true;
         }
@@ -232,7 +239,7 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static bool TryCaseTargetJoin(
-        BlockContainer container, IReadOnlyList<Block> blocks, int s, SwitchBranch sw,
+        IrFunction function, BlockContainer container, IReadOnlyList<Block> blocks, int s, SwitchBranch sw,
         int[] caseTargets, int defaultIndex, Dictionary<int, int> offsetToIndex,
         Dictionary<int, List<int>> preds, HashSet<int> leaveTargets, int join, Stepper stepper)
     {
@@ -325,7 +332,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
-        BuildCaseTargetJoin(container, s, sw, caseTargets, regions, defaultIndex,
+        BuildCaseTargetJoin(function, container, s, sw, caseTargets, regions, defaultIndex,
             defaultSharesTarget, join, fallThroughCase, regionEnd, stepper);
         return true;
     }
@@ -341,7 +348,7 @@ public sealed class SwitchRaisingPass : IIrPass
     /// between two value blocks (lowered to a <c>?:</c> arm). This is the
     /// AssemblyNameParser::IsWhiteSpace shape.
     /// </summary>
-    static bool RaiseSwitchExpressionReturn(BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool RaiseSwitchExpressionReturn(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -460,7 +467,7 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!JoinOnlyReachedByValueBlocks(blocks, owned, join, leaveTargets))
             return false;
 
-        BuildSwitchExpression(container, s, sw, caseTargets, defaultArm, join, stepper);
+        BuildSwitchExpression(function, container, s, sw, caseTargets, defaultArm, join, stepper);
         return true;
     }
 
@@ -493,9 +500,10 @@ public sealed class SwitchRaisingPass : IIrPass
     static IrExpression ValueBlockExpr(Block block) => ((StoreLocal)block.Children[0]).Value;
 
     /// <summary>Replaces a value-producing jump table with <c>return v switch { … };</c>: the arms group case labels by their value block, and the default arm is supplied by the recognizer.</summary>
-    static void BuildSwitchExpression(BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
+    static void BuildSwitchExpression(IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets, IrExpression defaultArm, int join, Stepper stepper)
     {
         var all = container.Blocks.ToList();
+        var input = TakeSwitchInput(function, sw);
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
@@ -503,17 +511,21 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var arms = new List<SwitchExpressionArm>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            arms.Add(new SwitchExpressionArm([.. labels], isDefault: false, (IrExpression)ValueBlockExpr(all[target]).Clone()));
+        {
+            arms.Add(new SwitchExpressionArm(
+                TranslatedLabels(labels, input.LabelBase),
+                isDefault: false,
+                (IrExpression)ValueBlockExpr(all[target]).Clone()));
+        }
         arms.Add(new SwitchExpressionArm([], isDefault: true, defaultArm));
 
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
 
         foreach (var block in all)
             block.Detach();
 
         var switchBlock = all[s];
-        switchBlock.Add(new Return(new SwitchExpression(value, arms)));
+        switchBlock.Add(new Return(new SwitchExpression(input.Value, arms)));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
@@ -1901,12 +1913,13 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static void Build(
-        BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
+        IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int? defaultBodyHead, int? defaultSharesTarget,
         int? join, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int? joinOffset = join is { } j ? all[j].StartOffset : null;
+        var input = TakeSwitchInput(function, sw);
 
         // Case labels grouped by target — the jump-table index is the label.
         var labelsByTarget = new Dictionary<int, List<int>>();
@@ -1918,16 +1931,15 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
-            sections.Add(new SwitchSection(IntLabels(labels), isDefault: target == defaultSharesTarget,
+            sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase), isDefault: target == defaultSharesTarget,
                 SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
                 SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
-        switchBlock.Add(new Switch(value, sections));
+        switchBlock.Add(new Switch(input.Value, sections));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
@@ -1969,12 +1981,13 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     static void BuildCaseTargetJoin(
-        BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
+        IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int defaultIndex, bool defaultSharesTarget, int join,
         int? fallThroughCase, int regionEnd, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int joinOffset = all[join].StartOffset;
+        var input = TakeSwitchInput(function, sw);
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
@@ -1994,10 +2007,10 @@ public sealed class SwitchRaisingPass : IIrPass
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
             if (target == join)
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase),
                     isDefault: defaultSharesTarget && target == defaultIndex, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection(IntLabels(labels),
+                sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase),
                     isDefault: defaultSharesTarget && target == defaultIndex,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
@@ -2006,9 +2019,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 DefaultSectionBody(regions[defaultIndex].Select(i => all[i]).ToList(), joinOffset, duplicatedTerminator)));
 
         var switchBlock = all[s];
-        var value = (IrExpression)sw.DetachChildren()[0];
         sw.Detach();
-        switchBlock.Add(new Switch(value, sections));
+        switchBlock.Add(new Switch(input.Value, sections));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)
@@ -2018,6 +2030,51 @@ public sealed class SwitchRaisingPass : IIrPass
         stepper.StepOver("raise IL jump table to switch (case target is continuation)", container);
         container.ReplaceWith(rebuilt);
     }
+
+    readonly record struct SwitchInput(IrExpression Value, int LabelBase);
+
+    static SwitchInput TakeSwitchInput(IrFunction function, SwitchBranch sw)
+    {
+        var value = (IrExpression)sw.DetachChildren()[0];
+        if (!TryRestoreEnumSwitchInput(function, value, out var enumValue, out int labelBase))
+            return new SwitchInput(value, 0);
+        return new SwitchInput(enumValue, labelBase);
+    }
+
+    static bool TryRestoreEnumSwitchInput(
+        IrFunction function,
+        IrExpression value,
+        out IrExpression enumValue,
+        out int labelBase)
+    {
+        enumValue = null!;
+        labelBase = 0;
+        if (value is not Binary
+            {
+                Kind: BinaryKind.Add or BinaryKind.Subtract,
+                IsChecked: false,
+                Left: var left,
+                Right: Constant { Value: int offset },
+            } binary
+            || SwitchTypeFacts.EnumType(function, left) is not { } enumType
+            || function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is { } underlying
+                && TypeFamilies.Of(underlying) == StackFamily.I8)
+        {
+            return false;
+        }
+
+        labelBase = binary.Kind == BinaryKind.Subtract
+            ? offset
+            : unchecked(-offset);
+        enumValue = (IrExpression)left.Clone();
+        return true;
+    }
+
+    static ImmutableArray<int> TranslatedLabels(IEnumerable<int> indices, int labelBase)
+        => [.. indices.Select(index => unchecked(labelBase + index))];
+
+    static ImmutableArray<Constant> TranslatedConstants(IEnumerable<int> indices, int labelBase)
+        => [.. TranslatedLabels(indices, labelBase).Select(IntConst)];
 
     /// <summary>A case whose target is the join carries no body — just <c>break;</c>.</summary>
     static BlockContainer EmptyBreakBody()

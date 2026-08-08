@@ -7,6 +7,7 @@ enum SharedGuardAlgorithm
     Low6 = 6,
     Low7 = 7,
     Dense24 = 24,
+    Dense24Alias = Dense24,
     Dense25 = 25,
     Dense30 = 30,
     Dense31 = 31,
@@ -17,6 +18,25 @@ enum SharedGuardAlgorithm
     Dense37 = 37,
     Dense40 = 40,
     Dense41 = 41,
+}
+
+enum NegativeOffsetAlgorithm
+{
+    Minus3 = -3,
+    Minus2 = -2,
+    Minus1 = -1,
+    Zero = 0,
+    One = 1,
+    Two = 2,
+}
+
+enum HighOffsetAlgorithm : uint
+{
+    First = 0x80000000u,
+    Second = 0x80000001u,
+    Third = 0x80000002u,
+    Fourth = 0x80000003u,
+    Fifth = 0x80000004u,
 }
 
 static class SharedGuardSwitchFixture
@@ -127,6 +147,30 @@ static class SharedGuardSwitchFixture
     Done:
         return result;
     }
+
+    public static int ClassifyNegativeOffset(NegativeOffsetAlgorithm algorithm)
+    {
+        switch (algorithm)
+        {
+            case NegativeOffsetAlgorithm.Minus3: return 3;
+            case NegativeOffsetAlgorithm.Minus2: return 2;
+            case NegativeOffsetAlgorithm.Minus1: return 1;
+            case NegativeOffsetAlgorithm.Zero: return 0;
+            case NegativeOffsetAlgorithm.One: return 10;
+            case NegativeOffsetAlgorithm.Two: return 20;
+            default: return -1;
+        }
+    }
+
+    public static int ClassifyHighOffset(HighOffsetAlgorithm algorithm) => algorithm switch
+    {
+        HighOffsetAlgorithm.First => 1,
+        HighOffsetAlgorithm.Second => 2,
+        HighOffsetAlgorithm.Third => 3,
+        HighOffsetAlgorithm.Fourth => 4,
+        HighOffsetAlgorithm.Fifth => 5,
+        _ => -1,
+    };
 }
 
 [Trait("Area", "Pass")]
@@ -156,10 +200,50 @@ public class SwitchRaisingSharedGuardTests
         Assert.Single(function.Descendants.OfType<Switch>());
         Assert.Empty(function.Descendants.OfType<SwitchBranch>());
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("switch (algorithm - 24)", output);
+        Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case SharedGuardAlgorithm.Dense24:", output);
+        Assert.Contains("case SharedGuardAlgorithm.Dense41:", output);
+        Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("algorithm - 24", output);
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void CompilerProducedNegativeEnumSwitch_RestoresAddedOffset()
+    {
+        var function = Import(nameof(SharedGuardSwitchFixture.ClassifyNegativeOffset));
+        var lowered = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+        Assert.IsType<Binary>(lowered.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadArgument>(node.Value);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case NegativeOffsetAlgorithm.Minus3:", output);
+        Assert.Contains("case NegativeOffsetAlgorithm.Two:", output);
+        Assert.DoesNotContain("algorithm +", output);
+    }
+
+    [Fact]
+    public void CompilerProducedHighUIntEnumSwitch_RestoresWrappedLabels()
+    {
+        var function = Import(nameof(SharedGuardSwitchFixture.ClassifyHighOffset));
+        Assert.Single(function.Descendants.OfType<SwitchBranch>());
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("algorithm switch", output);
+        Assert.Contains("HighOffsetAlgorithm.First => 1", output);
+        Assert.Contains("HighOffsetAlgorithm.Fifth => 5", output);
+        Assert.DoesNotContain("algorithm -", output);
     }
 
     [Fact]
@@ -186,6 +270,40 @@ public class SwitchRaisingSharedGuardTests
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void CheckedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "CheckedAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchIsChecked: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void LongBackedEnumOffset_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "LongAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Int64"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
     }
 
     [Fact]
@@ -580,11 +698,25 @@ public class SwitchRaisingSharedGuardTests
             [s_int],
             body);
 
+    static IrFunction Import(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(SharedGuardSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SharedGuardSwitchFixture).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return function;
+    }
+
     static IrFunction BuildSharedGuardSwitch(
+        TypeRef? governingType = null,
+        bool switchIsChecked = false,
         bool guardTargetsCaseBody = false,
         bool defaultExitsToContinuation = false,
         bool defaultContainsNestedLoopBreak = false)
     {
+        governingType ??= s_int;
         var body = new BlockContainer();
 
         var guard = new Block(0);
@@ -596,7 +728,7 @@ public class SwitchRaisingSharedGuardTests
                     BinaryKind.Subtract,
                     isChecked: false,
                     isUnsigned: false,
-                    new LoadArgument(0, "algorithm", s_int),
+                    new LoadArgument(0, "algorithm", governingType),
                     new Constant(6, s_int)),
                 new Constant(1, s_int)),
             guardTargetsCaseBody ? 0x20 : 0x30));
@@ -606,9 +738,9 @@ public class SwitchRaisingSharedGuardTests
         dispatch.Add(new SwitchBranch(
             new Binary(
                 BinaryKind.Subtract,
-                isChecked: false,
+                isChecked: switchIsChecked,
                 isUnsigned: false,
-                new LoadArgument(0, "algorithm", s_int),
+                new LoadArgument(0, "algorithm", governingType),
                 new Constant(24, s_int)),
             [0x30, 0x30, 0x20, 0x20]));
         body.Add(dispatch);
@@ -640,7 +772,7 @@ public class SwitchRaisingSharedGuardTests
             TypeRef.Definition("Synthetic", "", "T"),
             new MethodSignature(
                 s_void,
-                [new Parameter("algorithm", s_int)],
+                [new Parameter("algorithm", governingType)],
                 HasThis: false,
                 GenericParameterCount: 0),
             defaultExitsToContinuation ? [s_int] : [],
