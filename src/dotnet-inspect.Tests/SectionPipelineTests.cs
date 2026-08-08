@@ -1644,6 +1644,46 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void MultiPackageCount_PreservesIntegrityMismatchExitCode()
+    {
+        string outputPath = Path.Combine(Path.GetTempPath(), $"package-count-{Guid.NewGuid():N}.txt");
+        var clean = new InspectionResult
+        {
+            PackageName = "Clean",
+            SourceIntegrity = new PackageSourceIntegrity(
+                1,
+                1,
+                Verified: 1,
+                Mismatched: 0,
+                LineEndingNormalized: 0,
+                Unverifiable: 0,
+                MismatchedFiles: null,
+                UnavailableLibraries: null,
+                FailedLibraries: null),
+        };
+        var mismatch = new InspectionResult
+        {
+            PackageName = "Mismatch",
+            SourceIntegrity = clean.SourceIntegrity with { Mismatched = 1 },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [clean, mismatch],
+                PackageSections.Files,
+                new InspectionOptions { Count = true, OutputPath = outputPath });
+
+            Assert.Equal(1, exitCode);
+            Assert.Equal("2", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
     public void LibraryReferencesSection_DemandsTypedAssemblyReferencesQuery()
     {
         var pipeline = LibrarySections.CreatePipeline();

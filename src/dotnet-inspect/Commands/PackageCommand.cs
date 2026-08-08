@@ -898,12 +898,7 @@ public class PackageCommand
         }
 
         if (options.Count)
-        {
-            CountOutput.WriteCount(
-                CountMultiPackageRows(results, rowSection, options),
-                options.OutputPath);
-            return 0;
-        }
+            return WriteMultiPackageCount(results, rowSection, options);
 
         if (options.JsonOutput)
         {
@@ -927,6 +922,17 @@ public class PackageCommand
                 static result => result.SourceIntegrity?.Mismatched is > 0)
                 ? 1
                 : 0;
+
+    internal static int WriteMultiPackageCount(
+        IReadOnlyList<InspectionResult> results,
+        string? rowSection,
+        InspectionOptions options)
+    {
+        CountOutput.WriteCount(
+            CountMultiPackageRows(results, rowSection, options),
+            options.OutputPath);
+        return PackageIntegrityExitCode([.. results]);
+    }
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
     {
