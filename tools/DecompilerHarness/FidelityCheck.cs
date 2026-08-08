@@ -828,7 +828,8 @@ static class FidelityCheck
         IReadOnlyList<string> assemblies,
         IReadOnlyList<CompileBackTarget> targets,
         bool lowered,
-        PrinterOptions? options)
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         var methodTargets = targets
             .Select(target => new MethodTarget(
@@ -841,7 +842,7 @@ static class FidelityCheck
                 DisplayMethod: $"{target.Type}::{target.Method}"))
             .ToArray();
 
-        return EvaluateTargets(assemblies, methodTargets, lowered, options)
+        return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
             .Select(row => row.Result)
             .ToArray();
     }
@@ -849,7 +850,12 @@ static class FidelityCheck
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
         => EvaluateTargets(assemblies, targets, lowered, options: null);
 
-    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered, PrinterOptions? options)
+    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<MethodTarget> targets,
+        bool lowered,
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         if (targets.Count == 0)
             return [];
@@ -877,7 +883,12 @@ static class FidelityCheck
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(assemblyPath, context: metadata); }
+                try
+                {
+                    source = readSymbols
+                        ? MetadataSource.Open(assemblyPath, context: metadata)
+                        : MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata);
+                }
                 catch { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)

@@ -2,10 +2,10 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
-// The opt-in readable-names mode (PrinterOptions.ReadableLocalNames). The default
-// must stay byte-identical V_index output; the mode synthesizes readable names
-// only for locals with no usable source name, and still falls back to V_index
-// when no IR evidence supports a name.
+// The library-level readable-names mode (PrinterOptions.ReadableLocalNames).
+// Its default must stay byte-identical V_index output for harness consumers; the
+// CLI enables it at its own edge. The mode synthesizes names only for locals with
+// no usable source name and still falls back to V_index without IR evidence.
 public class ReadableLocalNamesTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

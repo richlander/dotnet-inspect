@@ -1143,7 +1143,7 @@ public class DiffCommand
         if (filter.Contains('*') || filter.Contains('?'))
             return false;
 
-        var normalizedFilter = TypeMatcher.Normalize(filter);
+        var normalizedFilter = FqnParser.NormalizeTypeName(filter);
         return typeFullName.StartsWith(normalizedFilter + ".", StringComparison.OrdinalIgnoreCase)
                || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
     }

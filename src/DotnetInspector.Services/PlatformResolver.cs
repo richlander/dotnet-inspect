@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using CSharpText;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -973,7 +974,7 @@ public static class PlatformResolver
     /// </summary>
     public static bool HasType(string assemblyPath, string typeName)
     {
-        var normalized = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
+        var normalized = FqnParser.NormalizeTypeName(typeName);
         try
         {
             using var stream = File.OpenRead(assemblyPath);

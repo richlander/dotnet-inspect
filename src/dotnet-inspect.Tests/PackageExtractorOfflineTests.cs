@@ -9,14 +9,14 @@ public sealed class PackageExtractorOfflineTests : IDisposable
 
     public PackageExtractorOfflineTests()
     {
-        Core.HttpClientFactory.Initialize(offline: true);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions { Offline = true });
         Core.HttpClientFactory.ResetSharedForTesting();
         NuGetCache.Initialize("dotnet-inspect-test", _cacheDir, skipNuGetCache: true);
     }
 
     public void Dispose()
     {
-        Core.HttpClientFactory.Initialize(offline: false);
+        Core.HttpClientFactory.Initialize(new Core.HttpClientFactoryOptions());
         Core.HttpClientFactory.ResetSharedForTesting();
         if (Directory.Exists(_cacheDir))
             Directory.Delete(_cacheDir, recursive: true);
