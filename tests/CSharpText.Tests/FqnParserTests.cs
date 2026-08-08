@@ -1,4 +1,4 @@
-namespace ILInspector.Metadata.Tests;
+namespace CSharpText.Tests;
 
 /// <summary>
 /// Tests for FqnParser covering all FQN patterns.

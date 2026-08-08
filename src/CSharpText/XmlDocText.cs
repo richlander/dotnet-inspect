@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// Shared plain-text extraction from XML documentation nodes: flattens see/seealso/paramref/
