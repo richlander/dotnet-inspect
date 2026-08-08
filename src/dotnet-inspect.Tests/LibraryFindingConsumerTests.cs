@@ -3,6 +3,7 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -44,13 +45,17 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
-    public void ExtensionScanner_RetainsFindingSemanticsAndDisplayProjection()
+    public void ExtensionMethodsQueryProjection_RetainsFindingSemanticsAndDisplayProjection()
     {
         var inspection = new LibraryInspection();
+        string path = typeof(ExtensionsCommandTests).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
 
-        inspection.Apply(LibraryMetadataService.ScanExtensionMembers(
-            typeof(ExtensionsCommandTests).Assembly.Location,
-            new VerboseLogger(enabled: false)));
+        LibraryMetadataService.ApplyExtensionMethodsResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            ExtensionMethodsQuery.Execute(session));
 
         var finding = Assert.Single(
             inspection.ExtensionMemberInspection.Findings(),
@@ -169,7 +174,12 @@ public class LibraryFindingConsumerTests
         };
 
         inspection.Apply(LibraryMetadataService.ScanClassifiedMethods(missingPath, logger));
-        inspection.Apply(LibraryMetadataService.ScanExtensionMembers(missingPath, logger));
+        LibraryMetadataService.ApplyExtensionMethodsResult(
+            missingPath,
+            inspection,
+            logger,
+            new ExtensionMethodsResult.Failed(
+                new FileNotFoundException("Extension method input was not found.", missingPath)));
         inspection.Apply(LibraryMetadataService.ScanCustomAttributes(missingPath, logger));
         inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
         LibraryMetadataService.ScanIntegrations(missingPath, inspection, logger);

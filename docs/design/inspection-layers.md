@@ -52,10 +52,11 @@ the ownership boundaries below, not the project count.
 ## Implementation status
 
 `DotnetInspector.Queries` now implements the first L1 slice. The library CLI
-executes metadata-image and direct assembly-reference queries through a typed,
-content-shaped registry over a host-owned `AssemblyInspectionSession`. The
-`References` section binds to its concrete query definition rather than a string
-scanner key, and the CLI and package convenience route lower section selection
+executes metadata-image, direct assembly-reference, and extension-method queries
+through a typed, content-shaped registry over a host-owned
+`AssemblyInspectionSession`. The `References`, `Extension Methods`, and
+`Library Info` sections bind to concrete query definitions rather than string
+scanner keys, and the CLI and package convenience route lower section selection
 into that same registry.
 
 This is an incremental boundary, not the completed split. The remaining
@@ -213,8 +214,8 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image and direct-reference inspection are the first vertical L1
-canaries:
+Metadata-image, direct-reference, and extension-method inspection are the first
+vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -224,8 +225,12 @@ canaries:
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   a flat immutable reference result. The CLI projects Findings and owns
   path-based transitive tree resolution.
-- Metadata sections and `References` bind to query definitions by object
-  identity. Diagnostic names are never lookup keys.
+- `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
+  and `Extension Methods`. The CLI adds path-based Finding provenance and
+  compatibility projections after query execution.
+- Metadata sections, `References`, `Library Info`, and `Extension Methods` bind
+  to query definitions by object identity. Diagnostic names are never lookup
+  keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
@@ -272,8 +277,9 @@ are essentially free of it. The boundary is largely drawn; the metadata canary
 establishes the L1 project and structural pattern, but the remaining facets and
 the L2 project split still need migration.
 
-The structural fix is completing L1. Outside the metadata and direct-reference
-canaries, collection is still neither typed nor demand-driven:
+The structural fix is completing L1. Outside the metadata, direct-reference,
+and extension-method canaries, collection is still neither typed nor
+demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
