@@ -138,8 +138,8 @@ public static class SourceLinkDocumentsQuery
                 context.PackageName,
                 context.PackageVersion,
                 context.IsPlatformAssembly,
-                context.Log).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
+                context.Log,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (!context.Source.HasPdb)
             {

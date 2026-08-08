@@ -750,7 +750,7 @@ public class PackageCommand
                 if (options.Jsonl && TryGetSingleFileSection(options, out var fileSection) && !hasProjection)
                 {
                     WritePackageFilesJsonl(result, fileSection);
-                    return 0;
+                    return PackageIntegrityExitCode(result);
                 }
 
                 // Multi-section check: narrow to main section or error if user explicitly selected multiple sections

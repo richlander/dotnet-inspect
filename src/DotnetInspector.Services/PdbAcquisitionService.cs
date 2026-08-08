@@ -15,7 +15,8 @@ public static class PdbAcquisitionService
         string? packageVersion,
         bool isPlatformAssembly,
         Action<string>? log,
-        bool cacheOnly = false)
+        bool cacheOnly = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -41,7 +42,8 @@ public static class PdbAcquisitionService
             packageVersion,
             log,
             isPlatformAssembly,
-            cacheOnly).ConfigureAwait(false);
+            cacheOnly,
+            cancellationToken).ConfigureAwait(false);
 
         if (result.PdbFilePath != null)
             context.LoadPdbFromFile(result.PdbFilePath, "Symbol Package", result.SymbolServer);
@@ -54,7 +56,8 @@ public static class PdbAcquisitionService
         ResolvedAssemblyReference assembly,
         HttpClient httpClient,
         Action<string>? log,
-        bool cacheOnly = false)
+        bool cacheOnly = false,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         string? packageName = null;
@@ -79,6 +82,7 @@ public static class PdbAcquisitionService
             packageVersion,
             isPlatformAssembly,
             log,
-            cacheOnly);
+            cacheOnly,
+            cancellationToken);
     }
 }
