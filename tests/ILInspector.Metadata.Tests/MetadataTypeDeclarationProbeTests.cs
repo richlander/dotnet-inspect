@@ -126,6 +126,36 @@ public class MetadataTypeDeclarationProbeTests
             MetadataTypeDeclarationProbe.Probe(image.Reader, Name("N", "Type")));
 
         Assert.Equal(MetadataTokens.GetToken(expected), defined.Definition.Value);
+        Assert.False(defined.IsInterface);
+        Assert.False(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_MaterializesDefinitionKindAndCoreLibraryRoot()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "System",
+                "Object");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                "N",
+                "Contract");
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Contract")));
+
+        Assert.True(defined.IsInterface);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
     }
 
     [Fact]

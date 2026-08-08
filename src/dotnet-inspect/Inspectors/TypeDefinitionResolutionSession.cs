@@ -72,5 +72,40 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
         return context.Resolve(request);
     }
 
+    public ApiSurface? ExtractApiSurface(
+        bool includeAll = false,
+        bool typesOnly = false)
+    {
+        try
+        {
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(_root);
+            if (!session.HasMetadata)
+                return null;
+
+            ApiSurface surface = session.ApiSurface(
+                _root,
+                _catalog,
+                _policy,
+                includeAll,
+                typesOnly);
+            if (_root.Path is { } path)
+            {
+                foreach (ApiType type in surface.Types)
+                    type.SourceAssemblyPath = path;
+            }
+
+            return surface;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     public void Dispose() => _catalog.Dispose();
 }

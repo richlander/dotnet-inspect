@@ -78,9 +78,14 @@ public abstract class TypeDeclarationCandidate
 
     public sealed class Definition : TypeDeclarationCandidate
     {
-        internal Definition(TypeDefinitionToken token) => Token = token;
+        internal Definition(TypeDefinitionToken token, bool isInterface)
+        {
+            Token = token;
+            IsInterface = isInterface;
+        }
 
         public TypeDefinitionToken Token { get; }
+        public bool IsInterface { get; }
     }
 
     public sealed class Forwarder : TypeDeclarationCandidate
@@ -121,9 +126,20 @@ public abstract class TypeDeclarationResult
 
     public sealed class Defined : TypeDeclarationResult
     {
-        internal Defined(TypeDefinitionToken definition) => Definition = definition;
+        internal Defined(
+            TypeDefinitionToken definition,
+            bool isInterface,
+            bool declaringAssemblyDefinesCoreLibraryRoot)
+        {
+            Definition = definition;
+            IsInterface = isInterface;
+            DeclaringAssemblyDefinesCoreLibraryRoot =
+                declaringAssemblyDefinesCoreLibraryRoot;
+        }
 
         public TypeDefinitionToken Definition { get; }
+        public bool IsInterface { get; }
+        public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
     }
 
     public sealed class Forwarded : TypeDeclarationResult

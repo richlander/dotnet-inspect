@@ -800,18 +800,25 @@ public sealed class ResolvedTypeDefinition
         ResolvedTypeDefinitionKey key,
         MetadataTypeDefinitionAddress address,
         ResolvedAssemblyCandidate assembly,
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        bool isInterface,
+        bool declaringAssemblyDefinesCoreLibraryRoot)
     {
         Key = key;
         Address = address;
         Assembly = assembly;
         Type = type;
+        IsInterface = isInterface;
+        DeclaringAssemblyDefinesCoreLibraryRoot =
+            declaringAssemblyDefinesCoreLibraryRoot;
     }
 
     public ResolvedTypeDefinitionKey Key { get; }
     public MetadataTypeDefinitionAddress Address { get; }
     public ResolvedAssemblyCandidate Assembly { get; }
     public MetadataTypeDefinitionName Type { get; }
+    public bool IsInterface { get; }
+    public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
 }
 
 /// <summary>

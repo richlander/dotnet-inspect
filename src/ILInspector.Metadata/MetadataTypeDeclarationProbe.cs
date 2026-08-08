@@ -16,9 +16,28 @@ public static class MetadataTypeDeclarationProbe
         var candidates = new List<PendingCandidate>();
         var forwarders =
             new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
+        bool declaresCoreLibraryRoot = false;
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
+            TypeDefinition definition;
+            try
+            {
+                definition = reader.GetTypeDefinition(handle);
+                declaresCoreLibraryRoot |= IsCoreLibraryRoot(
+                    reader,
+                    definition);
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                return new TypeDeclarationResult.Rejected(
+                    MetadataTypeNameFailure.Malformed(
+                        handle,
+                        ex.Message));
+            }
+
             MetadataTypeDefinitionNameMatch match =
                 MetadataTypeDefinitionNameReader.Matches(
                     reader,
@@ -32,7 +51,10 @@ public static class MetadataTypeDeclarationProbe
                 candidates.Add(
                     new PendingValue(
                         new TypeDeclarationCandidate.Definition(
-                            TypeDefinitionToken.FromHandle(reader, handle))));
+                            TypeDefinitionToken.FromHandle(reader, handle),
+                            (definition.Attributes
+                                & System.Reflection.TypeAttributes.Interface)
+                                != 0)));
             }
         }
 
@@ -62,8 +84,21 @@ public static class MetadataTypeDeclarationProbe
             AddCandidate(candidates, forwarders, candidate!);
         }
 
-        return Complete(candidates);
+        return Complete(candidates, declaresCoreLibraryRoot);
     }
+
+    static bool IsCoreLibraryRoot(
+        MetadataReader reader,
+        TypeDefinition definition) =>
+        definition.BaseType.IsNil
+        && (definition.Attributes
+            & System.Reflection.TypeAttributes.Interface) == 0
+        && reader.StringComparer.Equals(
+            definition.Namespace,
+            "System")
+        && reader.StringComparer.Equals(
+            definition.Name,
+            "Object");
 
     static bool TryReadExportedCandidate(
         MetadataReader reader,
@@ -189,7 +224,8 @@ public static class MetadataTypeDeclarationProbe
     }
 
     static TypeDeclarationResult Complete(
-        List<PendingCandidate> pending)
+        List<PendingCandidate> pending,
+        bool declaringAssemblyDefinesCoreLibraryRoot)
     {
         if (pending.Count == 0)
             return new TypeDeclarationResult.Missing();
@@ -205,7 +241,10 @@ public static class MetadataTypeDeclarationProbe
         return candidates[0] switch
         {
             TypeDeclarationCandidate.Definition definition =>
-                new TypeDeclarationResult.Defined(definition.Token),
+                new TypeDeclarationResult.Defined(
+                    definition.Token,
+                    definition.IsInterface,
+                    declaringAssemblyDefinesCoreLibraryRoot),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
                     forwarder.Declarations,

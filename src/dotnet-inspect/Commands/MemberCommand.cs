@@ -65,7 +65,7 @@ public static class MemberCommand
         {
             var loaded = ApiServices.LoadFullApi(
                 searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                apiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
+                apiSource, source.ApiVersion, selectedTfm, logger, options);
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");

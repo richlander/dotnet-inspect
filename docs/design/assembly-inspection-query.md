@@ -287,6 +287,19 @@ consumer, such as `diff`, needs package-level API comparison. The CLI still owns
 parsing, compatibility filtering, ranking, and rendering; it does not select package TFMs, merge
 assembly surfaces, or manage extraction directories.
 
+**Cross-assembly constraint bridge.** The `type` and `member` declaration paths use the
+Metadata-owned type-resolution catalog when API extraction encounters a named generic
+constraint outside the selected image. Extraction records requests only for surfaced
+generic-parameter groups, freezes one resolution generation, and then materializes the
+reference/value/neither classification onto the API model while the source reader remains
+alive. Unavailable and ambiguous bindings remain unclassified. Catalog keys and definition
+handles do not escape with the `ApiSurface`.
+
+This is a transitional host for a context-group-scoped query, not a second workspace model.
+The workspace must eventually lend its retained image generation to the Metadata catalog
+before it owns this path; constructing an independent catalog over the same path would create
+separate image lifetimes and budgets.
+
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,

@@ -1445,6 +1445,38 @@ public partial class CommandExecutionTests
         Assert.Contains(".ctor", output);
     }
 
+    [Fact]
+    public async Task TypeCommand_RestatesCrossAssemblyConstraintKinds()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(CrossAssemblyConstraintRestatementFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "ClassConstraint<T>(T? value) where T : class",
+            output);
+        Assert.Contains(
+            "DelegateConstraint<T>(T? value) where T : class",
+            output);
+        Assert.Contains(
+            "InterfaceConstraint<T>(T? value) where T : default",
+            output);
+        Assert.Contains(
+            "EnumConstraint<T>(T? value) where T : default",
+            output);
+        Assert.Contains(
+            "TransitiveConstraint<T, U>(T? value) where T : class where U : class",
+            output);
+    }
+
     [Theory]
     [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget")]
     [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget")]

@@ -82,7 +82,7 @@ public static class TypeCommand
                 // No type specified - list all types
                 var loaded = ApiServices.LoadFullApi(
                     searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                    apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -149,7 +149,7 @@ public static class TypeCommand
             {
                 var loaded = ApiServices.LoadFullApi(
                     searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                    apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");

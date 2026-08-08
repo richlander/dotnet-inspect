@@ -837,6 +837,141 @@ public class ApiOutputFormatterTests
         Assert.Contains(signature, typeSource, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyConstraintRestatementFixture.ClassConstraint),
+        TypeParameterTypeKind.ReferenceType)]
+    [InlineData(
+        nameof(CrossAssemblyConstraintRestatementFixture.InterfaceConstraint),
+        TypeParameterTypeKind.NeitherReferenceNorValue)]
+    public void ConstraintRestatement_ResolvesCrossAssemblyNamedConstraint(
+        string memberName,
+        TypeParameterTypeKind expected)
+    {
+        string path =
+            typeof(CrossAssemblyConstraintRestatementFixture)
+                .Assembly.Location;
+        using (var pe = new PEReader(File.OpenRead(path)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinition type = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name)
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture));
+            MethodDefinition method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == memberName);
+            GenericParameter parameter = reader.GetGenericParameter(
+                Assert.Single(method.GetGenericParameters()));
+            GenericParameterConstraint constraint =
+                reader.GetGenericParameterConstraint(
+                    Assert.Single(parameter.GetConstraints()));
+
+            Assert.Equal(
+                HandleKind.TypeReference,
+                constraint.Type.Kind);
+
+            ApiSurface unresolved = ApiSurfaceExtractor.Extract(pe);
+            ApiMember unresolvedMember = Assert.Single(
+                Assert.Single(
+                    unresolved.Types,
+                    candidate =>
+                        candidate.Name
+                            == nameof(
+                                CrossAssemblyConstraintRestatementFixture))
+                    .Members,
+                candidate => candidate.Name == memberName);
+            Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(
+                    unresolvedMember.SignatureModel!.TypeParameters)
+                    .TypeKind);
+        }
+
+        using var resolution =
+            new TypeDefinitionResolutionSession(
+                path,
+                isPlatformAssembly: false);
+        ApiSurface surface = Assert.IsType<ApiSurface>(
+            resolution.ExtractApiSurface());
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture))
+                .Members,
+            candidate => candidate.Name == memberName);
+
+        Assert.Equal(
+            expected,
+            Assert.Single(member.SignatureModel!.TypeParameters).TypeKind);
+    }
+
+    [Fact]
+    public void ConstraintRestatement_UnavailableOrAmbiguousBindingStaysUndetermined()
+    {
+        string path =
+            typeof(CrossAssemblyConstraintRestatementFixture)
+                .Assembly.Location;
+        string dependencyPath =
+            typeof(DotnetInspector.Fixtures.ExternalConstraintClass)
+                .Assembly.Location;
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ConstraintRestatement_UnavailableOrAmbiguousBindingStaysUndetermined)));
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                dependencyPath,
+                AssemblyResolutionProvenance.Local("first"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                dependencyPath,
+                AssemblyResolutionProvenance.Local("second"));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            ClassConstraintKind(new MissingBindingPolicy()));
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            ClassConstraintKind(
+                new AmbiguousBindingPolicy(first, second)));
+
+        TypeParameterTypeKind ClassConstraintKind(
+            IAssemblyBindingPolicy policy)
+        {
+            using var pe = new PEReader(File.OpenRead(path));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                policy);
+            ApiMember member = Assert.Single(
+                Assert.Single(
+                    surface.Types,
+                    candidate =>
+                        candidate.Name
+                            == nameof(
+                                CrossAssemblyConstraintRestatementFixture))
+                    .Members,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture
+                                .ClassConstraint));
+            return Assert.Single(
+                member.SignatureModel!.TypeParameters).TypeKind;
+        }
+    }
+
     /// <summary>
     /// The three core types that prove nothing about a type parameter are recognized by
     /// typed identity, never by display name. An assembly may declare its own
@@ -855,7 +990,8 @@ public class ApiOutputFormatterTests
     [Fact]
     public void ConstraintRestatement_RejectsACoreLibraryLookalike()
     {
-        string dllPath = EmitCoreLibraryLookalikeSample();
+        var (dllPath, fakeCorePath) =
+            EmitCoreLibraryLookalikeSample();
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
@@ -871,10 +1007,41 @@ public class ApiOutputFormatterTests
                 constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
 
             Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind);
+
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dllPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_RejectsACoreLibraryLookalike)));
+            ResolvedAssemblyReference fakeCore =
+                ResolvedAssemblyReference.CreateFromPath(
+                    fakeCorePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_RejectsACoreLibraryLookalike)));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface resolved = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new ExactBindingPolicy(fakeCore));
+            ApiMember resolvedMember = Assert.Single(
+                Assert.Single(
+                    resolved.Types,
+                    candidate => candidate.Name == "LookalikeSample")
+                    .Members,
+                candidate => candidate.Name == "Pick");
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(
+                    resolvedMember.SignatureModel!.TypeParameters)
+                    .TypeKind);
         }
         finally
         {
             File.Delete(dllPath);
+            File.Delete(fakeCorePath);
         }
     }
 
@@ -1401,7 +1568,8 @@ public class ApiOutputFormatterTests
     /// library's, and one whose generic virtual method is constrained to it. Returns the
     /// path of the second.
     /// </summary>
-    static string EmitCoreLibraryLookalikeSample()
+    static (string ConsumerPath, string FakeCorePath)
+        EmitCoreLibraryLookalikeSample()
     {
         var fakeCore = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName($"FakeCoreLib{Guid.NewGuid():N}"), typeof(object).Assembly);
@@ -1437,7 +1605,7 @@ public class ApiOutputFormatterTests
 
         string path = Path.Combine(Path.GetTempPath(), $"lookalike-{Guid.NewGuid():N}.dll");
         ab.Save(path);
-        return path;
+        return (path, fakePath);
     }
 
     /// <summary>
@@ -1836,6 +2004,46 @@ public class ApiOutputFormatterTests
             // ilasm not found on PATH.
             return false;
         }
+    }
+
+    sealed class ExactBindingPolicy(
+        ResolvedAssemblyReference assembly)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == assembly.Identity
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class MissingBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class AmbiguousBindingPolicy(
+        ResolvedAssemblyReference first,
+        ResolvedAssemblyReference second)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == first.Identity
+                ? AssemblyBindingSelection.Multiple([first, second])
+                : AssemblyBindingSelection.NotFound();
     }
 }
 

@@ -29,19 +29,30 @@ internal static class ApiServices
         string? apiVersion,
         string? selectedTfm,
         VerboseLogger logger,
-        bool includeAll)
+        ApiOptions options)
     {
-        var (api, apiDllPath) = ExtractFullApi(searchPath, logger, includeAll);
-        if (api == null || apiDllPath == null)
+        string? apiDllPath = FindApiDll(searchPath, logger);
+        if (apiDllPath is null)
+            return null;
+
+        using var resolution = new TypeDefinitionResolutionSession(
+            apiDllPath,
+            isPlatformAssembly: runtimeAssemblyPath is not null,
+            options.ProjectAssetsPath,
+            options.Tfm ?? selectedTfm,
+            options.PlatformFramework);
+        ApiSurface? api =
+            resolution.ExtractApiSurface(options.IncludeAll);
+        if (api is null)
             return null;
 
         ResolveForwardedTypes(
             api,
             apiDllPath,
             logger,
-            includeAll,
+            options.IncludeAll,
             isPlatformAssembly: runtimeAssemblyPath is not null,
-            targetFramework: selectedTfm);
+            resolution: resolution);
 
         if (!string.IsNullOrEmpty(packagePath))
         {
@@ -99,7 +110,9 @@ internal static class ApiServices
 
     // ===== Full API Extraction =====
 
-    internal static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
+    static string? FindApiDll(
+        string searchPath,
+        VerboseLogger logger)
     {
         string? dllFile;
         if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -139,18 +152,14 @@ internal static class ApiServices
         }
         else
         {
-            return (null, null);
+            return null;
         }
 
         if (dllFile == null)
-        {
-            return (null, null);
-        }
+            return null;
 
         logger.Log($"Extracting API from: {Path.GetFileName(dllFile)}");
-
-        var api = AssemblyReader.ExtractApiSurface(dllFile, includeAll);
-        return (api, api != null ? dllFile : null);
+        return dllFile;
     }
 
     // ===== Type Forwarder Resolution =====
@@ -177,6 +186,23 @@ internal static class ApiServices
             options?.ProjectAssetsPath,
             options?.Tfm ?? targetFramework,
             options?.PlatformFramework);
+        ResolveForwardedTypes(
+            api,
+            dllPath,
+            logger,
+            includeAll,
+            isPlatformAssembly,
+            resolution);
+    }
+
+    static void ResolveForwardedTypes(
+        ApiSurface api,
+        string dllPath,
+        VerboseLogger logger,
+        bool includeAll,
+        bool isPlatformAssembly,
+        TypeDefinitionResolutionSession resolution)
+    {
         Dictionary<
             AssemblyAcquisitionRegistration,
             (ResolvedAssemblyReference Assembly,

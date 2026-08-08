@@ -1541,7 +1541,9 @@ public sealed class TypeResolutionContext : IDisposable
                                 key,
                                 address,
                                 current,
-                                request.Type),
+                                request.Type,
+                                defined.IsInterface,
+                                defined.DeclaringAssemblyDefinesCoreLibraryRoot),
                             hops.ToImmutable());
 
                     case TypeDeclarationResult.Missing:
@@ -1939,7 +1941,9 @@ public sealed class TypeResolutionContext : IDisposable
                     key,
                     definition.Address,
                     definition.Assembly,
-                    definition.Type),
+                    definition.Type,
+                    definition.IsInterface,
+                    definition.DeclaringAssemblyDefinesCoreLibraryRoot),
                 resolved.Hops);
         }
 
