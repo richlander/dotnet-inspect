@@ -1238,10 +1238,23 @@ public class ReturnToSenderPrototypeTests
     public void CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod()
     {
         var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
-        var facadePath = CompileFixture(
-            "namespace RtsForward { public interface IProbe { void Target(); } }",
+        var baseFacadePath = CompileFixture(
+            "namespace RtsForwardBase { public interface IBase { } }",
             directory: fixtureDir,
-            assemblyName: "RtsForwardFacade");
+            assemblyName: "RtsForwardBaseFacade");
+        var facadePath = CompileFixture(
+            """
+            namespace RtsForward
+            {
+                public interface IProbe : RtsForwardBase.IBase
+                {
+                    void Target();
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(baseFacadePath)]);
         var assemblyPath = CompileFixture(
             """
             public sealed class ForwardedImpl : RtsForward.IProbe
@@ -1251,11 +1264,36 @@ public class ReturnToSenderPrototypeTests
             """,
             directory: fixtureDir,
             assemblyName: "fixture",
-            additionalReferences: [MetadataReference.CreateFromFile(facadePath)]);
+            additionalReferences:
+            [
+                MetadataReference.CreateFromFile(facadePath),
+                MetadataReference.CreateFromFile(baseFacadePath),
+            ]);
         var targetPath = CompileFixture(
-            "namespace RtsForward { public interface IProbe { void Target(); } }",
+            """
+            namespace RtsForward
+            {
+                public interface IProbe : RtsForwardBase.IBase
+                {
+                    void Target();
+                }
+            }
+            """,
             directory: fixtureDir,
-            assemblyName: "RtsForwardTarget");
+            assemblyName: "RtsForwardTarget",
+            additionalReferences: [MetadataReference.CreateFromFile(baseFacadePath)]);
+        var baseTargetPath = CompileFixture(
+            "namespace RtsForwardBase { public interface IBase { } }",
+            directory: fixtureDir,
+            assemblyName: "RtsForwardBaseTarget");
+        CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(RtsForwardBase.IBase))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsForwardBaseFacade",
+            additionalReferences: [MetadataReference.CreateFromFile(baseTargetPath)]);
         CompileFixture(
             """
             using System.Runtime.CompilerServices;
