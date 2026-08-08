@@ -1574,16 +1574,14 @@ public class ApiOutputFormatterTests
         var fakeCore = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName($"FakeCoreLib{Guid.NewGuid():N}"), typeof(object).Assembly);
         var fakeModule = fakeCore.DefineDynamicModule("FakeCoreLib");
-        fakeModule.DefineType(
+        Type impostor = fakeModule.DefineType(
             "System.Enum",
             System.Reflection.TypeAttributes.Public
                 | System.Reflection.TypeAttributes.Abstract
                 | System.Reflection.TypeAttributes.Class)
-            .CreateType();
+            .CreateType()!;
         string fakePath = Path.Combine(Path.GetTempPath(), $"fake-corelib-{Guid.NewGuid():N}.dll");
         fakeCore.Save(fakePath);
-
-        var impostor = System.Reflection.Assembly.LoadFrom(fakePath).GetType("System.Enum")!;
 
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName("LookalikeEmit"), typeof(object).Assembly);
