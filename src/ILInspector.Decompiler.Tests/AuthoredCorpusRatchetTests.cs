@@ -2042,6 +2042,30 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal(["2026-07-20"], unconfirmable);
     }
 
+    [Fact]
+    public void PreV3Row_CannotInventFrontierAttribution()
+    {
+        var row = Row(methodology: 2, frontierIlDiff: 1);
+        var forged = row with
+        {
+            ValidDifferent = row.ValidDifferent! with
+            {
+                FrontierIlDiffAttribution = new HistoryRunFrontierIlDiffAttribution(
+                    Total: 1,
+                    ProductBodyDefect: 1,
+                    HarnessShellReconstruction: 0,
+                    CompileBackFloor: 0,
+                    Unclassified: 0),
+            },
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(forged));
+        Assert.Contains(
+            "frontierIlDiffAttribution was not produced before methodology v3",
+            AuthoredCorpusRatchet.RefuseFrontierAttributionBeforeMethodologyV3([forged]),
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Non-vacuity for the gate above: the tracked store, with the newest row replaced
     /// by the regressed one, must fail. Without this, a comparability key that stopped

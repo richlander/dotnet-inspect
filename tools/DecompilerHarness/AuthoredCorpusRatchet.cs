@@ -283,6 +283,22 @@ static class AuthoredCorpusRatchet
         return null;
     }
 
+    internal static string? RefuseFrontierAttributionBeforeMethodologyV3(IReadOnlyList<HistoryRun> runs)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+
+        foreach (var run in runs)
+        {
+            if (run.Methodology < 3
+                && run.ValidDifferent?.FrontierIlDiffAttribution is not null)
+            {
+                return $"{run.Date ?? "(undated)"}: frontierIlDiffAttribution was not produced before methodology v3";
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Whether a row's buckets actually account for every evaluated target, at every
     /// level, with counts that could describe a real run.
@@ -325,6 +341,8 @@ static class AuthoredCorpusRatchet
             return false;
 
         var frontierAttribution = validDifferent.FrontierIlDiffAttribution;
+        if (run.Methodology < 3 && frontierAttribution is not null)
+            return false;
         if (run.Methodology >= 3 && frontierAttribution is null)
             return false;
 

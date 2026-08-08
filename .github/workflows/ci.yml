@@ -118,8 +118,13 @@ jobs:
 
           methodology_at() {
             local commit=$1
+            local benchmark_content
             local content
             local value
+
+            if ! benchmark_content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusBenchmark.cs" 2>/dev/null); then
+              return 1
+            fi
 
             if content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusMethodology.cs" 2>/dev/null); then
               value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int Version = ([0-9]+);$/\1/p' | head -1)
@@ -136,17 +141,13 @@ jobs:
               fi
             fi
 
-            if content=$(git show "$commit:tools/DecompilerHarness/AuthoredCorpusBenchmark.cs" 2>/dev/null); then
-              value=$(printf '%s\n' "$content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
-              if [ -n "$value" ]; then
-                printf '%s\n' "$value"
-                return
-              fi
-              printf '1\n'
+            value=$(printf '%s\n' "$benchmark_content" | sed -nE 's/^[[:space:]]*internal const int MethodologyVersion = ([0-9]+);$/\1/p' | head -1)
+            if [ -n "$value" ]; then
+              printf '%s\n' "$value"
               return
             fi
 
-            return 1
+            printf '1\n'
           }
 
           pre_benchmark_commits=$(git rev-list --max-parents=0 HEAD)
@@ -156,6 +157,18 @@ jobs:
               exit 1
             fi
           done <<< "$pre_benchmark_commits"
+
+          benchmarkless_index=$(mktemp)
+          rm "$benchmarkless_index"
+          GIT_INDEX_FILE="$benchmarkless_index" git read-tree HEAD
+          GIT_INDEX_FILE="$benchmarkless_index" \
+            git rm --cached --quiet -- tools/DecompilerHarness/AuthoredCorpusBenchmark.cs
+          benchmarkless_tree=$(GIT_INDEX_FILE="$benchmarkless_index" git write-tree)
+          rm "$benchmarkless_index"
+          if methodology_at "$benchmarkless_tree" > /dev/null 2>&1; then
+            echo "::error file=$history::Methodology lookup accepted a tree with no authored-corpus benchmark."
+            exit 1
+          fi
 
           provenance_rows=$(
             jq -r \

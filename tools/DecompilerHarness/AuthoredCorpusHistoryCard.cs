@@ -73,6 +73,8 @@ static class AuthoredCorpusHistoryCard
             throw new JsonException($"History row records an identity no run could produce: {malformed}");
         if (AuthoredCorpusRatchet.RefuseUnknownMethodologies(runs) is { } unknown)
             throw new JsonException($"History row records an unknown methodology: {unknown}");
+        if (AuthoredCorpusRatchet.RefuseFrontierAttributionBeforeMethodologyV3(runs) is { } premature)
+            throw new JsonException($"History row records a metric its methodology did not produce: {premature}");
 
         return runs;
     }

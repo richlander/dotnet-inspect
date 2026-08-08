@@ -185,6 +185,18 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void ParseHistory_RejectsFrontierAttributionBeforeMethodologyV3()
+    {
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                """{"date":"2026-08-02","validPct":57.1,"correct":1620,"validDifferent":{"total":5160,"frontierIlExact":5159,"frontierIlDiff":1,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0,"frontierIlDiffAttribution":{"total":1,"productBodyDefect":1,"harnessShellReconstruction":0,"compileBackFloor":0,"unclassified":0}},"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"methodologyVersion":2}""",
+            ]));
+
+        Assert.Contains("frontierIlDiffAttribution was not produced before methodology v3", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Render_RunsTableReportsMethodologyVersionColumn()
     {
         string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 0);

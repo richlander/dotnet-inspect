@@ -27,8 +27,9 @@ Each row contains these fields:
   - `knownTaste`: a documented product decision, already accounted for.
   - `frontierIlExact`: cosmetic frontier rows with IL-exact output.
   - `frontierIlDiff`: semantic frontier rows with IL-different output.
-  - `frontierIlDiffAttribution`: present from methodology v3 onward. Its
-    sub-buckets sum exactly to `frontierIlDiff`:
+  - `frontierIlDiffAttribution`: present exactly from methodology v3 onward;
+    earlier methodologies did not produce it and rows that claim it are
+    refused. Its sub-buckets sum exactly to `frontierIlDiff`:
     - `total`: the `frontierIlDiff` population being partitioned.
     - `productBodyDefect`: unaided RTS rows whose decompiled body differs but
       whose exact authored body reproduces the original IL in the same RTS
