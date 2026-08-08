@@ -40,10 +40,10 @@ public partial record ApiOptions : IProjectionOptions
     /// <summary>
     /// Decompiler spelling options resolved from the tool-owned
     /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
-    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
-    /// shipped defaults; the render path treats null and
-    /// <see cref="PrinterOptions.Default"/> identically, keeping output
-    /// byte-for-byte unchanged when no config is present.
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). The CLI edge
+    /// supplies registry-derived product defaults even when no config file is
+    /// present. Null is reserved for low-level callers and selects the stable
+    /// <see cref="PrinterOptions.Default"/> rendering.
     /// </summary>
     public PrinterOptions? RenderOptions { get; init; }
 
@@ -78,9 +78,10 @@ public partial record ApiOptions : IProjectionOptions
     public bool RequestAllTaste { get; init; }
 
     /// <summary>
-    /// The <c>--readable-names</c> gesture: for this run, synthesize a readable
-    /// identifier (from a local's type and role) for any local that has no usable
-    /// PDB source name, instead of the <c>V_index</c> fallback (see
+    /// The <c>--readable-names</c> gesture: for this run, retain the CLI's default
+    /// readable local-name synthesis even when configuration disables it. A
+    /// readable identifier is derived from a local's type and role when no usable
+    /// PDB source name exists, instead of the <c>V_index</c> fallback (see
     /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
     /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
     /// do not affect IL, so it is not a byte-divergent lens and leaves the

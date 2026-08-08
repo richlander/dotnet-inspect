@@ -629,7 +629,18 @@ show the shape beneath that sugar.
 
 ## Names
 
-Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`text`, `items`, `stringBuilder`) where no PDB source name exists is the largest remaining cosmetic gap against source, so it is exposed as an **opt-in** knob rather than a default: turning it on for every render would break the slot-name alignment the Annotated IL view relies on and churn the corpus. It rests only on evidence already in the IR (a local's type, and whether it is a loop counter) and falls back to `V_index` when no honest name applies (see `docs/design/readable-local-names.md`). Select it per run with `--readable-names` on `member`/`type`, or persistently with `dotnet_inspect_style_readable_local_names = true`. It is byte-preserving (names do not affect IL), so it is not part of the oracle-endorsed [taste](#style-configuration) aggregate and carries its own tool-owned key.
+Without a PDB, user-facing C# body views synthesize readable local names
+(`text`, `items`, `stringBuilder`) from evidence already in the IR (a local's
+type and whether it is a loop counter), falling back to `V_index` when no honest
+name applies. The decompiler library, fidelity/corpus gates, and `--skip-pdb`
+harness path retain slot names by default, so stable evidence does not churn.
+Set `dotnet_inspect_style_slot_local_names = true` to restore slot names in CLI
+source views; `--readable-names` overrides that configuration for one run. The
+original `dotnet_inspect_style_readable_local_names = false` spelling remains
+accepted for compatibility. The registry presents the inverse `Use IL slot
+local names` choice, off by default. The setting is byte-preserving (names do
+not affect IL), so it is not part of the oracle-endorsed
+[taste](#style-configuration) aggregate and carries its own tool-owned key.
 
 ## Style configuration
 
@@ -673,9 +684,11 @@ dotnet_style_prefer_conditional_expression_over_return = true
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)),
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key), and
+  `dotnet_inspect_style_slot_local_names` (the registry's default-off opt-out
+  that keeps `V_index` names), plus
   `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name
-  synthesis for slot locals — see [Names](#names) — under a tool-owned key). The
-  set grows as more knobs ship.
+  synthesis for slot locals — see [Names](#names) — retained as the original
+  compatibility spelling). The set grows as more knobs ship.
 - `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
   enables the whole oracle-endorsed subset at once (the four `this`-qualifications
   and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
@@ -693,18 +706,21 @@ dotnet_style_prefer_conditional_expression_over_return = true
   outside the endorsed set — the branchless lens — keep whatever the file
   selected. Because the aggregate includes the ternary lens, the Annotated view
   drops its interleaved IL for any member that lens actually rewrites.
-- The recognized keys are not hand-maintained in the resolver: they come from the
-  library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
-  the CLI vocabulary and the option surface cannot drift.
+- Registry keys come from the library-owned `StyleOptionCatalog` (see
+  [Option catalog](#option-catalog)), so the normal CLI vocabulary and option
+  surface cannot drift. The resolver has two deliberate tool-owned exceptions:
+  the `dotnet_inspect_style_full_taste` aggregate and the original
+  `dotnet_inspect_style_readable_local_names` compatibility spelling.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
 
-Config warnings are emitted at the point styled decompiled source is actually
-shown, exactly once: a decompiled-source or source-diff render reads the resolved
-`PrinterOptions` and flushes any pending warnings to stderr there. Every other run
-stays silent, and the rule is exact — the config is *consumed* precisely when its
-styling is user-visible:
+Config warnings are emitted at the point styled C# is actually shown, exactly
+once: Decompiled Source, source diff, Annotated Source, Cost Overlay, and
+Semantics Overlay read the resolved local-name policy and flush any pending
+warnings to stderr when they produce visible C#. Every other run stays silent,
+and the rule is exact — the config is *consumed* precisely when its styling is
+user-visible:
 
 - A metadata projection (`--json`, `--count`, tabular, `--value`/`--urls`) returns
   before any source render.
@@ -729,9 +745,11 @@ Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is no
 read. Configuration is resolved once at the CLI edge and threaded into the render
 as explicit `PrinterOptions`; the decompiler library itself stays a pure function
 of the assembly and the options it is handed, so the config surface never changes
-what the library computes for a given `PrinterOptions`. The knobs affect the
-primary decompiled-source view; the Annotated Source and IR-stage views stay on
-the shipped default so they remain aligned with the IL.
+what the library computes for a given `PrinterOptions`. Decompiled and Annotated
+Source consume the resolved options. Cost and Semantics overlays consume only the
+local-name axis, keeping names consistent within one document without admitting
+byte-divergent lenses or unrelated spelling knobs. IR-stage and fidelity views
+stay on `PrinterOptions.Default`.
 
 ### Option catalog
 
@@ -745,8 +763,8 @@ guarded-boolean-return knob is a single multi-value axis
 (`flat` / `conditional-expression` / `branchless`). Each `StyleOptionValue`
 carries its stable token, optional title, whether that value is `OracleEndorsed`
 (declared) and `CorpusEndorsed` (revealed),
-its `.dotnet-inspectconfig` key (`null` for the off/default value and for API-only
-formatting/synthesis knobs), and NativeAOT-safe `IsSelected`/`SetSelected`
+its `.dotnet-inspectconfig` key (`null` for values without a persistent CLI
+spelling), and NativeAOT-safe `IsSelected`/`SetSelected`
 delegates that read and drive that value's backing state without reflection. The
 descriptor reads and single-selects the whole axis through
 `GetValue`/`WithValue`.

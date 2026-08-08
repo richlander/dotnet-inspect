@@ -123,6 +123,16 @@ public static class AssemblyInspector
         return info;
     }
 
+    /// <summary>Extracts only the direct assembly references from an open PE image.</summary>
+    public static List<AssemblyReference> ExtractReferences(PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        if (!peReader.HasMetadata)
+            return [];
+
+        return ExtractReferences(peReader.GetMetadataReader()) ?? [];
+    }
+
     /// <summary>
     /// Creates an AssemblyInfo for a native (non-managed) binary.
     /// </summary>
@@ -220,12 +230,7 @@ public static class AssemblyInspector
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
-
-        if (!peReader.HasMetadata)
-            return [];
-
-        var metadataReader = peReader.GetMetadataReader();
-        return ExtractReferences(metadataReader) ?? [];
+        return ExtractReferences(peReader);
     }
 
     /// <summary>
