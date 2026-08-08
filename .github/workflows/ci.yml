@@ -142,10 +142,20 @@ jobs:
                 printf '%s\n' "$value"
                 return
               fi
+              printf '1\n'
+              return
             fi
 
-            printf '1\n'
+            return 1
           }
+
+          pre_benchmark_commits=$(git rev-list --max-parents=0 HEAD)
+          while IFS= read -r pre_benchmark_commit; do
+            if methodology_at "$pre_benchmark_commit" > /dev/null 2>&1; then
+              echo "::error file=$history::Methodology lookup accepted pre-benchmark commit '$pre_benchmark_commit'."
+              exit 1
+            fi
+          done <<< "$pre_benchmark_commits"
 
           provenance_rows=$(
             jq -r \
