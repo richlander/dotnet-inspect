@@ -1,5 +1,3 @@
-using DotnetInspector.Queries;
-
 namespace DotnetInspector.Sections;
 
 /// <summary>
@@ -95,14 +93,4 @@ public interface ISectionDescriptor<TModel>
     /// Called without allocating a renderer instance.
     /// </summary>
     static abstract bool CanRender(TModel model);
-}
-
-/// <summary>
-/// A section whose data is supplied by one typed query in <typeparamref name="TQueryContext"/>.
-/// The context parameter makes a binding to another host/query catalog fail at compile time.
-/// </summary>
-public interface IQuerySectionDescriptor<TModel, TQueryContext> :
-    ISectionDescriptor<TModel>
-{
-    static abstract QueryDefinition<TQueryContext> Query { get; }
 }

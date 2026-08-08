@@ -14,14 +14,14 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. The library command now runs its first typed query plan:
-assembly information and presence are explicit baseline queries, and direct
-assembly references are selected through the typed `References` section
-binding. Workspace contexts and the remaining scanner families are not
-migrated. Existing foundations include shared image and inspection session
-ownership, catalog generations, `CoreCache`, typed provenance and resolution
-currencies, and `InertString`; the workspace and query-plan model describes how
-those pieces will be composed.
+govern its migration. No command runs through a workspace today. Library
+metadata and direct-reference inspection are the first typed-query canaries:
+the section catalog plans typed demand and executes it through a
+prerequisite-aware registry, while the command still owns orchestration.
+Existing foundations also include shared image and inspection session ownership,
+catalog generations, `CoreCache`, typed provenance and resolution currencies,
+and `InertString`; the workspace model describes how those pieces will be
+composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -385,10 +385,9 @@ typed sequential plan and the direct-reference section binding. String keys,
 mutable CLI models, path-shaped residual inputs, and library-command ownership
 remain migration boundaries rather than workspace contracts.
 
-The initial catalog contains only network-free metadata queries. Its CLI adapter
-therefore authorizes `QueryExecutionPolicy.NetworkFree`; host policy lowering
-for moderated, network, or source-content queries remains part of their
-migration.
+The initial registry contains only network-free metadata queries. It passes each
+query's maximum transitive cost into the host execution scope; capability
+lowering for network or source-content queries remains part of their migration.
 
 ### Executor
 

@@ -1,3 +1,0 @@
-T:System.Console;Queries do not write to a host's console.
-T:System.IO.File;Queries take host-owned content, not filesystem paths.
-T:System.IO.Path;Queries take host-owned content and caller-issued identity.

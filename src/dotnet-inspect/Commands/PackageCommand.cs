@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -2221,8 +2222,7 @@ public class PackageCommand
         var catalog = LibrarySections.CreateCatalog();
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
-        var queryCatalog = catalog.QueryCatalog;
-        var queryBindings = catalog.QueryBindings;
+        var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2240,9 +2240,15 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
-        var queries = queryBindings.GetRequiredQueries(
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (libraryOptions.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+        var queries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
-            libraryOptions.IncludeSections);
+            libraryOptions.IncludeSections,
+            commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
@@ -2258,7 +2264,7 @@ public class PackageCommand
                 scanners: scanners,
                 scannerRegistry: scannerRegistry,
                 queries: queries,
-                queryCatalog: queryCatalog);
+                queryRegistry: queryRegistry);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");

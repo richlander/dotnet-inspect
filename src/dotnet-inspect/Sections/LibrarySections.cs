@@ -7,8 +7,7 @@ namespace DotnetInspector.Sections;
 public sealed record LibrarySectionCatalog(
     SectionPipeline<LibraryInspection> Pipeline,
     ScannerRegistry ScannerRegistry,
-    QueryCatalog<AssemblyQueryContext> QueryCatalog,
-    SectionQueryBindings<LibraryInspection, AssemblyQueryContext> QueryBindings);
+    InspectionQueryRegistry<ScannerContext> QueryRegistry);
 
 /// <summary>
 /// Section descriptors for the library command.
@@ -35,7 +34,6 @@ public static class LibrarySections
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
-    public const string ScannerMetadata = "Metadata";
 
     /// <summary>
     /// Builds the library catalog from one scanner registry and one typed query catalog, so
@@ -44,30 +42,29 @@ public static class LibrarySections
     public static LibrarySectionCatalog CreateCatalog()
     {
         var scannerRegistry = CreateScannerRegistry();
-        var pipeline = CreatePipeline(scannerRegistry.CostOf);
-        var queryCatalog = AssemblyQueryCatalog.Default;
-        var queryBindings =
-            new SectionQueryBindings<LibraryInspection, AssemblyQueryContext>(
-                pipeline,
-                queryCatalog)
-            .Bind<References>();
+        var queryRegistry = CreateQueryRegistry();
         return new LibrarySectionCatalog(
-            pipeline,
+            CreatePipeline(scannerRegistry.CostOf, queryRegistry.CostOf),
             scannerRegistry,
-            queryCatalog,
-            queryBindings);
+            queryRegistry);
     }
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
-        => CreatePipeline(CreateScannerRegistry().CostOf);
+    {
+        var scannerRegistry = CreateScannerRegistry();
+        var queryRegistry = CreateQueryRegistry();
+        return CreatePipeline(scannerRegistry.CostOf, queryRegistry.CostOf);
+    }
 
     private static SectionPipeline<LibraryInspection> CreatePipeline(
-        Func<string, SectionCost> scannerCost)
+        Func<string, SectionCost> scannerCost,
+        Func<InspectionQueryDefinition, InspectionCost> queryCost)
     {
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
             .UseScannerCosts(scannerCost)
+            .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>()
             .Add<InspectionFailures>()
@@ -101,7 +98,7 @@ public static class LibrarySections
             .Add<Hosting>()
             .Add<HealthChecks>()
             .Add<HttpClient>()
-            .Add<References>(HasReferenceData)
+            .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
             .Add<TopLeverage>(HasMethodBodies)
@@ -229,8 +226,47 @@ public static class LibrarySections
                     session => LibraryMetadataService.ScanIntegrationOpportunities(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
                     () => LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerIntegrations)
-            .Add(ScannerMetadata, SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+            ;
+    }
+
+    /// <summary>Builds the typed query registry used by library sections.</summary>
+    public static InspectionQueryRegistry<ScannerContext> CreateQueryRegistry()
+    {
+        return new InspectionQueryRegistry<ScannerContext>(
+            static (context, query, cost) =>
+                context.EnterQuery(query.Name, cost.ToSectionCost(query)))
+            .Add(MetadataImageQuery.Definition, ctx =>
+                ctx.Scan(
+                    MetadataImageQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return MetadataImageQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new MetadataImageResult.Failed(ex);
+                        }
+                    }))
+            .Add(AssemblyReferencesQuery.Definition, ctx =>
+                ctx.Scan(
+                    AssemblyReferencesQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return AssemblyReferencesQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new AssemblyReferencesResult.Failed(ex);
+                        }
+                    }));
     }
 
     // ===== Primary section =====
@@ -566,14 +602,11 @@ public static class LibrarySections
 
     // ===== Normal sections (offline, cheap) =====
 
-    public sealed class References :
-        IQuerySectionDescriptor<LibraryInspection, AssemblyQueryContext>
+    public sealed class References : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static QueryDefinition<AssemblyQueryContext> Query =>
-            AssemblyReferencesQuery.Definition;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyReferenceInspection.HasFindings()
