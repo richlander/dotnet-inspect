@@ -5229,9 +5229,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Properties | section |", output);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Original Source | section |", output);
-        Assert.Contains("| IL | section |", output);
+        Assert.Contains("| Decompiled Source | section (verbose) |", output);
+        Assert.Contains("| Original Source | section (verbose) |", output);
+        Assert.Contains("| IL | section (verbose) |", output);
         Assert.DoesNotContain("| Facts | section", output);
     }
 

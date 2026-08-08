@@ -132,10 +132,10 @@ public static class ApiMemberSectionDescriptors
                 HasExecutableBodyMembersOrEnum)
             .Add<OriginalSource>(HasExecutableBodyMembers, HasExecutableBodyMembers)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(
-                HasExecutableBodyMembers,
-                isViewApplicable: HasExecutableBodyMembers)
+                HasSingleExecutableBodyMember,
+                isViewApplicable: HasSingleExecutableBodyMember)
             .Add<ILBody>(HasExecutableBodyMembers, HasExecutableBodyMembers)
-            .Add<Facts>(HasExecutableBodyMembers, HasExecutableBodyMembers)
+            .Add<Facts>(HasSingleExecutableBodyMember, HasSingleExecutableBodyMember)
             .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
     }
 
@@ -565,6 +565,9 @@ public static class ApiMemberSectionDescriptors
 
     private static bool HasExecutableBodyMembers(ApiType model)
         => model.Members.Any(HasExecutableBody);
+
+    private static bool HasSingleExecutableBodyMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(HasExecutableBody);
 
     private static bool HasExecutableBodyMembersOrEnum(ApiType model)
         => model.Kind == "enum" || HasExecutableBodyMembers(model);
