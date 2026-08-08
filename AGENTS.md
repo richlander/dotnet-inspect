@@ -388,7 +388,7 @@ round:
   reverses: see [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
 - **The PR is mergeable and green** — two questions, one consolidated status
-  query. Prefer a single `gh api graphql` request that returns the PR's
+  query. Use a single `gh api graphql` request that returns the PR's
   `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
   contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
   and reset time. Request enough contexts for the normal check matrix; if
@@ -400,12 +400,12 @@ round:
   computing the merge. Do not read `mergeStateStatus` as check state: it is a
   composite, and it reports `CLEAN` for a PR with no checks at all (#3706). A
   missing `ci-required` is likewise inconclusive: the aggregate may not have
-  registered yet, or the ruleset may not cover the PR's base. Inspect the base
-  and all returned contexts; a PR targeting `main` is not green until its
-  current-head `ci-required` has passed. `skipping` is terminal and does not
-  block, but it is also not evidence: never cite a skipped job as validation,
-  and if a change should have triggered a job that skipped, the path filter is
-  the bug.
+  registered yet. Inspect all returned contexts; no PR is green until its
+  current-head `ci-required` has completed with a `SUCCESS` conclusion. A
+  subordinate check run with status `COMPLETED` and conclusion `SKIPPED` does
+  not block, but it is also not evidence: never cite a skipped job as
+  validation, and if a change should have triggered a job that skipped, the
+  path filter is the bug.
 
   Status discovery must conserve the shared GitHub API budget. After a push,
   wait at least 15 minutes before the first status query; use 20 minutes for
@@ -420,10 +420,12 @@ round:
   `headRefOid`; a run or check identifier is pinned to one commit and cannot
   detect a later push. Retain the expected head SHA locally, and reuse returned
   identifiers only for one-off detail or log queries after the aggregate has
-  confirmed that head. If the query reports low remaining quota, yield until
-  its reported reset time rather than sleeping or continuing to query. These
-  intervals are minimums, not targets: wait longer when no decision depends on
-  an immediate result.
+  confirmed that head. Separate discovery calls are prohibited; additional
+  calls are only for required context pagination or one-off details after the
+  aggregate has confirmed the head. If the query reports low remaining quota,
+  yield until its reported reset time rather than sleeping or continuing to
+  query. These intervals are minimums, not targets: wait longer when no
+  decision depends on an immediate result.
 - **Every PR in a stack meets all of the above**, not only the slice under
   review — a red or conflicted parent is a red or conflicted base for everything
   above it. A slice rebases onto its parent, never onto `main`: only the stack's
