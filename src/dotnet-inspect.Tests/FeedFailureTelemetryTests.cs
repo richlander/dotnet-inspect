@@ -236,6 +236,40 @@ public class FeedFailureTelemetryTests
     }
 
     [Fact]
+    public void ARelativeUriRemovesUserInfoAndRedactsCredentialsBeforeStorage()
+    {
+        const string Secret = "sup3rs3cret";
+        using var scope = FeedFailureTelemetry.Scope();
+        var uri = new Uri(
+            $"//user:{Secret}@private.example/F/auth/{Secret}/api?access_token={Secret}#fragment",
+            UriKind.Relative);
+
+        FeedFailureTelemetry.Record(uri, HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "//private.example/F/auth/REDACTED/api?access_token=REDACTED",
+            failure.Url.ToString());
+    }
+
+    [Fact]
+    public void AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage()
+    {
+        const string Secret = "sup3rs3cret";
+        string url =
+            $"https://user:{Secret}@[invalid.example/F/auth/{Secret}/api?access_token={Secret}#fragment";
+        Assert.False(Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out _));
+        using var scope = FeedFailureTelemetry.Scope();
+
+        FeedFailureTelemetry.Record(url, HttpStatusCode.Unauthorized);
+
+        var failure = Assert.Single(FeedFailureTelemetry.Current!.Failures);
+        Assert.Equal(
+            "https://[invalid.example/F/auth/REDACTED/api?access_token=REDACTED",
+            failure.Url.ToString());
+    }
+
+    [Fact]
     public async Task AnEffectiveUrlThatCannotBeReparsedIsStillRedactedBeforeStorage()
     {
         const string Secret = "sup3rs3cret";

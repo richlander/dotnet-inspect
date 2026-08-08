@@ -410,6 +410,43 @@ public class HttpRetryHelperTests
     }
 
     [Fact]
+    public async Task ContentReadRequestsUseTheVirtualHttpClientSendAsync()
+    {
+        using var client = new OverridingHttpClient();
+
+        using var getResponse = await HttpRetryHelper.GetWithRetryAsync(
+            client,
+            "https://private.example/get",
+            cancellationToken: TestContext.Current.CancellationToken);
+        using var headResponse = await HttpRetryHelper.HeadWithRetryAsync(
+            client,
+            "https://private.example/head",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(getResponse);
+        Assert.NotNull(headResponse);
+        Assert.Equal(2, client.SendCount);
+    }
+
+    [Fact]
+    public async Task FailedResponseDisposesADistinctFinalRequest()
+    {
+        using var handler = new DistinctFailureRequestHandler();
+        using var client = new HttpClient(handler);
+
+        var response = await HttpRetryHelper.GetWithRetryAsync(
+            client,
+            "https://private.example/v3/index.json",
+            retryCount: 0,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Null(response);
+        Assert.NotNull(handler.FinalRequest);
+        Assert.Throws<ObjectDisposedException>(() =>
+            handler.FinalRequest.RequestUri = new Uri("https://after.example/"));
+    }
+
+    [Fact]
     public async Task RedirectFailureUsesTheOriginalResolvedRequestUrl()
     {
         const string Secret = "sup3rs3cret";
@@ -531,6 +568,56 @@ public class HttpRetryHelperTests
                 Content = new StringContent("ok"),
                 RequestMessage = request,
             });
+    }
+
+    private sealed class OverridingHttpClient()
+        : HttpClient(new UnexpectedTransportHandler())
+    {
+        public int SendCount { get; private set; }
+
+        public override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            SendCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("ok"),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class UnexpectedTransportHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The virtual HttpClient override was bypassed.");
+    }
+
+    private sealed class DistinctFailureRequestHandler : HttpMessageHandler
+    {
+        public HttpRequestMessage? FinalRequest { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            FinalRequest = new HttpRequestMessage(request.Method, request.RequestUri);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                RequestMessage = FinalRequest,
+            });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                FinalRequest?.Dispose();
+
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class CaptureStatusHandler : HttpMessageHandler

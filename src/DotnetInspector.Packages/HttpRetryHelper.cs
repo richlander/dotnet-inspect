@@ -136,10 +136,10 @@ public static class HttpRetryHelper
                 try
                 {
                     request = requestFactory();
-                    Task<HttpResponseMessage> sendTask = client.SendAsync(
-                        request,
-                        completionOption,
-                        cancellationToken);
+                    Task<HttpResponseMessage> sendTask =
+                        completionOption == HttpCompletionOption.ResponseContentRead
+                            ? client.SendAsync(request, cancellationToken)
+                            : client.SendAsync(request, completionOption, cancellationToken);
                     CaptureEffectiveRequestUri(request.RequestUri);
                     var response = await sendTask.ConfigureAwait(false);
                     CaptureEffectiveRequestUri(response.RequestMessage?.RequestUri ?? request.RequestUri);
@@ -153,7 +153,10 @@ public static class HttpRetryHelper
                     }
 
                     var statusCode = response.StatusCode;
+                    HttpRequestMessage? responseRequest = response.RequestMessage;
                     response.Dispose();
+                    if (!ReferenceEquals(responseRequest, request))
+                        responseRequest?.Dispose();
 
                     // Not found is not retryable, and is the one status that genuinely means the
                     // package is absent rather than the source being unreadable, so it is not

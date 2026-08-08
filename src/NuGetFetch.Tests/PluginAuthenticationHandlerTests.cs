@@ -59,6 +59,29 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task SuccessfulReplayTransfersTheFinalRequestToTheResponse()
+    {
+        var source = new FakeCredentialSource(new PackageSourceCredential("user", "token"));
+        var transport = new ScriptedTransport(request =>
+            request.Authorization is null
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = Client(source, transport);
+
+        using var response = await client.GetAsync(
+            "https://feed.example/index.json",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, transport.Messages.Count);
+        Assert.Throws<ObjectDisposedException>(() =>
+            transport.Messages[0].RequestUri = new Uri("https://after.example/"));
+        HttpRequestMessage finalRequest = Assert.IsType<HttpRequestMessage>(response.RequestMessage);
+        Assert.Same(transport.Messages[1], finalRequest);
+        finalRequest.RequestUri = new Uri("https://after.example/");
+        Assert.Equal("after.example", finalRequest.RequestUri.Host);
+    }
+
+    [Fact]
     public async Task FirstAcquisitionIsNotARetry_AndTheNextOneIs()
     {
         // Always rejecting forces repeated acquisition, which is what exposes the IsRetry flag.
@@ -428,15 +451,19 @@ public sealed class PluginAuthenticationHandlerTests
     private sealed class ScriptedTransport(Func<HttpRequestHeaders, HttpResponseMessage> respond) : HttpMessageHandler
     {
         public List<HttpRequestHeaders> Requests { get; } = [];
+        public List<HttpRequestMessage> Messages { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             lock (Requests)
             {
                 Requests.Add(request.Headers);
+                Messages.Add(request);
             }
 
-            return Task.FromResult(respond(request.Headers));
+            HttpResponseMessage response = respond(request.Headers);
+            response.RequestMessage = request;
+            return Task.FromResult(response);
         }
     }
 }

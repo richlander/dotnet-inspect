@@ -264,7 +264,7 @@ public sealed record NetworkRequestObservation(
             return null;
 
         if (!uri.IsAbsoluteUri)
-            return new InertString(TextPolicy.Field, RedactRelativeUrl(uri.ToString()));
+            return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
 
         var builder = new UriBuilder(uri)
         {
@@ -293,8 +293,9 @@ public sealed record NetworkRequestObservation(
 
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
-    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>
-    /// and <c>HttpRetryHelperTests.FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls</c>.
+    /// Gated by <c>HttpRetryHelperTests.FailureLoggingRedactsTheEffectiveUrlWithoutReparsingIt</c>,
+    /// <c>HttpRetryHelperTests.FailureLoggingAndTelemetryRemoveFragmentsFromEffectiveUrls</c>,
+    /// and <c>FeedFailureTelemetryTests.ARelativeUriRemovesUserInfoAndRedactsCredentialsBeforeStorage</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrl(Uri uri)
     {
@@ -305,51 +306,94 @@ public sealed record NetworkRequestObservation(
     /// <summary>Returns inert display text with credential-bearing URL components redacted.</summary>
     /// <remarks>
     /// Gated by <c>HttpRetryHelperTests.FailureLogsRedactTheUrlOnEveryBranch</c> and
-    /// <c>FeedFailureTelemetryTests.ARawFailureFragmentIsRemovedBeforeStorage</c>.
+    /// <c>FeedFailureTelemetryTests.ARawFailureFragmentIsRemovedBeforeStorage</c> and
+    /// <c>FeedFailureTelemetryTests.AnUnparseableRawUrlIsConservativelyRedactedBeforeStorage</c>.
     /// </remarks>
     public static InertString RedactSensitiveUrlText(string value)
     {
         value = RemoveFragment(value);
 
         if (!Uri.TryCreate(value, UriKind.RelativeOrAbsolute, out var uri))
-            return new InertString(TextPolicy.Field, value);
+            return new InertString(TextPolicy.Field, RedactRawUrl(value));
 
         if (uri.IsAbsoluteUri)
             return RedactUrl(uri) ?? new InertString(TextPolicy.Field, value);
 
-        string relative = uri.ToString();
-        int networkPathStart = 0;
-        while (networkPathStart < relative.Length
-            && relative[networkPathStart] is ' ' or '\t' or '\r' or '\n')
-        {
-            networkPathStart++;
-        }
-
-        if (relative.Length >= networkPathStart + 2
-            && (relative[networkPathStart] == '/' || relative[networkPathStart] == '\\')
-            && relative[networkPathStart + 1] == '/')
-        {
-            relative = RedactNetworkPathUserInfo(relative, networkPathStart);
-        }
-
-        return new InertString(TextPolicy.Field, RedactRelativeUrl(relative));
+        return new InertString(TextPolicy.Field, RedactRawUrl(uri.ToString()));
     }
 
-    private static string RedactNetworkPathUserInfo(string url, int networkPathStart)
+    private static string RedactRawUrl(string value)
     {
-        int authorityStart = networkPathStart + 2;
-        int authorityEnd = url.IndexOfAny(['/', '?', '#'], authorityStart);
+        value = RemoveFragment(value);
+        int authorityStart = FindRawAuthorityStart(value);
+        if (authorityStart < 0)
+            return RedactRelativeUrl(value);
+
+        int authorityEnd = value.IndexOfAny(['/', '\\', '?', '#'], authorityStart);
         if (authorityEnd < 0)
-            authorityEnd = url.Length;
+            authorityEnd = value.Length;
 
         int authorityLength = authorityEnd - authorityStart;
         int userInfoEnd = authorityLength > 0
-            ? url.LastIndexOf('@', authorityEnd - 1, authorityLength)
+            ? value.LastIndexOf('@', authorityEnd - 1, authorityLength)
             : -1;
-        return userInfoEnd < authorityStart
-            ? url
-            : string.Concat(url.AsSpan(0, authorityStart), url.AsSpan(userInfoEnd + 1));
+        if (userInfoEnd >= authorityStart)
+        {
+            value = string.Concat(
+                value.AsSpan(0, authorityStart),
+                value.AsSpan(userInfoEnd + 1));
+        }
+
+        return RedactRelativeUrl(value);
     }
+
+    private static int FindRawAuthorityStart(string value)
+    {
+        int start = 0;
+        while (start < value.Length && value[start] is ' ' or '\t' or '\r' or '\n')
+            start++;
+
+        if (start + 1 < value.Length
+            && IsPathSeparator(value[start])
+            && IsPathSeparator(value[start + 1]))
+        {
+            return start + 2;
+        }
+
+        int colon = value.IndexOf(':', start);
+        if (colon <= start || !IsScheme(value.AsSpan(start, colon - start)))
+            return -1;
+
+        int separatorStart = colon + 1;
+        return separatorStart + 1 < value.Length
+            && IsPathSeparator(value[separatorStart])
+            && IsPathSeparator(value[separatorStart + 1])
+                ? separatorStart + 2
+                : -1;
+    }
+
+    private static bool IsScheme(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty || !IsAsciiLetter(value[0]))
+            return false;
+
+        foreach (char character in value[1..])
+        {
+            if (!IsAsciiLetter(character)
+                && !char.IsAsciiDigit(character)
+                && character is not ('+' or '-' or '.'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsAsciiLetter(char value) =>
+        value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+    private static bool IsPathSeparator(char value) => value is '/' or '\\';
 
     private static string RedactRelativeUrl(string url)
     {
