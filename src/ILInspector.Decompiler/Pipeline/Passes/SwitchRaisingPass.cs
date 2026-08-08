@@ -2036,14 +2036,22 @@ public sealed class SwitchRaisingPass : IIrPass
     static SwitchInput TakeSwitchInput(IrFunction function, SwitchBranch sw)
     {
         var value = (IrExpression)sw.DetachChildren()[0];
-        if (!TryRestoreEnumSwitchInput(function, value, out var enumValue, out int labelBase))
+        if (!TryRestoreEnumSwitchInput(
+                function,
+                value,
+                sw.TargetOffsets.Length,
+                out var enumValue,
+                out int labelBase))
+        {
             return new SwitchInput(value, 0);
+        }
         return new SwitchInput(enumValue, labelBase);
     }
 
     static bool TryRestoreEnumSwitchInput(
         IrFunction function,
         IrExpression value,
+        int labelCount,
         out IrExpression enumValue,
         out int labelBase)
     {
@@ -2063,9 +2071,19 @@ public sealed class SwitchRaisingPass : IIrPass
             return false;
         }
 
-        labelBase = binary.Kind == BinaryKind.Subtract
+        int restoredLabelBase = binary.Kind == BinaryKind.Subtract
             ? offset
             : unchecked(-offset);
+        if (function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is { } labelType
+            && TypeFamilies.Of(labelType) == StackFamily.I4
+            && labelType.Name is not ("Int32" or "UInt32")
+            && Enumerable.Range(0, labelCount)
+                .Select(index => unchecked(restoredLabelBase + index))
+                .Any(label => !CSharpConversionRules.ConstantFits(label, labelType)))
+        {
+            return false;
+        }
+        labelBase = restoredLabelBase;
         enumValue = (IrExpression)left.Clone();
         return true;
     }

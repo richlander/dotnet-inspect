@@ -307,6 +307,44 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    public void NarrowEnumWithRepresentableTranslatedLabels_RestoresEnumSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<LoadArgument>(node.Value);
+        Assert.Equal([252, 253, 254, 255], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void NarrowEnumWithOutOfRangeTranslatedLabels_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 300);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
     public void SharedDefaultCaseExitingToContinuation_RaisesWithBreak()
     {
         var function = BuildSharedGuardSwitch(defaultExitsToContinuation: true);
@@ -712,6 +750,7 @@ public class SwitchRaisingSharedGuardTests
     static IrFunction BuildSharedGuardSwitch(
         TypeRef? governingType = null,
         bool switchIsChecked = false,
+        int switchOffset = 24,
         bool guardTargetsCaseBody = false,
         bool defaultExitsToContinuation = false,
         bool defaultContainsNestedLoopBreak = false)
@@ -741,7 +780,7 @@ public class SwitchRaisingSharedGuardTests
                 isChecked: switchIsChecked,
                 isUnsigned: false,
                 new LoadArgument(0, "algorithm", governingType),
-                new Constant(24, s_int)),
+                new Constant(switchOffset, s_int)),
             [0x30, 0x30, 0x20, 0x20]));
         body.Add(dispatch);
 
