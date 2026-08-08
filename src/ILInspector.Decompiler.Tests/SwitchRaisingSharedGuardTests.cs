@@ -328,10 +328,34 @@ public class SwitchRaisingSharedGuardTests
     {
         var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
         var arrayElement = new LoadElement(
-            s_int,
+            TypeRef.CoreLib("System", "Byte"),
             new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
             new Constant(0, s_int));
         var function = BuildSharedGuardSwitch(enumType, switchOffset: 300, switchValue: arrayElement);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadElement>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumArrayElementWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252, switchValue: arrayElement);
         function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
         function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
         {
