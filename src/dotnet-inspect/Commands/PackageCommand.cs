@@ -771,6 +771,13 @@ public class PackageCommand
             CommandError.WriteLine($"Failed to download package: {ex.Message}");
             return 1;
         }
+        catch (InvalidOperationException ex) when (
+            options.Columns is { Length: > 0 }
+            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+        {
+            CommandError.Write(ex.Message);
+            return 1;
+        }
         finally
         {
             // Only clean up temp directory if we created one (not using cache)
