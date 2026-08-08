@@ -74,15 +74,17 @@ internal static class CSharpDeclarationWriter
                 member.Attributes,
                 member)
             .Concat(CollectExplicitInterfaceTypeReferences(member))
-            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : [])
             .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
+            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
         var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
             .ToHashSet(StringComparer.Ordinal);
         var references = memberReferences
             .Concat(attributeReferences)
             .Concat(explicitInterfaceReferences)
-            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : []);
+            .Concat(synthesizedAttributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -90,7 +92,8 @@ internal static class CSharpDeclarationWriter
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
-            attributeValueReferences);
+            attributeValueReferences,
+            synthesizedAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
 
@@ -115,15 +118,17 @@ internal static class CSharpDeclarationWriter
                 member.Attributes,
                 member)
             .Concat(CollectExplicitInterfaceTypeReferences(member))
-            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : [])
             .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
+            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
         var memberReferences = CollectMemberTypeReferences(member).ToHashSet(StringComparer.Ordinal);
         var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
             .ToHashSet(StringComparer.Ordinal);
         var references = memberReferences
             .Concat(attributeReferences)
             .Concat(explicitInterfaceReferences)
-            .Concat(member.IsObsolete && options.IncludeObsoleteAttribute ? ["System.Obsolete"] : []);
+            .Concat(synthesizedAttributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -131,7 +136,8 @@ internal static class CSharpDeclarationWriter
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
-            attributeValueReferences);
+            attributeValueReferences,
+            synthesizedAttributeReferences);
         var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
@@ -163,9 +169,10 @@ internal static class CSharpDeclarationWriter
             .Concat(parameters.SelectMany(parameter =>
                 CollectAttributeArgumentTypeReferences(parameter.Attributes)))
             .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
-            .Concat(memberList
-                .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
-                .Select(_ => "System.Obsolete"))
+            .ToHashSet(StringComparer.Ordinal);
+        var synthesizedAttributeReferences = memberList
+            .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
+            .Select(_ => "System.Obsolete")
             .ToHashSet(StringComparer.Ordinal);
         var primaryParameterAttributeReferences = parameters
             .SelectMany(parameter => CollectAttributeTypeReferences(parameter.Attributes))
@@ -181,9 +188,7 @@ internal static class CSharpDeclarationWriter
             .Concat(attributeReferences)
             .Concat(primaryParameterAttributeReferences)
             .Concat(memberList.SelectMany(CollectExplicitInterfaceTypeReferences))
-            .Concat(memberList
-                .Where(member => member.IsObsolete && options.IncludeObsoleteAttribute)
-                .Select(_ => "System.Obsolete"));
+            .Concat(synthesizedAttributeReferences);
         var plan = TypeNamePlan.Create(
             references,
             options,
@@ -191,7 +196,8 @@ internal static class CSharpDeclarationWriter
             CSharpFormatter.StripArity(type.Name),
             qualificationOnlyAttributeReferences,
             shortenableReferences,
-            attributeValueReferences);
+            attributeValueReferences,
+            synthesizedAttributeReferences);
 
         string typeDeclaration = AddPrimaryConstructorParameters(
             type,
@@ -2723,7 +2729,8 @@ internal static class CSharpDeclarationWriter
             string declaredTypeName,
             IReadOnlySet<string>? qualificationOnlyReferences = null,
             IReadOnlySet<string>? shortenableReferences = null,
-            IReadOnlySet<string>? valueReferences = null)
+            IReadOnlySet<string>? valueReferences = null,
+            IReadOnlySet<string>? preferredSimpleNameReferences = null)
         {
             var qualificationOnlyFullNames = qualificationOnlyReferences?
                 .Select(TypeRef.TryCreate)
@@ -2753,6 +2760,12 @@ internal static class CSharpDeclarationWriter
                     .Where(reference => reference is not null)
                     .Select(reference => reference!.FullName));
             }
+            var preferredSimpleNameFullNames = preferredSimpleNameReferences?
+                .Select(TypeRef.TryCreate)
+                .Where(reference => reference is not null)
+                .Select(reference => reference!.FullName)
+                .ToHashSet(StringComparer.Ordinal)
+                ?? new HashSet<string>(StringComparer.Ordinal);
             var typeRefs = references
                 .Select(TypeRef.TryCreate)
                 .Where(r => r is not null)
@@ -2892,21 +2905,6 @@ internal static class CSharpDeclarationWriter
                     string.Equals(@namespace, root, StringComparison.Ordinal)
                     || @namespace.StartsWith($"{root}.", StringComparison.Ordinal));
 
-            if (options.TypeNameMode == CSharpTypeNameMode.Qualified)
-            {
-                foreach (var typeRef in typeRefs)
-                {
-                    if (valueOnlyFullNames.Contains(typeRef.FullName))
-                        KeepAttributeValueQualified(typeRef);
-                    else
-                        KeepResolvableQualified(typeRef);
-                }
-                return new TypeNamePlan(
-                    replacements.OrderByDescending(kvp => kvp.Key.Length).ToArray(),
-                    [],
-                    diagnostics);
-            }
-
             foreach (var typeRef in typeRefs)
             {
                 if (valueOnlyFullNames.Contains(typeRef.FullName))
@@ -2915,6 +2913,12 @@ internal static class CSharpDeclarationWriter
                     continue;
                 }
                 if (qualificationOnlyFullNames.Contains(typeRef.FullName))
+                {
+                    KeepResolvableQualified(typeRef);
+                    continue;
+                }
+                if (options.TypeNameMode == CSharpTypeNameMode.Qualified
+                    && !preferredSimpleNameFullNames.Contains(typeRef.FullName))
                 {
                     KeepResolvableQualified(typeRef);
                     continue;
