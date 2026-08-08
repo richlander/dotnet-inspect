@@ -9124,6 +9124,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Assembly_SingletonWildcardEmptySection_IsNotRejectedAsExact()
+    {
+        var wildcard = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Union*"],
+            }));
+
+        Assert.Equal(0, wildcard.ExitCode);
+        Assert.Equal("# System.Text.Json.dll", wildcard.Output.Trim());
+        Assert.DoesNotContain("Union Types", wildcard.Output);
+        Assert.Equal(
+            "Note: 1 matched section has no data: Union Types.",
+            wildcard.Error.Trim());
+
+        var exact = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Union Types"],
+            }));
+
+        Assert.Equal(1, exact.ExitCode);
+        Assert.Empty(exact.Output);
+        Assert.Equal(
+            "This section (Union Types) produced no output.",
+            exact.Error.Trim());
+    }
+
+    [Fact]
+    public async Task Assembly_SingletonWildcardNonEmptySection_Renders()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Library Inf*"],
+            }));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Library Info", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Assembly_SingleSectionCount_WritesInteger()
     {
         var options = new LibraryOptions

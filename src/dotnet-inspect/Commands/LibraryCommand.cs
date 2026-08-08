@@ -262,7 +262,11 @@ public class LibraryCommand
                 return 1;
             }
 
-            options = options with { IncludeSections = selectResult.Sections };
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
 
         options = options with
@@ -2162,6 +2166,10 @@ public class LibraryCommand
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count || options.IncludeSections is not { Count: 1 })
+            return false;
+
+        var section = options.IncludeSections.Single();
+        if (options.ExactIncludeSections?.Contains(section) != true)
             return false;
 
         var (empty, requested) = pipeline.GetEmptySections(
