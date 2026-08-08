@@ -220,6 +220,68 @@ public class MetadataTypeDeclarationProbeTests
     }
 
     [Fact]
+    public void Probe_RejectsForgedClassMarkerOnConstructedValueTypeBase()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle objectType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "Object");
+            TypeDefinitionHandle valueType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "ValueType",
+                    objectType);
+            TypeDefinitionHandle genericValue =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.SequentialLayout,
+                    "N",
+                    "Value`1",
+                    valueType);
+            metadata.AddGenericParameter(
+                genericValue,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // forged CLASS marker
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(genericValue) << 2);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x08); // I4
+            TypeSpecificationHandle constructedValue =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived",
+                constructedValue);
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Derived")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Unknown,
+            defined.Kind);
+    }
+
+    [Fact]
     public void Probe_ReturnsNestedDefinition()
     {
         TypeDefinitionHandle inner = default;

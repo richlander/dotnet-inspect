@@ -325,8 +325,22 @@ public static class MetadataTypeDeclarationProbe
     internal static MetadataTypeDefinitionKind ClassifyDefinitionKind(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        bool declaringAssemblyDefinesCoreLibraryRoot)
+        bool declaringAssemblyDefinesCoreLibraryRoot) =>
+        ClassifyDefinitionKind(
+            reader,
+            handle,
+            declaringAssemblyDefinesCoreLibraryRoot,
+            []);
+
+    static MetadataTypeDefinitionKind ClassifyDefinitionKind(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        HashSet<TypeDefinitionHandle> active)
     {
+        if (!active.Add(handle))
+            return MetadataTypeDefinitionKind.Unknown;
+
         try
         {
             TypeDefinition definition =
@@ -358,7 +372,10 @@ public static class MetadataTypeDeclarationProbe
                     GuardedProviderDecode.TypeSpec(
                         reader,
                         (TypeSpecificationHandle)definition.BaseType,
-                        BaseTypeKindProvider.Instance,
+                        new BaseTypeKindProvider(
+                            reader,
+                            declaringAssemblyDefinesCoreLibraryRoot,
+                            active),
                         (GenericContext?)null,
                         MetadataTypeDefinitionKind.Unknown);
                 return baseKind == MetadataTypeDefinitionKind.Class
@@ -415,27 +432,41 @@ public static class MetadataTypeDeclarationProbe
         {
             return MetadataTypeDefinitionKind.Unknown;
         }
+        finally
+        {
+            active.Remove(handle);
+        }
     }
 
-    sealed class BaseTypeKindProvider :
+    sealed class BaseTypeKindProvider(
+        MetadataReader reader,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        HashSet<TypeDefinitionHandle> active) :
         ISignatureTypeProvider<
             MetadataTypeDefinitionKind,
             GenericContext?>
     {
-        internal static BaseTypeKindProvider Instance { get; } =
-            new();
-
         public MetadataTypeDefinitionKind GetTypeFromDefinition(
-            MetadataReader reader,
+            MetadataReader metadataReader,
             TypeDefinitionHandle handle,
-            byte rawTypeKind) =>
-            FromRawKind(rawTypeKind);
+            byte rawTypeKind)
+        {
+            MetadataTypeDefinitionKind actual =
+                ClassifyDefinitionKind(
+                    reader,
+                    handle,
+                    declaringAssemblyDefinesCoreLibraryRoot,
+                    active);
+            return actual == FromRawKind(rawTypeKind)
+                ? actual
+                : MetadataTypeDefinitionKind.Unknown;
+        }
 
         public MetadataTypeDefinitionKind GetTypeFromReference(
-            MetadataReader reader,
+            MetadataReader metadataReader,
             TypeReferenceHandle handle,
             byte rawTypeKind) =>
-            FromRawKind(rawTypeKind);
+            MetadataTypeDefinitionKind.Unknown;
 
         public MetadataTypeDefinitionKind GetTypeFromSpecification(
             MetadataReader reader,

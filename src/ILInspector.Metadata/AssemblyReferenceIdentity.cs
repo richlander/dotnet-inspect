@@ -37,10 +37,15 @@ public sealed record AssemblyReferenceIdentity(
             TokenOrNull(reader, definition.PublicKey, isPublicKey: true));
     }
 
-    static string? StringOrNull(MetadataReader reader, StringHandle handle)
+    internal static string? StringOrNull(
+        MetadataReader reader,
+        StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
 
-    static string? TokenOrNull(MetadataReader reader, BlobHandle handle, bool isPublicKey)
+    internal static string? TokenOrNull(
+        MetadataReader reader,
+        BlobHandle handle,
+        bool isPublicKey)
     {
         if (handle.IsNil)
             return null;

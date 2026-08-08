@@ -90,6 +90,9 @@ public static class ApiSurfaceExtractor
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
             int publicFieldCount = surface.PublicFieldCount;
+            TypeParameterConstraintResolution.Checkpoint?
+                constraintCheckpoint =
+                    constraintResolution?.CreateCheckpoint();
             try
             {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -640,6 +643,8 @@ public static class ApiSurfaceExtractor
             }
             catch (MetadataRowRejectedException ex)
             {
+                if (constraintCheckpoint is { } checkpoint)
+                    constraintResolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -652,6 +657,8 @@ public static class ApiSurfaceExtractor
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
+                if (constraintCheckpoint is { } checkpoint)
+                    constraintResolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -2656,6 +2663,24 @@ public static class ApiSurfaceExtractor
         internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
             Plan.Requests;
 
+        internal Checkpoint CreateCheckpoint() =>
+            new(_groups.Count, Plan.Checkpoint());
+
+        internal void Rollback(Checkpoint checkpoint)
+        {
+            if (checkpoint.GroupCount < 0
+                || checkpoint.GroupCount > _groups.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(checkpoint));
+            }
+
+            _groups.RemoveRange(
+                checkpoint.GroupCount,
+                _groups.Count - checkpoint.GroupCount);
+            Plan.Rollback(checkpoint.RequestCount);
+        }
+
         internal void Track(
             List<(GenericParameterHandle Handle, TypeParameter Parameter)>
                 group)
@@ -2693,5 +2718,9 @@ public static class ApiSurfaceExtractor
                 }
             }
         }
+
+        internal readonly record struct Checkpoint(
+            int GroupCount,
+            int RequestCount);
     }
 }

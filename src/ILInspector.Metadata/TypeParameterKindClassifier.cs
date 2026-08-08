@@ -43,13 +43,36 @@ internal static class TypeParameterKindClassifier
             AssemblyReferenceHandle,
             AssemblyReferenceIdentity> _assemblyReferences = [];
         readonly Dictionary<
+            AssemblyReferenceKeyBlob,
+            string?> _assemblyReferenceTokens = [];
+        readonly Dictionary<
             TypeReferenceHandle,
             ConstraintClass> _resolvedClasses = [];
+        readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         ConstraintRootProvider? _constraintRootProvider;
 
         internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
             _requests;
+
+        internal int Checkpoint() => _requestOrder.Count;
+
+        internal void Rollback(int checkpoint)
+        {
+            if (checkpoint < 0 || checkpoint > _requestOrder.Count)
+                throw new ArgumentOutOfRangeException(nameof(checkpoint));
+
+            for (int i = _requestOrder.Count - 1;
+                i >= checkpoint;
+                i--)
+            {
+                _requests.Remove(_requestOrder[i]);
+            }
+
+            _requestOrder.RemoveRange(
+                checkpoint,
+                _requestOrder.Count - checkpoint);
+        }
 
         internal ConstraintRootProvider ConstraintRootProvider =>
             _constraintRootProvider ??= new ConstraintRootProvider(this);
@@ -89,7 +112,8 @@ internal static class TypeParameterKindClassifier
 
             if (_context is null)
             {
-                _requests.Add(request);
+                if (_requests.Add(request))
+                    _requestOrder.Add(request);
                 return ConstraintClass.Unreadable;
             }
 
@@ -203,8 +227,31 @@ internal static class TypeParameterKindClassifier
                     handle,
                     out AssemblyReferenceIdentity? reference))
             {
-                reference =
-                    AssemblyReferenceIdentity.From(reader, handle);
+                System.Reflection.Metadata.AssemblyReference row =
+                    reader.GetAssemblyReference(handle);
+                bool isPublicKey =
+                    (row.Flags & AssemblyFlags.PublicKey) != 0;
+                var key = new AssemblyReferenceKeyBlob(
+                    row.PublicKeyOrToken,
+                    isPublicKey);
+                if (!_assemblyReferenceTokens.TryGetValue(
+                        key,
+                        out string? token))
+                {
+                    token = AssemblyReferenceIdentity.TokenOrNull(
+                        reader,
+                        row.PublicKeyOrToken,
+                        isPublicKey);
+                    _assemblyReferenceTokens.Add(key, token);
+                }
+
+                reference = new AssemblyReferenceIdentity(
+                    reader.GetString(row.Name),
+                    row.Version,
+                    AssemblyReferenceIdentity.StringOrNull(
+                        reader,
+                        row.Culture),
+                    token);
                 _assemblyReferences.Add(handle, reference);
             }
 
@@ -218,6 +265,10 @@ internal static class TypeParameterKindClassifier
                 scope,
                 type);
         }
+
+        readonly record struct AssemblyReferenceKeyBlob(
+            BlobHandle Handle,
+            bool IsPublicKey);
     }
 
     /// <param name="chain">
@@ -929,9 +980,10 @@ internal static class TypeParameterKindClassifier
             => genericType;
 
         public ConstraintClass GetModifiedType(ConstraintClass modifier, ConstraintClass unmodifiedType, bool isRequired)
-            => unmodifiedType;
+            => ConstraintClass.Unreadable;
 
-        public ConstraintClass GetPinnedType(ConstraintClass elementType) => elementType;
+        public ConstraintClass GetPinnedType(ConstraintClass elementType) =>
+            ConstraintClass.Unreadable;
 
         // A constraint naming another type parameter is only as known as that parameter.
         // The index alone cannot be resolved here, so the answer is deferred to
