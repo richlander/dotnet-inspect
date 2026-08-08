@@ -95,13 +95,14 @@ columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \
-  -S "Implementation Diff" --authored-source --repo ../Foo \
+  -S "Implementation Diff" --authored-source --repo /path/to/Foo \
   -t MyType -m HotPath
 ```
 
-`--repo` reads the committed blob at the SourceLink commit from a local clone
-and verifies it against the PDB checksum before any network fetch. Treat these
-rows as implementation evidence, not semantic-equivalence proof.
+`--repo` requires a fully qualified clone path. It reads the committed blob at
+the SourceLink commit and verifies it against the PDB checksum before any
+network fetch. Treat these rows as implementation evidence, not
+semantic-equivalence proof.
 
 ## What can be configured? (feature switches)
 

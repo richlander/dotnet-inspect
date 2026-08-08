@@ -40,7 +40,8 @@ lens.
 dnx dotnet-inspect -y -- library MyLib.dll -D @Performance
 dnx dotnet-inspect -y -- library MyLib.dll -S @Performance --count
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Boxing" --jsonl
-dnx dotnet-inspect -y -- library MyLib.dll --loop --min-confidence high --top 20 --tsv
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --loop --min-confidence high --top 20 --tsv
 dnx dotnet-inspect -y -- library MyLib.dll \
   --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop \
   --top 20 --tsv
@@ -84,7 +85,8 @@ as IL-visible normal-return-path quantity, not runtime bytes or observed
 frequency. A high `Opaque Paths` count means virtual, external, delegate,
 recursive, or runtime-library work still needs a drill or profiler.
 
-Exact rows retain machine-readable provenance from the native Analysis producer:
+Exact rows retain machine-readable provenance from the native Analysis
+producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
 `Operation`, `Token`, and `IL`. Use these fields for runtime/static joins or to
@@ -92,10 +94,10 @@ carry one triage row into the matching `diff`/`timeline` confirmation workflow
 without parsing `Evidence` text:
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Finding=analysis.allocation" --where "Operation=box" --jsonl
-dnx dotnet-inspect -y -- library MyLib.dll \
-  --where "Finding=analysis.call-site" --jsonl
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Finding=analysis.allocation" --where "Operation=box" --json
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Finding=analysis.call-site" --json
 ```
 
 Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have

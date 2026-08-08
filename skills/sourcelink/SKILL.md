@@ -41,11 +41,13 @@ row; add `--row N` when the selected section has multiple printable rows.
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
-  Serialize:1 -S "Original Source,Source Diff" --repo ../runtime
+  Serialize:1 -S "Original Source,Source Diff" --repo /path/to/runtime
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --json-array
 ```
+
+`--repo` requires a fully qualified clone path.
 
 ## URL forms
 

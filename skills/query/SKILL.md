@@ -9,9 +9,9 @@ description: Output formats, -D/-S section discovery and selection, value projec
 The query system is like Go templates, without a DSL: every command emits the
 same structured sections, and you discover, select, and project them with the
 same cross-command flags — on `find`, `type`, `member`, `package`, `project`,
-`library`, `diff`, and relationship commands. `timeline` supports section
-selection and projection but not `-D` discovery. Discover the shape first where
-available, then select and project.
+`library`, and `diff`. `timeline` supports section selection and projection but
+not `-D` discovery. Relationship commands render fixed output without `-D` or
+`-S`. Discover the shape first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
