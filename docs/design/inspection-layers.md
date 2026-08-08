@@ -49,6 +49,23 @@ Each layer is a separate component. A consumer decides how far up it comes:
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
+## Implementation status
+
+`DotnetInspector.Queries` now implements the first L1 slice. The library CLI
+executes metadata-image and direct assembly-reference queries through a typed,
+content-shaped registry over a host-owned `AssemblyInspectionSession`. The
+`References` section binds to its concrete query definition rather than a string
+scanner key, and the CLI and package convenience route lower section selection
+into that same registry.
+
+This is an incremental boundary, not the completed split. The remaining
+library scanners still use the transitional string-keyed `ScannerRegistry`,
+`LibraryMetadataService` still projects query results into the mutable
+`LibraryInspection` compatibility aggregate, and acquisition and transitive
+reference resolution remain host-owned. The current queries are network-free;
+the registry passes their maximum transitive cost into the host execution scope
+so broader cost tiers can retain the same enforcement boundary.
+
 ### L1 — `DotnetInspector.Queries`
 
 Owns typed inspection requests and their typed results, over the `ILInspector.*`
@@ -184,9 +201,9 @@ consumer's convenience.
    filesystem is a supported consumer.
 4. **Cost and capabilities are declared by the query, not the section.** What
    work costs and what authorization it needs are properties of acquisition.
-5. **The L1/L2 binding is typed.** A section names its query type. A section must
-   not reach L1 through a string key, because a string key cannot be checked and
-   silently degrades to "always collected".
+5. **The L1/L2 binding is typed.** A section catalog binds to a query definition
+   by object identity. A section must not reach L1 through a string key, because
+   a string key cannot be checked and silently degrades to "always collected".
 6. **A second implementation of a shared rule is a defect.** TFM ranking, version
    resolution, moniker normalization, symbol acquisition, and checksum
    verification have one owner each. A consumer that cannot reach the owner is
@@ -196,15 +213,19 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image inspection is the first vertical L1 canary:
+Metadata-image and direct-reference inspection are the first vertical L1
+canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
 - `MetadataImageQuery` consumes an already-open `AssemblyInspectionSession` and
   returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
   mutating `LibraryInspection`.
-- Metadata sections bind to the query definition by object identity. The
-  diagnostic name is never a lookup key.
+- `AssemblyReferencesQuery` consumes the same content-shaped session and returns
+  a flat immutable reference result. The CLI projects Findings and owns
+  path-based transitive tree resolution.
+- Metadata sections and `References` bind to query definitions by object
+  identity. Diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.
@@ -225,7 +246,7 @@ Metadata-image inspection is the first vertical L1 canary:
 - A demanded metadata-image query executes for native PE images too, producing
   `NoMetadata` and a truthful trace rather than returning before execution.
 
-This is a canary, not the completed split. The remaining boundaries are
+These are canaries, not the completed split. The remaining boundaries are
 intentional and visible:
 
 - Other library facets still use `ScannerRegistry`, string keys, and shared
@@ -251,21 +272,23 @@ are essentially free of it. The boundary is largely drawn; the metadata canary
 establishes the L1 project and structural pattern, but the remaining facets and
 the L2 project split still need migration.
 
-The structural fix is completing L1. Outside the metadata canary, collection is
-still neither typed nor demand-driven:
+The structural fix is completing L1. Outside the metadata and direct-reference
+canaries, collection is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
-  results, so a consumer cannot take one query without materializing everything.
-- The binding to that collection is a **nullable string key** that is null for
-  the large majority of sections, meaning "always collected" — so there is no
-  demand-driven seam to consume.
+  results for most scanner families, so a consumer cannot yet take those
+  queries without materializing `LibraryInspection`.
+- The binding to residual collection is a **nullable string key** for the
+  remaining scanner-backed sections. Metadata and `References` use checked
+  query-definition bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
-  cannot call it at all.
+  cannot call the residual `LibraryMetadataService` orchestration. The
+  implemented queries themselves take a borrowed content owner, not a path.
 
 Converting collection into typed, demand-driven, content-shaped queries is
-therefore the prerequisite for the split, not a follow-up to it. L2 is close to a
-project move once L1 exists; the descriptor contract is already Markout-free
-apart from its name binding.
+therefore the migration path for the split, not a follow-up to it. L2 is close
+to a project move as query coverage expands; the descriptor contract is already
+Markout-free apart from its name binding.
 
 ## Non-goals
 

@@ -81,8 +81,8 @@ static class AuthoredCorpusDrift
                 group => (IReadOnlyList<AuthoredSourceHarvest.CorpusRecord>)group.ToArray(),
                 StringComparer.Ordinal);
 
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
 
         var results = new List<RowResult>();

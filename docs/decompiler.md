@@ -125,7 +125,15 @@ replaying only what the binary records — and what the opt-in "simulate" mode
 
 The architecture earns its observability from one property: **every stage boundary is a projectable IR.** A single `IrPasses.RunWithStages` runner captures the typed tree at import and after every pass, and one `StageDump` formatter frames them — exactly JitDump's relationship to GenTree. Every harness mode reads that one capture rather than rebuilding it: `--dump` (the per-pass tree), `--diff` (each pass as a `+`/`-` hunk), `--facts` (the definite-assignment dataflow that decides `= default` elision), `--cfg` (block edges; `--mermaid` renders them), `--remarks` (the IR sites that cap fidelity, each with its `DEC####` code), and `--pass-impact` (the corpus-wide inverse — a pass's blast radius).
 
-The dump terminates on `CSharpPrinter.Print` of the fully-raised function, **byte-identical to the product's `PrintRaised`**. The final stage you inspect is therefore exactly the artifact the verification checks grade, so observation and measurement cannot drift. `--lowered` selects a lower render altitude — the `IrPasses.Lowered` list, the pipeline minus the cosmetic statement-sugar passes (`ForLoopPass`, `IncrementDecrementPass`, `LockSugarPass`) — still valid, recompilable C#, and earns the same checks.
+The dump terminates on `CSharpPrinter.Print` of the fully-raised function with
+`PrinterOptions.Default`: the stable low-level artifact the verification checks
+grade. The CLI's user-facing source applies registry defaults and may replace
+`V_index` with synthesized readable local names; that presentation difference
+does not change the raised structure or IL-fidelity contract. `--lowered`
+selects a lower render altitude — the `IrPasses.Lowered` list, the pipeline
+minus the cosmetic statement-sugar passes (`ForLoopPass`,
+`IncrementDecrementPass`, `LockSugarPass`) — still valid, recompilable C#, and
+earns the same checks.
 
 How the checks (`--fidelity-check`, `--validity-check`, `--annotation-check`), the `--gaps` completeness view, and the corpus floors prove correctness, what gates CI, and the detect-then-diagnose loop they form are the subject of [decompiler-quality.md](decompiler-quality.md). The harness reference ([tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md)) is the invocation guide for every mode named here, and [decompiler-ir-dumps.md](decompiler-ir-dumps.md) is the reading guide for the harness per-pass dump itself.
 

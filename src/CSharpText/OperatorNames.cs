@@ -1,6 +1,4 @@
-using CSharpText;
-
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// Formats operator method names (op_*) as C# operator declarations.

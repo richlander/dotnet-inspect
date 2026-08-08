@@ -167,6 +167,22 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+        => AddDescriptor<TDescriptor>(query: null, isApplicable);
+
+    /// <summary>
+    /// Registers a section descriptor whose data is supplied by a typed query.
+    /// </summary>
+    public SectionPipeline<TModel> Add<TDescriptor>(
+        InspectionQueryDefinition query,
+        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return AddDescriptor<TDescriptor>(query, isApplicable);
+    }
+
+    private SectionPipeline<TModel> AddDescriptor<TDescriptor>(
+        InspectionQueryDefinition? query,
+        Func<TModel, bool>? isApplicable) where TDescriptor : ISectionDescriptor<TModel>
     {
         return Add(new SectionEntry<TModel>
         {
@@ -181,7 +197,7 @@ public sealed class SectionPipeline<TModel>
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
             ScannerKey = TDescriptor.ScannerKey,
-            Query = null,
+            Query = query,
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
