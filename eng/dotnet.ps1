@@ -109,5 +109,9 @@ if ($refreshFailed) {
         "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK.")
 }
 
-& $dotnetup dotnet -- @args
+if ($MyInvocation.ExpectingInput) {
+    $input | & $dotnetup dotnet -- @args
+} else {
+    & $dotnetup dotnet -- @args
+}
 exit $LASTEXITCODE

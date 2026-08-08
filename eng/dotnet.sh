@@ -49,7 +49,8 @@ if selected_output="$("$dotnetup" dotnet -- --version 2>&1)"; then
 else
     selected_exit=$?
 fi
-if ! printf '%s\n' "$selected_output" | grep -Eq '^11\.'; then
+if [ "$selected_exit" -ne 0 ] ||
+    ! printf '%s\n' "$selected_output" | grep -Eq '^11\.'; then
     if [ "$refresh_failed" = true ]; then
         printf '%s\n' "$install_output" >&2
         echo "dotnetup command isolation did not select the required .NET 11 SDK." >&2
