@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using System.Text;
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
@@ -2063,7 +2064,8 @@ public static class CompileBackSourceComposer
 
             // Structured resolution tightens signed hops to Platform. Replay the
             // whole walk through Roslyn's sibling-first closure and engage only
-            // when both paths reach the same durable TypeDef.
+            // when both paths reach the same byte-identical defining image and
+            // durable TypeDef address.
             using TypeResolutionContext compilationContext =
                 TypeResolutionContext.Create(
                     compilationPolicy,
@@ -2074,7 +2076,10 @@ public static class CompileBackSourceComposer
                 || compilationResolved.Definition.Assembly.Assembly.Identity
                     != resolved.Definition.Assembly.Assembly.Identity
                 || compilationResolved.Definition.Address
-                    != resolved.Definition.Address)
+                    != resolved.Definition.Address
+                || !HaveSameImageContent(
+                    compilationResolved.Definition.Assembly.Assembly,
+                    resolved.Definition.Assembly.Assembly))
             {
                 return null;
             }
@@ -2085,6 +2090,20 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    static bool HaveSameImageContent(
+        ResolvedAssemblyReference left,
+        ResolvedAssemblyReference right)
+    {
+        if (left.Registration == right.Registration)
+            return true;
+
+        using Stream leftStream = left.OpenRead();
+        using Stream rightStream = right.OpenRead();
+        byte[] leftHash = SHA256.HashData(leftStream);
+        byte[] rightHash = SHA256.HashData(rightStream);
+        return leftHash.AsSpan().SequenceEqual(rightHash);
     }
 
     sealed class CompilationClosureBindingPolicy(

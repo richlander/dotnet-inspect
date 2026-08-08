@@ -2661,11 +2661,13 @@ gates the nested-forwarder composition from declaration chain through final
 definition.
 `ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod`
 gates the compile-back harness's structured forwarder wiring.
-`ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling` and
+`ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`,
+`ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
 `ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
 gate candidate consistency when resolution tightens a signed forwarder hop:
 the structured engine replays the complete walk through Roslyn's sibling-first
-closure and requires the same assembly identity and durable TypeDef address.
+closure and requires the same assembly identity, byte-identical defining image,
+and durable TypeDef address.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 
