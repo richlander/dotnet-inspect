@@ -511,6 +511,30 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Session_WhenUnexpectedOpenThrows_ReleasesImage()
+    {
+        byte[] image = SelfBytes();
+        int opens = 0;
+        using var plan = new InspectionAcquisitionPlan();
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(image),
+            path: null,
+            openRead: () =>
+                Interlocked.Increment(ref opens) == 1
+                    ? new MemoryStream(image, writable: false)
+                    : new ThrowingDisposeMemoryStream(image),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+
+        Assert.Throws<InvalidOperationException>(
+            () => plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(0, plan.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task Session_ConcurrentRequestsShareOneOpen()
     {
         byte[] image = SelfBytes();
@@ -847,6 +871,20 @@ public class InspectionAcquisitionPlanTests
                 disposed();
             }
             base.Dispose(disposing);
+        }
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
         }
     }
 

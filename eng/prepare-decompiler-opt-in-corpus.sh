@@ -8,7 +8,18 @@ PINNED_SDK="11.0.100-preview.7.26357.101"
 mode="${1:-pinned}"
 out="${2:-}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-nuget_config="${NIGHTLY_NUGET_CONFIG:-$repo/nuget.config}"
+nuget_config="${NIGHTLY_NUGET_CONFIG:-}"
+
+restore_project() {
+  local project="$1"
+  shift
+
+  if [ -n "$nuget_config" ]; then
+    dotnet restore "$project" --configfile "$nuget_config" "$@"
+  else
+    dotnet restore "$project" "$@"
+  fi
+}
 
 if [ "$mode" = "print-pinned-sdk" ]; then
   printf '%s\n' "$PINNED_SDK"
@@ -58,7 +69,7 @@ for relative_project in "${projects[@]}"; do
   project_name="$(basename "$relative_project" .csproj)"
   (
     cd "$tmp"
-    dotnet restore "$project" --configfile "$nuget_config" \
+    restore_project "$project" \
       -p:DefaultTargetFramework=net11.0 \
       -p:ArtifactsPath="$build_artifacts" \
       --verbosity quiet >&2
