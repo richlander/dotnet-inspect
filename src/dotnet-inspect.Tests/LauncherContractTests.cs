@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json;
 
 namespace DotnetInspector.Tests;
@@ -70,6 +71,43 @@ public sealed class LauncherContractTests
     }
 
     [Fact]
+    public async Task PowerShell_PreservesRedirectedInputBytes()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "PowerShell launcher is Windows-only.");
+        using var fixture = LauncherFixture.Create();
+        byte[] standardInput = [0x41, 0xc3, 0xa9, 0x0a, 0xff, 0x42];
+
+        ProcessResult result = await RunAsync(
+            "pwsh",
+            ["-NoProfile", "-File", PowerShellLauncher, "command"],
+            fixture.Environment(),
+            standardInput);
+
+        AssertExitCode(0, result);
+        LauncherInvocation actual = DeserializeInvocation(result.StandardOutput);
+        Assert.True(
+            Convert.ToBase64String(standardInput) == actual.StdinBase64,
+            $"stdin mismatch; stderr:{Environment.NewLine}{result.StandardError}");
+    }
+
+    [Fact]
+    public async Task PowerShell_DoesNotDrainRedirectedInputBeforeLaunchingCommand()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "PowerShell launcher is Windows-only.");
+        using var fixture = LauncherFixture.Create();
+        var environment = fixture.Environment(("LAUNCHER_FIXTURE_READ_STDIN", "false"));
+
+        ProcessResult result = await RunWithOpenInputAsync(
+            "pwsh",
+            ["-NoProfile", "-File", PowerShellLauncher, "command"],
+            environment);
+
+        AssertExitCode(0, result);
+        LauncherInvocation actual = DeserializeInvocation(result.StandardOutput);
+        Assert.Equal(["command"], actual.Args);
+    }
+
+    [Fact]
     public async Task PowerShell_RejectsFallbackWhenSelectedSdkIsNot11()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "PowerShell launcher is Windows-only.");
@@ -133,7 +171,7 @@ public sealed class LauncherContractTests
             "bash",
             [BashLauncher, .. forwarded],
             environment,
-            $"stdin-one{Environment.NewLine}stdin-two{Environment.NewLine}");
+            Encoding.UTF8.GetBytes($"stdin-one{Environment.NewLine}stdin-two{Environment.NewLine}"));
 
         AssertExitCode(42, result);
         Assert.Equal("fixture-error", result.StandardError);
@@ -202,7 +240,53 @@ public sealed class LauncherContractTests
         string fileName,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string?> environment,
-        string? standardInput = null)
+        byte[]? standardInput = null)
+    {
+        using var process = Process.Start(CreateStartInfo(fileName, arguments, environment))
+            ?? throw new InvalidOperationException($"Could not start {fileName}.");
+        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardError = process.StandardError.ReadToEndAsync();
+        if (standardInput is not null)
+            await process.StandardInput.BaseStream.WriteAsync(standardInput);
+        process.StandardInput.Close();
+        await process.WaitForExitAsync();
+
+        return new ProcessResult(
+            process.ExitCode,
+            await standardOutput,
+            await standardError);
+    }
+
+    private static async Task<ProcessResult> RunWithOpenInputAsync(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string?> environment)
+    {
+        using var process = Process.Start(CreateStartInfo(fileName, arguments, environment))
+            ?? throw new InvalidOperationException($"Could not start {fileName}.");
+        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardError = process.StandardError.ReadToEndAsync();
+        Task exited = process.WaitForExitAsync();
+        if (await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(10))) != exited)
+        {
+            process.Kill(entireProcessTree: true);
+            process.StandardInput.Close();
+            await exited;
+            throw new TimeoutException(
+                $"{fileName} waited for its redirected input to close before launching the command.");
+        }
+
+        process.StandardInput.Close();
+        return new ProcessResult(
+            process.ExitCode,
+            await standardOutput,
+            await standardError);
+    }
+
+    private static ProcessStartInfo CreateStartInfo(
+        string fileName,
+        IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string?> environment)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -217,20 +301,7 @@ public sealed class LauncherContractTests
             startInfo.ArgumentList.Add(argument);
         foreach ((string key, string? value) in environment)
             startInfo.Environment[key] = value;
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Could not start {fileName}.");
-        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
-        Task<string> standardError = process.StandardError.ReadToEndAsync();
-        if (standardInput is not null)
-            await process.StandardInput.WriteAsync(standardInput);
-        process.StandardInput.Close();
-        await process.WaitForExitAsync();
-
-        return new ProcessResult(
-            process.ExitCode,
-            await standardOutput,
-            await standardError);
+        return startInfo;
     }
 
     private static string FindRepoRoot()
@@ -245,7 +316,7 @@ public sealed class LauncherContractTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
-    private sealed record LauncherInvocation(string[] Args, string Stdin);
+    private sealed record LauncherInvocation(string[] Args, string Stdin, string StdinBase64);
 
     private sealed record ProcessResult(
         int ExitCode,

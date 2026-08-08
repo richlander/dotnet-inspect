@@ -4,6 +4,76 @@ $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 $PSNativeCommandArgumentPassing = "Standard"
 
+function Invoke-CapturedProcess {
+    param(
+        [Parameter(Mandatory)]
+        [string] $FileName,
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string[]] $Arguments
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FileName
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    try {
+        $standardOutput = $process.StandardOutput.ReadToEndAsync()
+        $standardError = $process.StandardError.ReadToEndAsync()
+        $process.StandardInput.Close()
+        $process.WaitForExit()
+
+        $output = @()
+        foreach ($text in @(
+            $standardOutput.GetAwaiter().GetResult(),
+            $standardError.GetAwaiter().GetResult()
+        )) {
+            if ($text.Length -gt 0) {
+                $output += @($text -split "\r?\n" | Where-Object { $_.Length -gt 0 })
+            }
+        }
+
+        return [PSCustomObject]@{
+            ExitCode = $process.ExitCode
+            Output = [string[]] $output
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Invoke-InheritedProcess {
+    param(
+        [Parameter(Mandatory)]
+        [string] $FileName,
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string[]] $Arguments
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FileName
+    $startInfo.UseShellExecute = $false
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    try {
+        $process.WaitForExit()
+        return $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
+
 if (-not $IsWindows) {
     [Console]::Error.WriteLine(
         "eng/dotnet.ps1 supports Windows only; use eng/dotnet.sh on macOS or Linux.")
@@ -41,7 +111,18 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
             }
         }
 
-        $bootstrapOutput = & $installer -InstallDir $bootstrapDir *>&1
+        $bootstrapResult = Invoke-CapturedProcess `
+            -FileName (Join-Path $PSHOME "pwsh.exe") `
+            -Arguments @(
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                $installer,
+                "-InstallDir",
+                $bootstrapDir
+            )
+        $bootstrapOutput = $bootstrapResult.Output
         if (-not (Test-Path -LiteralPath $bootstrapDotnetup -PathType Leaf)) {
             foreach ($line in $bootstrapOutput) {
                 [Console]::Error.WriteLine($line)
@@ -62,12 +143,18 @@ if (-not (Test-Path -LiteralPath $dotnetup -PathType Leaf)) {
     }
 }
 
-$installOutput = & $dotnetup sdk install 11 --interactive false --no-progress 2>&1
-$installExitCode = $LASTEXITCODE
+$installResult = Invoke-CapturedProcess `
+    -FileName $dotnetup `
+    -Arguments @("sdk", "install", "11", "--interactive", "false", "--no-progress")
+$installOutput = $installResult.Output
+$installExitCode = $installResult.ExitCode
 $refreshFailed = $installExitCode -ne 0
 if ($refreshFailed) {
-    $sdkOutput = & $dotnetup dotnet -- --list-sdks 2>&1
-    $sdkExitCode = $LASTEXITCODE
+    $sdkResult = Invoke-CapturedProcess `
+        -FileName $dotnetup `
+        -Arguments @("dotnet", "--", "--list-sdks")
+    $sdkOutput = $sdkResult.Output
+    $sdkExitCode = $sdkResult.ExitCode
     $hasDotnet11 = $sdkExitCode -eq 0 -and @(
         $sdkOutput | Where-Object { $_ -match '^11\.' }
     ).Count -gt 0
@@ -82,8 +169,11 @@ if ($refreshFailed) {
 
 }
 
-$selectedOutput = & $dotnetup dotnet -- --version 2>&1
-$selectedExitCode = $LASTEXITCODE
+$selectedResult = Invoke-CapturedProcess `
+    -FileName $dotnetup `
+    -Arguments @("dotnet", "--", "--version")
+$selectedOutput = $selectedResult.Output
+$selectedExitCode = $selectedResult.ExitCode
 $selectedDotnet11 = $selectedExitCode -eq 0 -and @(
     $selectedOutput | Where-Object { $_ -match '^11\.' }
 ).Count -eq 1
@@ -109,9 +199,18 @@ if ($refreshFailed) {
         "warning: dotnetup could not update .NET 11; using the installed .NET 11 SDK.")
 }
 
-if ($MyInvocation.ExpectingInput) {
-    $input | & $dotnetup dotnet -- @args
+$hasPowerShellPipelineInput =
+    $MyInvocation.ExpectingInput -and $MyInvocation.InvocationName -eq "&"
+if ($hasPowerShellPipelineInput) {
+    # A static reference to the automatic input variable makes pwsh -File drain
+    # redirected stdin before this script runs. Resolve it only for a real
+    # in-process PowerShell object pipeline.
+    $pipelineInput = Get-Variable -Name input -ValueOnly
+    $pipelineInput | & $dotnetup dotnet -- @args
+    exit $LASTEXITCODE
 } else {
-    & $dotnetup dotnet -- @args
+    $commandExitCode = Invoke-InheritedProcess `
+        -FileName $dotnetup `
+        -Arguments (@("dotnet", "--") + $args)
+    exit $commandExitCode
 }
-exit $LASTEXITCODE

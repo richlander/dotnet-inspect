@@ -70,6 +70,9 @@ launcher rejects older hosts because they cannot reliably preserve empty
 arguments, embedded quotes, and trailing backslashes. Quote the bare `--`,
 colon-form options such as `-v:q` or `-p:Value=x`, and values containing
 PowerShell metacharacters so PowerShell passes each one as a single argument.
+PowerShell object pipelines invoked with `&` are forwarded as pipeline input;
+process-level redirected input is inherited without text conversion. The
+cross-platform `LauncherContractTests` gate both forms.
 Use `eng/dotnet.sh` from Bash on macOS or Linux; the PowerShell launcher rejects
 non-Windows hosts.
 

@@ -67,6 +67,22 @@ if (source["code"] != "true")
         $"Source canary did not select code: {FormatValues(source)}");
 }
 
+foreach (string launcher in new[] { "eng/dotnet.ps1", "eng/dotnet.sh" })
+{
+    Dictionary<string, string> launcherChange = RunDetection(
+        repository,
+        body,
+        "pull_request",
+        launcher,
+        outputs);
+    if (launcherChange["code"] != "true")
+    {
+        throw new InvalidOperationException(
+            $"{launcher} did not select launcher contract tests: " +
+            FormatValues(launcherChange));
+    }
+}
+
 Dictionary<string, string> pushedSource = RunDetection(
     repository,
     body,

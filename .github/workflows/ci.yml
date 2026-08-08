@@ -212,6 +212,8 @@ jobs:
               # `ci-required` passes on a `skipped`.
               eng/restore-iltools.sh) CODE=true ;;
               eng/activate-iltools.sh) CODE=true ;;
+              # Launcher contract tests run in both test lanes.
+              eng/dotnet.ps1|eng/dotnet.sh) CODE=true ;;
               # Controls checkout line endings on Windows, including the raw
               # string fixtures this lane exists to validate.
               .gitattributes) CODE=true ;;

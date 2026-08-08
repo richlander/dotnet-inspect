@@ -23,10 +23,22 @@ switch (command)
 
 if (args is ["dotnet", "--", ..])
 {
+    byte[] standardInput;
+    if (Environment.GetEnvironmentVariable("LAUNCHER_FIXTURE_READ_STDIN") == "false")
+    {
+        standardInput = [];
+    }
+    else
+    {
+        using var input = new MemoryStream();
+        await Console.OpenStandardInput().CopyToAsync(input);
+        standardInput = input.ToArray();
+    }
     Console.WriteLine(JsonSerializer.Serialize(new
     {
         Args = args[2..],
-        Stdin = await Console.In.ReadToEndAsync()
+        Stdin = Encoding.UTF8.GetString(standardInput),
+        StdinBase64 = Convert.ToBase64String(standardInput)
     }));
     byte[] standardError = Encoding.UTF8.GetBytes(
         Environment.GetEnvironmentVariable("LAUNCHER_FIXTURE_STDERR") ?? "");
