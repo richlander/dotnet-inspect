@@ -9941,7 +9941,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(output);
         Assert.Contains("category '@Performance' has no data for this query", error);
-        Assert.Contains("scanners requested   Metadata", error);
+        Assert.Contains(
+            "queries requested    Assembly references, Metadata image",
+            error);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
@@ -11734,7 +11736,7 @@ public partial class CommandExecutionTests
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
         // exits non-zero with 'requires --heap <heap>:<address>', the same way
         // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // scanner-bound, so ScannerBoundSections lists it, but supplying a coordinate is
+        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
         // orthogonal to prerequisite sufficiency. The per-heap listing sections
         // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
         string[] coordinateScoped = [MetadataSectionNames.Heap];
@@ -11744,16 +11746,20 @@ public partial class CommandExecutionTests
 
         var bound = pipeline.ScannerBoundSections
             .Select(b => b.Name)
+            .Concat(pipeline.QueryBoundSections.Select(b => b.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
-        // exclusion must still name a real scanner-bound section.
+        // exclusion must still name a real data-bound section.
         foreach (var name in coordinateScoped)
             Assert.Contains(name, bound);
 
-        var names = pipeline.ScannerBoundSections
+        var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
-            .Select(b => b.Name)
+            .Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var names = scannerNames
+            .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
@@ -11872,8 +11878,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
+        Assert.Contains("| Dependencies | Direct assembly references |", output);
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ZeroReferences_PreservesOmittedJsonField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            "Signals",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\"references\":", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -12060,6 +12082,27 @@ public partial class CommandExecutionTests
             Assert.Contains("# Test.Primary.dll", output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_SelectedReferencesCollectsDirectReferences()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "References");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## References", output);
+            Assert.Contains("System.Runtime", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
