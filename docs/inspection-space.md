@@ -14,11 +14,14 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace or typed query plan
-today. Existing foundations include shared image and inspection session
-ownership, catalog generations, `CoreCache`, typed provenance and resolution
-currencies, and `InertString`; the workspace and query-plan model describes how
-those pieces will be composed.
+govern its migration. No command runs through a workspace today. Library
+metadata and direct-reference inspection are the first typed-query canaries:
+the section catalog plans typed demand and executes it through a
+prerequisite-aware registry, while the command still owns orchestration.
+Existing foundations also include shared image and inspection session ownership,
+catalog generations, `CoreCache`, typed provenance and resolution currencies,
+and `InertString`; the workspace model describes how those pieces will be
+composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -375,11 +378,16 @@ query declares:
 CLI sections and Wasm views lower their selections into this plan. They do not
 own acquisition cost or producer dependencies.
 
-The existing `ScannerRegistry` is an assembly-local predecessor: its explicit
-prerequisites, once-per-run resources, deterministic ordering, and tracing are
-useful foundations. String keys, mutable CLI models, path-shaped inputs, and
-library-command ownership are migration boundaries rather than workspace
-contracts.
+The existing `ScannerRegistry` remains an assembly-local predecessor: its
+explicit prerequisites, once-per-run resources, deterministic ordering, and
+tracing are useful foundations. `DotnetInspector.Queries` now owns the first
+typed sequential plan and the direct-reference section binding. String keys,
+mutable CLI models, path-shaped residual inputs, and library-command ownership
+remain migration boundaries rather than workspace contracts.
+
+The initial registry contains only network-free metadata queries. It passes each
+query's maximum transitive cost into the host execution scope; capability
+lowering for network or source-content queries remains part of their migration.
 
 ### Executor
 

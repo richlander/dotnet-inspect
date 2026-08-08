@@ -120,7 +120,7 @@ internal static class TypeFindIfMissResolver
         if (!LooksLikeSimpleTypeQuery(query))
             return TypeFindIfMissResult.None(query ?? "");
 
-        var normalizedQuery = TypeMatcher.Normalize(query!);
+        var normalizedQuery = FqnParser.NormalizeTypeName(query!);
         var findOptions = new FindOptions
         {
             Pattern = normalizedQuery,
@@ -151,7 +151,7 @@ internal static class TypeFindIfMissResolver
                 .ToList();
 
             var exactDisplayNameMatches = exactMatches
-                .Where(r => string.Equals(TypeMatcher.Normalize(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
+                .Where(r => string.Equals(FqnParser.NormalizeTypeName(r.Type), normalizedQuery, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             var exactSimpleNameMatches = exactMatches

@@ -1,5 +1,6 @@
 using DotnetInspector.MetadataRendering;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 
 namespace DotnetInspector.Sections;
 
@@ -49,11 +50,12 @@ public static class MetadataSections
             IsExpensive = false,
             ExplicitOnly = true,
             ListedInCatalog = false,
-            // The image overview is a fixed set of facts, already gathered by the scanner, so it
+            // The image overview is a fixed set of facts, already gathered by the query, so it
             // is neither Verbose nor Unbounded like the table sections it introduces.
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
-            ScannerKey = LibrarySections.ScannerMetadata,
+            ScannerKey = null,
+            Query = MetadataImageQuery.Definition,
             HasExplicitApplicability = true,
             IsApplicable = HasMetadata,
             CanRender = HasMetadata,
@@ -73,7 +75,8 @@ public static class MetadataSections
             // touches no table.
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
-            ScannerKey = LibrarySections.ScannerMetadata,
+            ScannerKey = null,
+            Query = MetadataImageQuery.Definition,
             HasExplicitApplicability = true,
             IsApplicable = static model => model.MetadataHeap is not null,
             CanRender = static model => model.MetadataHeap is not null,
@@ -94,7 +97,8 @@ public static class MetadataSections
                 // image, not by a subset of it — and a string heap can hold tens of thousands of
                 // entries. Unbounded is the honest classification.
                 Cost = SectionCost.Unbounded,
-                ScannerKey = LibrarySections.ScannerMetadata,
+                ScannerKey = null,
+                Query = MetadataImageQuery.Definition,
                 // Effectiveness follows the heap's size from the cheap image scan. Probing by
                 // rendering would project every table during discovery, paying the section's whole
                 // cost just to decide whether to list it.
@@ -121,8 +125,9 @@ public static class MetadataSections
                 // a meaningful bound, so no verbosity may auto-run it. Combined with ExplicitOnly
                 // this section is reachable only by exact name or the @Metadata door.
                 Cost = SectionCost.Unbounded,
-                ScannerKey = LibrarySections.ScannerMetadata,
-                // Effectiveness is decided by the scanner's row count, which is exact: a table with
+                ScannerKey = null,
+                Query = MetadataImageQuery.Definition,
+                // Effectiveness is decided by the query's row count, which is exact: a table with
                 // rows always renders rows. Probing by rendering would project the whole table
                 // during discovery, paying the lens's expensive half just to list it.
                 ProbeEffectiveness = false,

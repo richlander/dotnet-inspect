@@ -14,6 +14,9 @@ public record PackageIdentity(string Id, string? Version);
 /// </remarks>
 public record PackageSource(string Name, string Url, PackageSourceCredential? Credential = null)
 {
+    private const string NuGetOrgServiceIndexUrl =
+        "https://api.nuget.org/v3/index.json";
+
     private readonly string _url = ValidatedUrl(Url);
 
     /// <summary>
@@ -32,12 +35,21 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
         return url;
     }
 
-    public static PackageSource NuGetOrg { get; } = new("nuget.org", "https://api.nuget.org/v3/index.json");
+    public static PackageSource NuGetOrg { get; } =
+        new("nuget.org", NuGetOrgServiceIndexUrl);
 
-    public bool IsNuGetOrg =>
-        Uri.TryCreate(Url, UriKind.Absolute, out Uri? uri)
-        && (uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.EndsWith(".nuget.org", StringComparison.OrdinalIgnoreCase));
+    public bool IsNuGetOrg => IsNuGetOrgServiceIndex(Url);
+
+    internal static bool IsNuGetOrgServiceIndex(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+        && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+        && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
+        && uri.Port == 443
+        && (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.Ordinal)
+            || uri.AbsolutePath.Equals("/v3/index.json/", StringComparison.Ordinal))
+        && string.IsNullOrEmpty(uri.Query)
+        && string.IsNullOrEmpty(uri.Fragment)
+        && string.IsNullOrEmpty(uri.UserInfo);
 
     public string? GetFlatContainerUrl() =>
         IsNuGetOrg ? NuGetClient.NuGetOrgFlatContainer.TrimEnd('/') : null;
@@ -53,6 +65,24 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
             System.Text.Encoding.ASCII.GetBytes($"{Credential.Username}:{Credential.Password}"));
         return new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", encoded);
     }
+}
+
+/// <summary>
+/// Canonical starting states for package-source resolution.
+/// </summary>
+public static class PackageSources
+{
+    /// <summary>
+    /// The lowest-precedence source layer used by ambient configuration discovery.
+    /// </summary>
+    public static IReadOnlyList<PackageSource> Default { get; } =
+        Array.AsReadOnly([PackageSource.NuGetOrg]);
+
+    /// <summary>
+    /// An empty source layer used for explicitly selected configuration.
+    /// </summary>
+    public static IReadOnlyList<PackageSource> Empty { get; } =
+        Array.Empty<PackageSource>();
 }
 
 public record PackageSourceCredential(string Username, string Password)

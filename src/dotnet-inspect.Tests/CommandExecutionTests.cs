@@ -10078,7 +10078,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(output);
         Assert.Contains("category '@Performance' has no data for this query", error);
-        Assert.Contains("scanners requested   Metadata", error);
+        Assert.Contains(
+            "queries requested    Assembly references, Metadata image",
+            error);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
@@ -11871,7 +11873,7 @@ public partial class CommandExecutionTests
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
         // exits non-zero with 'requires --heap <heap>:<address>', the same way
         // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // scanner-bound, so ScannerBoundSections lists it, but supplying a coordinate is
+        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
         // orthogonal to prerequisite sufficiency. The per-heap listing sections
         // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
         string[] coordinateScoped = [MetadataSectionNames.Heap];
@@ -11881,16 +11883,20 @@ public partial class CommandExecutionTests
 
         var bound = pipeline.ScannerBoundSections
             .Select(b => b.Name)
+            .Concat(pipeline.QueryBoundSections.Select(b => b.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
-        // exclusion must still name a real scanner-bound section.
+        // exclusion must still name a real data-bound section.
         foreach (var name in coordinateScoped)
             Assert.Contains(name, bound);
 
-        var names = pipeline.ScannerBoundSections
+        var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
-            .Select(b => b.Name)
+            .Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var names = scannerNames
+            .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
@@ -12009,8 +12015,24 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
+        Assert.Contains("| Dependencies | Direct assembly references |", output);
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("Legacy /unsafe", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ZeroReferences_PreservesOmittedJsonField()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(object).Assembly.Location,
+            "-S",
+            "Signals",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("\"references\":", output);
         Assert.DoesNotContain("Tip:", error);
     }
 
@@ -12109,6 +12131,151 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Name")]
+    [InlineData("Version")]
+    public async Task Package_DefaultColumns_AllMissReportsCleanError(string column)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.UnmatchedColumn",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--columns", column, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains($"No columns matched projection: {column}", error);
+            Assert.DoesNotContain("System.InvalidOperationException", error);
+            Assert.DoesNotContain("MarkoutProjection.ComputeColumnMap", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultFields_ValidProjectionStillRenders()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.ValidField",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--fields", "Authors", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Authors | tests |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiSectionPartialMatchReportsCleanRenderError()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            // Markout applies the projection to each table independently, so a column that
+            // matches one section can still abort on an earlier heterogeneous section.
+            var (normalExit, normalOutput, normalError) = await RunAppAsync(
+                "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
+
+            Assert.Equal(1, normalExit);
+            Assert.Empty(normalOutput);
+            Assert.Contains("No columns matched projection: TFM", normalError);
+            Assert.DoesNotContain("System.InvalidOperationException", normalError);
+
+            var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
+                "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
+
+            Assert.Equal(1, overviewExit);
+            Assert.Empty(overviewOutput);
+            Assert.Contains("No columns matched projection: Path", overviewError);
+            Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonIgnoresColumnProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--json", "--columns", "Package", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var _ = JsonDocument.Parse(output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DefaultFieldsWithoutDataRemainNonFatal()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.EmptyFieldProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "package", packagePath, "--fields", "Downloads", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Note: 1 field has no data: Downloads", error);
+            Assert.DoesNotContain("No fields matched projection", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiPackageFormatRefusalPrecedesProjectionHandling()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath, "--columns", "Missing", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Multiple package output requires --json or a row format", error);
+            Assert.DoesNotContain("No columns matched projection", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_DiscoverSchema_ListsPublishedPackageInfoField()
     {
@@ -12197,6 +12364,27 @@ public partial class CommandExecutionTests
             Assert.Contains("# Test.Primary.dll", output);
             Assert.Contains("## Library Info", output);
             Assert.DoesNotContain("## Package Info", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_SelectedReferencesCollectsDirectReferences()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library", "-S", "References");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("# Test.Primary.dll", output);
+            Assert.Contains("## References", output);
+            Assert.Contains("System.Runtime", output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -13043,6 +13231,78 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageLibraryMode_ValueJsonArray_CarriesShapeProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", "--fields", "Assembly Version",
+                "--value", "--json-array", "--row", "first", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            var row = Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Equal("Library Info", row.GetProperty("section").GetString());
+            Assert.Matches(@"^\d+\.\d+\.\d+\.\d+$", row.GetProperty("value").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageLibraryMode_Value_CarriesProjectionRow()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", "--fields", "Assembly Version",
+                "--value", "--row", "2", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("row 2 is not in this section", error);
+            Assert.DoesNotContain("produced unprojected output", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--urls", "selected section has no URL values")]
+    [InlineData("--paths", "selected section has no path values")]
+    [InlineData("--json-array", "--json-array requires --value, --urls, --paths, or --print")]
+    public async Task PackageLibraryMode_CarriesRejectedProjectionOptions(
+        string option,
+        string expectedError)
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--library",
+                "-S", "Library Info", option, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(expectedError, error);
+            Assert.DoesNotContain("produced unprojected output", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Timeline_BareSelect_IsRefusedWithoutLeakingTheMarker()
     {
         // Both timeline sections grow with the version range, so there is no fixed/bounded subset
@@ -13284,6 +13544,92 @@ public partial class CommandExecutionTests
             Assert.Contains("| Package skill files | 0 |", countOutput);
             Assert.Contains("| Package nuspec file | 1 |", countOutput);
             Assert.Contains("| Package README file | 1 |", countOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Count_WritesScalarAndMapToTheRequestedOutputFiles()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        var scalarPath = Path.Combine(tempDir, "scalar-count.txt");
+        var mapPath = Path.Combine(tempDir, "map-count.txt");
+        try
+        {
+            var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--count", "--out", scalarPath);
+
+            Assert.Equal(0, scalarExit);
+            Assert.Empty(scalarOutput);
+            Assert.Empty(scalarError);
+            Assert.Equal("1\n", File.ReadAllText(scalarPath));
+
+            var (mapExit, mapOutput, mapError) = await RunAppAsync(
+                "package", packagePath, "-S", "@Files", "--count", "--out", mapPath);
+
+            Assert.Equal(0, mapExit);
+            Assert.Empty(mapOutput);
+            Assert.Empty(mapError);
+            var map = File.ReadAllText(mapPath);
+            Assert.StartsWith("| Section | Count |\n| ------- | ----- |\n", map);
+            Assert.Contains("| Package skill files | 0 |\n", map);
+            Assert.Contains("| Package nuspec file | 1 |\n", map);
+            Assert.Contains("| Package README file | 1 |\n", map);
+            Assert.EndsWith("\n", map, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Count_WritesEmbeddedLibraryAndMultiPackageRoutesToOutputFiles()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        var libraryPath = Path.Combine(tempDir, "library-count.txt");
+        var allLibrariesPath = Path.Combine(tempDir, "all-libraries-count.txt");
+        var multiPackagePath = Path.Combine(tempDir, "multi-package-count.txt");
+        try
+        {
+            var (libraryBaselineExit, libraryBaseline, _) = await RunAppAsync(
+                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count");
+            var (libraryExit, libraryOutput, libraryError) = await RunAppAsync(
+                "package", packagePath, "--library", "Layout.dll", "-S", "Library Info", "--count",
+                "--out", libraryPath);
+
+            Assert.Equal(0, libraryBaselineExit);
+            Assert.Equal(0, libraryExit);
+            Assert.Empty(libraryOutput);
+            Assert.Empty(libraryError);
+            Assert.Equal(libraryBaseline, File.ReadAllText(libraryPath));
+
+            var (allLibrariesBaselineExit, allLibrariesBaseline, allLibrariesBaselineError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count");
+            var (allLibrariesExit, allLibrariesOutput, allLibrariesError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--count",
+                "--out", allLibrariesPath);
+
+            Assert.Equal(0, allLibrariesBaselineExit);
+            Assert.Equal(0, allLibrariesExit);
+            Assert.Empty(allLibrariesOutput);
+            Assert.Equal(allLibrariesBaselineError, allLibrariesError);
+            Assert.Equal(allLibrariesBaseline, File.ReadAllText(allLibrariesPath));
+
+            var (multiPackageBaselineExit, multiPackageBaseline, multiPackageBaselineError) = await RunAppAsync(
+                "package", packagePath, packagePath, "-S", "Package Info", "--tsv", "--count");
+            var (multiPackageExit, multiPackageOutput, multiPackageError) = await RunAppAsync(
+                "package", packagePath, packagePath, "-S", "Package Info", "--tsv", "--count",
+                "--out", multiPackagePath);
+
+            Assert.Equal(0, multiPackageBaselineExit);
+            Assert.Equal(0, multiPackageExit);
+            Assert.Empty(multiPackageOutput);
+            Assert.Equal(multiPackageBaselineError, multiPackageError);
+            Assert.Equal(multiPackageBaseline, File.ReadAllText(multiPackagePath));
         }
         finally
         {

@@ -1,7 +1,7 @@
 using System.Buffers;
 using System.Xml;
 
-namespace ILInspector.Metadata;
+namespace CSharpText;
 
 /// <summary>
 /// Parses XML doc comments (///) from C# source files.

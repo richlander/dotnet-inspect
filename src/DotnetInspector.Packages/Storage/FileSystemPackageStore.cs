@@ -22,21 +22,28 @@ public sealed class FileSystemPackageStore : IPackageStore
         var normalizedName = packageName.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
 
-        string? cachedPath;
+        CachedPackage? cached;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
         {
-            cachedPath = NuGetCache.TryGetCachedPackage(
+            cached = NuGetCache.TryGetCachedPackageContent(
                 normalizedName,
                 normalizedVersion,
                 allowedSourceKeys);
         }
 
-        if (cachedPath == null || !NuGetCache.IsCachedPackageValid(cachedPath))
+        if (cached == null || !NuGetCache.IsCachedPackageValid(cached.ExtractPath))
             return null;
 
-        log?.Invoke($"Using cached package: {cachedPath}");
-        var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
-        return new FileSystemPackageContent(cachedPath, cachedNupkg, fromCache: true);
+        log?.Invoke($"Using cached package: {cached.ExtractPath}");
+        var cachedNupkg = FindNupkgInDirectory(
+            cached.ExtractPath,
+            normalizedName,
+            normalizedVersion);
+        return new FileSystemPackageContent(
+            cached.ExtractPath,
+            cachedNupkg,
+            fromCache: true,
+            cached.ProducerKey);
     }
 
     /// <inheritdoc />
@@ -79,7 +86,8 @@ public sealed class FileSystemPackageStore : IPackageStore
             return new FileSystemPackageContent(
                 committed.ExtractPath,
                 committed.NupkgPath,
-                fromCache: true);
+                fromCache: true,
+                committed.ProducerKey);
         }
         finally
         {
@@ -99,12 +107,6 @@ public sealed class FileSystemPackageStore : IPackageStore
             }
         }
     }
-
-    /// <inheritdoc />
-    public string? TryGetLatestCachedVersion(
-        string packageName,
-        IReadOnlyList<string>? allowedSourceKeys)
-        => NuGetCache.TryGetLatestCachedVersion(packageName, allowedSourceKeys);
 
     private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
     {

@@ -216,12 +216,16 @@ internal static class MemberCodeProvider
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts,
                         MethodToken: methodToken,
-                        // Annotated Source spells the same member as Decompiled
-                        // Source, so it renders with the same resolved style options
-                        // -- otherwise the two views of one member disagree. The
-                        // other projections here (cost/semantics overlays, fact rows)
-                        // are style-invariant evidence and keep the shipped defaults.
-                        PrinterOptions: request.AnnotatedSource || request.SourceMap ? renderOptions : null,
+                        // Every C# body view uses the same local-name policy, so one
+                        // document never mixes readable names with V_index. Research
+                        // keeps overlays isolated from byte-divergent lenses and other
+                        // spelling knobs; fact rows remain style-invariant.
+                        PrinterOptions: request.AnnotatedSource
+                            || request.SourceMap
+                            || request.CostOverlay
+                            || request.SemanticsOverlay
+                            ? renderOptions
+                            : null,
                         CaretFocus: request.CaretFocus,
                         SourceMap: request.SourceMap));
 
@@ -276,6 +280,12 @@ internal static class MemberCodeProvider
                 && researchProjection?.SemanticsOverlay is { } semantics
                     ? TrimOutput(semantics)
                     : null;
+
+            if ((request.CostOverlay && costOverlayResult?.Output is not null)
+                || (request.SemanticsOverlay && semanticsOverlayResult?.Output is not null))
+            {
+                styledProjectionProduced = true;
+            }
 
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)

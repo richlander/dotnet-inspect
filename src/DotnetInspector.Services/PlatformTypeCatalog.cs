@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services;
@@ -25,7 +26,7 @@ public sealed class PlatformTypeLookupPattern
         }
 
         return new PlatformTypeLookupPatternResult.Valid(
-            new PlatformTypeLookupPattern(TypeMatcher.Normalize(value.Trim())));
+            new PlatformTypeLookupPattern(FqnParser.NormalizeTypeName(value.Trim())));
     }
 
     internal bool Matches(MetadataTypeDefinitionName name) =>
@@ -44,7 +45,7 @@ public sealed class PlatformTypeLookupPattern
     internal int GenericArity => TypeMatcher.GetPatternArity(Normalized);
 
     static string NormalizeLookup(string value) =>
-        TypeMatcher.Normalize(value).Replace('+', '.');
+        FqnParser.NormalizeTypeName(value).Replace('+', '.');
 }
 
 /// <summary>The result of validating a platform type lookup pattern.</summary>

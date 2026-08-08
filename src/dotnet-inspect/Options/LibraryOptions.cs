@@ -30,12 +30,6 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeDependencies { get; init; }
 
     /// <summary>
-    /// Internal execution demand for direct assembly-reference metadata. Unlike
-    /// <see cref="IncludeReferences"/>, this does not select a legacy output route.
-    /// </summary>
-    internal bool CollectReferences { get; init; }
-
-    /// <summary>
     /// Internal execution demand for the resolved transitive reference tree.
     /// </summary>
     internal bool CollectReferenceTree { get; init; }
@@ -250,6 +244,11 @@ public record LibraryOptions : IProjectionOptions
     /// Output the number of rendered table rows for a single selected section.
     /// </summary>
     public bool Count { get; init; }
+
+    /// <summary>
+    /// Path to write a projected payload to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
 
     public bool Print { get; init; }
 

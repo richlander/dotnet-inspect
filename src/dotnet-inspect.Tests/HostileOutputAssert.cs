@@ -116,7 +116,7 @@ internal static class HostileCli
         {
             return await ConsoleCapture.RunAsync(async () =>
             {
-                CoreFactory.Initialize(offline: true);
+                CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = true });
                 CoreFactory.ResetSharedForTesting();
 
                 // Program.cs initializes the cache before dispatching, and the
@@ -135,7 +135,7 @@ internal static class HostileCli
         }
         finally
         {
-            CoreFactory.Initialize(offline: wasOffline);
+            CoreFactory.Initialize(new DotnetInspector.Core.HttpClientFactoryOptions { Offline = wasOffline });
             CoreFactory.ResetSharedForTesting();
         }
     }

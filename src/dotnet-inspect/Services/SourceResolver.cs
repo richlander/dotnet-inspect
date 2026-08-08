@@ -52,7 +52,7 @@ public static class SourceResolver
 
     /// <summary>
     /// Peels segments from the right of a dotted name, probing each candidate
-    /// against local sources: dotnet hive, dotnet-inspect cache, NuGet global cache.
+    /// against the dotnet hive and source-scoped package candidate metadata.
     /// Returns the first hit with its remainder, or null if nothing matches locally.
     /// </summary>
     internal static LocalProbeResult? TryProbeLocalQualifiedName(
@@ -97,12 +97,15 @@ public static class SourceResolver
                 continue;
             }
 
-            // Space 2 & 3: dotnet-inspect cache + NuGet global cache
-            if (NuGetCache.TryGetLatestCachedVersion(candidate, sourceKeys) != null)
+            // Source-scoped candidate metadata may split a package-qualified
+            // name without letting package-content directories invent versions.
+            if (PackageExtractor.HasCachedCandidateVersion(
+                    candidate,
+                    sourceKeys))
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",
-                    $"{name} -> package-cache={candidate}; type={remainder}");
+                    $"{name} -> package-candidate-cache={candidate}; type={remainder}");
                 return new LocalProbeResult(candidate, remainder, LocalSourceKind.CachedPackage);
             }
         }
@@ -289,8 +292,8 @@ public static class SourceResolver
 
             // Normalize C#-style generic notation to CLR backtick notation.
             // e.g., "Dictionary<TKey,TValue>" → "Dictionary`2", "List<T>" → "List`1"
-            if (packagePath != null) packagePath = ILInspector.Metadata.TypeMatcher.Normalize(packagePath);
-            if (typeName != null) typeName = ILInspector.Metadata.TypeMatcher.Normalize(typeName);
+            if (packagePath != null) packagePath = FqnParser.NormalizeTypeName(packagePath);
+            if (typeName != null) typeName = FqnParser.NormalizeTypeName(typeName);
 
             // Check for version number passed as separate argument
             if (CommandLineHelpers.LooksLikeVersionNumber(typeName))
