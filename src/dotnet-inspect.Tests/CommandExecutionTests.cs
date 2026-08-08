@@ -12447,6 +12447,18 @@ public partial class CommandExecutionTests
             Assert.Contains("StateMachineAsync", output);
             Assert.Empty(error);
 
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "library", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--markdown", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.StartsWith("# A.Empty", markdownOutput);
+            Assert.Contains("StateMachineAsync", markdownOutput);
+            Assert.Contains("## Libraries", markdownOutput);
+            Assert.DoesNotContain("#### Library Info", markdownOutput);
+            Assert.DoesNotContain("#### Symbols", markdownOutput);
+            Assert.Empty(markdownError);
+
             var (allEmptyExit, allEmptyOutput, allEmptyError) = await RunAppAsync(
                 "library", "--package", packagePath, "--tfm", "all",
                 "-S", "Resources", "--tsv", "--tips", "q");

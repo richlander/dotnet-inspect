@@ -522,21 +522,11 @@ public static class OutputFormatter
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
-        var report = new LibraryInspectionReport
-        {
-            Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
-        };
-        var writerOptions = new MarkoutWriterOptions
-        {
-            IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
-            Projection = BuildProjection(options.Columns, options.Fields)
-        };
 
         if (options.Count)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
+            var markdown = SerializeLibraryResultsMarkdown(
+                inspections, options, pipeline, selectAll, topFieldsOnly);
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
@@ -559,7 +549,8 @@ public static class OutputFormatter
 
         if (options.VerbosityEnabled)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
+            var markdown = SerializeLibraryResultsMarkdown(
+                inspections, options, pipeline, selectAll, topFieldsOnly);
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
@@ -579,6 +570,41 @@ public static class OutputFormatter
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
+    }
+
+    private static string SerializeLibraryResultsMarkdown(
+        IReadOnlyList<LibraryInspection> inspections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        bool selectAll,
+        bool topFieldsOnly)
+    {
+        var header = new StringWriter { NewLine = "\n" };
+        var writer = MarkoutWriter.Create(header, new MarkdownFormatter());
+        writer.WriteHeading(
+            1,
+            LibraryViewText.Contain(Path.GetFileNameWithoutExtension(inspections[0].FileName))
+                ?? string.Empty);
+        writer.WriteHeading(2, "Libraries");
+
+        List<string> documents = [header.ToString().TrimEnd()];
+        foreach (var inspection in inspections)
+        {
+            var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+            var writerOptions = new MarkoutWriterOptions
+            {
+                IncludeSections = pipeline.ComputeIncludeSections(
+                    inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
+                Projection = BuildProjection(options.Columns, options.Fields),
+                HeadingLevelOffset = 2,
+            };
+            documents.Add(
+                MarkoutSerializer.Serialize(
+                    auditView, InspectionContext.Default, writerOptions)
+                    .TrimEnd());
+        }
+
+        return string.Join("\n\n", documents);
     }
 
     /// <summary>
