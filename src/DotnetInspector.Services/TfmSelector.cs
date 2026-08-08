@@ -111,23 +111,23 @@ public static class TfmSelector
         string[] candidates = [];
         if (Directory.Exists(toolsDir))
         {
-            candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(toolsDir);
         }
 
         // Ref packages (e.g. Microsoft.NETCore.App.Ref) put assemblies in ref/
         if (candidates.Length == 0 && Directory.Exists(refDir))
         {
-            candidates = Directory.GetFiles(refDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(refDir);
         }
 
         if (candidates.Length == 0 && Directory.Exists(libDir))
         {
-            candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(libDir);
         }
 
         if (candidates.Length == 0)
         {
-            candidates = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(extractPath);
         }
 
         return candidates.OrderBy(f => f).ToList();
@@ -259,7 +259,7 @@ public static class TfmSelector
     }
 
     private static List<string> GetAllPackageAssemblies(string extractPath)
-        => FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+        => FilterResourceAssemblies(GetDllFiles(extractPath))
             .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
             .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -530,6 +530,12 @@ public static class TfmSelector
     private static List<string> GetLegacyPackageAssemblies(string extractPath)
         => FilterResourceAssemblies(GetPackageDlls(extractPath));
 
+    private static string[] GetDllFiles(string path)
+        => Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+            .Where(file => Path.GetExtension(file)
+                .Equals(".dll", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
     private static string? GetTfm(string extractPath, string path)
         => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/'));
 
@@ -569,10 +575,14 @@ public static class TfmSelector
             return false;
 
         var primaryAssemblyName = Path.GetFileName(path)[..^".resources.dll".Length] + ".dll";
-        var primaryAssemblyPath = Path.Combine(
-            parentDirectory!.Parent?.FullName ?? "",
-            primaryAssemblyName);
-        return File.Exists(primaryAssemblyPath);
+        return Directory.EnumerateFiles(
+                parentDirectory!.Parent?.FullName ?? "",
+                "*",
+                SearchOption.TopDirectoryOnly)
+            .Any(candidate => Path.GetFileName(candidate)
+                .Equals(
+                    primaryAssemblyName,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsCultureDirectoryName(string? name)

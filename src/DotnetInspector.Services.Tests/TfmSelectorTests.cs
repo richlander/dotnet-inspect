@@ -70,6 +70,35 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_ExplicitTfmAcceptsUppercaseExtension()
+    {
+        var assembly = WriteDll("lib/net8.0/MyLib.DLL");
+
+        var (paths, tfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(
+                _tempDir,
+                "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([assembly], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_ExplicitTfmFiltersUppercaseSatellite()
+    {
+        var assembly = WriteDll("lib/net8.0/MyLib.DLL");
+        WriteDll("lib/net8.0/de/MyLib.resources.DLL");
+
+        var (paths, tfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(
+                _tempDir,
+                "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([assembly], paths);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_ToolsLayoutExplicitTfm_SelectsMatchingAssemblies()
     {
         var tool = WriteDll("tools/net8.0/any/MyTool.dll");

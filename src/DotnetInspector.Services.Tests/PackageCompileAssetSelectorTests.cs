@@ -138,6 +138,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
     {
         IPackageContent content = InMemory(
             "../escape.dll",
+            "lib\\net8.0\\Backslash.dll",
             "/lib/net8.0/Leading.dll",
             "runtimes/linux-x64/lib/net8.0/Runtime.dll",
             "lib/../Escape.dll",

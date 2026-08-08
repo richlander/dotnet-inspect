@@ -496,6 +496,9 @@ public static partial class BrowserInspectionEngine
     static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
+    sealed record SelectedPackageAssembly(
+        PackageCompileAsset Asset,
+        byte[] Image);
 
     [JSExport]
     public static async Task<string> QueryPackage(string packageId, string version, string targetFramework)
@@ -1080,8 +1083,14 @@ public static partial class BrowserInspectionEngine
 
         try
         {
-            var implementationPath = await MaterializeImplementationAsync(
-                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
+            var implementationPath =
+                await MaterializeSelectedCompileAssemblyAsync(
+                    normalizedId,
+                    normalizedVersion,
+                    packageId,
+                    targetFramework,
+                    assemblyName,
+                    tempRoot);
 
             var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
             using var source = Pipeline.MetadataSource.Open(implementationPath, null, resolver);
@@ -1353,27 +1362,25 @@ public static partial class BrowserInspectionEngine
         var signals = new List<EcosystemIntegrationSignalInfo>();
         var failures = new List<string>();
 
-        using (var stream = new MemoryStream(packageBytes, writable: false))
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        foreach (SelectedPackageAssembly assembly in
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework))
         {
-            ZipArchiveEntry[] assemblies =
-                GetDirectPackageAssemblyEntries(archive, targetFramework);
-
-            foreach (var entry in assemblies)
+            try
             {
-                try
-                {
-                    using var assemblyStream = entry.Open();
-                    using var buffer = new MemoryStream();
-                    await assemblyStream.CopyToAsync(buffer);
-                    buffer.Position = 0;
-                    using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
-                    signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
-                }
-                catch (Exception exception)
-                {
-                    failures.Add($"{entry.Name}: {exception.Message}");
-                }
+                using var buffer = new MemoryStream(
+                    assembly.Image,
+                    writable: false);
+                using var peReader =
+                    new System.Reflection.PortableExecutable.PEReader(buffer);
+                signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
+            }
+            catch (Exception exception)
+            {
+                failures.Add(
+                    $"{assembly.Asset.AssemblyName}: {exception.Message}");
             }
         }
 
@@ -1493,28 +1500,19 @@ public static partial class BrowserInspectionEngine
         var opportunities = new Dictionary<string, IntegrationOpportunityInfo>(StringComparer.Ordinal);
         var failures = new List<string>();
 
-        using (var stream = new MemoryStream(packageBytes, writable: false))
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-        {
-            var assemblyBytes = new List<byte[]>();
-            foreach (ZipArchiveEntry entry in
-                GetDirectPackageAssemblyEntries(archive, targetFramework))
-            {
-                try
-                {
-                    using var assemblyStream = entry.Open();
-                    using var buffer = new MemoryStream();
-                    await assemblyStream.CopyToAsync(buffer);
-                    assemblyBytes.Add(buffer.ToArray());
-                }
-                catch (Exception exception)
-                {
-                    failures.Add($"{entry.Name}: {exception.Message}");
-                }
-            }
+        SelectedPackageAssembly[] selectedAssemblies =
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework);
 
-            foreach (var pair in ScanOpportunities(assemblyBytes, failures))
-                opportunities.TryAdd(pair.Key, pair.Value);
+        foreach (var pair in ScanOpportunities(
+            selectedAssemblies
+                .Select(assembly => assembly.Image)
+                .ToArray(),
+            failures))
+        {
+            opportunities.TryAdd(pair.Key, pair.Value);
         }
 
         var categories = BuildOpportunityCategories(opportunities.Values);
@@ -1644,28 +1642,36 @@ public static partial class BrowserInspectionEngine
 
         try
         {
-            var assemblyNames = new List<string>();
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            using var stream = new MemoryStream(
+                packageBytes,
+                writable: false);
+            using var archive = new ZipArchive(
+                stream,
+                ZipArchiveMode.Read);
+            ZipArchiveEntry[] implementationEntries =
+                GetDirectPackageAssemblyEntries(
+                    archive,
+                    targetFramework);
+            foreach (ZipArchiveEntry entry in implementationEntries)
             {
-                foreach (ZipArchiveEntry entry in
-                    GetDirectPackageAssemblyEntries(archive, targetFramework))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                    if (!assemblyNames.Contains(entry.Name))
-                        assemblyNames.Add(entry.Name);
-                }
+                string assemblyPath = Path.Combine(
+                    tempRoot,
+                    entry.Name);
+                await WriteEntryAsync(entry, assemblyPath);
             }
 
-            foreach (var assemblyName in assemblyNames)
+            foreach (ZipArchiveEntry entry in implementationEntries)
             {
-                var assemblyPath = Path.Combine(tempRoot, assemblyName);
+                string assemblyName = entry.Name;
+                var assemblyPath = Path.Combine(
+                    tempRoot,
+                    assemblyName);
                 try
                 {
                     AnalyzeAssemblyPerformance(
                         assemblyName,
                         assemblyPath,
-                        $"lib/{targetFramework}/{assemblyName}",
+                        entry.FullName,
                         members,
                         ref totalOpportunities,
                         ref nonPublicOpportunities);
@@ -1849,28 +1855,25 @@ public static partial class BrowserInspectionEngine
         var assemblies = new List<BrowserAssemblyMetadata>();
         var failures = new List<string>();
 
-        using (var stream = new MemoryStream(packageBytes, writable: false))
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        foreach (SelectedPackageAssembly assembly in
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework))
         {
-            ZipArchiveEntry[] entries =
-                GetDirectPackageAssemblyEntries(archive, targetFramework);
-
-            foreach (var entry in entries)
+            try
             {
-                try
-                {
-                    using var assemblyStream = entry.Open();
-                    using var buffer = new MemoryStream();
-                    await assemblyStream.CopyToAsync(buffer);
-                    var image = buffer.ToArray();
-                    var described = DescribeAssemblyMetadata(entry.Name, entry.FullName, image);
-                    if (described is not null)
-                        assemblies.Add(described);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add($"{entry.Name}: {exception.Message}");
-                }
+                var described = DescribeAssemblyMetadata(
+                    assembly.Asset.AssemblyName,
+                    assembly.Asset.Path,
+                    assembly.Image);
+                if (described is not null)
+                    assemblies.Add(described);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(
+                    $"{assembly.Asset.AssemblyName}: {exception.Message}");
             }
         }
 
@@ -2156,7 +2159,7 @@ public static partial class BrowserInspectionEngine
     }
 
     // One NuGet-package assembly's table window. Re-acquires the package (session-cached) and
-    // reads the named lib/{tfm} assembly's bytes, then projects the requested table page.
+    // reads the named product-selected compile assembly, then projects the requested table page.
     [JSExport]
     public static async Task<string> QueryPackageMetadataTable(
         string packageId,
@@ -2171,33 +2174,20 @@ public static partial class BrowserInspectionEngine
         var normalizedVersion = version.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
 
-        byte[]? image = null;
-        using (var stream = new MemoryStream(packageBytes, writable: false))
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-        {
-            ZipArchiveEntry? entry = FindDirectPackageAssemblyEntry(
-                archive,
-                targetFramework,
-                assemblyFileName);
-            if (entry is not null)
-            {
-                using var assemblyStream = entry.Open();
-                using var buffer = new MemoryStream();
-                await assemblyStream.CopyToAsync(buffer);
-                image = buffer.ToArray();
-            }
-        }
+        byte[]? image = ReadSelectedPackageAssembly(
+            packageBytes,
+            packageId,
+            targetFramework,
+            assemblyFileName)?.Image;
 
         BrowserMetadataWindow window = image is null
             ? new BrowserMetadataWindow(assemblyFileName, tableIndex,
                 tableIndex is >= 0 and <= 63 ? ((TableIndex)tableIndex).ToString() : $"#{tableIndex}",
                 0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false,
-                $"Could not find {assemblyFileName} in {prefixOf(targetFramework)}.")
+                $"Could not find {assemblyFileName} in the selected compile set for {targetFramework}.")
             : BuildTableWindow(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", tableIndex, startRowId, maxRows);
 
         return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
-
-        static string prefixOf(string tfm) => $"lib/{tfm}/";
     }
 
     // One .NET platform library's table window (runtime pseudo-package: no nupkg).
@@ -2226,8 +2216,8 @@ public static partial class BrowserInspectionEngine
         return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
     }
 
-    // One NuGet-package assembly's heap listing. Acquires the lib/{tfm} assembly bytes exactly as
-    // QueryPackageMetadataTable does, then lists the named heap's entries.
+    // One NuGet-package assembly's heap listing. Acquires the selected compile assembly bytes
+    // exactly as QueryPackageMetadataTable does, then lists the named heap's entries.
     [JSExport]
     public static async Task<string> QueryPackageHeapEntries(
         string packageId,
@@ -2240,28 +2230,17 @@ public static partial class BrowserInspectionEngine
         var normalizedVersion = version.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
 
-        byte[]? image = null;
-        using (var stream = new MemoryStream(packageBytes, writable: false))
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-        {
-            ZipArchiveEntry? entry = FindDirectPackageAssemblyEntry(
-                archive,
-                targetFramework,
-                assemblyFileName);
-            if (entry is not null)
-            {
-                using var assemblyStream = entry.Open();
-                using var buffer = new MemoryStream();
-                await assemblyStream.CopyToAsync(buffer);
-                image = buffer.ToArray();
-            }
-        }
+        byte[]? image = ReadSelectedPackageAssembly(
+            packageBytes,
+            packageId,
+            targetFramework,
+            assemblyFileName)?.Image;
 
         BrowserHeapListing listing = image is null
             ? new BrowserHeapListing(assemblyFileName, heap,
                 Enum.TryParse<HeapKind>(heap, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{heap}",
                 0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false,
-                $"Could not find {assemblyFileName} in lib/{targetFramework}/.")
+                $"Could not find {assemblyFileName} in the selected compile set for {targetFramework}.")
             : BuildHeapListing(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", heap);
 
         return JsonSerializer.Serialize(listing, BrowserJsonContext.Default.BrowserHeapListing);
@@ -2988,6 +2967,115 @@ public static partial class BrowserInspectionEngine
         await input.CopyToAsync(output);
     }
 
+    static SelectedPackageAssembly[] ReadSelectedPackageAssemblies(
+        byte[] packageBytes,
+        string packageId,
+        string targetFramework)
+    {
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            fromCache: false,
+            producerKey: "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework);
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoCompileAssets)
+        {
+            throw new InvalidOperationException(
+                "The package has no compile-time assemblies.");
+        }
+
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            throw new InvalidOperationException(
+                $"Framework '{targetFramework}' is not present.");
+        }
+
+        var assemblies = new List<SelectedPackageAssembly>(
+            selection.Assets.Count);
+        foreach (PackageCompileAsset asset in selection.Assets)
+        {
+            if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+            {
+                throw new InvalidOperationException(
+                    $"Selected package asset '{asset.Id}' is no longer available.");
+            }
+
+            using (stream)
+            using (var buffer = new MemoryStream())
+            {
+                stream.CopyTo(buffer);
+                assemblies.Add(
+                    new SelectedPackageAssembly(
+                        asset,
+                        buffer.ToArray()));
+            }
+        }
+
+        return [.. assemblies];
+    }
+
+    static SelectedPackageAssembly? FindSelectedPackageAssembly(
+        IEnumerable<SelectedPackageAssembly> assemblies,
+        string assemblyName)
+        => assemblies.FirstOrDefault(assembly =>
+                assembly.Asset.AssemblyName.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? assemblies.FirstOrDefault(assembly =>
+                assembly.Asset.AssemblyName.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase));
+
+    static SelectedPackageAssembly? ReadSelectedPackageAssembly(
+        byte[] packageBytes,
+        string packageId,
+        string targetFramework,
+        string assemblyName)
+    {
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            fromCache: false,
+            producerKey: "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework);
+        PackageCompileAsset? asset =
+            selection.Status
+                == PackageCompileAssetSelectionStatus.Selected
+                ? selection.Assets.FirstOrDefault(candidate =>
+                        candidate.AssemblyName.Equals(
+                            assemblyName,
+                            StringComparison.Ordinal))
+                    ?? selection.Assets.FirstOrDefault(candidate =>
+                        candidate.AssemblyName.Equals(
+                            assemblyName,
+                            StringComparison.OrdinalIgnoreCase))
+                : null;
+        if (asset is null)
+            return null;
+        if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+        {
+            throw new InvalidOperationException(
+                $"Selected package asset '{asset.Id}' is no longer available.");
+        }
+
+        using (stream)
+        using (var buffer = new MemoryStream())
+        {
+            stream.CopyTo(buffer);
+            return new SelectedPackageAssembly(
+                asset,
+                buffer.ToArray());
+        }
+    }
+
     static ZipArchiveEntry[] GetDirectPackageAssemblyEntries(
         ZipArchive archive,
         string targetFramework,
@@ -3287,6 +3375,56 @@ public static partial class BrowserInspectionEngine
         if (!File.Exists(implementationPath))
             await WriteEntryAsync(implementation, implementationPath);
         return implementationPath;
+    }
+
+    static async Task<string> MaterializeSelectedCompileAssemblyAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string packageId,
+        string targetFramework,
+        string assemblyName,
+        string tempRoot)
+    {
+        if (normalizedId.Equals(
+            RuntimePackPackageId,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return await MaterializeImplementationAsync(
+                normalizedId,
+                normalizedVersion,
+                targetFramework,
+                assemblyName,
+                tempRoot,
+                allowRefFallback: false);
+        }
+
+        var packageBytes = await GetPackageBytesAsync(
+            normalizedId,
+            normalizedVersion);
+        SelectedPackageAssembly[] assemblies =
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework);
+        SelectedPackageAssembly selected =
+            FindSelectedPackageAssembly(
+                assemblies,
+                assemblyName)
+            ?? throw new InvalidOperationException(
+                $"No selected compile asset for {assemblyName} at {targetFramework}.");
+
+        foreach (SelectedPackageAssembly assembly in assemblies)
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(
+                    tempRoot,
+                    assembly.Asset.AssemblyName),
+                assembly.Image);
+        }
+
+        return Path.Combine(
+            tempRoot,
+            selected.Asset.AssemblyName);
     }
 
     // Fetches one file from a runtime pack (runtimes/.../<file>), range-extracting just that

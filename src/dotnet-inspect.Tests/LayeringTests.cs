@@ -91,10 +91,10 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.Equal(
-            2,
+            4,
             CountOccurrences(
                 engineSource,
-                "PackageCompileAssetSelector.Select(content, packageId, targetFramework)"));
+                "PackageCompileAssetSelector.Select("));
         Assert.Contains(
             "selection.FindAsset(assemblyId)",
             engineSource,
@@ -120,10 +120,20 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.Equal(
-            8,
+            5,
             CountOccurrences(
                 engineSource,
                 "GetDirectPackageAssemblyEntries("));
+        Assert.Equal(
+            5,
+            CountOccurrences(
+                engineSource,
+                "ReadSelectedPackageAssemblies("));
+        Assert.Equal(
+            3,
+            CountOccurrences(
+                engineSource,
+                "ReadSelectedPackageAssembly("));
         Assert.Contains(
             "assemblyId: item.assemblyId",
             browserSource,

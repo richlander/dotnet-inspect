@@ -154,7 +154,10 @@ public static class PackageCompileAssetSelector
         if (string.IsNullOrWhiteSpace(entry))
             return null;
 
-        string path = entry.Replace('\\', '/');
+        if (entry.Contains('\\'))
+            return null;
+
+        string path = entry;
         string[] parts = path.Split('/');
         if (parts.Length != 3
             || parts.Any(part => part is "." or "..")
