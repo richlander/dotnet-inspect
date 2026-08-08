@@ -18,11 +18,14 @@ govern its migration. No command runs through a workspace today. Library
 metadata, direct-reference, and extension-method inspection are the first
 typed-query canaries: the section catalog plans typed demand and executes it
 through a prerequisite-aware registry, while the command still owns
-orchestration.
-Existing foundations also include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
-and `InertString`; the workspace model describes how those pieces will be
-composed.
+orchestration. `DotnetInspector.Queries` also contains the first workspace
+foundation: an ephemeral workspace can own binding-consistent assembly context
+groups, and a group retains lazily acquired immutable assembly snapshots behind
+callback-scoped and stack-only access. Existing commands have not migrated to
+that workspace owner yet. Other foundations include shared image and inspection
+session ownership, catalog generations, `CoreCache`, typed provenance and
+resolution currencies, and `InertString`; the remaining workspace model
+describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -253,6 +256,27 @@ for the current query plan, not a permanent property of the group.
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
+
+The first implemented group contract owns typed
+`ResolvedAssemblyReference` participants paired with their binding-policy
+snapshots. Every participant in a group must carry the same binding-policy
+version identity. The group acquires each selected image lazily, validates it
+against its descriptor, and retains one immutable, non-pooled byte snapshot
+under a cumulative group budget reserved before snapshot allocation. Metadata
+exposes that bounded immutable snapshot acquisition as a narrow public
+capability; raw PE and metadata readers remain private, and Queries receives no
+friend access to Metadata. Callback access receives a scoped stack-only image
+view; direct access returns a stack-only read-only span result. Disposing the
+group prevents new access and releases its retained references after active
+callbacks complete, but it never attempts to revoke or recycle an already
+returned span.
+`InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
+isolation, callback and span lifetimes, concurrent disposal, bounded retention,
+per-participant single-flight acquisition, and typed acquisition failures.
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
+production Metadata friends.
+Catalogs, producer sessions, authorization, and command migration remain later
+slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

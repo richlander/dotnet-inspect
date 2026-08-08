@@ -23,16 +23,20 @@ public sealed class LayeringTests
     [Fact]
     public void Metadata_FriendsOnlyTestAssemblies()
     {
-        var friends = typeof(AssemblyInspectionSession).Assembly
+        string[] friends = typeof(AssemblyInspectionSession).Assembly
             .GetCustomAttributes(typeof(InternalsVisibleToAttribute), inherit: false)
             .Cast<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName.Split(',')[0])
-            .ToList();
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] expected =
+        [
+            "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Metadata.Tests",
+            "dotnet-inspect.Tests",
+        ];
 
-        Assert.DoesNotContain("dotnet-inspect", friends);
-        Assert.DoesNotContain("ILInspector.Research", friends);
-        Assert.Contains("dotnet-inspect.Tests", friends);
-        Assert.Contains("ILInspector.Metadata.Tests", friends);
+        Assert.Equal(expected, friends);
     }
 
     [Fact]
