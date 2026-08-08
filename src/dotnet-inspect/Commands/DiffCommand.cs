@@ -965,7 +965,8 @@ public class DiffCommand
                         packageName,
                         packageVersion,
                         isPlatformAssembly: options.PlatformVersionRange is not null,
-                        logger.Log);
+                        logger.Log,
+                        sourceOptions: options.SourceOptions);
                 }
 
                 foreach (var target in targets)

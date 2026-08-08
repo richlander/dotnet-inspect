@@ -51,7 +51,8 @@
   active eligible feed.
 - Honors layered NuGet `<packageSourceMapping>` configuration for package
   acquisition, dependencies, version discovery, search results, routing,
-  redirects, metadata enrichment, RID companions, and platform packs.
+  redirects, metadata and symbol-package enrichment, RID companions, and
+  platform packs.
   Configured-name aliases remain distinct through mapping and collapse to one
   producer only after the package-specific names are selected.
 - Uses unambiguous, atomically published `versions-v5` candidate entries and
