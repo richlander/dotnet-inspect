@@ -931,15 +931,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySourcePlan_SourceIntegrityAuthorizedOnlyByExplicitSelection()
-    {
-        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink: Integrity" };
-
-        Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunIntegrity);
-        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunIntegrity);
-    }
-
-    [Fact]
     public void LibrarySourcePlan_PdbDownloadAuthorizedByDetailedOrInclude()
     {
         Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).AllowPdbDownload);
@@ -970,8 +961,6 @@ public class SectionPipelineTests
         var plan = LibrarySourcePlans.For(options);
 
         Assert.False(plan.AllowPdbDownload);
-        Assert.False(plan.RunHeadAudit);
-        Assert.False(plan.RunIntegrity);
         Assert.False(plan.CollectSourceFiles);
         Assert.False(plan.ReadCachedPdb);
 
@@ -981,22 +970,6 @@ public class SectionPipelineTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" },
         });
         Assert.True(plan.AllowPdbDownload);
-    }
-
-    [Fact]
-    public void LibrarySourcePlan_SourceAuditAuthorizedByExplicitSourceLinkSections()
-    {
-        // The HEAD availability audit is now consumed only by the explicit Source Link audit
-        // sections; Signals no longer carries a network-dependent availability row, so it does not
-        // trigger the audit at any verbosity.
-        var signals = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
-        var availability = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "SourceLink: Availability" };
-
-        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).RunHeadAudit);
-        Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunHeadAudit);
-        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, signals).RunHeadAudit);
-        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, availability).RunHeadAudit);
     }
 
     [Fact]
@@ -1023,9 +996,6 @@ public class SectionPipelineTests
             "SourceLink: Files",
             "Symbols",
             "Signals",
-            "SourceLink: Availability",
-            "SourceLink: Missing Files",
-            "SourceLink: Integrity",
         ];
 
         foreach (var verbosity in Enum.GetValues<Verbosity>())
@@ -1045,16 +1015,10 @@ public class SectionPipelineTests
                 bool expectedPdb = include is null
                     ? verbosity >= Verbosity.Detailed
                     : include.Overlaps(sourceSections);
-                bool expectedAudit = include is not null
-                    && include.Overlaps(
-                        ["SourceLink: Availability", "SourceLink: Missing Files"]);
-                bool expectedIntegrity = include?.Contains("SourceLink: Integrity") == true;
 
                 Assert.Equal(
                     expectedPdb,
                     plan.AllowPdbDownload);
-                Assert.Equal(expectedAudit, plan.RunHeadAudit);
-                Assert.Equal(expectedIntegrity, plan.RunIntegrity);
                 Assert.Equal(
                     include?.Contains("SourceLink: Files") == true,
                     plan.CollectSourceFiles);
@@ -1566,13 +1530,117 @@ public class SectionPipelineTests
     {
         var registry = LibrarySections.CreateQueryRegistry();
         var pipeline = LibrarySections.CreatePipeline();
+        HashSet<InspectionQueryDefinition> closure =
+            registry.ExpandRequired(pipeline.DeclaredQueries);
 
         Assert.Equal(
-            pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal),
+            closure.OrderBy(q => q.Name, StringComparer.Ordinal),
             registry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(
-            [AssemblyReferencesQuery.Definition, MetadataImageQuery.Definition],
+            [
+                AssemblyReferencesQuery.Definition,
+                MetadataImageQuery.Definition,
+                SourceAvailabilityQuery.Definition,
+                SourceIntegrityQuery.Definition,
+            ],
             pipeline.DeclaredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LibrarySourceLinkSections_DemandSharedTypedQueries()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var registry = LibrarySections.CreateQueryRegistry();
+
+        HashSet<InspectionQueryDefinition> availability = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.SourceLinkAvailability,
+                SectionNames.SourceLinkMissingFiles,
+            });
+        HashSet<InspectionQueryDefinition> integrity = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.SourceLinkIntegrity,
+            });
+
+        Assert.Equal([SourceAvailabilityQuery.Definition], availability);
+        Assert.Equal([SourceIntegrityQuery.Definition], integrity);
+        Assert.Equal(
+            [SourceAvailabilityQuery.Definition, SourceLinkDocumentsQuery.Definition],
+            registry.ExpandRequired(availability).OrderBy(q => q.Name, StringComparer.Ordinal));
+        Assert.Equal(
+            [SourceLinkDocumentsQuery.Definition, SourceIntegrityQuery.Definition],
+            registry.ExpandRequired(integrity).OrderBy(q => q.Name, StringComparer.Ordinal));
+        Assert.Equal(InspectionCost.Moderated, registry.CostOf(SourceLinkDocumentsQuery.Definition));
+        Assert.Equal(InspectionCost.Unbounded, registry.CostOf(SourceAvailabilityQuery.Definition));
+        Assert.Equal(InspectionCost.Unbounded, registry.CostOf(SourceIntegrityQuery.Definition));
+    }
+
+    [Fact]
+    public void PackageSourceLinkSections_ShareTheQueryFamily()
+    {
+        PackageSectionCatalog catalog = PackageSectionDescriptors.CreateCatalog();
+        HashSet<InspectionQueryDefinition> availability = catalog.Pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+            });
+        HashSet<InspectionQueryDefinition> integrity = catalog.Pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.SourceLinkIntegrity,
+            });
+
+        Assert.Equal([SourceAvailabilityQuery.Definition], availability);
+        Assert.Equal([SourceIntegrityQuery.Definition], integrity);
+        Assert.Equal(
+            catalog.QueryRegistry
+                .ExpandRequired(availability.Concat(integrity))
+                .OrderBy(q => q.Name, StringComparer.Ordinal),
+            catalog.QueryRegistry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+
+        var categories = catalog.Pipeline.GetCategoryMap();
+        Assert.Equal(
+            [
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkFiles,
+                PackageSections.SourceLinkIntegrity,
+                PackageSections.SourceLinkMissingFiles,
+            ],
+            categories[SectionCategoryNames.SourceLink].OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void PackageIntegrityExitCode_FailsOnlyForMismatches()
+    {
+        var clean = new InspectionResult
+        {
+            SourceIntegrity = new PackageSourceIntegrity(
+                1,
+                1,
+                Verified: 0,
+                Mismatched: 0,
+                LineEndingNormalized: 0,
+                Unverifiable: 1,
+                MismatchedFiles: null,
+                UnavailableLibraries: null,
+                FailedLibraries: null),
+        };
+        var mismatch = new InspectionResult
+        {
+            SourceIntegrity = clean.SourceIntegrity with { Mismatched = 1 },
+        };
+
+        Assert.Equal(0, PackageCommand.PackageIntegrityExitCode(clean));
+        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(clean, mismatch));
+        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(1, clean));
+        Assert.Equal(1, PackageCommand.PackageIntegrityExitCode(0, mismatch));
     }
 
     [Fact]
@@ -1719,6 +1787,89 @@ public class SectionPipelineTests
 
         Assert.Equal(["prerequisite", "first", "second"], order);
         Assert.Equal(3, results.Get(second));
+    }
+
+    [Fact]
+    public async Task TypedQueryRegistry_RunAsync_ExecutesMixedQueriesInDeclaredOrder()
+    {
+        List<string> order = [];
+        var prerequisite = new InspectionQuery<int>("prerequisite", InspectionCost.NetworkFree);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .Add(prerequisite, _ =>
+            {
+                order.Add("prerequisite");
+                return 1;
+            })
+            .AddAsync(
+                query,
+                (_, results, cancellationToken) =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    order.Add("query");
+                    return ValueTask.FromResult(results.Get(prerequisite) + 1);
+                },
+                prerequisite);
+
+        InspectionQueryResults results = await registry.RunAsync(
+            [query],
+            context: null,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(["prerequisite", "query"], order);
+        Assert.Equal(2, results.Get(query));
+    }
+
+    [Fact]
+    public void TypedQueryRegistry_RunRejectsAsynchronousQueries()
+    {
+        var query = new InspectionQuery<int>("async", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddAsync(query, (_, _) => ValueTask.FromResult(1));
+
+        var exception = Assert.Throws<InspectionQueryException>(
+            () => registry.Run([query], context: null));
+
+        Assert.Contains("must be executed with RunAsync", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypedQueryRegistry_RunAsync_PropagatesCancellation()
+    {
+        bool ran = false;
+        var query = new InspectionQuery<int>("async", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddAsync(query, (_, _) =>
+            {
+                ran = true;
+                return ValueTask.FromResult(1);
+            });
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => registry.RunAsync([query], context: null, cancellationToken: cancellation.Token));
+        Assert.False(ran);
+    }
+
+    [Fact]
+    public async Task TypedQueryRegistry_RunAsync_RejectsUndeclaredResultDependencies()
+    {
+        var hidden = new InspectionQuery<int>("hidden", InspectionCost.Unbounded);
+        var query = new InspectionQuery<int>("query", InspectionCost.NetworkFree);
+        var registry = new InspectionQueryRegistry<object?>()
+            .AddAsync(hidden, (_, _) => ValueTask.FromResult(42))
+            .AddAsync(
+                query,
+                (_, results, _) => ValueTask.FromResult(results.Get(hidden)));
+
+        var exception = await Assert.ThrowsAsync<InspectionQueryException>(
+            () => registry.RunAsync(
+                [hidden, query],
+                context: null,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains("not a declared prerequisite", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -3690,7 +3841,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(15, pipeline.AllSectionNames.Length);
+        Assert.Equal(18, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -3709,6 +3860,10 @@ public class SectionPipelineTests
         Assert.Contains("Dependencies", names);
         Assert.Contains("Package files", names);
         Assert.Contains("Package skill files", names);
+        Assert.Contains(PackageSections.SourceLinkFiles, names);
+        Assert.Contains(PackageSections.SourceLinkAvailability, names);
+        Assert.Contains(PackageSections.SourceLinkMissingFiles, names);
+        Assert.Contains(PackageSections.SourceLinkIntegrity, names);
         Assert.Contains("Vulnerabilities", names);
         Assert.Contains("Manifest", names);
         Assert.Contains("Runtime Dependencies", names);

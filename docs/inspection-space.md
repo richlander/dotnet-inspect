@@ -405,14 +405,16 @@ own acquisition cost or producer dependencies.
 
 The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` now owns the first
-typed sequential plan and the direct-reference section binding. String keys,
-mutable CLI models, path-shaped residual inputs, and library-command ownership
-remain migration boundaries rather than workspace contracts.
+tracing are useful foundations. `DotnetInspector.Queries` now owns typed
+metadata, direct-reference, and SourceLink plans. String keys, mutable CLI
+models, path-shaped residual inputs, and library-command ownership remain
+migration boundaries rather than workspace contracts.
 
-The initial registry contains only network-free metadata queries. It passes each
-query's maximum transitive cost into the host execution scope; capability
-lowering for network or source-content queries remains part of their migration.
+The registry executes synchronous and asynchronous queries in deterministic
+prerequisite order. It passes each query's maximum transitive cost into the host
+execution scope. SourceLink demonstrates the network boundary: a moderated
+document prerequisite may acquire one PDB, while availability and integrity
+declare unbounded work and accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 
