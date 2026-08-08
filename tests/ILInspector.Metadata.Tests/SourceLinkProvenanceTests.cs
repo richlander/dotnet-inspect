@@ -508,6 +508,26 @@ public class SourceLinkProvenanceTests
     }
 
     /// <summary>
+    /// Only the first <c>?</c> is URI query syntax. A second one belongs to the first parameter
+    /// name, so it must not turn Azure's default branch interpretation into an attributed commit.
+    /// </summary>
+    [Fact]
+    public void AnExtraQueryDelimiter_DoesNotTurnABranchIntoAnAttributedCommit()
+    {
+        string mapText =
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items??versionType=commit&version={{{Sha}}}&path=/*"}}""";
+        var resolver = SLF.SourceLinkResolver.Parse(mapText);
+
+        Assert.Empty(resolver.RejectedKeys);
+        Assert.NotNull(resolver.ResolveUrl("/_/A.cs"));
+
+        var result = SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]);
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("?versionType", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Document paths that denote the same file are still attributable, even though they produce
     /// different request texts and fetch identical content.
     /// </summary>

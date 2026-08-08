@@ -616,6 +616,13 @@ public class SourceLinkMapConformanceTests
         "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
         + "&versionType=commit&version=" + ConformanceSha + "&%70ath=/One.cs&path=/*",
         false)]
+    // Accepted but unattributable: the first '?' is URI syntax; the second belongs to the first
+    // parameter name. Azure ignores '?versionType' and defaults the version to a branch, but
+    // 'path' still selects the requested document, so the resolution predicate must not strand it.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items??versionType=commit"
+        + "&version=" + ConformanceSha + "&path=/*",
+        true)]
     // Refused: a valueless pair still binds the name, and it is the occurrence the host serves,
     // so the wildcard in the later pair is never read.
     [InlineData(

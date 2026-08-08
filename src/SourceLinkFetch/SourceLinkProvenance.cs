@@ -1458,7 +1458,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     private static bool TryCheckQueryParameters(string query, string host, out string rejection)
     {
-        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        ReadOnlySpan<char> pairs = QueryAfterDelimiter(query);
         var seen = new List<string>();
 
         foreach (Range range in pairs.Split('&'))
@@ -1560,7 +1560,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     private static string? ReadSingleQueryValue(string query, string name, out string rejection)
     {
-        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        ReadOnlySpan<char> pairs = QueryAfterDelimiter(query);
         string? found = null;
         bool present = false;
 
@@ -1628,6 +1628,12 @@ public static class SourceLinkProvenance
 
         rejection = "";
         return found;
+    }
+
+    private static ReadOnlySpan<char> QueryAfterDelimiter(string query)
+    {
+        ReadOnlySpan<char> pairs = query;
+        return !pairs.IsEmpty && pairs[0] == '?' ? pairs[1..] : pairs;
     }
 
     /// <summary>
