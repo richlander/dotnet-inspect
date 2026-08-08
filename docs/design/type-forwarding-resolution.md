@@ -32,23 +32,24 @@ TypeRef
                       -> TypeDef
 ```
 
-Before this migration, the product represented different parts of that relationship as
-assembly-name strings, canonicalized strings, file paths, and nullable returns.
-Each consumer then reconstructs the relationship it needs:
+Before this migration, the product represented different parts of that
+relationship as assembly-name strings, canonicalized strings, file paths, and
+nullable returns. Each consumer then reconstructed the relationship it needed:
 
 - `TypeForwardResolver` followed forwarders and returned `TypeLocation`.
-- `LibraryBodyIndex` repeats the traversal because it needs readers with a
+- `LibraryBodyIndex` repeated the traversal because it needed readers with a
   different lifetime.
 - `PdbContext`, `SourceLinkService`, `SourceEnricher`, and `ApiServices`
-  recover a target assembly name and construct a sibling path.
-- `PlatformResolver.FindLibraryContainingType` sweeps framework files and
-  returns the first defining or forwarding assembly name, while
-  `IsFacadeOnlyAssembly` separately interprets forwarder rows.
+  recovered a target assembly name and constructed a sibling path.
+- `PlatformResolver.FindLibraryContainingType` swept framework files and
+  returned the first defining or forwarding assembly name, while
+  `IsFacadeOnlyAssembly` separately interpreted forwarder rows.
 - `CallerScopeFilter`, `CallerScopeTypeFilter`, and
-  `MemberPattern.MatchesCrossAssembly` compare different projections of a
+  `MemberPattern.MatchesCrossAssembly` compared different projections of a
   type's assembly spelling.
-- `TypeRef.CanonicalAssembly` deliberately erases which core-library facade a
-  reference named.
+- `TypeRef.CanonicalAssembly` erased which core-library facade a reference
+  named. It remains a local decompiler normalization, not a resolution or
+  correspondence identity.
 
 Recent PRs expose the cost of that representation:
 
