@@ -369,21 +369,21 @@ rows. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output
 compatibility.
 
-`ProgressiveMemberCallGraph` is the first group-owned derived Analysis resource.
+`MemberCallGraphSession` is the first group-owned derived Analysis resource.
 It builds one scoped target index only for first paint, one full target index
 when a caller-capable tier is requested, and one full index per distinct
 cross-library image. The group owns its catalog lifetime and disposes the
 catalog before releasing snapshots. Stream-only participants use the same path,
 and projection is downstream of acquisition. Typed participant acquisition
 failures remain visible as `MemberCallGraphAcquisitionException`.
-`ProgressiveMemberCallGraphTests` gates build and source-open counts,
+`MemberCallGraphSessionTests` gates build and source-open counts,
 stream-only operation, duplicate-image reuse, typed failures, projection reuse,
 and group-owned disposal.
-`ProgressiveMemberCallGraphTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
+`MemberCallGraphSessionTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
 also gates disposal of the graph's catalog scope.
-`ProgressiveMemberCallGraphTests.MalformedMetadata_IsTypedAndCached` gates
+`MemberCallGraphSessionTests.MalformedMetadata_IsTypedAndCached` gates
 malformed-image failure caching, and
-`ProgressiveMemberCallGraphTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
+`MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
 gates the complete metadata-decoder exception classification.
 
 Other domain catalogs, query authorization, integration-opportunity
