@@ -12480,6 +12480,99 @@ public partial class CommandExecutionTests
         Assert.Contains(option, error);
     }
 
+    [Theory]
+    [InlineData("--extract-resources")]
+    [InlineData("--il-offset")]
+    [InlineData("--il-offsets")]
+    [InlineData("--heap")]
+    public async Task LibraryCommand_TfmAll_CountDoesNotBypassSingleInspectionOperations(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var arguments = new List<string>
+        {
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all"
+        };
+        if (option == "--extract-resources")
+            arguments.AddRange(["-S", SectionNames.Resources]);
+        arguments.Add("--count");
+        arguments.Add(option);
+        arguments.Add(option switch
+        {
+            "--extract-resources" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}"),
+            "--il-offset" => "0x06000001+0x0",
+            "--il-offsets" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.txt"),
+            "--heap" => "#Strings:0x1",
+            _ => throw new InvalidOperationException($"Unexpected option: {option}")
+        });
+        arguments.AddRange(["--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains(option, error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_TreeRejectionTakesPrecedenceOverSectionSelection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath,
+            "--tfm", "all", "--tree", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tree requires exactly one tree shape", error);
+        Assert.Contains("Markdown or JSON", error);
+        Assert.DoesNotContain("-S References", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--tfm", "all",
+            "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_SinglePackageInspectionRetainsDocumentFraming()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--tips", "q");
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Contains("## Libraries", markdownOutput);
+            Assert.Empty(markdownError);
+            Assert.Equal(0, jsonExit);
+            using var document = JsonDocument.Parse(jsonOutput);
+            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Empty(jsonError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
     {

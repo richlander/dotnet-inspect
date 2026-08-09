@@ -291,6 +291,9 @@ public class LibraryCommand
             return 1;
         }
 
+        if (!ValidateMultiTfmOutput(options))
+            return 1;
+
         if (options.Tree && options.Discover == null)
         {
             if (options.IncludeSections is not { Count: 1 }
@@ -300,9 +303,6 @@ public class LibraryCommand
                 return 1;
             }
         }
-
-        if (!ValidateMultiTfmOutput(options))
-            return 1;
 
         if (options.Tree && options.Discover == null)
         {
@@ -727,7 +727,7 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
-                if (inspections.Count == 1)
+                if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
                 {
@@ -1108,17 +1108,20 @@ public class LibraryCommand
         => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
-    /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
+    /// Rejects rendered metadata-lens rows when a package resolved to more than one assembly.
     /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
     /// names carry no assembly, so several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
-    /// whose row numbering restarts without saying so. Failing here keeps that ambiguity visible
-    /// instead of rendering a confidently wrong document.
+    /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
+    /// do not expose image-relative row identities; the rejection and count allowance are gated by
+    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
         IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
     {
-        if (inspections.Count <= 1 || options.IncludeSections is not { Count: > 0 } selected)
+        if (options.Count
+            || inspections.Count <= 1
+            || options.IncludeSections is not { Count: > 0 } selected)
             return false;
 
         if (!selected.Any(MetadataSectionNames.IsMetadataSection))
@@ -1365,9 +1368,7 @@ public class LibraryCommand
 
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {
-        if (!string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)
-            || options.Discover != null
-            || options.Count)
+        if (!IsAllTfmPackageSelection(options) || options.Discover != null)
         {
             return true;
         }
@@ -1397,6 +1398,9 @@ public class LibraryCommand
             return false;
         }
 
+        if (options.Count)
+            return true;
+
         if (options.Format is OutputFormat.Markdown or OutputFormat.Json)
             return true;
 
@@ -1425,6 +1429,10 @@ public class LibraryCommand
             $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; {formatName} is not supported.");
         return false;
     }
+
+    private static bool IsAllTfmPackageSelection(LibraryOptions options)
+        => !string.IsNullOrEmpty(options.PackagePath)
+            && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
     {
