@@ -241,6 +241,27 @@ public sealed class AssemblyContextGroup : IDisposable
                     snapshot.Content.AsSpan())));
     }
 
+    /// <summary>
+    /// Retains the participant's authoritative immutable image behind a fresh stream factory
+    /// while preserving its acquisition registration, identity, path hint, and provenance.
+    /// </summary>
+    /// <remarks>
+    /// The returned descriptor remains valid after the group is disposed because its stream
+    /// factory retains the immutable, non-pooled snapshot. The source path is not reopened.
+    /// Gated by
+    /// <c>RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal</c>.
+    /// </remarks>
+    public AssemblyImageAccessResult<ResolvedAssemblyReference>
+        RetainAssemblyReference(
+            ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        return UseSnapshot(
+            assembly,
+            snapshot => snapshot.RetainAssemblyReference(assembly));
+    }
+
     internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyInspectionSession, TResult> callback)

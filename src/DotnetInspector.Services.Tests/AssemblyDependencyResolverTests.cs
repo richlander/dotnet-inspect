@@ -5,6 +5,30 @@ namespace DotnetInspector.Services.Tests;
 public class AssemblyDependencyResolverTests
 {
     [Fact]
+    public void Acquire_SnapshotBudgetExhaustionIsTyped()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                SnapshotAssemblyImages = true,
+                MaxSnapshotImageBytes = new FileInfo(path).Length - 1,
+            });
+        var dependency = new ResolvedAssemblyDependency(
+            path,
+            AssemblyDependencyProvenance.SiblingAssembly);
+
+        var exception = Assert.Throws<
+            AssemblyDependencySnapshotBudgetExceededException>(
+                () => resolver.Acquire(dependency));
+
+        Assert.Equal(
+            new FileInfo(path).Length - 1,
+            exception.MaxSnapshotImageBytes);
+    }
+
+    [Fact]
     public void Select_IntrinsicCoreLibraryUsesTheTargetsBindingDomain()
     {
         string path = typeof(AssemblyDependencyResolverTests)

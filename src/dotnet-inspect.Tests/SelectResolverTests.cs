@@ -35,6 +35,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Equal("Package Info", Assert.Single(result.ExactSections));
     }
 
     [Fact]
@@ -45,6 +46,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Empty(result.ExactSections);
     }
 
     [Fact]
@@ -58,6 +60,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Performance Triage", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Equal("Performance Triage", Assert.Single(result.ExactSections));
     }
 
     [Fact]
@@ -133,6 +136,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(["Statistics", "Vulnerabilities"], result.Sections!.OrderBy(s => s).ToArray());
+        Assert.Empty(result.ExactSections);
     }
 
     [Fact]
