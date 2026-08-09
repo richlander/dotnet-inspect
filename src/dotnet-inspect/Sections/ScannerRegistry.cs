@@ -82,7 +82,7 @@ public sealed class ScannerContext : IDisposable
     /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c>,
     /// <c>SharedSessionScanners_DoNotObserveAPathRetargetedMidRun</c>,
     /// <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>, and
-    /// <c>SharedSession_FallsBackToReopenWhenAssemblyCannotBeOpened</c>.
+    /// <c>ResourcesQuery_OpenFailureRemainsTyped</c>.
     /// </summary>
     public AssemblyInspectionSession? Session()
     {
