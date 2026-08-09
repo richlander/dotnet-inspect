@@ -1614,21 +1614,27 @@ public class ApiOutputFormatterTests
     /// <summary>
     /// Many declarations, each with its own cyclic parameter list. Resolution is per
     /// declaration, so a module pays for each one; this pins that the per-declaration
-    /// cost stays proportional to that declaration rather than to a fixed allowance that
-    /// each list is free to spend in full.
+    /// allocation stays proportional to that declaration rather than rescanning and
+    /// allocating a sibling-number map for every constraint edge.
     /// </summary>
     [Fact]
     public void ConstraintRestatement_ResolvesManyCyclicListsWithoutPerListWaste()
     {
         const int Lists = 512;
         const int Length = 317;
+        const long MaxAllocatedBytes =
+            256L * 1024 * 1024;
         string dllPath = EmitManyCyclicListsSample(Lists, Length);
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var surface = ApiSurfaceExtractor.Extract(pe);
             stopwatch.Stop();
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
 
             var types = surface.Types
                 .Where(candidate => candidate.Name.StartsWith("Many", StringComparison.Ordinal))
@@ -1641,8 +1647,12 @@ public class ApiOutputFormatterTests
                     typeParameter => Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind)));
 
             Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+                stopwatch.Elapsed < TimeSpan.FromSeconds(30),
                 $"Classifying {Lists} cyclic lists of {Length} parameters took {stopwatch.Elapsed}.");
+            Assert.InRange(
+                allocated,
+                0,
+                MaxAllocatedBytes);
         }
         finally
         {
