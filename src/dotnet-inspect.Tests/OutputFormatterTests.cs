@@ -1807,7 +1807,8 @@ public class OutputFormatterTests
         var plainOptions = columnOptions with
         {
             Format = OutputFormat.PlainText,
-            PlainText = true
+            PlainText = true,
+            Verbosity = Verbosity.Quiet
         };
         var (plain, plainError) = await ConsoleCapture.RunAsync(
             () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
@@ -1817,6 +1818,10 @@ public class OutputFormatterTests
             2,
             plain.ReplaceLineEndings("\n").Split('\n')
                 .Count(line => line.StartsWith("Test.dll (net", StringComparison.Ordinal)));
+        Assert.Equal(
+            2,
+            plain.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("Test.dll", StringComparison.Ordinal)));
     }
 
     [Fact]
