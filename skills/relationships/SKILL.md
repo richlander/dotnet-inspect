@@ -17,8 +17,9 @@ dnx dotnet-inspect -y -- <command>
 Scope any of these commands the same way: `--project path/to.csproj` (restored
 project references), `--package Foo` (repeatable), `--library path.dll`,
 `--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
-Microsoft.* sets), `--package-prefix Azure.AI` (every package under a NuGet ID
-prefix), and `--tfm net9.0`.
+Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
+`--package-prefix Azure.AI` to search every package under a NuGet ID prefix;
+`depends` does not accept `--package-prefix`.
 
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
