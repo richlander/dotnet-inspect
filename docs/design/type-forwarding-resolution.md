@@ -2671,6 +2671,11 @@ SHA-256 digest, and durable TypeDef address.
 `CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
 that Roslyn references and structured inspection share one frozen acquisition
 generation even when a dependency path is replaced afterward.
+`CompileBackPropertyGetters_SharesOneCompilationClosure` and the cluster/all
+scope gate keep that generation assembly-scoped rather than target-scoped.
+`AssemblyDependencyResolverTests.Acquire_SnapshotBudgetExhaustionIsTyped`
+gates the cumulative retained-image budget, while
+`AuthoredBody_ReusesFrozenRtsCompilationClosure` gates reuse by authored replay.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 

@@ -48,6 +48,17 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     /// the same image even if its source path changes.
     /// </summary>
     public bool SnapshotAssemblyImages { get; init; }
+    public long MaxSnapshotImageBytes { get; init; } =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
+}
+
+public sealed class AssemblyDependencySnapshotBudgetExceededException(
+    long maxSnapshotImageBytes) : InvalidOperationException(
+        $"The assembly dependency snapshot budget of "
+        + $"{maxSnapshotImageBytes} bytes was exhausted.")
+{
+    public long MaxSnapshotImageBytes { get; } =
+        maxSnapshotImageBytes;
 }
 
 /// <summary>
@@ -70,9 +81,16 @@ public sealed class AssemblyDependencyResolver :
     readonly ConcurrentDictionary<
         AssemblyBindingRequestKey,
         Lazy<AssemblyBindingSelection>> _bindingSelections = [];
+    readonly object _snapshotBudgetLock = new();
+    long _snapshotImageBytes;
 
     public AssemblyDependencyResolver(AssemblyDependencyResolutionOptions options)
-        => _options = options;
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxSnapshotImageBytes);
+        _options = options;
+    }
 
     /// <summary>
     /// The resolution options this resolver was constructed with. Exposed for tests that pin how
@@ -357,21 +375,38 @@ public sealed class AssemblyDependencyResolver :
                     : null;
         }
 
+        long reservedBytes = 0;
         try
         {
-            byte[] image = File.ReadAllBytes(path);
+            using var source = File.OpenRead(path);
+            long length = source.Length;
+            if (length > int.MaxValue
+                || !TryReserveSnapshotBytes(length))
+            {
+                throw new AssemblyDependencySnapshotBudgetExceededException(
+                    _options.MaxSnapshotImageBytes);
+            }
+            reservedBytes = length;
+
+            byte[] image =
+                GC.AllocateUninitializedArray<byte>((int)length);
+            source.ReadExactly(image);
+
             using var stream = new MemoryStream(image, writable: false);
             using var reader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
             if (!reader.HasMetadata)
                 return null;
 
-            return ResolvedAssemblyReference.Create(
+            ResolvedAssemblyReference result =
+                ResolvedAssemblyReference.Create(
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     reader.GetMetadataReader()),
                 Path.GetFullPath(path),
                 () => new MemoryStream(image, writable: false),
                 provenance);
+            reservedBytes = 0;
+            return result;
         }
         catch (Exception ex) when (
             ex is IOException
@@ -380,6 +415,32 @@ public sealed class AssemblyDependencyResolver :
         {
             return null;
         }
+        finally
+        {
+            if (reservedBytes != 0)
+                ReleaseSnapshotBytes(reservedBytes);
+        }
+    }
+
+    bool TryReserveSnapshotBytes(long bytes)
+    {
+        lock (_snapshotBudgetLock)
+        {
+            if (bytes
+                > _options.MaxSnapshotImageBytes - _snapshotImageBytes)
+            {
+                return false;
+            }
+
+            _snapshotImageBytes += bytes;
+            return true;
+        }
+    }
+
+    void ReleaseSnapshotBytes(long bytes)
+    {
+        lock (_snapshotBudgetLock)
+            _snapshotImageBytes -= bytes;
     }
 
     static bool MatchesIdentity(

@@ -893,6 +893,9 @@ public class ReturnToSenderPrototypeTests
             Assert.False(all.UsedCompileBackFloor, all.Detail);
             Assert.NotNull(cluster.Compilation);
             Assert.NotNull(all.Compilation);
+            Assert.Same(
+                cluster.FinalRequest!.CompilationClosure,
+                all.FinalRequest!.CompilationClosure);
             Assert.NotNull(cluster.DonorPe);
             Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
@@ -1327,6 +1330,35 @@ public class ReturnToSenderPrototypeTests
                 "RtsForward_IProbe_Target",
                 result.Source,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackPropertyGetters_SharesOneCompilationClosure()
+    {
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class Fixture
+            {
+                public int First => 1;
+                public int Second => 2;
+            }
+            """);
+        try
+        {
+            IReadOnlyList<ReturnToSender.Result> results =
+                ReturnToSender.CompileBackPropertyGetters(
+                    assemblyPath,
+                    maxTargets: 2);
+
+            Assert.Equal(2, results.Count);
+            Assert.Same(
+                results[0].FinalRequest!.CompilationClosure,
+                results[1].FinalRequest!.CompilationClosure);
         }
         finally
         {

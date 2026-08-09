@@ -34,7 +34,8 @@ internal abstract record ArtifactRequest(
 {
     internal RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
     internal MetadataSource? BodySource { get; init; }
-    internal AssemblyDependencyResolver? CompilationResolver { get; set; }
+    internal ReturnToSender.CompilationClosure? CompilationClosure
+        { get; set; }
 }
 
 internal sealed record MethodArtifactRequest(
@@ -529,7 +530,7 @@ public static class CompileBackSourceComposer
                 request.BodyPolicy),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
-                request.CompilationResolver,
+                request.CompilationClosure?.Resolver,
                 request.Reader,
                 request.Function,
                 request.TargetType,
