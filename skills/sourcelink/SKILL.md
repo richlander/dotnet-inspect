@@ -58,4 +58,6 @@ dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --urls --blo
 ```
 
 To check *whether* SourceLink is present and valid (rather than fetch source),
-see the `signals` skill (`SourceLink Availability`/`Integrity`/`Missing Files`).
+see the `signals` skill (`SourceLink: Availability`, `SourceLink: Integrity`,
+and `SourceLink: Missing Files`). These checks also aggregate across selected
+package libraries.

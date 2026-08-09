@@ -48,6 +48,9 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
+
+    [JsonIgnore]
     public string? Tfm { get; set; }
 
     public string FileName { get; set; } = "";
@@ -234,6 +237,32 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? SourceIntegrityMismatches { get; set; }
+
+    private SourceAvailabilityResult? _sourceAvailabilityQueryResult;
+
+    [JsonIgnore]
+    public SourceAvailabilityResult? SourceAvailabilityQueryResult
+    {
+        get => _sourceAvailabilityQueryResult;
+        set
+        {
+            _sourceAvailabilityQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private SourceIntegrityResult? _sourceIntegrityQueryResult;
+
+    [JsonIgnore]
+    public SourceIntegrityResult? SourceIntegrityQueryResult
+    {
+        get => _sourceIntegrityQueryResult;
+        set
+        {
+            _sourceIntegrityQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
@@ -628,6 +657,20 @@ public class LibraryInspection
                     MetadataSectionNames.Image,
                     MetadataImageQuery.Definition.Name,
                     metadataFailure.Error.Message));
+            }
+            if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    DotnetInspector.Sections.SectionNames.SourceLinkAvailability,
+                    SourceAvailabilityQuery.Definition.Name,
+                    availabilityFailure.Reason));
+            }
+            if (SourceIntegrityQueryResult is SourceIntegrityResult.Failed integrityFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    DotnetInspector.Sections.SectionNames.SourceLinkIntegrity,
+                    SourceIntegrityQuery.Definition.Name,
+                    integrityFailure.Reason));
             }
             AddFailure(
                 failures,

@@ -19,6 +19,8 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.Analysis;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Markout;
@@ -9124,6 +9126,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Assembly_SingletonWildcardEmptySection_IsNotRejectedAsExact()
+    {
+        var wildcard = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Union*"],
+            }));
+
+        Assert.Equal(0, wildcard.ExitCode);
+        Assert.Equal("# System.Text.Json.dll", wildcard.Output.Trim());
+        Assert.DoesNotContain("Union Types", wildcard.Output);
+        Assert.Equal(
+            "Note: 1 matched section has no data: Union Types.",
+            wildcard.Error.Trim());
+
+        var exact = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Union Types"],
+            }));
+
+        Assert.Equal(1, exact.ExitCode);
+        Assert.Empty(exact.Output);
+        Assert.Equal(
+            "This section (Union Types) produced no output.",
+            exact.Error.Trim());
+    }
+
+    [Fact]
+    public async Task Assembly_SingletonWildcardNonEmptySection_Renders()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                PlatformAssembly = "System.Text.Json",
+                Select = ["Library Inf*"],
+            }));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Library Info", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Assembly_SingleSectionCount_WritesInteger()
     {
         var options = new LibraryOptions
@@ -10267,6 +10315,31 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("IL coordinate sections require --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_LegacyCoordinateAliasInMixedSelection_RequiresFlagParameter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "Member Context,Library Info", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("IL coordinate sections require --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_CoordinateWildcardInMixedSelection_IsOmitted()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "Context: Mem*,Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Library Info", output);
+        Assert.DoesNotContain("## Context: Member", output);
+        Assert.DoesNotContain("IL coordinate sections require --il-offset", error);
     }
 
     [Fact]
@@ -12401,6 +12474,139 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var emptyAssembly = FixtureCatalog.DiffPair.OldAssemblyPath();
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            // --tfm all orders these paths ordinally, so net10 is inspected first.
+            File.Copy(TestAssemblyPath, Path.Combine(net8Dir, "Lib.dll"));
+            File.Copy(emptyAssembly, Path.Combine(net10Dir, "Lib.dll"));
+            var packagePath = Path.Combine(tempDir, "Section.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            File.Copy(emptyAssembly, Path.Combine(net8Dir, "Lib.dll"), overwrite: true);
+            var emptyPackagePath = Path.Combine(tempDir, "Section.AllEmpty.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, emptyPackagePath);
+            var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
+                "-S", "Async Methods", "--tsv", "--tips", "q");
+            Assert.Equal(1, emptyExit);
+            Assert.Empty(emptyOutput);
+            Assert.Equal(
+                "This section (Async Methods) produced no output.",
+                emptyError.Trim());
+
+            var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
+                "-S", "Async*", "--tsv", "--tips", "q");
+            Assert.Equal(0, wildcardExit);
+            Assert.Empty(wildcardOutput);
+            Assert.Equal(
+                "Note: 1 matched section has no data: Async Methods.",
+                wildcardError.Trim());
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--tsv", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
+                output);
+            Assert.DoesNotContain(
+                "This section (Async Methods) produced no output.",
+                error);
+
+            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--markdown", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Contains("## Libraries", markdown);
+            Assert.Contains(
+                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
+                markdown);
+            Assert.Empty(markdownError);
+
+            var (singleCountExit, singleCountOutput, singleCountError) = await RunAppAsync(
+                "library", TestAssemblyPath, "-S", "Async Methods", "--count", "--tips", "q");
+            var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--count", "--tips", "q");
+
+            Assert.Equal(0, singleCountExit);
+            Assert.Equal(0, multiCountExit);
+            Assert.Empty(singleCountError);
+            Assert.Empty(multiCountError);
+            Assert.Equal(singleCountOutput, multiCountOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
+    {
+        LibraryInspection FailedInspection(string tfm)
+        {
+            var subject = new FindingSubject("fixture", "fixture");
+            return new LibraryInspection
+            {
+                FileName = "Lib.dll",
+                Tfm = tfm,
+                ResourceLifecycleInspection =
+                    new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                        new InspectionError(
+                            subject,
+                            AnalysisFindings.ResourceLifecycleDescriptor,
+                            "fixture failure"))
+            };
+        }
+
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.ArrayPoolEscapes]
+        };
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedInspection("net8.0"), FailedInspection("net9.0")],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Contains(
+            "Lib.dll (net8.0): Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Contains(
+            "Lib.dll (net9.0): Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Equal(2, error.Split("fixture failure", StringSplitOptions.None).Length - 1);
+
+        var (singleOutput, singleError) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedInspection("net8.0")],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(singleOutput);
+        Assert.Equal(
+            "Warning: Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            singleError.Trim());
     }
 
     [Fact]
