@@ -311,7 +311,7 @@ public static class MemberCommand
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
-                    sourceAccessor?.Name ?? effectiveOptions.MemberFilter.First(),
+                    sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
                     sourceMetadataToken);

@@ -1348,4 +1348,34 @@ public class ExtractMethodBodyTests
 
         Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
     }
+
+    /// <summary>
+    /// Member selection is case-insensitive, so every supported casing must retain constructor
+    /// correspondence rather than falling through to start-line lookup and returning the
+    /// initializer. Product callers pass the resolved metadata name when available; this remains
+    /// the slicer's defensive contract for direct and fallback callers.
+    /// </summary>
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".Ctor")]
+    [InlineData(".CTOR")]
+    [InlineData("#ctor")]
+    [InlineData("#CTOR")]
+    [InlineData(".cctor")]
+    [InlineData(".Cctor")]
+    [InlineData(".CCTOR")]
+    public void ConstructorMetadataNameCasing_PreservesConstructorCorrespondence(string methodName)
+    {
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    private static readonly int X;",   // 3  <- StartLine
+            "",                                     // 4
+            "    static C() => X = 1;",             // 5  <- EndLine
+            "}");                                   // 6
+
+        Assert.Equal(
+            "static C() => X = 1;",
+            BodySlicer.ExtractMethodBody(source, 3, 5, methodName));
+    }
 }

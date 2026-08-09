@@ -83,7 +83,9 @@ public static class BodySlicer
             or DeclarationKind.Namespace;
 
     private static bool IsConstructorRequest(string methodName) =>
-        methodName is ".ctor" or "#ctor" or ".cctor";
+        methodName.Equals(".ctor", StringComparison.OrdinalIgnoreCase)
+            || methodName.Equals("#ctor", StringComparison.OrdinalIgnoreCase)
+            || methodName.Equals(".cctor", StringComparison.OrdinalIgnoreCase);
 
     private static DeclarationSpan? FindConstructorAtRangeBoundary(
         DeclarationIndex index,

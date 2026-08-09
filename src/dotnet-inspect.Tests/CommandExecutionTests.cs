@@ -4717,6 +4717,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_OriginalSource_ConstructorSelectorCasing_UsesTheResolvedMemberIdentity()
+    {
+        var canonical = await RunAppAsync(
+            "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
+            ".ctor:1", "-S", "Original Source", "--tips", "q");
+        var caseVariant = await RunAppAsync(
+            "member", typeof(ConstructorSourceCaseFixture).FullName!, "--library", TestAssemblyPath,
+            ".Ctor:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, canonical.Exit);
+        Assert.Empty(canonical.Error);
+        Assert.Contains("public ConstructorSourceCaseFixture()", canonical.Output);
+        Assert.DoesNotContain("readonly object _gate", canonical.Output);
+
+        Assert.Equal(canonical, caseVariant);
+    }
+
+    [Fact]
     public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
     {
         // An abstract method has no IL body, so it has no authored source to resolve. That is a
@@ -15816,6 +15834,17 @@ public sealed class CommandExecutionSourceDiffFixture
     public int AddOne(int value)
     {
         return value + 1;
+    }
+
+}
+
+public sealed class ConstructorSourceCaseFixture
+{
+    readonly object _gate = new();
+
+    public ConstructorSourceCaseFixture()
+    {
+        GC.KeepAlive(_gate);
     }
 }
 
