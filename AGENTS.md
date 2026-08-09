@@ -82,6 +82,7 @@ those documents exist.
 | Skills | `taste/skill-guidance.md` |
 | Stacked PRs and restacking | `docs/stacked-prs.md` |
 | Release and publishing | `docs/release-workflow.md` |
+| Changes spanning Markout and this repo | `docs/markout-co-development.md` |
 
 PR templates:
 
