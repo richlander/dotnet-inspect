@@ -23,6 +23,16 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>Opens a session from a resolved assembly reference (path or stream opener).</summary>
     public static AssemblyInspectionSession Open(ResolvedAssemblyReference reference) => new(AssemblyImage.Open(reference));
 
+    /// <summary>
+    /// Opens a session over an immutable image snapshot without reopening its acquisition source.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots</c>.
+    /// </remarks>
+    public static AssemblyInspectionSession Open(AssemblyImageSnapshot snapshot) =>
+        new(AssemblyImage.Open(snapshot));
+
     internal static AssemblyInspectionSession OpenPrefetched(Stream stream) =>
         new(AssemblyImage.OpenPrefetched(stream));
 

@@ -10,13 +10,18 @@ The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. The first typed query-planning slices are implemented for library
-metadata-image and direct-reference inspection; workspace contexts and the
-remaining query families are not implemented yet. The components below are the
-current hosts, shared substrates, and inspection producers that will extend that
-space.
+metadata-image and direct-reference inspection. `DotnetInspector.Queries` also
+contains the first workspace context foundation and a sequential group-scoped
+Integrations query, but commands have not migrated to that owner and the
+remaining query families remain future work. The components below are the
+current hosts, shared substrates, and inspection producers that will extend
+that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
-- `src/DotnetInspector.Queries/` contains host-neutral typed query definitions, deterministic sequential execution, prerequisite-aware cost, and the first content-shaped assembly queries. It has no Markout, console, or filesystem-path dependency.
+- `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
+  deterministic synchronous/asynchronous execution, prerequisite-aware cost,
+  and content-shaped metadata, reference, and SourceLink queries. It has no
+  Markout, console, or filesystem-path dependency.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
@@ -29,7 +34,10 @@ space.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
-- `src/DotnetInspector.Services/` contains shared services such as assembly-set acquisition, platform/package resolution, dependency resolution, signatures, source fetching, and nuspec parsing.
+- `src/DotnetInspector.Services/` contains shared services such as assembly-set
+  and PDB acquisition, platform/package resolution, dependency resolution,
+  signatures, SourceLink availability/integrity operations, source fetching,
+  and nuspec parsing.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
