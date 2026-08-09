@@ -77,11 +77,19 @@ internal static class SwitchTypeFacts
     {
         if (!StorageNodeMatches(value, enumType, underlying))
             return false;
-        return !value.Descendants
+        foreach (var node in value.Descendants
             .OfType<IrExpression>()
-            .Where(node => node is LoadElement or LoadIndirect)
-            .Where(node => EnumType(function, node)?.Equals(enumType) == true)
-            .Any(node => !StorageNodeMatches(node, enumType, underlying));
+            .Where(node => node is LoadElement or LoadIndirect))
+        {
+            if (EnumType(function, node) is not { } contributingEnum)
+                continue;
+            if (!contributingEnum.Equals(enumType)
+                || !StorageNodeMatches(node, enumType, underlying))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     static bool StorageNodeMatches(IrExpression value, TypeRef enumType, TypeRef underlying)
