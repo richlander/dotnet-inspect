@@ -101,6 +101,7 @@ internal readonly record struct TypeSpecificationRoot(
         {
             var pending = new Stack<TypeSpecificationHandle>();
             var visited = new HashSet<TypeSpecificationHandle>();
+            int cumulativeBytes = 0;
             pending.Push(root);
             try
             {
@@ -111,6 +112,17 @@ internal readonly record struct TypeSpecificationRoot(
 
                     BlobHandle signature =
                         reader.GetTypeSpecification(handle).Signature;
+                    int blobLength =
+                        reader.GetBlobReader(signature).Length;
+                    if (visited.Count > TypeSpecGuard.MaxDepth
+                        || blobLength
+                            > TypeSpecGuard.MaxCumulativeBytes
+                                - cumulativeBytes)
+                    {
+                        return false;
+                    }
+
+                    cumulativeBytes += blobLength;
                     if (!SignatureBlobGuard.IsSafeToDecode(
                             reader,
                             signature,

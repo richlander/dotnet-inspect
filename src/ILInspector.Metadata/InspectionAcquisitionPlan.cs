@@ -10,11 +10,15 @@ internal sealed record InspectionAcquisitionPlanOptions
     internal const int DefaultMaxCandidates = 4_096;
     internal const long DefaultMaxRetainedImageBytes =
         AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
+    internal const long DefaultMaxInventoryImageBytes =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
     internal const int DefaultMaxConcurrentSourceOpens = 8;
 
     internal int MaxCandidates { get; init; } = DefaultMaxCandidates;
     internal long MaxRetainedImageBytes { get; init; } =
         DefaultMaxRetainedImageBytes;
+    internal long MaxInventoryImageBytes { get; init; } =
+        DefaultMaxInventoryImageBytes;
     internal int MaxConcurrentSourceOpens { get; init; } =
         DefaultMaxConcurrentSourceOpens;
 
@@ -22,6 +26,7 @@ internal sealed record InspectionAcquisitionPlanOptions
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxCandidates);
         ArgumentOutOfRangeException.ThrowIfNegative(MaxRetainedImageBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxInventoryImageBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             MaxConcurrentSourceOpens);
     }
@@ -92,6 +97,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         _entriesByRegistration =
             new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyCandidateId, CandidateEntry> _entriesById = [];
+    long _inventoryImageBytes;
     long _retainedImageBytes;
     int _activeOperations;
     bool _disposed;
@@ -205,35 +211,33 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     CandidateRegistrationResult ReadInventory(CandidateEntry entry)
     {
         _sourceOpenGate.Enter();
+        long reservedBytes = 0;
         try
         {
-            using Stream stream =
-                AssemblyImageSnapshot.OpenSource(
-                    entry.Candidate.Assembly);
-            long imageSize =
-                AssemblyImageSnapshot.ReadRemainingLength(stream);
-            long imageStart = stream.Position;
+            AssemblyImageSnapshotResult snapshotResult =
+                AssemblyImageSnapshot.Open(
+                    entry.Candidate.Assembly,
+                    TryReserveInventoryImage,
+                    ReleaseInventoryImage);
+            if (snapshotResult
+                is AssemblyImageSnapshotResult.Rejected rejected)
+            {
+                return new CandidateRegistrationResult.Rejected(
+                    entry.Candidate.Assembly,
+                    rejected.Failure);
+            }
+
+            AssemblyImageSnapshot snapshot =
+                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                    .Snapshot;
+            reservedBytes = snapshot.Length;
             ImmutableArray<byte> contentDigest =
                 ImmutableArray.CreateRange(
-                    SHA256.HashData(stream));
-            stream.Position = imageStart;
-            using var peReader = new PEReader(
-                stream,
-                PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata);
-            if (!peReader.HasMetadata)
-                return RejectInvalid(entry, "The selected image has no managed metadata.");
+                    SHA256.HashData(snapshot.Content.AsSpan()));
+            using var peReader =
+                new PEReader(snapshot.Content);
 
             MetadataReader reader = peReader.GetMetadataReader();
-            AssemblyReferenceIdentity actual =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!AssemblyImageSnapshot.IdentityMatches(
-                    entry.Candidate.Assembly.Identity,
-                    actual))
-            {
-                return RejectInvalid(
-                    entry,
-                    "The selected image identity does not match its descriptor.");
-            }
 
             var references =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
@@ -321,12 +325,12 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             return new CandidateRegistrationResult.Ready(
                 entry.Candidate,
                 new AssemblyInventorySnapshot(
-                    actual,
-                    reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                    snapshot.Identity,
+                    snapshot.ModuleVersionId,
                     contentDigest,
                     references.ToImmutable(),
                     forwarderTargets.ToImmutable(),
-                    imageSize));
+                    snapshot.Length));
         }
         catch (Exception ex) when (
             ex is IOException
@@ -350,6 +354,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
+            ReleaseInventoryImage(reservedBytes);
             _sourceOpenGate.Exit();
         }
     }
@@ -365,56 +370,42 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         bool retainReservation = false;
         try
         {
-            Stream? stream =
-                AssemblyImageSnapshot.OpenSource(
-                    entry.Candidate.Assembly);
-            AssemblyInspectionSession? session = null;
-            try
+            AssemblyImageSnapshotResult snapshotResult =
+                AssemblyImageSnapshot.Open(
+                    entry.Candidate.Assembly,
+                    TryReserveImage,
+                    ReleaseImage);
+            if (snapshotResult
+                is AssemblyImageSnapshotResult.Rejected snapshotRejected)
             {
-                long imageSize =
-                    AssemblyImageSnapshot.ReadRemainingLength(stream);
-                if (!TryReserveImage(imageSize))
-                {
-                    return new CandidateSessionResult.Rejected(
-                        ResourceFailure(
-                            "The retained-image budget was exhausted."));
-                }
-
-                reservedBytes = imageSize;
-                long imageStart = stream.Position;
-                byte[] contentDigest = SHA256.HashData(stream);
-                stream.Position = imageStart;
-                Stream sessionSource = stream;
-                stream = null;
-                session = AssemblyInspectionSession.OpenPrefetched(sessionSource);
-                var inventory =
-                    (CandidateRegistrationResult.Ready)entry.Inventory.Value;
-                if (!session.HasMetadata
-                    || !AssemblyImageSnapshot.IdentityMatches(
-                        entry.Candidate.Assembly.Identity,
-                        session.AssemblyIdentity())
-                    || session.ModuleVersionId()
-                        != inventory.Inventory.ModuleVersionId
-                    || !CryptographicOperations.FixedTimeEquals(
-                        contentDigest,
-                        inventory.Inventory.ContentDigest.AsSpan()))
-                {
-                    return new CandidateSessionResult.Rejected(
-                        new CandidateOpenFailure(
-                            CandidateOpenFailureKind.InvalidImage,
-                            "The opened image does not match the inventoried candidate."));
-                }
-
-                var ready = new CandidateSessionResult.Ready(session);
-                session = null;
-                retainReservation = true;
-                return ready;
+                return new CandidateSessionResult.Rejected(
+                    snapshotRejected.Failure);
             }
-            finally
+
+            AssemblyImageSnapshot snapshot =
+                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                    .Snapshot;
+            reservedBytes = snapshot.Length;
+            var inventory =
+                (CandidateRegistrationResult.Ready)entry.Inventory.Value;
+            byte[] contentDigest =
+                SHA256.HashData(snapshot.Content.AsSpan());
+            if (snapshot.ModuleVersionId
+                    != inventory.Inventory.ModuleVersionId
+                || !CryptographicOperations.FixedTimeEquals(
+                    contentDigest,
+                    inventory.Inventory.ContentDigest.AsSpan()))
             {
-                session?.Dispose();
-                stream?.Dispose();
+                return new CandidateSessionResult.Rejected(
+                    new CandidateOpenFailure(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "The opened image does not match the inventoried candidate."));
             }
+
+            AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(snapshot);
+            retainReservation = true;
+            return new CandidateSessionResult.Ready(session);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -448,11 +439,40 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     {
         lock (_gate)
         {
-            if (imageSize > _options.MaxRetainedImageBytes - _retainedImageBytes)
+            if (imageSize
+                > _options.MaxRetainedImageBytes
+                    - _retainedImageBytes)
+            {
                 return false;
+            }
+
             _retainedImageBytes += imageSize;
             return true;
         }
+    }
+
+    bool TryReserveInventoryImage(long imageSize)
+    {
+        lock (_gate)
+        {
+            if (imageSize
+                > _options.MaxInventoryImageBytes
+                    - _inventoryImageBytes)
+            {
+                return false;
+            }
+
+            _inventoryImageBytes += imageSize;
+            return true;
+        }
+    }
+
+    void ReleaseInventoryImage(long imageSize)
+    {
+        if (imageSize == 0)
+            return;
+        lock (_gate)
+            _inventoryImageBytes -= imageSize;
     }
 
     void ReleaseImage(long imageSize)

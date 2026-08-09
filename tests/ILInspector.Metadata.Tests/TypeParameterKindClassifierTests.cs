@@ -267,6 +267,93 @@ public class TypeParameterKindClassifierTests
     }
 
     [Fact]
+    public void ResolutionPlan_OverBudgetTypeSpecClosureCreatesNoRequest()
+    {
+        const int ClosureLength =
+            TypeSpecGuard.MaxCumulativeBytes;
+        GenericParameterHandle parameter = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle dependency =
+                AddAssemblyReference(
+                    metadata,
+                    "Dependency");
+            TypeReferenceHandle root =
+                metadata.AddTypeReference(
+                    dependency,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("G`1"));
+            TypeReferenceHandle argument =
+                metadata.AddTypeReference(
+                    dependency,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Argument"));
+            for (int row = 1; row <= ClosureLength; row++)
+            {
+                var nested = new BlobBuilder();
+                nested.WriteByte(0x20); // CMOD_OPT
+                nested.WriteCompressedInteger(
+                    row == ClosureLength
+                        ? (MetadataTokens.GetRowNumber(argument) << 2) | 1
+                        : ((row + 1) << 2) | 2);
+                nested.WriteByte(0x12); // CLASS
+                nested.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(argument) << 2) | 1);
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(nested));
+            }
+
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(
+                    metadata,
+                    "Consumer`1");
+            parameter = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(root) << 2) | 1);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x20); // CMOD_OPT
+            signature.WriteCompressedInteger((1 << 2) | 2);
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(argument) << 2) | 1);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature)));
+        });
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeParameterKindClassifierTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionPlan_OverBudgetTypeSpecClosureCreatesNoRequest)));
+        var plan =
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source);
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState(
+                    plan));
+
+        Assert.Equal(TypeParameterTypeKind.Undetermined, kind);
+        Assert.Empty(plan.Requests);
+    }
+
+    [Fact]
     public void Classify_MalformedSiblingNumbersStayUndetermined()
     {
         GenericParameterHandle malformed = default;

@@ -299,6 +299,32 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Register_ImageBudgetRejectsBeforeReadingSource()
+    {
+        byte[] image = SelfBytes();
+        var stream = new CountingLengthStream(image.LongLength);
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(image),
+            path: null,
+            openRead: () => stream,
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        using var plan = new InspectionAcquisitionPlan(
+            new InspectionAcquisitionPlanOptions
+            {
+                MaxInventoryImageBytes = image.LongLength - 1,
+            });
+
+        var rejected =
+            Assert.IsType<CandidateRegistrationResult.Rejected>(
+                plan.Register(descriptor));
+
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            rejected.Failure.Kind);
+        Assert.Equal(0, stream.BytesRead);
+    }
+
+    [Fact]
     public async Task Register_ConcurrentSameDescriptor_IsSingleFlight()
     {
         byte[] image = SelfBytes();
@@ -436,10 +462,12 @@ public class InspectionAcquisitionPlanTests
     public void Session_RetainedImageBudgetReturnsTypedFailure()
     {
         byte[] image = SelfBytes();
+        AssemblyReferenceIdentity identity =
+            ReadIdentity(image);
         int opens = 0;
         int disposals = 0;
         var descriptor = ResolvedAssemblyReference.Create(
-            ReadIdentity(image),
+            identity,
             path: null,
             openRead: () =>
             {
@@ -452,18 +480,66 @@ public class InspectionAcquisitionPlanTests
         using var plan = new InspectionAcquisitionPlan(
             new InspectionAcquisitionPlanOptions
             {
-                MaxRetainedImageBytes = image.LongLength - 1,
+                MaxRetainedImageBytes = image.LongLength,
             });
-        var registration = Assert.IsType<CandidateRegistrationResult.Ready>(
+        var firstRegistration = Assert.IsType<CandidateRegistrationResult.Ready>(
             plan.Register(descriptor));
+        var secondRegistration = Assert.IsType<CandidateRegistrationResult.Ready>(
+            plan.Register(
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    path: null,
+                    openRead: () =>
+                    {
+                        Interlocked.Increment(ref opens);
+                        return new DisposeTrackingMemoryStream(
+                            image,
+                            () => Interlocked.Increment(ref disposals));
+                    },
+                    provenance: AssemblyResolutionProvenance.Local("test"))));
 
+        Assert.IsType<CandidateSessionResult.Ready>(
+            plan.OpenSession(firstRegistration.Candidate));
         var rejected = Assert.IsType<CandidateSessionResult.Rejected>(
-            plan.OpenSession(registration.Candidate));
+            plan.OpenSession(secondRegistration.Candidate));
 
         Assert.Equal(CandidateOpenFailureKind.ResourceBudget, rejected.Failure.Kind);
-        Assert.Equal(2, opens);
-        Assert.Equal(2, disposals);
-        Assert.Equal(0, plan.RetainedImageBytes);
+        Assert.Equal(4, opens);
+        Assert.Equal(4, disposals);
+        Assert.Equal(image.LongLength, plan.RetainedImageBytes);
+    }
+
+    [Fact]
+    public void Session_ParsesTheBytesCopiedBeforeSourceMutation()
+    {
+        Guid mvid = Guid.NewGuid();
+        byte[] first =
+            BuildSimpleAssembly("Changing", "First", mvid);
+        byte[] changed =
+            BuildSimpleAssembly("Changing", "Other", mvid);
+        Assert.Equal(first.Length, changed.Length);
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(first),
+            path: null,
+            openRead: () =>
+                new RewindSwitchingStream(
+                    first,
+                    changed),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        using var plan = new InspectionAcquisitionPlan();
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+
+        AssemblyInspectionSession session =
+            Assert.IsType<CandidateSessionResult.Ready>(
+                    plan.OpenSession(registration.Candidate))
+                .Session;
+
+        Assert.IsType<TypeDeclarationResult.Defined>(
+            session.ProbeDeclaration(Name("", "First")));
+        Assert.IsType<TypeDeclarationResult.Missing>(
+            session.ProbeDeclaration(Name("", "Other")));
     }
 
     [Fact]
@@ -819,6 +895,48 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildSimpleAssembly(
+        string assemblyName,
+        string typeName,
+        Guid mvid)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    $"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(mvid),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
     static byte[] Serialize(MetadataBuilder metadata)
     {
         var pe = new ManagedPEBuilder(
@@ -919,5 +1037,137 @@ public class InspectionAcquisitionPlanTests
                 inner.Dispose();
             base.Dispose(disposing);
         }
+    }
+
+    sealed class CountingLengthStream(long length) : Stream
+    {
+        long _position;
+
+        internal long BytesRead { get; private set; }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => length;
+        public override long Position
+        {
+            get => _position;
+            set => _position = value;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            int read =
+                (int)Math.Min(
+                    count,
+                    length - _position);
+            Array.Clear(buffer, offset, read);
+            _position += read;
+            BytesRead += read;
+            return read;
+        }
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin)
+        {
+            _position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => length + offset,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(origin)),
+            };
+            return _position;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class RewindSwitchingStream(
+        byte[] initial,
+        byte[] changed) : Stream
+    {
+        long _position;
+        bool _reachedEnd;
+        bool _changed;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => initial.LongLength;
+        public override long Position
+        {
+            get => _position;
+            set
+            {
+                if (_reachedEnd && value == 0)
+                    _changed = true;
+                _position = value;
+            }
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            byte[] source =
+                _changed
+                    ? changed
+                    : initial;
+            int read =
+                (int)Math.Min(
+                    count,
+                    source.LongLength - _position);
+            source.AsSpan((int)_position, read)
+                .CopyTo(buffer.AsSpan(offset, read));
+            _position += read;
+            _reachedEnd |= _position == source.LongLength;
+            return read;
+        }
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin)
+        {
+            Position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => Length + offset,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(origin)),
+            };
+            return _position;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 }

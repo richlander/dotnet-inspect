@@ -293,10 +293,13 @@ constraint outside the selected image. Extraction records requests only for surf
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
 alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
-so a replaced path cannot mix image generations
-(`CatalogExtraction_RejectsImageChangedAfterInventory` gates this). Unavailable and
-ambiguous bindings remain unclassified. Catalog keys and definition handles do not escape
-with the `ApiSurface`.
+so a replaced path cannot mix image generations. Each inventory or retained-session open
+first copies one image within its inventory or retained-image size bound, then hashes and
+parses only that immutable copy; `Session_ParsesTheBytesCopiedBeforeSourceMutation`,
+`Register_ImageBudgetRejectsBeforeReadingSource`, and
+`CatalogExtraction_RejectsImageChangedAfterInventory` gate these properties. Unavailable
+and ambiguous bindings remain unclassified. Catalog keys and definition handles do not
+escape with the `ApiSurface`.
 
 This is a transitional host for a context-group-scoped query, not a second workspace model.
 The workspace must eventually lend its retained image generation to the Metadata catalog
