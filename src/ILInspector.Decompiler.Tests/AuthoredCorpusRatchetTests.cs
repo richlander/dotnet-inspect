@@ -2062,7 +2062,7 @@ public class AuthoredCorpusRatchetTests
         Assert.False(AuthoredCorpusRatchet.IsTrustworthy(forged));
         Assert.Contains(
             "frontierIlDiffAttribution was not produced before methodology v3",
-            AuthoredCorpusRatchet.RefuseFrontierAttributionBeforeMethodologyV3([forged]),
+            AuthoredCorpusRatchet.RefuseFrontierAttributionMethodologyMismatch([forged]),
             StringComparison.Ordinal);
     }
 

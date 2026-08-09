@@ -283,16 +283,20 @@ static class AuthoredCorpusRatchet
         return null;
     }
 
-    internal static string? RefuseFrontierAttributionBeforeMethodologyV3(IReadOnlyList<HistoryRun> runs)
+    internal static string? RefuseFrontierAttributionMethodologyMismatch(IReadOnlyList<HistoryRun> runs)
     {
         ArgumentNullException.ThrowIfNull(runs);
 
         foreach (var run in runs)
         {
-            if (run.Methodology < 3
-                && run.ValidDifferent?.FrontierIlDiffAttribution is not null)
+            var frontierAttribution = run.ValidDifferent?.FrontierIlDiffAttribution;
+            if (run.Methodology < 3 && frontierAttribution is not null)
             {
                 return $"{run.Date ?? "(undated)"}: frontierIlDiffAttribution was not produced before methodology v3";
+            }
+            if (run.Methodology >= 3 && frontierAttribution is null)
+            {
+                return $"{run.Date ?? "(undated)"}: frontierIlDiffAttribution is required from methodology v3 onward";
             }
         }
 
