@@ -6574,6 +6574,12 @@ public sealed class DeclScopeLoopClient
 // it accepts. The declined ones must not print a call to a name they never declare.
 public static class UnraisedLocalFunctionSamples
 {
+    public static void CallsEmpty()
+    {
+        F();
+        static void F() { }
+    }
+
     // Declined: IsPrintableBody rejects a try body.
     public static int CallsUnraisedTry(int x)
     {

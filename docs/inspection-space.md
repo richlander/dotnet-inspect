@@ -21,11 +21,13 @@ prerequisite-aware registry, while the command still owns orchestration.
 `DotnetInspector.Queries` also contains the first workspace foundation: an
 ephemeral workspace can own binding-consistent assembly context groups, and a
 group retains lazily acquired immutable assembly snapshots behind
-callback-scoped and stack-only access. Existing commands have not migrated to
-that workspace owner yet. Other foundations include shared image and inspection
-session ownership, catalog generations, `CoreCache`, typed provenance and
-resolution currencies, and `InertString`; the remaining workspace model
-describes how those pieces will be composed.
+callback-scoped and stack-only access. The first group-scoped query scans
+Integrations evidence across every participant sequentially while preserving
+per-assembly identity, provenance, and failures. Existing commands have not
+migrated to that workspace owner yet. Other foundations include shared image
+and inspection session ownership, catalog generations, `CoreCache`, typed
+provenance and resolution currencies, and `InertString`; the remaining
+workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -275,8 +277,28 @@ isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
-Catalogs, producer sessions, authorization, and command migration remain later
-slices.
+
+`AssemblyContextIntegrationsQuery` is the first query over a complete group. It
+visits participants in their immutable input order, borrows a narrow
+`AssemblyInspectionSession` over each retained snapshot without reopening the
+source, and returns the ecosystem and OpenTelemetry evidence owned by Metadata.
+Each entry carries an opaque participant registration, assembly identity,
+resolution provenance, and either materialized evidence or a typed failure.
+Partial inspection is therefore explicit and meaningful. The query is
+`Unbounded`: the group byte budget bounds retained content, but participant
+count and metadata scanning work still require explicit demand. The baseline
+executor remains sequential; cancellation-aware and concurrent group executors
+are later policy work. Late malformed-metadata mapping is implemented but not
+yet independently gated.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
+and
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
+gate participant ordering, snapshot reuse, and general partial acquisition.
+`AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
+gates the budget-limited case.
+
+Catalogs, query authorization, integration-opportunity composition, concurrent
+execution, and command migration remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
@@ -405,14 +427,16 @@ own acquisition cost or producer dependencies.
 
 The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` now owns the first
-typed sequential plan and the direct-reference section binding. String keys,
-mutable CLI models, path-shaped residual inputs, and library-command ownership
-remain migration boundaries rather than workspace contracts.
+tracing are useful foundations. `DotnetInspector.Queries` now owns typed
+metadata, direct-reference, and SourceLink plans. String keys, mutable CLI
+models, path-shaped residual inputs, and library-command ownership remain
+migration boundaries rather than workspace contracts.
 
-The initial registry contains only network-free metadata queries. It passes each
-query's maximum transitive cost into the host execution scope; capability
-lowering for network or source-content queries remains part of their migration.
+The registry executes synchronous and asynchronous queries in deterministic
+prerequisite order. It passes each query's maximum transitive cost into the host
+execution scope. SourceLink demonstrates the network boundary: a moderated
+document prerequisite may acquire one PDB, while availability and integrity
+declare unbounded work and accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 
