@@ -659,6 +659,21 @@ public sealed partial class CSharpPrinter
     {
         string pad = new(' ', indent * 4);
         var blocks = container.Blocks;
+        IrNode? lastStatementBeforeTrailingLocalFunctions = null;
+        if (topLevel && blocks.Count > 0)
+        {
+            // Local-function declarations execute nothing and may legally follow
+            // the host's terminal return, so they do not make that return non-terminal.
+            var statements = blocks[^1].Children;
+            for (int i = statements.Count - 1; i >= 0; i--)
+            {
+                if (statements[i] is LocalFunctionStatement)
+                    continue;
+                lastStatementBeforeTrailingLocalFunctions = statements[i];
+                break;
+            }
+        }
+
         // A label binds to the next statement, even one in a following block, so
         // an empty labeled block is fine mid-container. It only strands when the
         // container ends with no statement after the label; track that and emit a
@@ -679,15 +694,16 @@ public sealed partial class CSharpPrinter
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
-            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
+            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
+                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
             var emit = new List<IrNode>();
             foreach (var statement in block.Children)
             {
                 if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
                     continue;   // lifted to the signature initializer / field declarations
-                bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
-                if (isLast && !labeledReturnOnly && statement is Return { Value: null })
-                    break;
+                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
+                if (isLastStatement && !labeledReturnOnly && statement is Return { Value: null })
+                    continue;
                 emit.Add(statement);
             }
 
