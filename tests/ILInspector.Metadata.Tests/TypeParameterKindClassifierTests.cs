@@ -125,6 +125,236 @@ public class TypeParameterKindClassifierTests
     }
 
     [Fact]
+    public void ResolutionPlan_TracksOnlyConstructedConstraintRoot()
+    {
+        const int ArgumentCount = 32;
+        GenericParameterHandle parameter = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle dependency =
+                AddAssemblyReference(
+                    metadata,
+                    "Dependency");
+            TypeReferenceHandle root =
+                metadata.AddTypeReference(
+                    dependency,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString(
+                        $"G`{ArgumentCount}"));
+            TypeReferenceHandle[] arguments =
+            [
+                .. Enumerable.Range(0, ArgumentCount)
+                    .Select(index =>
+                        metadata.AddTypeReference(
+                            dependency,
+                            metadata.GetOrAddString("N"),
+                            metadata.GetOrAddString(
+                                $"A{index}"))),
+            ];
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(
+                    metadata,
+                    "Consumer`1");
+            parameter = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(root) << 2) | 1);
+            signature.WriteCompressedInteger(ArgumentCount);
+            foreach (TypeReferenceHandle argument in arguments)
+            {
+                signature.WriteByte(0x12); // CLASS
+                signature.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(argument) << 2) | 1);
+            }
+
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature)));
+        });
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeParameterKindClassifierTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionPlan_TracksOnlyConstructedConstraintRoot)));
+        var plan =
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source);
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState(
+                    plan));
+
+        Assert.Equal(TypeParameterTypeKind.Undetermined, kind);
+        TypeResolutionRequest request =
+            Assert.Single(plan.Requests);
+        Assert.Equal("N.G`32", request.Type.ToMetadataFullName());
+    }
+
+    [Fact]
+    public void ResolutionPlan_MalformedConstructedConstraintCreatesNoRequest()
+    {
+        GenericParameterHandle parameter = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeReferenceHandle root =
+                metadata.AddTypeReference(
+                    AddAssemblyReference(
+                        metadata,
+                        "Dependency"),
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("G`1"));
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(
+                    metadata,
+                    "Consumer`1");
+            parameter = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // CLASS
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(root) << 2) | 1);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0xff);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature)));
+        });
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeParameterKindClassifierTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionPlan_MalformedConstructedConstraintCreatesNoRequest)));
+        var plan =
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source);
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState(
+                    plan));
+
+        Assert.Equal(TypeParameterTypeKind.Undetermined, kind);
+        Assert.Empty(plan.Requests);
+    }
+
+    [Fact]
+    public void Classify_MalformedSiblingNumbersStayUndetermined()
+    {
+        GenericParameterHandle malformed = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(
+                    metadata,
+                    "Consumer`2");
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.ReferenceTypeConstraint,
+                metadata.GetOrAddString("First"),
+                index: 1);
+            malformed = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("Second"),
+                index: 0);
+            var selfReference = new BlobBuilder();
+            selfReference.WriteByte(0x13); // VAR
+            selfReference.WriteCompressedInteger(0);
+            metadata.AddGenericParameterConstraint(
+                malformed,
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(selfReference)));
+        });
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                malformed,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState());
+
+        Assert.Equal(TypeParameterTypeKind.Undetermined, kind);
+    }
+
+    [Fact]
+    public void Classify_BaselessObjectWithReferencesIsNotCoreLibrary()
+    {
+        GenericParameterHandle parameter = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddAssemblyReference(metadata, "ActualCore");
+            TypeDefinitionHandle objectType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString("Object"),
+                    baseType: default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle enumType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("System"),
+                    metadata.GetOrAddString("Enum"),
+                    objectType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(
+                    metadata,
+                    "Consumer`1");
+            parameter = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                enumType);
+        });
+
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState());
+
+        Assert.Equal(TypeParameterTypeKind.ReferenceType, kind);
+    }
+
+    [Fact]
     public void Extract_RejectedTypeDoesNotConsumeResolutionCandidate()
     {
         string rejectedPath = WriteAssembly(
@@ -291,10 +521,11 @@ public class TypeParameterKindClassifierTests
     [Fact]
     public void CatalogExtraction_RejectsImageChangedAfterInventory()
     {
+        Guid mvid = Guid.NewGuid();
         byte[] inventoried =
-            BuildSimpleAssembly("Changing", "First");
+            BuildSimpleAssembly("Changing", "First", mvid);
         byte[] changed =
-            BuildSimpleAssembly("Changing", "Second");
+            BuildSimpleAssembly("Changing", "Second", mvid);
         int opens = 0;
         var source = ResolvedAssemblyReference.Create(
             ReadIdentity(inventoried),
@@ -442,10 +673,11 @@ public class TypeParameterKindClassifierTests
 
     static byte[] BuildSimpleAssembly(
         string assemblyName,
-        string typeName)
+        string typeName,
+        Guid mvid)
     {
         MetadataBuilder metadata =
-            NewMetadata(assemblyName);
+            NewMetadata(assemblyName, mvid);
         AddTypeDefinition(
             metadata,
             "<Module>",
@@ -561,14 +793,17 @@ public class TypeParameterKindClassifierTests
         return new MetadataImage(image.ToImmutableArray());
     }
 
-    static MetadataBuilder NewMetadata(string assemblyName)
+    static MetadataBuilder NewMetadata(
+        string assemblyName,
+        Guid? mvid = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             moduleName:
                 metadata.GetOrAddString($"{assemblyName}.dll"),
-            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            mvid: metadata.GetOrAddGuid(
+                mvid ?? Guid.NewGuid()),
             encId: default,
             encBaseId: default);
         metadata.AddAssembly(

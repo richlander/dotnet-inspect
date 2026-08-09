@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 
 namespace ILInspector.Metadata;
 
@@ -211,6 +212,11 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     entry.Candidate.Assembly);
             long imageSize =
                 AssemblyImageSnapshot.ReadRemainingLength(stream);
+            long imageStart = stream.Position;
+            ImmutableArray<byte> contentDigest =
+                ImmutableArray.CreateRange(
+                    SHA256.HashData(stream));
+            stream.Position = imageStart;
             using var peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata);
@@ -317,6 +323,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 new AssemblyInventorySnapshot(
                     actual,
                     reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                    contentDigest,
                     references.ToImmutable(),
                     forwarderTargets.ToImmutable(),
                     imageSize));
@@ -374,6 +381,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 }
 
                 reservedBytes = imageSize;
+                long imageStart = stream.Position;
+                byte[] contentDigest = SHA256.HashData(stream);
+                stream.Position = imageStart;
                 Stream sessionSource = stream;
                 stream = null;
                 session = AssemblyInspectionSession.OpenPrefetched(sessionSource);
@@ -384,7 +394,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                         entry.Candidate.Assembly.Identity,
                         session.AssemblyIdentity())
                     || session.ModuleVersionId()
-                        != inventory.Inventory.ModuleVersionId)
+                        != inventory.Inventory.ModuleVersionId
+                    || !CryptographicOperations.FixedTimeEquals(
+                        contentDigest,
+                        inventory.Inventory.ContentDigest.AsSpan()))
                 {
                     return new CandidateSessionResult.Rejected(
                         new CandidateOpenFailure(

@@ -51,7 +51,6 @@ internal static class TypeParameterKindClassifier
             ConstraintClass> _resolvedClasses = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
-        ConstraintRootProvider? _constraintRootProvider;
 
         internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
             _requests;
@@ -74,9 +73,6 @@ internal static class TypeParameterKindClassifier
                 checkpoint,
                 _requestOrder.Count - checkpoint);
         }
-
-        internal ConstraintRootProvider ConstraintRootProvider =>
-            _constraintRootProvider ??= new ConstraintRootProvider(this);
 
         internal void Bind(TypeResolutionContext context)
         {
@@ -377,24 +373,56 @@ internal static class TypeParameterKindClassifier
         if (constraintType.Kind != HandleKind.TypeSpecification)
             return null;
 
-        var reference = GuardedProviderDecode.TypeSpec(
-            reader,
-            (TypeSpecificationHandle)constraintType,
-            TypeParameterReferenceProvider.Instance,
-            (GenericContext?)null,
-            fallback: null);
-        if (reference is not { } target)
+        if (!TypeSpecificationRoot.TryRead(
+                reader,
+                (TypeSpecificationHandle)constraintType,
+                out TypeSpecificationRoot root)
+            || root.Kind
+                is not (
+                    TypeSpecificationRootKind.GenericTypeParameter
+                    or TypeSpecificationRootKind.GenericMethodParameter))
+        {
             return null;
+        }
 
         try
         {
-            var siblings = SiblingParameters(reader, parameter, target.IsMethodParameter);
-            if (siblings is not { } handles || target.Index < 0 || target.Index >= handles.Count)
+            var siblings = SiblingParameters(
+                reader,
+                parameter,
+                root.Kind
+                    == TypeSpecificationRootKind.GenericMethodParameter);
+            if (siblings is not { } handles
+                || root.GenericParameterIndex < 0
+                || root.GenericParameterIndex >= handles.Count)
+            {
                 return null;
+            }
 
-            return handles[target.Index];
+            GenericParameterHandle? match = null;
+            var seen = new HashSet<int>();
+            foreach (GenericParameterHandle handle in handles)
+            {
+                int index =
+                    reader.GetGenericParameter(handle).Index;
+                if (index < 0
+                    || index >= handles.Count
+                    || !seen.Add(index))
+                {
+                    return null;
+                }
+
+                if (index == root.GenericParameterIndex)
+                    match = handle;
+            }
+
+            return seen.Count == handles.Count
+                ? match
+                : null;
         }
-        catch (BadImageFormatException)
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
         {
             return null;
         }
@@ -704,38 +732,6 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    readonly record struct TypeParameterReference(int Index, bool IsMethodParameter);
-
-    /// <summary>
-    /// Decodes a constraint signature that is expected to be exactly one generic
-    /// parameter reference, yielding null for every other shape so the caller fails
-    /// closed rather than mistaking a composed type for a bare parameter.
-    /// </summary>
-    sealed class TypeParameterReferenceProvider
-        : ISignatureTypeProvider<TypeParameterReference?, GenericContext?>
-    {
-        internal static readonly TypeParameterReferenceProvider Instance = new();
-
-        public TypeParameterReference? GetGenericMethodParameter(GenericContext? context, int index)
-            => new TypeParameterReference(index, IsMethodParameter: true);
-
-        public TypeParameterReference? GetGenericTypeParameter(GenericContext? context, int index)
-            => new TypeParameterReference(index, IsMethodParameter: false);
-
-        public TypeParameterReference? GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind) => null;
-        public TypeParameterReference? GetGenericInstantiation(TypeParameterReference? genericType, ImmutableArray<TypeParameterReference?> typeArguments) => null;
-        public TypeParameterReference? GetModifiedType(TypeParameterReference? modifier, TypeParameterReference? unmodifiedType, bool isRequired) => null;
-        public TypeParameterReference? GetPinnedType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetPrimitiveType(PrimitiveTypeCode typeCode) => null;
-        public TypeParameterReference? GetSZArrayType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetArrayType(TypeParameterReference? elementType, ArrayShape shape) => null;
-        public TypeParameterReference? GetByReferenceType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetPointerType(TypeParameterReference? elementType) => null;
-        public TypeParameterReference? GetFunctionPointerType(MethodSignature<TypeParameterReference?> signature) => null;
-    }
-
     internal enum ConstraintClass
     {
         ProvesNothing,
@@ -778,13 +774,28 @@ internal static class TypeParameterKindClassifier
             // A generic instantiation constrains to the instantiated type, so the
             // question is about its generic type definition.
             case HandleKind.TypeSpecification:
-                return GuardedProviderDecode.TypeSpec(
-                    reader,
-                    (TypeSpecificationHandle)handle,
-                    resolution?.ConstraintRootProvider
-                        ?? s_unresolvedConstraintRootProvider,
-                    (GenericContext?)null,
-                    fallback: ConstraintClass.Unreadable);
+                if (!TypeSpecificationRoot.TryRead(
+                        reader,
+                        (TypeSpecificationHandle)handle,
+                        out TypeSpecificationRoot root))
+                {
+                    return ConstraintClass.Unreadable;
+                }
+
+                return root.Kind switch
+                {
+                    TypeSpecificationRootKind.NamedType
+                        when root.RawTypeKind
+                            == (byte)SignatureTypeKind.Class =>
+                        ClassifyConstraintType(
+                            reader,
+                            root.Type,
+                            resolution),
+                    TypeSpecificationRootKind.GenericTypeParameter
+                        or TypeSpecificationRootKind.GenericMethodParameter =>
+                        ConstraintClass.DeferToTypeParameter,
+                    _ => ConstraintClass.Unreadable,
+                };
 
             default:
                 return ConstraintClass.Unreadable;
@@ -860,6 +871,9 @@ internal static class TypeParameterKindClassifier
 
     static bool ScanForCoreLibraryRoot(MetadataReader reader)
     {
+        if (reader.AssemblyReferences.Count != 0)
+            return false;
+
         try
         {
             foreach (var handle in reader.TypeDefinitions)
@@ -925,52 +939,4 @@ internal static class TypeParameterKindClassifier
         }
     }
 
-    /// <summary>
-    /// Classifies the type at the root of a constraint signature. Only the named-type
-    /// and instantiation callbacks can be reached by a well-formed constraint; every
-    /// other shape is not a legal constraint and is reported unreadable rather than
-    /// guessed at.
-    /// </summary>
-    static readonly ConstraintRootProvider s_unresolvedConstraintRootProvider =
-        new(resolution: null);
-
-    internal sealed class ConstraintRootProvider(ResolutionPlan? resolution)
-        : ISignatureTypeProvider<ConstraintClass, GenericContext?>
-    {
-        public ConstraintClass GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => rawTypeKind == (byte)SignatureTypeKind.ValueType
-                ? ConstraintClass.Unreadable
-                : ClassifyDefinition(reader, handle);
-
-        public ConstraintClass GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => rawTypeKind == (byte)SignatureTypeKind.ValueType
-                ? ConstraintClass.Unreadable
-                : ClassifyReference(reader, handle, resolution);
-
-        public ConstraintClass GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
-            => GuardedProviderDecode.TypeSpec(reader, handle, this, context, fallback: ConstraintClass.Unreadable);
-
-        // A generic instantiation is classified by the type being instantiated.
-        public ConstraintClass GetGenericInstantiation(ConstraintClass genericType, ImmutableArray<ConstraintClass> typeArguments)
-            => genericType;
-
-        public ConstraintClass GetModifiedType(ConstraintClass modifier, ConstraintClass unmodifiedType, bool isRequired)
-            => ConstraintClass.Unreadable;
-
-        public ConstraintClass GetPinnedType(ConstraintClass elementType) =>
-            ConstraintClass.Unreadable;
-
-        // A constraint naming another type parameter is only as known as that parameter.
-        // The index alone cannot be resolved here, so the answer is deferred to
-        // ClassifySibling, which has the owning parameter and can find its siblings.
-        public ConstraintClass GetGenericMethodParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
-        public ConstraintClass GetGenericTypeParameter(GenericContext? context, int index) => ConstraintClass.DeferToTypeParameter;
-
-        public ConstraintClass GetPrimitiveType(PrimitiveTypeCode typeCode) => ConstraintClass.Unreadable;
-        public ConstraintClass GetSZArrayType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetArrayType(ConstraintClass elementType, ArrayShape shape) => ConstraintClass.Unreadable;
-        public ConstraintClass GetByReferenceType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetPointerType(ConstraintClass elementType) => ConstraintClass.Unreadable;
-        public ConstraintClass GetFunctionPointerType(MethodSignature<ConstraintClass> signature) => ConstraintClass.Unreadable;
-    }
 }

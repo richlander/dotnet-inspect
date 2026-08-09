@@ -297,7 +297,7 @@ public class MetadataTypeDeclarationProbeTests
                 Assert.IsType<TypeDeclarationResult.Defined>(
                     MetadataTypeDeclarationProbe.Probe(
                         pe.GetMetadataReader(),
-                        Name("N", "L0")));
+                        Name("N", "L0`1")));
             stopwatch.Stop();
 
             Assert.True(
@@ -931,30 +931,30 @@ public class MetadataTypeDeclarationProbeTests
             "N.G`2",
             TypeAttributes.Public | TypeAttributes.Class);
         genericBase.DefineGenericParameters("T1", "T2");
-        Type[] levels =
+        System.Reflection.Emit.TypeBuilder[] levels =
         [
             .. Enumerable.Range(0, depth + 1)
                 .Select(index =>
-                    (Type)module.DefineType(
-                        $"N.L{index}",
+                    module.DefineType(
+                        $"N.L{index}`1",
                         TypeAttributes.Public
                             | TypeAttributes.Class)),
         ];
+        foreach (var level in levels)
+            level.DefineGenericParameters("T");
         for (int i = 0; i < depth; i++)
         {
-            ((System.Reflection.Emit.TypeBuilder)levels[i])
-                .SetParent(
-                    genericBase.MakeGenericType(
-                        levels[i + 1],
-                        levels[i + 1]));
+            Type nestedArgument =
+                levels[i + 1].MakeGenericType(typeof(int));
+            levels[i].SetParent(
+                genericBase.MakeGenericType(
+                    nestedArgument,
+                    nestedArgument));
         }
 
         genericBase.CreateType();
         for (int i = depth; i >= 0; i--)
-        {
-            ((System.Reflection.Emit.TypeBuilder)levels[i])
-                .CreateType();
-        }
+            levels[i].CreateType();
 
         string path = Path.Combine(
             Path.GetTempPath(),

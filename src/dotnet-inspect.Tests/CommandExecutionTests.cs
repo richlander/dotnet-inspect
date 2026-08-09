@@ -112,6 +112,51 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteNetmodule(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    Path.GetFileName(path)),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteHostileIlOperandAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileIlOperand");
@@ -1478,6 +1523,43 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "GenericBaseConstraint<T>(T? value) where T : class",
             output);
+    }
+
+    [Fact]
+    public async Task TypeAndMemberCommands_InspectManagedNetmodule()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}.dll");
+        WriteNetmodule(path);
+        try
+        {
+            var typeResult = await RunAppAsync(
+                "type",
+                "N.Widget",
+                "--library",
+                path,
+                "--tips",
+                "q");
+            var memberResult = await RunAppAsync(
+                "member",
+                "N.Widget",
+                "--library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Empty(typeResult.Error);
+            Assert.Empty(memberResult.Error);
+            Assert.Equal(0, typeResult.Exit);
+            Assert.Equal(0, memberResult.Exit);
+            Assert.Contains("N.Widget", typeResult.Output);
+            Assert.Contains("N.Widget", memberResult.Output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]

@@ -42,21 +42,27 @@ internal static class ApiServices
                 options.ProjectAssetsPath,
                 options.Tfm ?? selectedTfm,
                 options.PlatformFramework);
-        if (resolution is null)
-            return null;
-
         ApiSurface? api =
-            resolution.ExtractApiSurface(options.IncludeAll);
+            resolution is not null
+                ? resolution.ExtractApiSurface(
+                    options.IncludeAll)
+                : AssemblyReader.ExtractModuleApiSurface(
+                    apiDllPath,
+                    options.IncludeAll);
         if (api is null)
             return null;
 
-        ResolveForwardedTypes(
-            api,
-            apiDllPath,
-            logger,
-            options.IncludeAll,
-            isPlatformAssembly: runtimeAssemblyPath is not null,
-            resolution: resolution);
+        if (resolution is not null)
+        {
+            ResolveForwardedTypes(
+                api,
+                apiDllPath,
+                logger,
+                options.IncludeAll,
+                isPlatformAssembly:
+                    runtimeAssemblyPath is not null,
+                resolution: resolution);
+        }
 
         if (!string.IsNullOrEmpty(packagePath))
         {

@@ -16,6 +16,8 @@ public static class MetadataTypeDeclarationProbe
         var candidates = new List<PendingCandidate>();
         var forwarders =
             new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
+        bool canDeclareCoreLibraryRoot =
+            reader.AssemblyReferences.Count == 0;
         bool declaresCoreLibraryRoot = false;
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -24,9 +26,11 @@ public static class MetadataTypeDeclarationProbe
             try
             {
                 definition = reader.GetTypeDefinition(handle);
-                declaresCoreLibraryRoot |= IsCoreLibraryRoot(
-                    reader,
-                    definition);
+                declaresCoreLibraryRoot |=
+                    canDeclareCoreLibraryRoot
+                    && IsCoreLibraryRoot(
+                        reader,
+                        definition);
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -338,6 +342,12 @@ public static class MetadataTypeDeclarationProbe
         bool declaringAssemblyDefinesCoreLibraryRoot,
         HashSet<TypeDefinitionHandle> active)
     {
+        if (active.Count
+            >= MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            return MetadataTypeDefinitionKind.Unknown;
+        }
+
         if (!active.Add(handle))
             return MetadataTypeDefinitionKind.Unknown;
 
@@ -368,20 +378,11 @@ public static class MetadataTypeDeclarationProbe
             if (definition.BaseType.Kind
                 == HandleKind.TypeSpecification)
             {
-                BaseTypeEvidence baseType =
-                    GuardedProviderDecode.TypeSpec(
-                        reader,
-                        (TypeSpecificationHandle)definition.BaseType,
-                        new BaseTypeKindProvider(
-                            reader,
-                            declaringAssemblyDefinesCoreLibraryRoot,
-                            active),
-                        (GenericContext?)null,
-                        BaseTypeEvidence.Unknown);
-                return baseType.Kind
-                        == MetadataTypeDefinitionKind.Class
-                    ? MetadataTypeDefinitionKind.Class
-                    : MetadataTypeDefinitionKind.Unknown;
+                return ClassifyTypeSpecificationBase(
+                    reader,
+                    (TypeSpecificationHandle)definition.BaseType,
+                    declaringAssemblyDefinesCoreLibraryRoot,
+                    active);
             }
 
             MetadataTypeDefinitionNameReadResult read =
@@ -439,204 +440,61 @@ public static class MetadataTypeDeclarationProbe
         }
     }
 
-    sealed class BaseTypeKindProvider(
+    static MetadataTypeDefinitionKind ClassifyTypeSpecificationBase(
         MetadataReader reader,
+        TypeSpecificationHandle handle,
         bool declaringAssemblyDefinesCoreLibraryRoot,
-        HashSet<TypeDefinitionHandle> active) :
-        ISignatureTypeProvider<
-            BaseTypeEvidence,
-            GenericContext?>
+        HashSet<TypeDefinitionHandle> active)
     {
-        public BaseTypeEvidence GetTypeFromDefinition(
-            MetadataReader metadataReader,
-            TypeDefinitionHandle handle,
-            byte rawTypeKind) =>
-            BaseTypeEvidence.FromDefinition(
-                handle,
-                rawTypeKind);
-
-        public BaseTypeEvidence GetTypeFromReference(
-            MetadataReader metadataReader,
-            TypeReferenceHandle handle,
-            byte rawTypeKind) =>
-            BaseTypeEvidence.FromReference(
-                handle,
-                rawTypeKind);
-
-        public BaseTypeEvidence GetTypeFromSpecification(
-            MetadataReader reader,
-            GenericContext? context,
-            TypeSpecificationHandle handle,
-            byte rawTypeKind) =>
-            GuardedProviderDecode.TypeSpec(
+        if (!TypeSpecificationRoot.TryRead(
                 reader,
                 handle,
-                this,
-                context,
-                BaseTypeEvidence.Unknown);
-
-        public BaseTypeEvidence GetGenericInstantiation(
-            BaseTypeEvidence genericType,
-            ImmutableArray<BaseTypeEvidence> typeArguments)
+                out TypeSpecificationRoot root)
+            || root.Kind
+                != TypeSpecificationRootKind.NamedType
+            || root.RawTypeKind
+                != (byte)SignatureTypeKind.Class)
         {
-            return genericType.Form switch
-            {
-                BaseTypeEvidenceForm.Definition =>
-                    AuthenticateDefinition(genericType),
-                BaseTypeEvidenceForm.Reference =>
-                    AuthenticateReference(genericType),
-                _ => BaseTypeEvidence.Unknown,
-            };
+            return MetadataTypeDefinitionKind.Unknown;
         }
 
-        public BaseTypeEvidence GetModifiedType(
-            BaseTypeEvidence modifier,
-            BaseTypeEvidence unmodifiedType,
-            bool isRequired) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetPinnedType(
-            BaseTypeEvidence elementType) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetGenericMethodParameter(
-            GenericContext? context,
-            int index) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetGenericTypeParameter(
-            GenericContext? context,
-            int index) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetFunctionPointerType(
-            MethodSignature<BaseTypeEvidence> signature) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetArrayType(
-            BaseTypeEvidence elementType,
-            ArrayShape shape) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetByReferenceType(
-            BaseTypeEvidence elementType) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetPointerType(
-            BaseTypeEvidence elementType) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetPrimitiveType(
-            PrimitiveTypeCode typeCode) =>
-            BaseTypeEvidence.Unknown;
-
-        public BaseTypeEvidence GetSZArrayType(
-            BaseTypeEvidence elementType) =>
-            BaseTypeEvidence.Unknown;
-
-        BaseTypeEvidence AuthenticateDefinition(
-            BaseTypeEvidence evidence)
+        if (root.Type.Kind == HandleKind.TypeDefinition)
         {
             MetadataTypeDefinitionKind actual =
                 ClassifyDefinitionKind(
                     reader,
-                    evidence.Definition,
+                    (TypeDefinitionHandle)root.Type,
                     declaringAssemblyDefinesCoreLibraryRoot,
                     active);
-            return actual == FromRawKind(evidence.RawTypeKind)
-                ? BaseTypeEvidence.Classified(actual)
-                : BaseTypeEvidence.Unknown;
+            return actual == MetadataTypeDefinitionKind.Class
+                ? actual
+                : MetadataTypeDefinitionKind.Unknown;
         }
 
-        BaseTypeEvidence AuthenticateReference(
-            BaseTypeEvidence evidence)
+        if (root.Type.Kind != HandleKind.TypeReference)
+            return MetadataTypeDefinitionKind.Unknown;
+
+        MetadataTypeDefinitionNameReadResult read =
+            MetadataTypeDefinitionNameReader.Read(
+                reader,
+                (TypeReferenceHandle)root.Type);
+        if (read
+            is not MetadataTypeDefinitionNameReadResult.Read named)
         {
-            if (FromRawKind(evidence.RawTypeKind)
-                != MetadataTypeDefinitionKind.Class)
-            {
-                return BaseTypeEvidence.Unknown;
-            }
-
-            MetadataTypeDefinitionNameReadResult read =
-                MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    evidence.Reference);
-            if (read
-                is not MetadataTypeDefinitionNameReadResult.Read named)
-            {
-                return BaseTypeEvidence.Unknown;
-            }
-
-            if (named.Name.ToMetadataFullName()
-                    is "System.ValueType" or "System.Enum"
-                && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
-                    reader,
-                    reader.GetTypeReference(
-                        evidence.Reference).ResolutionScope))
-            {
-                return BaseTypeEvidence.Unknown;
-            }
-
-            return BaseTypeEvidence.Classified(
-                MetadataTypeDefinitionKind.Class);
+            return MetadataTypeDefinitionKind.Unknown;
         }
 
-        static MetadataTypeDefinitionKind FromRawKind(
-            byte rawTypeKind) =>
-            rawTypeKind switch
-            {
-                (byte)SignatureTypeKind.Class =>
-                    MetadataTypeDefinitionKind.Class,
-                (byte)SignatureTypeKind.ValueType =>
-                    MetadataTypeDefinitionKind.ValueType,
-                _ => MetadataTypeDefinitionKind.Unknown,
-            };
-    }
+        if (named.Name.ToMetadataFullName()
+                is "System.ValueType" or "System.Enum"
+            && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                reader,
+                reader.GetTypeReference(
+                    (TypeReferenceHandle)root.Type)
+                    .ResolutionScope))
+        {
+            return MetadataTypeDefinitionKind.Unknown;
+        }
 
-    enum BaseTypeEvidenceForm
-    {
-        Unknown,
-        Definition,
-        Reference,
-        Classified,
-    }
-
-    readonly record struct BaseTypeEvidence(
-        BaseTypeEvidenceForm Form,
-        MetadataTypeDefinitionKind Kind,
-        TypeDefinitionHandle Definition,
-        TypeReferenceHandle Reference,
-        byte RawTypeKind)
-    {
-        internal static BaseTypeEvidence Unknown => default;
-
-        internal static BaseTypeEvidence FromDefinition(
-            TypeDefinitionHandle handle,
-            byte rawTypeKind) =>
-            new(
-                BaseTypeEvidenceForm.Definition,
-                MetadataTypeDefinitionKind.Unknown,
-                handle,
-                default,
-                rawTypeKind);
-
-        internal static BaseTypeEvidence FromReference(
-            TypeReferenceHandle handle,
-            byte rawTypeKind) =>
-            new(
-                BaseTypeEvidenceForm.Reference,
-                MetadataTypeDefinitionKind.Unknown,
-                default,
-                handle,
-                rawTypeKind);
-
-        internal static BaseTypeEvidence Classified(
-            MetadataTypeDefinitionKind kind) =>
-            new(
-                BaseTypeEvidenceForm.Classified,
-                kind,
-                default,
-                default,
-                0);
+        return MetadataTypeDefinitionKind.Class;
     }
 }
