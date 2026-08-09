@@ -12,12 +12,15 @@ Performance testing requires a **NativeAOT build**. Publish the exact revision
 under test, then identify both its apphost and version explicitly:
 
 ```bash
+set -e -o pipefail
+export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+export DOTNET_INSPECT_WORKFLOW_VERSION="$(
+  dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj \
+    -getProperty:VersionPrefix -nologo
+)+$(git rev-parse --short=7 HEAD)"
+rm -rf /tmp/dotnet-inspect-workflow-aot
 dotnet publish src/dotnet-inspect -c Release -r <runtime-id> \
   --self-contained true -o /tmp/dotnet-inspect-workflow-aot
-export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
-export DOTNET_INSPECT_WORKFLOW_VERSION=$(
-  "$DOTNET_INSPECT_WORKFLOW_BINARY" --version
-)
 export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
 ```
 
@@ -84,15 +87,20 @@ When a perf scenario fails, profile with `dotnet-trace` against the **Release Co
 ### Setup
 
 ```bash
+set -e -o pipefail
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
 dotnet build src/dotnet-inspect -c Release
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect --version
+export PROFILE_INSPECT="$PWD/artifacts/bin/dotnet-inspect/release/dotnet-inspect"
+test -x "$PROFILE_INSPECT"
+test "$("$PROFILE_INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+"$PROFILE_INSPECT" --flavor | grep -q '^CoreCLR;'
 ```
 
 ### Profiling a single command
 
 ```bash
 dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
-  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect --version
+  "$PROFILE_INSPECT" --version
 ```
 
 This produces a `.nettrace` file. Open it with:
@@ -109,8 +117,7 @@ Use the regular `dotnet-inspect` command line with a warm cache and a repeated w
 
 ```bash
 dotnet-trace collect --providers Microsoft-DotNETCore-SampleProfiler -- \
-  ./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+  "$PROFILE_INSPECT" package System.Text.Json -v:q
 ```
 
 ### Cold vs warm comparison
@@ -119,13 +126,11 @@ Use a fresh cache to capture first-invocation latency (JIT, cache misses) and th
 
 ```bash
 # Cold start (clear cache first)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect cache clear
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+"$PROFILE_INSPECT" cache clear
+"$PROFILE_INSPECT" package System.Text.Json -v:q
 
 # Warm path (same command, cache populated)
-./artifacts/bin/dotnet-inspect/release/dotnet-inspect \
-  package System.Text.Json -v:q
+"$PROFILE_INSPECT" package System.Text.Json -v:q
 ```
 
 ### Diagnosing unexpected network access
