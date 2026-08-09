@@ -328,12 +328,12 @@ shell32.dll
 > Goal: Extract embedded resources from an assembly to a directory on disk.
 
 ```setup
-rm -rf .workflow-state/system-commandline-resources
+rm -rf artifacts/workflows/library-inspection-resources
 ```
 
 ```bash
 dotnet-inspect library --package System.CommandLine@2.0.3 \
-  --extract-resources .workflow-state/system-commandline-resources
+  --extract-resources artifacts/workflows/library-inspection-resources
 ```
 
 ```expect

@@ -8,19 +8,27 @@ dotnet-inspect is designed for sub-50ms responses on common queries. Agents call
 
 ## Prerequisites
 
-Performance testing requires a **NativeAOT build** — CoreCLR and NativeAOT have very different baselines (~95ms vs ~7ms). Always measure with the production build:
+Performance testing requires a **NativeAOT build**. Publish the exact revision
+under test, then identify both its apphost and version explicitly:
 
 ```bash
-./install.sh
+dotnet publish src/dotnet-inspect -c Release -r <runtime-id> \
+  --self-contained true -o /tmp/dotnet-inspect-workflow-aot
+export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+export DOTNET_INSPECT_WORKFLOW_VERSION=$(
+  "$DOTNET_INSPECT_WORKFLOW_BINARY" --version
+)
 ```
 
 Verify the install:
 
 ```bash
-time dotnet-inspect --version
+test "$("$DOTNET_INSPECT_WORKFLOW_BINARY" --version)" = \
+  "$DOTNET_INSPECT_WORKFLOW_VERSION"
+"$DOTNET_INSPECT_WORKFLOW_BINARY" --flavor
 ```
 
-Expected: under 15ms steady-state.
+Expected flavor: `NativeAOT`.
 
 ## Running perf scenarios
 
@@ -46,12 +54,10 @@ To validate:
 
 ### Latency targets by command class
 
-| Command class | Target | Example |
-| --- | --- | --- |
-| Version lookups | ≤ 15ms | `--version`, `--latest-version` |
-| Cached metadata | ≤ 25ms | `package -v:q`, bare name routing |
-| Type/member listing | ≤ 50ms | `type System.Text.Json -v:q` |
-| Network-dependent | ≤ 1000ms | Nonexistent package lookup |
+The workflow document owns the current measured budgets. In particular,
+network-backed latest-version and missing-package checks are external-service
+smoke scenarios, not local-cache latency gates. Do not copy their limits into
+other workflows; follow the `perf` block beside each command.
 
 ## Interpreting failures
 

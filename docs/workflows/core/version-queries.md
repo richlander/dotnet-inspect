@@ -365,8 +365,8 @@ grep -oE 'Version: [^ |]+'
 ### 7b. Using nuget.config file
 
 ```setup
-mkdir -p .workflow-state
-cat > .workflow-state/version-queries.nuget.config <<'EOF'
+mkdir -p artifacts/workflows/version-queries
+cat > artifacts/workflows/version-queries/nuget.config <<'EOF'
 <configuration>
   <packageSources>
     <clear />
@@ -378,7 +378,7 @@ EOF
 
 ```bash
 dotnet-inspect package System.CommandLine \
-  --nugetconfig .workflow-state/version-queries.nuget.config -v:q
+  --nugetconfig artifacts/workflows/version-queries/nuget.config -v:q
 ```
 
 ```expect

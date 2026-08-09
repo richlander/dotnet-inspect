@@ -20,9 +20,12 @@ bound.
 Point `INSPECT` at the published NativeAOT executable and validate the apphost:
 
 ```bash
-export INSPECT="${DOTNET_INSPECT_WORKFLOW_BINARY:-$(command -v dotnet-inspect)}"
-test -n "$INSPECT"
+: "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+export INSPECT="$DOTNET_INSPECT_WORKFLOW_BINARY"
 test -x "$INSPECT"
+test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+"$INSPECT" --flavor | grep -q '^NativeAOT;'
 export DOTNET_INSPECT_ISOLATED=perf-queries
 ```
 
@@ -261,19 +264,20 @@ grep 'not found'
 
 ## 10. Bare name routing after explicit package priming
 
-> The explicit exact-version command is network-backed after a cache clear. The
-> subsequent bare-name command is measured warm and should reuse the cached
-> candidate metadata and package payload. Its warm target is ≤ 1250ms for five
-> invocations (≤ 250ms each).
+> The explicit package command is network-backed after a cache clear and
+> resolves the same unversioned candidate as the subsequent bare-name command.
+> The bare-name command is measured warm and should reuse the cached candidate
+> metadata and package payload. Its warm target is ≤ 1250ms for five invocations
+> (≤ 250ms each).
 
 ```bash
 "$INSPECT" cache clear
 ```
 
-Prime the cache with explicit package:
+Prime the cache with explicit package routing:
 
 ```bash
-"$INSPECT" type --package System.CommandLine@2.0.3 Command \
+"$INSPECT" type --package System.CommandLine Command \
   --markdown -v:q
 ```
 

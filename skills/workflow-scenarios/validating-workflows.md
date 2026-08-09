@@ -14,7 +14,10 @@ The [format spec](../../docs/workflows/README.md) defines the code fence types a
 2. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
 3. If a `setup` block exists, run it first to establish scenario state.
 4. Run the `bash` block as one shell program and capture stdout, stderr, and exit
-   code. A trailing `\` keeps multiline commands possible.
+   code. Start each workflow at the repository root. Initialize each executable
+   fence with the working directory and exported environment left by the
+   preceding fence; shell locals and functions do not persist. A trailing `\`
+   keeps multiline commands possible.
 5. Process assertion and query fences in document order. Before a `query`,
    `expect` and `expect-not` validate the original command output.
 6. For a `query`, first fold trailing-`\` line continuations. Apply each
@@ -22,7 +25,8 @@ The [format spec](../../docs/workflows/README.md) defines the code fence types a
    stdout, then concatenate the results in source order. Query lines do not
    pipe into one another.
 7. After a `query`, `expect` and `expect-not` validate that derived query
-   output. A later query replaces the derived output used by following
+   output only. Place original stdout/stderr negative assertions before the
+   first query. A later query replaces the derived output used by following
    assertions.
 8. For each `expect-error` line, check that exit code ≠ 0 and the line appears
    in stdout+stderr.
@@ -43,7 +47,9 @@ Many workflows have a **Preconditions** section at the top (isolated sessions, c
 
 General preconditions for all workflows:
 
-- **NativeAOT build**: Performance numbers assume `./install.sh` has been run.
+- **NativeAOT build**: Performance workflows require
+  `DOTNET_INSPECT_WORKFLOW_BINARY` to name the exact published apphost and
+  `DOTNET_INSPECT_WORKFLOW_VERSION` to match its `--version` output.
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).
 
@@ -114,7 +120,8 @@ Eval scenarios are distributed across all workflow docs via `prompt` blocks. Fil
 
 Before shipping a new build:
 
-1. Install with `./install.sh` (NativeAOT build).
+1. Publish the exact revision as NativeAOT and set
+   `DOTNET_INSPECT_WORKFLOW_BINARY` and `DOTNET_INSPECT_WORKFLOW_VERSION`.
 2. Run all workflow scenarios.
 3. Run [perf scenarios](performance-testing.md) and check latency targets.
 4. Report version + pass/fail summary.

@@ -177,18 +177,18 @@ dotnet-inspect library --package System.Collections@4.3.0 -S "Library Info"
 dotnet-inspect System.Text.Json -S "Async*" --count
 ```
 
+```expect-not
+#
+|
+Tips:
+```
+
 ```query
 awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
 ```
 
 ```expect
 positive
-```
-
-```expect-not
-#
-|
-Tips:
 ```
 
 ## 6. Discover a member-section schema

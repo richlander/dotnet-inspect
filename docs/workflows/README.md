@@ -178,8 +178,12 @@ dotnet-inspect cache clear
 
 The exact `dotnet-inspect` invocation. Run it as-is.
 
-A `bash` fence is one shell program. Commands may span physical lines with the
-usual trailing `\` line continuation.
+A workflow starts at the repository root. Each `setup` or `bash` fence is one
+shell program initialized with the working directory and exported environment
+left by the preceding executable fence in that workflow. Changes made by
+commands such as `cd` and `export` therefore persist to later fences, but shell
+locals and functions do not. Commands may span physical lines with the usual
+trailing `\` line continuation.
 
 ````markdown
 ```bash
@@ -200,7 +204,11 @@ Source: Platform
 
 ### `expect-not` — content that must NOT appear
 
-Each line is a substring that must **not** appear anywhere in stdout or stderr. If any line matches, the scenario fails.
+Each line is a substring that must **not** appear in the current assertion
+output. Before a `query`, that is the command's combined stdout and stderr.
+After a `query`, it is only the derived query output. Use
+`expect-not-stderr` when stderr must remain absent regardless of query position.
+If any line matches, the scenario fails.
 
 ````markdown
 ```expect-not
@@ -260,7 +268,8 @@ Query evaluation is sequential and position-sensitive:
 3. Concatenate each query line's stdout, in source order, to form the derived
    query output.
 4. `expect` and `expect-not` blocks before a `query` validate the original
-   command output. Those after a `query` validate the derived query output.
+   command output. Those after a `query` validate only the derived query output.
+   Place original-output negative assertions before the first query.
 
 This keeps multiline shell commands possible while making a multi-line query
 an explicit list of independent projections rather than an accidental shell

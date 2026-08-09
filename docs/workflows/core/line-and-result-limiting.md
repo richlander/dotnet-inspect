@@ -46,16 +46,16 @@ dotnet-inspect System.Text.Json -n 4
 ## Library Info
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 wc -l | tr -d ' '
 ```
 
 ```expect
 4
-```
-
-```expect-not
-Tips:
 ```
 
 Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
@@ -73,16 +73,16 @@ dotnet-inspect System.Text.Json -6
 ## Library Info
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 wc -l | tr -d ' '
 ```
 
 ```expect
 6
-```
-
-```expect-not
-Tips:
 ```
 
 Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
@@ -130,16 +130,16 @@ dotnet-inspect type System.Text.Json -t 3 --tips q
 # System.Text.Json
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 grep -c '^| `'
 ```
 
 ```expect
 3
-```
-
-```expect-not
-Tips:
 ```
 
 ## 4. Filter types by glob
@@ -177,16 +177,16 @@ dotnet-inspect find "Json*" -t 3 -v:q
 JsonContent
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 grep -c '^| Json'
 ```
 
 ```expect
 3
-```
-
-```expect-not
-Tips:
 ```
 
 ## 6. Limit member results
@@ -239,16 +239,16 @@ Tips:
 dotnet-inspect System.CommandLine --versions 3
 ```
 
+```expect-not
+Tips:
+```
+
 ```query
 wc -l | tr -d ' '
 ```
 
 ```expect
 3
-```
-
-```expect-not
-Tips:
 ```
 
 ## 9. Count rows in a section
@@ -265,18 +265,18 @@ How many async methods are in System.Text.Json?
 dotnet-inspect System.Text.Json -S "Async*" --count
 ```
 
+```expect-not
+#
+|
+Tips:
+```
+
 ```query
 awk '/^[0-9]+$/ && $1 > 0 { print "positive" }'
 ```
 
 ```expect
 positive
-```
-
-```expect-not
-#
-|
-Tips:
 ```
 
 ### 9b. Count requires one selected section
