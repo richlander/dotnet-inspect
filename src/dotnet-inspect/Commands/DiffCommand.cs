@@ -218,8 +218,9 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderFindingTransitionsView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderFindingTransitionsView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
@@ -249,8 +250,9 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderImplementationDiffView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderImplementationDiffView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
@@ -275,8 +277,9 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderAnalysisDiffView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderAnalysisDiffView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
@@ -777,9 +780,8 @@ public class DiffCommand
             return;
         }
 
-        Console.WriteLine(OutputFormatter.ApplyRowLimit(
-            DiffOutputFormatter.RenderDocumentView(view),
-            options.Rows));
+        Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
+            view, OutputFormatter.CreateWindowedOptions(options.Rows)));
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -1162,8 +1164,8 @@ public class DiffCommand
             });
         }
 
-        var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
-        return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
+        return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion,
+            OutputFormatter.CreateWindowedOptions(options.Rows));
     }
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
