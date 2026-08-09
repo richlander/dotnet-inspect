@@ -16,6 +16,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -10949,6 +10950,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_IntegrationOpportunities_TraceShowsIntegrationsPrerequisite()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Data.Common",
+            "-S",
+            "Integration: Opportunities",
+            "--trace",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains(
+            "query prerequisites  Assembly context integrations",
+            error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_ConfigurationIntegration_ForSystemsManager_ShowsConfigurationApis()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12630,6 +12650,52 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_ReportsOpportunityFailure()
+    {
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            TestAssemblyPath,
+                            AssemblyResolutionProvenance.Local(
+                                "all-libraries failure test")),
+                    ]));
+        var integrations = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(TestAssemblyPath));
+        var inspection = new LibraryInspection
+        {
+            FileName = "Broken.dll",
+            AssemblyIntegrationOpportunitiesEntry =
+                new AssemblyIntegrationOpportunitiesEntry.Failed(
+                    integrations.Subject,
+                    new BadImageFormatException("opportunity failure")),
+        };
+        var options = new LibraryOptions
+        {
+            IncludeSections = ["Integration: Opportunities"],
+        };
+        List<string>? sections = null;
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => sections = PackageCommand.GetAllLibrariesSections(
+                [inspection],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Empty(Assert.IsType<List<string>>(sections));
+        Assert.Contains(
+            "Integration: Opportunities inspection failed "
+            + "(Assembly context integration opportunities): opportunity failure",
+            error);
     }
 
     [Fact]

@@ -2708,11 +2708,13 @@ public class PackageCommand
 
     private sealed record PackageLibrarySelection(string Path);
 
-    private static List<string> GetAllLibrariesSections(
+    internal static List<string> GetAllLibrariesSections(
         List<LibraryInspection> inspections,
         LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
+        LibraryCommand.WarnEmptySections(inspections, options, pipeline);
+
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         List<string> union = [];
         foreach (var inspection in inspections)
