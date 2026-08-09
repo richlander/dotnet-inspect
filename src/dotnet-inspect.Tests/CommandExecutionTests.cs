@@ -201,6 +201,27 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, bytes);
     }
 
+    private static void WriteOverflowingMetadataStreamCountAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(destinationPath, bytes);
+    }
+
     private static void WriteHostileIlOperandAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileIlOperand");
@@ -12747,6 +12768,73 @@ public partial class CommandExecutionTests
                     error,
                     StringComparison.Ordinal);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "Overflow.dll");
+            WriteOverflowingMetadataStreamCountAssembly(
+                sourcePath,
+                malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}Overflow.dll");
+            }
+
+            var (exit, output, commandError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Integrations inspection failed for",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Overflow.dll",
+                commandError,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                nameof(OverflowException),
+                commandError,
+                StringComparison.Ordinal);
         }
         finally
         {

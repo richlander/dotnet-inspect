@@ -291,8 +291,9 @@ Partial inspection is therefore explicit and meaningful. The query is
 `Unbounded`: the group byte budget bounds retained content, but participant
 count and metadata scanning work still require explicit demand. The baseline
 executor remains sequential; cancellation-aware and concurrent group executors
-are later policy work. Late malformed-metadata mapping is implemented but not
-yet independently gated.
+are later policy work. Late malformed-metadata mapping and preflight
+metadata-overflow isolation are gated by the package command tests named
+below.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
 and
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
@@ -342,6 +343,8 @@ JSON, count, and tabular output.
 and
 `InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
 gate malformed participant isolation.
+`PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
+preflight decoder-failure isolation.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 and `GroupedEvidence_SuppliesIntegrationPresence` gate the Finding projection
 and duplicate-scan boundary.

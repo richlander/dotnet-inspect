@@ -2652,6 +2652,14 @@ public class PackageCommand
         ArgumentNullException.ThrowIfNull(failures);
         ArgumentNullException.ThrowIfNull(inspectAsync);
 
+        if (workspace.TryGetPreflightFailure(
+                path,
+                out string preflightFailure))
+        {
+            failures.Add((relativePath, preflightFailure));
+            return Task.FromResult<LibraryInspection?>(null);
+        }
+
         return workspace.UseAssemblyAsync(
             path,
             (retainedAssembly, integrations) =>

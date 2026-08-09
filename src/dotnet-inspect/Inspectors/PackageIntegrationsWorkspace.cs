@@ -116,14 +116,17 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 {
     readonly InspectionWorkspace _workspace;
     readonly Dictionary<string, ParticipantResult> _participants;
+    readonly Dictionary<string, string> _preflightFailures;
 
     PackageIntegrationsWorkspace(
         InspectionWorkspace workspace,
         Dictionary<string, ParticipantResult> participants,
+        Dictionary<string, string> preflightFailures,
         int contextGroupCount)
     {
         _workspace = workspace;
         _participants = participants;
+        _preflightFailures = preflightFailures;
         ContextGroupCount = contextGroupCount;
     }
 
@@ -158,6 +161,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
         {
             var results = new Dictionary<string, ParticipantResult>(
                 StringComparer.Ordinal);
+            var preflightFailures = new Dictionary<string, string>(
+                StringComparer.Ordinal);
             int contextGroupCount = 0;
             foreach (IGrouping<string, PackageIntegrationAssembly> context
                 in assemblies.GroupBy(
@@ -172,8 +177,17 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                     if (!ResolvedAssemblyReference.TryCreateFromPath(
                             assembly.Path,
                             provenance,
-                            out ResolvedAssemblyReference? reference))
+                            out ResolvedAssemblyReference? reference,
+                            out Exception? failure))
                     {
+                        if (failure is
+                            ArgumentOutOfRangeException
+                            or OverflowException)
+                        {
+                            preflightFailures.Add(
+                                Path.GetFullPath(assembly.Path),
+                                "The selected image contains invalid metadata.");
+                        }
                         continue;
                     }
 
@@ -228,6 +242,7 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
             return new PackageIntegrationsWorkspace(
                 workspace,
                 results,
+                preflightFailures,
                 contextGroupCount);
         }
         catch
@@ -260,6 +275,23 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 participant.Participant,
                 callback)
             .ConfigureAwait(false);
+    }
+
+    internal bool TryGetPreflightFailure(
+        string path,
+        out string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (_preflightFailures.TryGetValue(
+                Path.GetFullPath(path),
+                out string? failure))
+        {
+            reason = failure;
+            return true;
+        }
+
+        reason = "";
+        return false;
     }
 
     public void Dispose() => _workspace.Dispose();

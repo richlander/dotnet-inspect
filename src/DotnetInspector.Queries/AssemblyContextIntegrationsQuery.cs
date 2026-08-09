@@ -194,5 +194,14 @@ public static class AssemblyContextIntegrationsQuery
         {
             return new AssemblyIntegrationsEntry.Failed(subject, ex);
         }
+        catch (Exception ex) when (
+            ex is ArgumentOutOfRangeException or OverflowException)
+        {
+            return new AssemblyIntegrationsEntry.Failed(
+                subject,
+                new BadImageFormatException(
+                    "The selected image contains invalid metadata.",
+                    ex));
+        }
     }
 }

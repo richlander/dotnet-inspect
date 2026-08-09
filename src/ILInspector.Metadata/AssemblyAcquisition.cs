@@ -205,6 +205,17 @@ public sealed class ResolvedAssemblyReference
         string path,
         AssemblyResolutionProvenance provenance,
         [NotNullWhen(true)] out ResolvedAssemblyReference? reference)
+        => TryCreateFromPath(
+            path,
+            provenance,
+            out reference,
+            out _);
+
+    public static bool TryCreateFromPath(
+        string path,
+        AssemblyResolutionProvenance provenance,
+        [NotNullWhen(true)] out ResolvedAssemblyReference? reference,
+        out Exception? failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -212,14 +223,20 @@ public sealed class ResolvedAssemblyReference
         try
         {
             reference = CreateFromPath(path, provenance);
+            failure = null;
             return true;
         }
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or NotSupportedException
+                or ObjectDisposedException
+                or BadImageFormatException
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             reference = null;
+            failure = ex;
             return false;
         }
     }
