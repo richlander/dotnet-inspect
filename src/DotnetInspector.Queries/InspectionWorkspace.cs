@@ -290,6 +290,7 @@ public sealed class AssemblyContextGroup : IDisposable
         Func<AssemblyImageSnapshot, TResult> callback)
     {
         BeginCallback();
+        Exception? operationFailure = null;
         try
         {
             ParticipantState participant = FindParticipant(assembly);
@@ -304,9 +305,14 @@ public sealed class AssemblyContextGroup : IDisposable
             TResult value = callback(access.Snapshot!);
             return new AssemblyImageAccessResult<TResult>.Available(value);
         }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
         finally
         {
-            EndCallback();
+            EndCallback(operationFailure);
         }
     }
 
@@ -314,13 +320,19 @@ public sealed class AssemblyContextGroup : IDisposable
     {
         ArgumentNullException.ThrowIfNull(callback);
         BeginCallback();
+        Exception? operationFailure = null;
         try
         {
             return callback();
         }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
         finally
         {
-            EndCallback();
+            EndCallback(operationFailure);
         }
     }
 
@@ -351,6 +363,7 @@ public sealed class AssemblyContextGroup : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
 
         BeginCallback();
+        Exception? operationFailure = null;
         try
         {
             ParticipantState participant = FindParticipant(assembly);
@@ -365,9 +378,14 @@ public sealed class AssemblyContextGroup : IDisposable
                     access.Snapshot!.Content.AsSpan(),
                     failure: null);
         }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
         finally
         {
-            EndCallback();
+            EndCallback(operationFailure);
         }
     }
 
@@ -447,7 +465,7 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
-    void EndCallback()
+    void EndCallback(Exception? operationFailure)
     {
         bool release;
         lock (_lifetimeGate)
@@ -460,7 +478,19 @@ public sealed class AssemblyContextGroup : IDisposable
         }
 
         if (release)
-            ReleaseOwnedState();
+        {
+            try
+            {
+                ReleaseOwnedState();
+            }
+            catch (Exception releaseFailure)
+                when (operationFailure is not null)
+            {
+                throw new AggregateException(
+                    operationFailure,
+                    releaseFailure);
+            }
+        }
     }
 
     public void Dispose()
@@ -586,8 +616,21 @@ public sealed class InspectionWorkspace : IDisposable
             _groups.Clear();
         }
 
+        List<Exception>? failures = null;
         foreach (AssemblyContextGroup group in groups)
-            group.Dispose();
+        {
+            try
+            {
+                group.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+
+        if (failures is not null)
+            throw new AggregateException(failures);
     }
 
     void RemoveGroup(AssemblyContextGroup group)

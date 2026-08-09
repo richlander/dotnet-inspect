@@ -1,3 +1,7 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.CallGraph;
@@ -217,6 +221,76 @@ public sealed class ProgressiveMemberCallGraphTests
     }
 
     [Fact]
+    public void MalformedMetadata_IsTypedAndCached()
+    {
+        byte[] image = BuildMalformedMethodListImage();
+        int openCount = 0;
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "MalformedMethodList",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            openRead: () =>
+            {
+                Interlocked.Increment(ref openCount);
+                return new MemoryStream(image, writable: false);
+            },
+            AssemblyResolutionProvenance.Local(
+                "malformed call-graph test image"));
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        using var graph = new ProgressiveMemberCallGraph(
+            group,
+            assembly,
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)));
+
+        MemberCallGraphAcquisitionException first =
+            Assert.Throws<MemberCallGraphAcquisitionException>(
+                graph.Callers);
+        MemberCallGraphAcquisitionException second =
+            Assert.Throws<MemberCallGraphAcquisitionException>(
+                graph.Callers);
+
+        var failure =
+            Assert.IsType<MemberCallGraphAcquisitionFailure.InvalidImage>(
+                Assert.Single(first.Failures));
+        Assert.IsType<BadImageFormatException>(failure.Error);
+        Assert.IsType<MemberCallGraphAcquisitionFailure.InvalidImage>(
+            Assert.Single(second.Failures));
+        Assert.Equal(1, openCount);
+        Assert.Equal(
+            new ProgressiveMemberCallGraphBuildCounts(0, 1, 0),
+            graph.BuildCounts);
+    }
+
+    [Fact]
+    public void InvalidImageClassification_CoversMetadataDecoderExceptions()
+    {
+        Assert.All(
+            new Exception[]
+            {
+                new BadImageFormatException(),
+                new ArgumentOutOfRangeException(),
+                new OverflowException(),
+            },
+            exception => Assert.True(
+                ProgressiveMemberCallGraph.IsInvalidImageException(
+                    exception)));
+        Assert.False(
+            ProgressiveMemberCallGraph.IsInvalidImageException(
+                new InvalidOperationException()));
+    }
+
+    [Fact]
     public void WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots()
     {
         GraphContext context =
@@ -373,6 +447,49 @@ public sealed class ProgressiveMemberCallGraphTests
             graph.BuildCounts);
     }
 
+    static byte[] BuildMalformedMethodListImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("MalformedMethodList.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedMethodList"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            default,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Broken"),
+            baseType: MetadataTokens.TypeDefinitionHandle(3),
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     sealed class GraphContext : IDisposable
     {
         GraphContext(
@@ -497,5 +614,18 @@ public sealed class ProgressiveMemberCallGraphTests
                 ? File.OpenRead(SourcePath)
                 : new MemoryStream(_content, writable: false);
         }
+    }
+
+    sealed class MissingBindingPolicy : IAssemblyBindingPolicy
+    {
+        internal static MissingBindingPolicy Instance { get; } =
+            new();
+
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.NotFound();
     }
 }

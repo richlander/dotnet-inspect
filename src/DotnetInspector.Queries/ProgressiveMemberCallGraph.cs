@@ -31,7 +31,7 @@ public abstract record MemberCallGraphAcquisitionFailure(
     /// <summary>The acquired image could not be decoded for body analysis.</summary>
     public sealed record InvalidImage(
         ResolvedAssemblyReference Assembly,
-        BadImageFormatException Error)
+        Exception Error)
         : MemberCallGraphAcquisitionFailure(Assembly);
 }
 
@@ -376,6 +376,11 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
         return _fullRoot;
     }
 
+    internal static bool IsInvalidImageException(Exception exception) =>
+        exception is BadImageFormatException
+            or ArgumentOutOfRangeException
+            or OverflowException;
+
     IndexBuildResult BuildIndex(
         AssemblyContextParticipant participant,
         IReadOnlySet<int>? bodyScope,
@@ -428,7 +433,8 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
                         }
                         return available;
                     }
-                    catch (BadImageFormatException ex)
+                    catch (Exception ex)
+                        when (IsInvalidImageException(ex))
                     {
                         return new IndexBuildResult.Unavailable(
                             new MemberCallGraphAcquisitionFailure

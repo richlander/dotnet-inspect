@@ -276,6 +276,11 @@ returned span.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+`InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
+all-group cleanup after an owned-resource failure, and
+`InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
+gates preservation of an in-flight callback failure when deferred cleanup also
+fails.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
 
@@ -308,6 +313,10 @@ failures remain visible as `MemberCallGraphAcquisitionException`.
 `ProgressiveMemberCallGraphTests` gates build and source-open counts,
 stream-only operation, duplicate-image reuse, typed failures, projection reuse,
 and group-owned disposal.
+`ProgressiveMemberCallGraphTests.MalformedMetadata_IsTypedAndCached` gates
+malformed-image failure caching, and
+`ProgressiveMemberCallGraphTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
+gates the complete metadata-decoder exception classification.
 
 Other domain catalogs, query authorization, integration-opportunity
 composition, concurrent execution, and broader command migration remain later

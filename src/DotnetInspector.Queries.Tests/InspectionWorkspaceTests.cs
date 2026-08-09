@@ -579,6 +579,66 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void WorkspaceDisposal_ContinuesAfterAGroupFails()
+    {
+        TestAssembly first = TestAssembly.Create();
+        TestAssembly second = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup failingGroup =
+            workspace.CreateAssemblyContextGroup(
+                [first.Participant]);
+        AssemblyContextGroup laterGroup =
+            workspace.CreateAssemblyContextGroup(
+                [second.Participant]);
+        Assert.True(
+            failingGroup.GetAssemblyImageSpan(first.Assembly).IsAvailable);
+        Assert.True(
+            laterGroup.GetAssemblyImageSpan(second.Assembly).IsAvailable);
+        failingGroup.RegisterOwnedResource(new ThrowingResource());
+
+        Assert.Throws<AggregateException>(workspace.Dispose);
+
+        Assert.Equal(0, failingGroup.RetainedImageBytes);
+        Assert.Equal(0, laterGroup.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(
+            () => laterGroup.UseAssemblyImage(
+                second.Assembly,
+                static image => image.Content.Length));
+    }
+
+    [Fact]
+    public void CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        group.RegisterOwnedResource(new ThrowingResource());
+
+        AggregateException failure = Assert.Throws<AggregateException>(
+            () => group.UseContext<int>(
+                () =>
+                {
+                    group.Dispose();
+                    throw new NotSupportedException(
+                        "Synthetic callback failure.");
+                }));
+
+        IReadOnlyCollection<Exception> failures =
+            failure.Flatten().InnerExceptions;
+        Assert.Contains(
+            failures,
+            ex => ex is NotSupportedException
+                && ex.Message == "Synthetic callback failure.");
+        Assert.Contains(
+            failures,
+            ex => ex is InvalidOperationException
+                && ex.Message
+                    == "Synthetic owned-resource disposal failure.");
+    }
+
+    [Fact]
     public void ImageViewAndSpanResult_AreStackOnly()
     {
         Assert.True(typeof(AssemblyImageView).IsByRefLike);
