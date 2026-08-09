@@ -232,7 +232,8 @@ vertical L1 canaries:
   mutating `LibraryInspection`.
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   a flat immutable reference result. The CLI projects Findings and owns
-  path-based transitive tree resolution.
+  transitive tree traversal, while shared Services resolves each metadata
+  identity without deriving a path from `AssemblyRef.Name`.
 - `SourceLinkDocumentsQuery` may acquire one matching portable PDB and returns
   the typed source-document Finding inspection.
 - `SourceAvailabilityQuery` and `SourceIntegrityQuery` consume that prerequisite

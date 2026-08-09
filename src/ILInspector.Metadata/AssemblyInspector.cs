@@ -240,7 +240,27 @@ public static class AssemblyInspector
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
+        return ExtractReferencesAndCompany(peReader);
+    }
 
+    /// <summary>
+    /// Extracts assembly references and company name from a resolved descriptor.
+    /// </summary>
+    public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        using var stream = assembly.OpenRead();
+        using var peReader = new PEReader(stream);
+        return ExtractReferencesAndCompany(peReader);
+    }
+
+    /// <summary>
+    /// Extracts assembly references and company name from an already-open image.
+    /// </summary>
+    public static (List<AssemblyReference> References, string? Company) ExtractReferencesAndCompany(PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
         if (!peReader.HasMetadata)
             return ([], null);
 
@@ -269,21 +289,13 @@ public static class AssemblyInspector
         List<AssemblyReference> references = [];
         foreach (var refHandle in metadataReader.AssemblyReferences)
         {
-            var assemblyRef = metadataReader.GetAssemblyReference(refHandle);
-            var name = metadataReader.GetString(assemblyRef.Name);
-            var version = assemblyRef.Version.ToString();
-            var culture = metadataReader.GetString(assemblyRef.Culture);
-            if (string.IsNullOrEmpty(culture))
-                culture = "neutral";
-
-            string? publicKeyToken = null;
-            var pkToken = metadataReader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-            if (pkToken.Length > 0)
-            {
-                publicKeyToken = Convert.ToHexString(pkToken).ToLowerInvariant();
-            }
-
-            references.Add(new AssemblyReference(name, version, culture, publicKeyToken));
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.From(metadataReader, refHandle);
+            references.Add(new AssemblyReference(
+                identity.Name,
+                identity.Version?.ToString() ?? "",
+                identity.Culture ?? "neutral",
+                identity.PublicKeyToken));
         }
 
         return references.Count > 0 ? references : null;

@@ -249,6 +249,15 @@ session boundary are copied or reduced to immutable tokens and shapes. This
 prevents use-after-dispose and avoids lending privileged readers to higher
 layers.
 
+Assembly-reference names remain metadata identity rather than filesystem path
+components. Reference-tree traversal resolves `AssemblyReferenceIdentity`
+through the shared resolver's enumerated candidate catalog, and platform lookup
+matches requested names against enumerated file names. The
+`AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
+and
+`PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
+gates enforce both seams.
+
 ### Package archives use traversal-aware extraction
 
 NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects

@@ -106,11 +106,9 @@ internal static class DependencyGraphService
 
             if (refs.Count == 0)
                 return new LibraryDependencyGraphResult.Empty(assemblyName);
-
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { assemblyName };
-            var sourceDir = Path.GetDirectoryName(assemblyPath);
             var refNodes = LibraryMetadataService.BuildTransitiveReferences(
-                refs, sourceDir, visited, logger, deduplicate: true);
+                refs, assemblyPath, visited, logger, deduplicate: true);
 
             return new LibraryDependencyGraphResult.Graph(assemblyName, refNodes);
         }

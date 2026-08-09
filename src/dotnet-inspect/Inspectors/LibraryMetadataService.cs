@@ -275,7 +275,6 @@ internal static class LibraryMetadataService
             // path-owning CLI projection over that result.
             if (collectReferenceTree && inspection.AssemblyInfo?.References is { } references)
             {
-                var sourceDir = Path.GetDirectoryName(path);
                 var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 visited.Add(
                     inspection.AssemblyInfo.AssemblyName
@@ -283,7 +282,7 @@ internal static class LibraryMetadataService
 
                 inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
                     references,
-                    sourceDir,
+                    path,
                     visited,
                     logger,
                     deduplicate: true,
@@ -578,13 +577,43 @@ internal static class LibraryMetadataService
     /// </summary>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
         List<AssemblyReference> references,
-        string? sourceDir,
+        string assemblyPath,
         HashSet<string> visited,
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
         Dictionary<string, int>? globalSeen = null,
         int? maxDepth = null)
+    {
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                // Preserve the tree's existing local-sibling and platform scope.
+                // Package/deps.json graph expansion belongs to the package resolver.
+                PackageRoots = [],
+                IncludeDepsJsonAssets = false,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+        return BuildTransitiveReferences(
+            references,
+            resolver,
+            visited,
+            logger,
+            depth,
+            deduplicate,
+            globalSeen,
+            maxDepth);
+    }
+
+    private static List<AssemblyReferenceNode> BuildTransitiveReferences(
+        List<AssemblyReference> references,
+        IAssemblyBindingPolicy bindingPolicy,
+        HashSet<string> visited,
+        VerboseLogger logger,
+        int depth,
+        bool deduplicate,
+        Dictionary<string, int>? globalSeen,
+        int? maxDepth)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -621,38 +650,38 @@ internal static class LibraryMetadataService
 
             visited.Add(reference.Name);
 
-            string? resolvedPath = null;
-            string? resolvedFrom = null;
-
-            if (!string.IsNullOrEmpty(sourceDir))
+            AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reference);
+            AssemblyResolutionScope scope = PlatformKeys.IsPlatform(identity.PublicKeyToken)
+                ? AssemblyResolutionScope.Platform
+                : AssemblyResolutionScope.Any;
+            AssemblyBindingSelection selection = bindingPolicy.Select(
+                new AssemblyBindingRequest(
+                    AssemblyBindingTarget.Reference(identity),
+                    AssemblyBindingOrigin.Global(),
+                    scope));
+            ResolvedAssemblyReference? resolved =
+                (selection as AssemblyBindingSelection.Selected)?.Assembly;
+            if (selection is AssemblyBindingSelection.Unavailable
+                or AssemblyBindingSelection.Rejected)
             {
-                var localPath = Path.Combine(sourceDir, reference.Name + ".dll");
-                if (File.Exists(localPath))
-                {
-                    resolvedPath = localPath;
-                    resolvedFrom = "local";
-                }
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because the candidate catalog was unavailable.");
             }
 
-            if (resolvedPath == null)
-            {
-                var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly(reference.Name);
-                if (error == null && platformPath != null)
-                {
-                    resolvedPath = platformPath;
-                    resolvedFrom = "platform";
-                }
-            }
-
-            node.Path = resolvedPath;
-            node.ResolvedFrom = resolvedFrom;
+            node.Path = resolved?.Path;
+            node.ResolvedFrom = resolved?.Provenance is AssemblyResolutionProvenance.PlatformAsset
+                ? "platform"
+                : resolved is null
+                    ? null
+                    : "local";
             nodes.Add(node);
 
-            if (resolvedPath != null)
+            if (resolved != null)
             {
                 try
                 {
-                    var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
+                    var (childRefs, company) =
+                        AssemblyInspector.ExtractReferencesAndCompany(resolved);
                     node.Company = company;
                     if (childRefs.Count > 0
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
@@ -660,7 +689,7 @@ internal static class LibraryMetadataService
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
-                            Path.GetDirectoryName(resolvedPath),
+                            bindingPolicy,
                             branchVisited,
                             logger,
                             depth + 1,
@@ -670,9 +699,13 @@ internal static class LibraryMetadataService
                         nodes.AddRange(childNodes);
                     }
                 }
-                catch
+                catch (Exception ex) when (
+                    ex is IOException
+                        or UnauthorizedAccessException
+                        or BadImageFormatException)
                 {
-                    // Couldn't read the assembly - just skip children
+                    logger.LogWarning(
+                        "A resolved assembly reference could not be read; its children were omitted.");
                 }
             }
         }

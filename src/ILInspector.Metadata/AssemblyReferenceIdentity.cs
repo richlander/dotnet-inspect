@@ -14,6 +14,16 @@ public sealed record AssemblyReferenceIdentity(
     string? Culture,
     string? PublicKeyToken)
 {
+    public static AssemblyReferenceIdentity From(AssemblyReference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return new AssemblyReferenceIdentity(
+            reference.Name,
+            System.Version.Parse(reference.Version),
+            reference.Culture,
+            reference.PublicKeyToken);
+    }
+
     public static AssemblyReferenceIdentity From(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
