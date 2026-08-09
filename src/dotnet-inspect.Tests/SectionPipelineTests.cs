@@ -4837,8 +4837,20 @@ public class SectionPipelineTests
 
         Assert.Contains(SectionNames.Baseclass, typePipeline.FixedOverviewSectionNames);
         Assert.Equal([SectionNames.TypeInfo], memberPipeline.FixedOverviewSectionNames);
+        Assert.True(typePipeline.IsCuratedCatalog);
+        Assert.False(memberPipeline.IsCuratedCatalog);
         Assert.Equal(Verbosity.Detailed, typePipeline.GetRequiredVerbosity(decompiledSource));
         Assert.Equal(Verbosity.Quiet, memberPipeline.GetRequiredVerbosity(decompiledSource));
+        Assert.DoesNotContain(SectionNames.OriginalSource, typePipeline.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.SourceDiff, typePipeline.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.IL, typePipeline.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.Facts, typePipeline.AllSectionNames);
+        Assert.DoesNotContain(SectionNames.CustomAttributes, typePipeline.AllSectionNames);
+        Assert.Contains(SectionNames.OriginalSource, memberPipeline.AllSectionNames);
+        Assert.Contains(SectionNames.SourceDiff, memberPipeline.AllSectionNames);
+        Assert.Contains(SectionNames.IL, memberPipeline.AllSectionNames);
+        Assert.Contains(SectionNames.Facts, memberPipeline.AllSectionNames);
+        Assert.Contains(SectionNames.CustomAttributes, memberPipeline.AllSectionNames);
     }
 
     [Fact]
@@ -4879,10 +4891,6 @@ public class SectionPipelineTests
                      SectionNames.TopLeverage,
                      SectionNames.PerformanceTriage,
                      SectionNames.DecompiledSource,
-                     SectionNames.OriginalSource,
-                     SectionNames.SourceDiff,
-                     SectionNames.IL,
-                     SectionNames.Facts,
                  })
         {
             Assert.Equal(SectionCost.Unbounded, costs[section]);

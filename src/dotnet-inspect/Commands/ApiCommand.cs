@@ -301,12 +301,43 @@ public class ApiCommand
                 options = options with { IncludeSections = selectResult.Sections };
         }
 
+        // A Markdown column projection without -S historically targets the listing's type rows.
+        // The curated minimal preset is API Info, whose fact-table columns cannot satisfy that
+        // projection, so make the implicit row scope explicit without changing tabular formats.
+        if (!singleTypeMode
+            && options is TypeOptions
+            && options.IncludeSections is null
+            && options.Columns is { Length: > 0 }
+            && !options.Tabular
+            && !options.JsonOutput)
+        {
+            options = options with
+            {
+                IncludeSections =
+                [
+                    SectionNames.Classes,
+                    SectionNames.Structs,
+                    SectionNames.Interfaces,
+                    SectionNames.Enums,
+                    SectionNames.Delegates,
+                ]
+            };
+        }
+
         // A deferred select has no IncludeSections yet, and the preamble cannot know whether a
         // listing or the single-type view will render, so every selection check below has to stand
         // down: judging the empty set reports a requirement to narrow -S that is neither true nor
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        if (singleTypeMode
+            && options is TypeOptions { JsonOutput: true }
+            && selectionSections is { Count: > 0 }
+            && !ValidateTypeJsonSections(selectionSections))
+        {
+            return (null!, 1);
+        }
+
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
             && !CountOutput.ValidateSingleSection(selectionSections))
             return (null!, 1);
@@ -453,18 +484,19 @@ public class ApiCommand
 
     internal static void ApplySurfaceFilters(ApiSurface api, ApiOptions options, string? typeFilter = null)
     {
+        bool filtersApplied = false;
         if (!string.IsNullOrEmpty(typeFilter))
         {
             api.Types = api.Types
                 .Where(t => TypeMatcher.MatchesTypeFilter(t.FullName, typeFilter))
                 .ToList();
-            api.PublicTypeCount = api.Types.Count;
+            filtersApplied = true;
         }
 
         if (options.KindFilter.Count > 0)
         {
             api.Types = api.Types.Where(t => options.KindFilter.Contains(t.Kind)).ToList();
-            api.PublicTypeCount = api.Types.Count;
+            filtersApplied = true;
         }
 
         if (options.UnsafeOnly)
@@ -474,42 +506,97 @@ public class ApiCommand
                 type.Members = type.Members.Where(m => m.IsUnsafe).ToList();
             }
             api.Types = api.Types.Where(t => t.Members.Count > 0).ToList();
-            api.PublicTypeCount = api.Types.Count;
-            api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
-            api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
-            api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
-            api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));
+            filtersApplied = true;
         }
+
+        if (filtersApplied)
+            RecomputeSurfaceCounts(api);
     }
 
-    /// <summary>
-    /// Writes a stderr note when sections explicitly requested via -S matched the schema
-    /// but produced no data for this type (e.g. the enum-only "Values" section on a class).
-    /// This distinguishes "valid but empty" from a typo (which yields a "not found" error)
-    /// and from a silent empty render. Only meaningful for section-rendering output, so the
-    /// caller must skip JSON (ignores -S), shape, and tabular output.
-    /// </summary>
-    internal static void WarnEmptySelectedSections(ApiType type, ApiOptions options, SectionPipeline<ApiType> pipeline)
+    private static void RecomputeSurfaceCounts(ApiSurface api)
     {
-        if (options.IncludeSections is not { Count: > 0 })
-            return;
-        if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
-            return;
+        api.PublicTypeCount = api.Types.Count;
+        api.PublicMethodCount = api.Types.Sum(
+            type => type.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
+        api.PublicPropertyCount = api.Types.Sum(
+            type => type.Members.Count(member => member.Kind == "property"));
+        api.PublicFieldCount = api.Types.Sum(
+            type => type.Members.Count(member => member.Kind == "field"));
+        api.PublicEventCount = api.Types.Sum(
+            type => type.Members.Count(member => member.Kind == "event"));
+    }
 
-        var filtered = BuildFilteredTypeForSections(type, options);
-        var (empty, _) = pipeline.GetEmptySections(filtered, options.Verbosity, options.IncludeSections);
-        if (empty.Count == 0)
-            return;
+    private static ApiSurface ProjectSurfaceToSections(
+        ApiSurface api,
+        HashSet<string>? sections)
+    {
+        if (sections is not { Count: > 0 })
+            return api;
 
-        bool filtersActive = options.MemberFilter.Count > 0 || options.KindFilter.Count > 0
-            || options.UnsafeOnly || options.Limit.HasValue;
-        var suffix = filtersActive ? " after filters" : "";
+        var selectedKinds = new HashSet<string>(StringComparer.Ordinal);
+        if (sections.Contains(SectionNames.Classes))
+            selectedKinds.Add("class");
+        if (sections.Contains(SectionNames.Structs))
+            selectedKinds.Add("struct");
+        if (sections.Contains(SectionNames.Interfaces))
+            selectedKinds.Add("interface");
+        if (sections.Contains(SectionNames.Enums))
+            selectedKinds.Add("enum");
+        if (sections.Contains(SectionNames.Delegates))
+            selectedKinds.Add("delegate");
 
-        if (empty.Count == 1)
-            CommandError.WriteNote($"section '{empty[0]}' has no data for {type.FullName}{suffix}.");
+        var projected = new ApiSurface
+        {
+            Name = api.Name,
+            Version = api.Version,
+            Source = api.Source,
+            Types = api.Types.Where(type => selectedKinds.Contains(type.Kind)).ToList(),
+            Library = api.Library,
+            Tfm = api.Tfm,
+            RepositoryUrl = api.RepositoryUrl,
+            IsTypeForwardingAssembly = api.IsTypeForwardingAssembly,
+            SurfaceClassification = api.SurfaceClassification,
+            SurfaceClassificationInspection = api.SurfaceClassificationInspection,
+        };
+
+        if (selectedKinds.Count > 0)
+        {
+            RecomputeSurfaceCounts(projected);
+        }
         else
-            CommandError.WriteNote($"{empty.Count} sections have no data for {type.FullName}{suffix}: {string.Join(", ", empty)}.");
+        {
+            projected.PublicTypeCount = api.PublicTypeCount;
+            projected.PublicMethodCount = api.PublicMethodCount;
+            projected.PublicPropertyCount = api.PublicPropertyCount;
+            projected.PublicEventCount = api.PublicEventCount;
+            projected.PublicFieldCount = api.PublicFieldCount;
+        }
+
+        return projected;
+    }
+
+    private static string? GetExactSelectedSection(
+        ApiOptions options,
+        IEnumerable<string> sectionNames)
+    {
+        string? selected = options.Select is [var selector]
+            ? selector
+            : options.Select is null
+                && !options.SelectDefault
+                && options.IncludeSections is { Count: 1 }
+                    ? options.IncludeSections.Single()
+                    : null;
+        if (selected is null)
+            return null;
+
+        return sectionNames.FirstOrDefault(
+            section => section.Equals(selected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int ReportEmptyExactSection(string section)
+    {
+        CommandError.WriteLine($"This section ({section}) produced no output.");
+        return 1;
     }
 
     internal static ApiType BuildFilteredTypeForSections(ApiType type, ApiOptions options)
@@ -706,6 +793,18 @@ public class ApiCommand
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
+        var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var exactSection = GetExactSelectedSection(options, pipeline.AllSectionNames);
+        if (!options.Count
+            && exactSection is not null
+            && !pipeline.GetEffectiveSections(
+                    api,
+                    options.Verbosity,
+                    options.IncludeSections)
+                .Contains(exactSection, StringComparer.OrdinalIgnoreCase))
+        {
+            return ReportEmptyExactSection(exactSection);
+        }
 
         // Fail closed: the type-listing surface has no dispatch for payload projections
         // (--print/--value/--urls/--paths); its sections are type-name tables that expose no
@@ -732,7 +831,8 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
-            Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
+            var outputApi = ProjectSurfaceToSections(api, options.IncludeSections);
+            Console.WriteLine(JsonSerializer.Serialize(outputApi, ApiJsonContext.Default.ApiSurface));
             return 0;
         }
 
@@ -819,9 +919,8 @@ public class ApiCommand
     ///
     /// <list type="number">
     /// <item>A projection must actually be active. An empty render with no <c>--fields</c> or
-    /// <c>--columns</c> is an honest empty answer -- <c>-S Interfaces</c> against a library that
-    /// has no interfaces -- and reporting it as failure would turn a valid zero-row query into an
-    /// error, and only in some output formats.</item>
+    /// <c>--columns</c> gives this projection audit no name to diagnose. Exact empty sections are
+    /// enforced separately before rendering.</item>
     /// <item>Every projected name must resolve nowhere. Emptiness alone cannot tell an unknown
     /// name from a known field that happens to hold no value: <c>-S "API Info" --fields Version</c>
     /// against a local .dll renders nothing because that assembly has no version, and <c>Version</c>
@@ -857,9 +956,9 @@ public class ApiCommand
         // Across all sections, because a document-level field belongs to no section in
         // particular -- `Version` is advertised under `API Info` but survives whichever section
         // is selected -- so checking only the selection reports it unresolved. That is normally
-        // unreachable because the document fields keep the render non-empty, but filtering the
-        // selected table to zero rows (`-t "NoSuchType*" -S Classes --fields Version`) empties
-        // the render and exposes it.
+        // unreachable because the document fields keep the render non-empty, but filtering a
+        // wildcard-selected table to zero rows
+        // (`-t "NoSuchType*" -S "Class*" --fields Version`) empties the render and exposes it.
         //
         // By kind, because "valid somewhere" is too weak on its own: `Type` is a Classes COLUMN
         // and never a field, so `-S "API Info" --fields Type` would otherwise be validated by an
@@ -1050,6 +1149,43 @@ public class ApiCommand
         return 1;
     }
 
+    private static readonly HashSet<string> TypeJsonModelSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.TypeInfo,
+            SectionNames.Values,
+            SectionNames.TypeParameters,
+            SectionNames.TypeInterfaces,
+            SectionNames.Baseclass,
+            SectionNames.Constructors,
+            SectionNames.Finalizer,
+            SectionNames.Fields,
+            SectionNames.Properties,
+            SectionNames.MethodGroups,
+            SectionNames.Methods,
+            SectionNames.MemberIndex,
+            SectionNames.Operators,
+            SectionNames.ExplicitInterfaceImplementations,
+            SectionNames.ExtensionMethods,
+            SectionNames.Events,
+            SectionNames.SourceFiles,
+        };
+
+    private static bool ValidateTypeJsonSections(IReadOnlyCollection<string> sections)
+    {
+        var unsupported = sections
+            .Where(section => !TypeJsonModelSections.Contains(section))
+            .OrderBy(section => section, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupported.Length == 0)
+            return true;
+
+        CommandError.Write(
+            $"--json cannot represent the selected type section(s): {string.Join(", ", unsupported)}.",
+            "Use Markdown, --table, --tsv, or --jsonl so section-produced rows are preserved.");
+        return false;
+    }
+
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
@@ -1058,6 +1194,21 @@ public class ApiCommand
         {
             ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
             return 0;
+        }
+
+        if (options is TypeOptions { JsonOutput: true } && !options.Count)
+        {
+            var pipeline = ApiMemberSectionPipelines.Create(options);
+            var jsonExactSection = GetExactSelectedSection(options, pipeline.AllSectionNames);
+            if (jsonExactSection is not null
+                && !pipeline.GetEffectiveSections(
+                        BuildFilteredTypeForSections(type, options),
+                        options.Verbosity,
+                        options.IncludeSections)
+                    .Contains(jsonExactSection, StringComparer.OrdinalIgnoreCase))
+            {
+                return ReportEmptyExactSection(jsonExactSection);
+            }
         }
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
@@ -1262,6 +1413,21 @@ public class ApiCommand
                 view.MemberCode ??= new MemberCodeView();
                 view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
             }
+        }
+
+        if (options is TypeOptions
+            && !options.Count
+            && !IsProjectionRequested(options)
+            && GetExactSelectedSection(
+                options,
+                ApiMemberSectionPipelines.Create(options).AllSectionNames) is { } exactSection)
+        {
+            var document = new TypeRenderDocument(
+                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode,
+                ApiOutputFormatter.BuildTypeWriterOptions(type, options));
+            if (!DocumentRendersSection(document, exactSection))
+                return ReportEmptyExactSection(exactSection);
         }
 
         if (options.Print)
@@ -1722,7 +1888,9 @@ public class ApiCommand
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
         TypeAcquisitionContext? acquisition = null)
     {
-        var fullSchema = GetTypeDocumentSchema(options);
+        var fullSchema = RestrictSchemaToSections(
+            GetTypeDocumentSchema(options),
+            memberPipeline.AllSectionNames);
         var filteredType = BuildFilteredTypeForSections(apiType, options);
         var effective = memberPipeline.GetDiscoverableSections(filteredType, options.IncludeSections);
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
@@ -1760,8 +1928,12 @@ public class ApiCommand
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap(),
-            catalogHiddenSections: memberPipeline.GetCatalogHiddenSections(),
-            listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
+            catalogHiddenSections: memberPipeline.IsCuratedCatalog
+                ? memberPipeline.GetCatalogHiddenSections()
+                : null,
+            listedCategoryDoors: memberPipeline.IsCuratedCatalog
+                ? memberPipeline.GetListedCategoryDoors()
+                : null,
             projection: options);
     }
 
@@ -2039,6 +2211,25 @@ public class ApiCommand
                 writer);
     }
 
+    private static bool DocumentRendersSection(
+        TypeRenderDocument document,
+        string section)
+    {
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = new MarkoutWriter(
+            output,
+            new MarkdownFormatter(),
+            document.WriterOptions);
+        document.Serialize(writer);
+        writer.Flush();
+        string heading = $"## {section}";
+        return output.ToString()
+            .Split('\n')
+            .Any(line => line.TrimEnd('\r').Equals(
+                heading,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>
     /// Stands in for Original Source when the selected member carries no IL body. A C# comment
     /// so it reads naturally inside the section's <c>csharp</c> fence, mirroring how
@@ -2165,12 +2356,14 @@ public class ApiCommand
             [SectionNames.Properties] = m => m.Kind == "property",
             [SectionNames.MethodGroups] = m => m.Kind == "method",
             [SectionNames.Methods] = m => m.Kind == "method",
+            [SectionNames.MemberIndex] = m => !MemberFilters.IsCompilerGenerated(m.Name),
             [SectionNames.Operators] = m => m.Kind == "operator",
             [SectionNames.ExplicitInterfaceImplementations] = m => m.Kind == "explicit-interface-implementation",
             [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Finalizer] = m => m.Kind == "finalizer",
             [SectionNames.Events] = m => m.Kind == "event",
+            [SectionNames.CustomAttributes] = ApiMemberSectionDescriptors.IsMethodLike,
             [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };
 
@@ -2190,6 +2383,8 @@ public class ApiCommand
         var scopedMembers = predicates.Count > 0
             ? members.Where(m => predicates.Any(p => p(m))).ToList()
             : [];
+        bool typeInfo = sections.Contains(SectionNames.TypeInfo);
+        bool sourceFiles = sections.Contains(SectionNames.SourceFiles);
 
         return new ApiType
         {
@@ -2197,19 +2392,36 @@ public class ApiCommand
             Name = type.Name,
             MetadataName = type.MetadataName,
             DefinitionName = type.DefinitionName,
+            Accessibility = type.Accessibility,
             Kind = type.Kind,
+            Attributes = sections.Contains(SectionNames.CustomAttributes) ? type.Attributes : [],
+            EnumUnderlyingType = typeInfo || sections.Contains(SectionNames.Values)
+                ? type.EnumUnderlyingType
+                : null,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
-            BaseType = sections.Contains(SectionNames.Baseclass) && IsRenderableBaseType(type.BaseType) ? type.BaseType : null,
-            Interfaces = sections.Contains(SectionNames.TypeInterfaces) ? type.Interfaces : [],
-            TypeParameters = sections.Contains(SectionNames.TypeParameters) ? type.TypeParameters : [],
+            IsByRefLike = type.IsByRefLike,
+            IsReadOnly = type.IsReadOnly,
+            BaseType = (typeInfo || sections.Contains(SectionNames.Baseclass))
+                && IsRenderableBaseType(type.BaseType)
+                    ? type.BaseType
+                    : null,
+            Interfaces = typeInfo || sections.Contains(SectionNames.TypeInterfaces)
+                ? type.Interfaces
+                : [],
+            TypeParameters = typeInfo || sections.Contains(SectionNames.TypeParameters)
+                ? type.TypeParameters
+                : [],
             Members = scopedMembers,
-            SourceFilePath = type.SourceFilePath,
-            SourceUrl = type.SourceUrl,
-            GitHubBrowseUrl = type.GitHubBrowseUrl,
-            SourceLineNumber = type.SourceLineNumber,
-            Documentation = type.Documentation
+            SourceFilePath = sourceFiles ? type.SourceFilePath : null,
+            SourceUrl = sourceFiles ? type.SourceUrl : null,
+            GitHubBrowseUrl = sourceFiles ? type.GitHubBrowseUrl : null,
+            SourceLineNumber = sourceFiles ? type.SourceLineNumber : null,
+            SourceResolution = sourceFiles ? type.SourceResolution : null,
+            AdditionalSourceFiles = sourceFiles ? type.AdditionalSourceFiles : [],
+            IsForwarded = type.IsForwarded,
+            Documentation = type.Documentation,
         };
     }
 

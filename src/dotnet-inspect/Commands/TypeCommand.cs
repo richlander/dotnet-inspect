@@ -260,9 +260,11 @@ public static class TypeCommand
                                 foundIn, packageName, packageVersion, apiSource, selectedTfm));
                     }
 
+                    var candidateMemberSections = memberPipeline.GetCandidateSections(
+                        effectiveOptions.Verbosity,
+                        effectiveOptions.IncludeSections);
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath
-                        && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                            .Contains(SectionNames.SourceFiles))
+                        && candidateMemberSections.Contains(SectionNames.SourceFiles))
                     {
                         await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                             apiType,
@@ -270,7 +272,9 @@ public static class TypeCommand
                             sourceFilesDllPath,
                             effectiveOptions,
                             logger,
-                            context.HttpClient);
+                            context.HttpClient,
+                            fetchSourceContent: effectiveOptions.ShowSamples
+                                || effectiveOptions is { DocsExplicitlySet: true, ShowDocs: true });
                     }
 
                     bool hasProjection = effectiveOptions.Columns is { Length: > 0 } || effectiveOptions.Fields is { Length: > 0 };
@@ -305,15 +309,6 @@ public static class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
                         if (writeExitCode != 0)
                             return writeExitCode;
-                    }
-
-                    // Notify when a requested section matched but has no data for this type.
-                    // JSON and markdown both honor -S; tabular output falls back to showing all
-                    // members and shape replaces selection, so skip those.
-                    if (!effectiveOptions.Tabular
-                        && effectiveOptions is not TypeOptions { ShapeOutput: true })
-                    {
-                        ApiCommand.WarnEmptySelectedSections(apiType, effectiveOptions, memberPipeline);
                     }
 
                     if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput)
@@ -570,10 +565,12 @@ public static class TypeCommand
             Verbosity = options.Verbosity < Verbosity.Minimal ? Verbosity.Minimal : options.Verbosity
         };
 
-        // This renders a listing for what entered as a single-type request, so a select the
-        // preamble deferred resolves here, against the pipeline doing the rendering. Without this
-        // the deferred select would be dropped and the listing would ignore -S entirely.
-        if (browseOptions.SelectDeferredToListing)
+        // This renders a listing for what entered as a single-type request, so every active
+        // selection resolves again against the pipeline doing the rendering. A selection that was
+        // valid for one type (including bare -S -> Type Info) is not valid evidence for a listing.
+        if (browseOptions.SelectDeferredToListing
+            || browseOptions.SelectDefault
+            || browseOptions.Select is { Length: > 0 })
         {
             if (ApiCommand.ReresolveSectionsForListing(browseOptions) is not { } resolvedBrowseOptions)
                 return 1;

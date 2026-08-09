@@ -170,7 +170,6 @@ public static class ApiMemberSectionDescriptors
             HasExplicitInterfaceImplementations);
         Add<ExtensionMethods>(pipeline, queryBacked, HasExtensionMethods);
         Add<Events>(pipeline, queryBacked);
-        Add<MethodAttributes>(pipeline, queryBacked);
         Add<UnsafeMembers>(pipeline, queryBacked);
         Add<ExceptionRegions>(pipeline, queryBacked);
         Add<CalledTypes>(pipeline, queryBacked);
@@ -181,13 +180,17 @@ public static class ApiMemberSectionDescriptors
         Add<OptimizationOpportunities>(pipeline, queryBacked);
         Add<SourceFiles>(pipeline, queryBacked);
         Add<DecompiledSource>(pipeline, queryBacked);
-        Add<OriginalSource>(pipeline, queryBacked);
-        Add<ApiMemberDetailSectionDescriptors.SourceDiff>(pipeline, queryBacked);
-        Add<ILBody>(pipeline, queryBacked);
-        Add<Facts>(pipeline, queryBacked);
 
         if (!queryBacked)
-            return pipeline.AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
+        {
+            return pipeline
+                .Add<MethodAttributes>()
+                .Add<OriginalSource>()
+                .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
+                .Add<ILBody>()
+                .Add<Facts>()
+                .AddCategory(SectionCategoryNames.Audit, SectionNames.UnsafeMembers);
+        }
 
         return pipeline
             .SetInfoSections(SectionNames.TypeInfo)
@@ -209,7 +212,6 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.ExplicitInterfaceImplementations,
                 SectionNames.ExtensionMethods,
                 SectionNames.Events,
-                SectionNames.CustomAttributes,
                 SectionNames.UnsafeMembers,
                 SectionNames.ExceptionRegions,
                 SectionNames.CalledTypes,
@@ -219,11 +221,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
                 SectionNames.SourceFiles,
-                SectionNames.DecompiledSource,
-                SectionNames.OriginalSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL,
-                SectionNames.Facts)
+                SectionNames.DecompiledSource)
             .SetSectionCosts(SectionCost.Moderated,
                 SectionNames.SourceFiles)
             .SetSectionCosts(SectionCost.Unbounded,
@@ -235,11 +233,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.CostFacts,
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage,
-                SectionNames.DecompiledSource,
-                SectionNames.OriginalSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL,
-                SectionNames.Facts)
+                SectionNames.DecompiledSource)
             .AddBaseCategory(SectionCategoryNames.Surface,
                 SectionNames.TypeInfo,
                 SectionNames.Values,
@@ -256,8 +250,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.Operators,
                 SectionNames.ExplicitInterfaceImplementations,
                 SectionNames.ExtensionMethods,
-                SectionNames.Events,
-                SectionNames.CustomAttributes)
+                SectionNames.Events)
             .AddCategory(SectionCategoryNames.Analysis,
                 SectionNames.UnsafeMembers,
                 SectionNames.ExceptionRegions,
@@ -266,9 +259,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.SafetyFacts,
                 SectionNames.CostFacts,
                 SectionNames.TopLeverage,
-                SectionNames.PerformanceTriage,
-                SectionNames.IL,
-                SectionNames.Facts)
+                SectionNames.PerformanceTriage)
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 SectionNames.SafetyFacts)
@@ -278,10 +269,7 @@ public static class ApiMemberSectionDescriptors
                 SectionNames.TopLeverage,
                 SectionNames.PerformanceTriage)
             .AddCategory(SectionCategoryNames.Source,
-                SectionNames.DecompiledSource,
-                SectionNames.OriginalSource,
-                SectionNames.SourceDiff,
-                SectionNames.IL)
+                SectionNames.DecompiledSource)
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceFiles);
     }

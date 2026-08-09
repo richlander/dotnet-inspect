@@ -449,7 +449,7 @@ Sections and fields are queryable without a template language:
 dotnet-inspect library System.Net.Security -S "Async*"
 dotnet-inspect member JsonSerializer --package System.Text.Json -D
 dotnet-inspect member JsonSerializer --package System.Text.Json -D --schema
-dotnet-inspect type --package System.Text.Json --columns Kind,Name
+dotnet-inspect type --package System.Text.Json --columns Kind,Type
 dotnet-inspect type JsonSerializer --package System.Text.Json -S @Analysis
 dotnet-inspect library System.Text.Json -S Symbols --fields "PDB*;SourceLink"
 dotnet-inspect library System.Text.Json -S @Audit

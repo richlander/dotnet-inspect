@@ -3660,6 +3660,18 @@ public partial class CommandExecutionTests
             "type", "System.Collections.Immutabl", "-S", "Zzznosuchsection", "--tips", "q");
         Assert.Equal(1, bogusExit);
         Assert.Contains("Select value 'Zzznosuchsection' not found", bogusError, StringComparison.Ordinal);
+
+        var (bareExit, bareOutput, _) = await RunAppAsync(
+            "type", "System.Collections.Immutabl", "-S", "--tips", "q");
+        Assert.Equal(0, bareExit);
+        Assert.Equal([SectionNames.ApiInfo], SectionHeadings(bareOutput));
+
+        var (staleExit, staleOutput, staleError) = await RunAppAsync(
+            "type", "System.Collections.Immutabl", "-S", SectionNames.TypeInfo, "--tips", "q");
+        Assert.Equal(1, staleExit);
+        Assert.Empty(staleOutput);
+        Assert.Contains($"Select value '{SectionNames.TypeInfo}' not found", staleError, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.ApiInfo, staleError, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -3906,10 +3918,8 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The other two ways an empty render is an honest answer rather than a failed projection.
-    /// Both were real false positives of an earlier form of the gate, and neither can be seen by
-    /// looking at the rendered bytes alone -- which is exactly why the gate needs the two
-    /// narrowing conditions this pins.
+    /// A known field that simply holds no value is an honest empty projection rather than an
+    /// unmatched projection name.
     /// </summary>
     [Theory]
     // A KNOWN field that simply holds no value. `Version` is advertised by -D "API Info", but a
@@ -3917,13 +3927,6 @@ public partial class CommandExecutionTests
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--tsv" })]
     [InlineData((object)new[] { "-S", "API Info", "--fields", "Version", "--count" })]
-    // The same known field, but selected ALONGSIDE a section whose schema does not list it, with
-    // that section filtered to zero rows. `Version` is document-level, so it belongs to no
-    // section in particular; resolving it only against the SELECTED section reported it
-    // unresolved. Normally the document fields keep the render non-empty and hide that, which is
-    // why the zero-row filter is the load-bearing part of this case.
-    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--tsv" })]
-    [InlineData((object)new[] { "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version", "--jsonl" })]
     public async Task Type_Listing_EmptyResultWithoutAnUnmatchedName_StaysSuccessful(string[] args)
     {
         var (exit, _, error) = await RunAppAsync(
@@ -3934,34 +3937,37 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No columns matched", error, StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// An empty SECTION with no projection at all is a valid zero-row answer. Failing it would
-    /// make the exit code depend on the output format, since only the tabular paths render it as
-    /// literally nothing. The target matters here: this must be a library that genuinely has no
-    /// interfaces, or the section renders rows and the case proves nothing.
-    /// </summary>
     [Theory]
     [InlineData("")]
     [InlineData("--tsv")]
     [InlineData("--jsonl")]
-    public async Task Type_Listing_EmptySectionWithNoProjection_StaysSuccessful(string format)
+    [InlineData("--json")]
+    public async Task Type_Listing_ExactEmptySection_FailsWithoutDocument(string format)
     {
         string[] formatArgs = format.Length == 0 ? [] : [format];
 
-        var (exit, _, error) = await RunAppAsync(
+        var (exit, output, error) = await RunAppAsync(
             ["type", "--platform", "System.Net.Http", "-S", "Interfaces", .. formatArgs, "--tips", "q"]);
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("Nothing to render", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("matched projection", error, StringComparison.Ordinal);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Interfaces) produced no output.", error.Trim());
+    }
 
-        // Non-vacuity: the section must really be empty in the tabular form, or this asserts
-        // nothing about the gate. `--tsv` renders zero bytes for a zero-row section.
-        var (tsvExit, tsvOutput, _) = await RunAppAsync(
-            ["type", "--platform", "System.Net.Http", "-S", "Interfaces", "--tsv", "--tips", "q"]);
+    [Theory]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Type_Listing_ExactEmptySection_PrecedesKnownFieldProjection(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath,
+            "-t", "NoSuchType*", "-S", "Classes", "--fields", "Version",
+            format, "--tips", "q");
 
-        Assert.Equal(0, tsvExit);
-        Assert.Equal(string.Empty, tsvOutput.Trim());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Classes) produced no output.", error.Trim());
+        Assert.DoesNotContain("No fields matched", error, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -4051,6 +4057,37 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_ApiInfo_CountsReflectTheFilteredSurface()
+    {
+        static Dictionary<string, string> Rows(string output) => SplitOutputLines(output)
+            .SkipWhile(line => !line.StartsWith("## " + SectionNames.ApiInfo, StringComparison.Ordinal))
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+            .Select(line => line.Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .Select(cell => cell.Trim()).ToArray())
+            .Where(cells => cells.Length == 2 && cells[0] != "Field" && !cells[0].StartsWith('-'))
+            .ToDictionary(cells => cells[0], cells => cells[1], StringComparer.Ordinal);
+
+        var (allExit, allOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "-S", SectionNames.ApiInfo, "--tips", "q");
+        var (filteredExit, filteredOutput, _) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-t", "JsonSerializer",
+            "-S", SectionNames.ApiInfo, "--tips", "q");
+
+        Assert.Equal(0, allExit);
+        Assert.Equal(0, filteredExit);
+        var allRows = Rows(allOutput);
+        var filteredRows = Rows(filteredOutput);
+        Assert.Equal("1", filteredRows["Types"]);
+        Assert.True(
+            int.Parse(filteredRows["Methods"], System.Globalization.CultureInfo.InvariantCulture)
+            < int.Parse(allRows["Methods"], System.Globalization.CultureInfo.InvariantCulture));
+        Assert.True(
+            int.Parse(filteredRows["Properties"], System.Globalization.CultureInfo.InvariantCulture)
+            < int.Parse(allRows["Properties"], System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task Type_Listing_ApiInfo_ProjectsTheSameRowsInEveryMachineMode()
     {
         // The listing tabular view filters by mapping section names to type KINDS, so a selection
@@ -4108,6 +4145,50 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.StartsWith("kind\ttype\tmembers", tsv, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_Listing_JsonProjectsSelectedKindSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "-S", "Classes", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var types = document.RootElement.GetProperty("types");
+        Assert.True(types.GetArrayLength() > 0);
+        Assert.All(
+            types.EnumerateArray(),
+            type => Assert.Equal("class", type.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
+    public async Task Type_SingleType_JsonRejectsSectionProducedAnalysisRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer",
+            "-S", "Called Types", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--json cannot represent the selected type section(s): Called Types", error);
+        Assert.Contains("Use Markdown, --table, --tsv, or --jsonl", error);
+    }
+
+    [Fact]
+    public async Task Type_Listing_MarkdownColumnsWithoutSelectTargetTypeRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "--columns", "Kind,Type", "--tips", "q", "-n", "12");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Classes", output);
+        Assert.Contains("| Kind | Type |", output);
+        Assert.DoesNotContain("## API Info", output);
     }
 
     [Theory]
@@ -4290,7 +4371,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_SelectEmptySection_WritesNote()
+    public async Task Type_SingleType_SelectEmptySection_FailsWithoutDocument()
     {
         var options = new TypeOptions
         {
@@ -4299,11 +4380,12 @@ public partial class CommandExecutionTests
             Select = ["Values"]  // enum-only section; JsonSerializer is a class
         };
 
-        var (exit, _, error) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        Assert.Contains("section 'Values' has no data", error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Values) produced no output.", error.Trim());
     }
 
     [Fact]
@@ -4348,7 +4430,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_JsonWithSelectEmptySection_EmptyMembersAndNote()
+    public async Task Type_SingleType_JsonTypeInfoPreservesIdentityFacts()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Span`1",
+            "-S", "Type Info", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.GetProperty("is_by_ref_like").GetBoolean());
+        Assert.Single(document.RootElement.GetProperty("type_parameters").EnumerateArray());
+        Assert.Empty(document.RootElement.GetProperty("members").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Type_SingleType_JsonWithSelectEmptySection_FailsWithoutDocument()
     {
         var options = new TypeOptions
         {
@@ -4361,10 +4458,46 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(0, exit);
-        using var doc = JsonDocument.Parse(output);
-        Assert.Empty(doc.RootElement.GetProperty("members").EnumerateArray());
-        Assert.Contains("section 'Values' has no data", error);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Values) produced no output.", error.Trim());
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TsvWithSelectEmptySection_FailsWithoutDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer",
+            "-S", "Values", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal("This section (Values) produced no output.", error.Trim());
+    }
+
+    [Fact]
+    public async Task Type_Listing_ExactEmptySection_FailsInEveryDocumentFormat()
+    {
+        string[][] formats =
+        [
+            [],
+            ["--tsv"],
+            ["--json"],
+        ];
+
+        foreach (var format in formats)
+        {
+            var (exit, output, error) = await RunAppAsync(
+                [
+                    "type", "--platform", "System.Text.Json",
+                    "-t", "JsonSerializer", "-S", "Enums", "--tips", "q",
+                    .. format,
+                ]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Equal("This section (Enums) produced no output.", error.Trim());
+        }
     }
 
     [Fact]
@@ -4403,7 +4536,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
         Assert.Contains("| @Analysis | category |", output);
         Assert.Contains("| @Source | category |", output);
     }
@@ -4425,8 +4558,12 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
         Assert.Contains("| Fields | section |", output);
+        Assert.DoesNotContain("| Facts | section", output);
+        Assert.DoesNotContain("| IL | section", output);
+        Assert.DoesNotContain("| Original Source | section", output);
+        Assert.DoesNotContain("| Source Diff | section", output);
         Assert.DoesNotContain("| @All | category |", output);
         Assert.DoesNotContain("| @Hidden | category |", output);
     }
@@ -4513,7 +4650,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Called Types | section |", output);
-        Assert.Contains("| IL | section", output);
+        Assert.DoesNotContain("| IL | section", output);
         Assert.DoesNotContain("| Decompiled Source | section |", output);
     }
 
@@ -4522,17 +4659,30 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Text.Json.JsonSerializer",
-            "-S", "Source Files", "--tips", "q", "-n", "28");
+            "-S", "Source Files", "--verbose", "--tips", "q", "-n", "28");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Source Files", output);
+        Assert.Contains("| Url |", output);
+        Assert.Contains("JsonSerializer.Write.String.cs", output);
+        Assert.DoesNotContain("Fetching source from:", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_SourceFilesSection_EnrichesTypeWithoutVisibleMethods()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.DayOfWeek",
+            "-S", "Source Files", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Files", output);
-        Assert.Contains("| Url |", output);
-        Assert.Contains("JsonSerializer.Write.String.cs", output);
+        Assert.Contains("DayOfWeek.cs", output);
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCustomAttributesSection()
+    public async Task Type_SingleType_DiscoverEffective_OmitsUnsupportedCustomAttributesSection()
     {
         var options = new TypeOptions
         {
@@ -4546,11 +4696,11 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.DoesNotContain("| Custom Attributes | section |", output);
     }
 
     [Fact]
-    public async Task Type_DiscoverEmptySection_Effective_ReportsNoDataNote()
+    public async Task Type_DiscoverUnsupportedSection_Effective_ReportsNotFound()
     {
         var options = new TypeOptions
         {
@@ -4562,11 +4712,8 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        // A valid-but-empty section reports a clear "no data" note rather than the
-        // misleading "Section not found", and exits 0.
-        Assert.Equal(0, exit);
-        Assert.Contains("section 'Custom Attributes' has no data", error);
-        Assert.DoesNotContain("not found", error);
+        Assert.Equal(1, exit);
+        Assert.Contains("Section 'Custom Attributes' not found", error);
         Assert.DoesNotContain("| Name | column |", output);
     }
 
@@ -4666,6 +4813,20 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Methods | section", output);
+    }
+
+    [Fact]
+    public async Task Member_DiscoverSchema_PreservesLegacyCategoriesAndAnnotations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "-D", "--schema", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Methods | section (verbose) |", output);
+        Assert.Contains("| @All | category |", output);
+        Assert.DoesNotContain("| @Surface | category |", output);
     }
 
     [Fact]
@@ -9750,7 +9911,7 @@ public partial class CommandExecutionTests
     }
 
     private static readonly HashSet<string> TypeUnprobedDiscoverySections =
-        ApiMemberSectionDescriptors.CreatePipeline().GetUnprobedSections();
+        ApiMemberSectionPipelines.Create(new TypeOptions()).GetUnprobedSections();
 
     private static readonly HashSet<string> MemberOverloadUnprobedDiscoverySections =
         ApiMemberOverloadSectionDescriptors.CreatePipeline().GetUnprobedSections();

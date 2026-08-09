@@ -389,11 +389,11 @@ Single-type views use this authored ownership:
 
 | Category | Members |
 | --- | --- |
-| `@Surface` | `Type Info`, `Values`, `Type Parameters`, `Interfaces`, `Baseclass`, `Constructors`, `Finalizer`, `Fields`, `Properties`, `Method Groups`, `Methods`, `Member Index`, `Operators`, `Explicit Interface Implementations`, `Extension Methods`, `Events`, `Custom Attributes` |
-| `@Analysis` | `Unsafe Members`, `Exception Regions`, `Called Types`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage`, `IL`, `Facts` |
+| `@Surface` | `Type Info`, `Values`, `Type Parameters`, `Interfaces`, `Baseclass`, `Constructors`, `Finalizer`, `Fields`, `Properties`, `Method Groups`, `Methods`, `Member Index`, `Operators`, `Explicit Interface Implementations`, `Extension Methods`, `Events` |
+| `@Analysis` | `Unsafe Members`, `Exception Regions`, `Called Types`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage` |
 | `@Audit` | `Unsafe Members`, `Safety Facts` |
 | `@Performance` | `Allocation Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage` |
-| `@Source` | `Decompiled Source`, `Original Source`, `Source Diff`, `IL` |
+| `@Source` | `Decompiled Source` |
 | `@SourceLink` | `Source Files` |
 
 `@Surface` is the base category. The remaining categories are domains. Type

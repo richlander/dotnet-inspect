@@ -70,7 +70,14 @@ internal static class SourceEnricher
         }
 
         if (options.ShowSamples || options.Verbosity >= Verbosity.Detailed)
-            await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger, httpClient);
+            await EnrichTypeWithSourceInfoAsync(
+                apiType,
+                typeName,
+                dllPath,
+                options,
+                logger,
+                httpClient,
+                fetchSourceContent: options.ShowDocs || options.ShowSamples);
         else if (options.ShowDocs && options.Verbosity >= Verbosity.Normal)
             EnrichFromLocalXmlDocs(apiType, dllPath, options, logger);
     }
@@ -106,7 +113,14 @@ internal static class SourceEnricher
 
     // ===== Single-Type Enrichment =====
 
-    internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
+    internal static async Task EnrichTypeWithSourceInfoAsync(
+        ApiType apiType,
+        string typeName,
+        string dllPath,
+        ApiOptions options,
+        VerboseLogger logger,
+        HttpClient httpClient,
+        bool fetchSourceContent)
     {
         try
         {
@@ -166,7 +180,8 @@ internal static class SourceEnricher
                         dllPath,
                         options,
                         logger,
-                        httpClient))
+                        httpClient,
+                        fetchSourceContent))
                 {
                     return;
                 }
@@ -178,7 +193,8 @@ internal static class SourceEnricher
                 apiType,
                 sourceInfo,
                 options,
-                logger);
+                logger,
+                fetchSourceContent);
         }
         catch (Exception ex)
         {
@@ -659,7 +675,8 @@ internal static class SourceEnricher
         string originalDllPath,
         ApiOptions options,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        bool fetchSourceContent)
     {
         using var resolution = new TypeDefinitionResolutionSession(
             originalDllPath,
@@ -697,7 +714,12 @@ internal static class SourceEnricher
         if (sourceInfo is null)
             return false;
 
-        await ApplySourceInfoAsync(apiType, sourceInfo, options, logger);
+        await ApplySourceInfoAsync(
+            apiType,
+            sourceInfo,
+            options,
+            logger,
+            fetchSourceContent);
         return true;
     }
 
@@ -705,7 +727,8 @@ internal static class SourceEnricher
         ApiType apiType,
         SourceLinkResolver.TypeSourceInfo sourceInfo,
         ApiOptions options,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool fetchSourceContent)
     {
         apiType.SourceFilePath = sourceInfo.SourceFilePath;
         apiType.SourceUrl = sourceInfo.SourceUrl;
@@ -730,8 +753,7 @@ internal static class SourceEnricher
         logger.Log(
             $"Source ({sourceInfo.ResolutionMethod}): {sourceInfo.SourceFilePath}:{sourceInfo.LineNumber}");
 
-        if (!(options.ShowDocs || options.ShowSamples)
-            || sourceInfo.SourceUrl is null)
+        if (!fetchSourceContent || sourceInfo.SourceUrl is null)
         {
             return;
         }

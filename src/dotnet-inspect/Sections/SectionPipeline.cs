@@ -65,6 +65,8 @@ public sealed class SectionPipeline<TModel>
     public const string AllCategory = "@All";
     public const string HiddenCategory = "@Hidden";
 
+    public bool IsCuratedCatalog => _curatedCatalog;
+
     /// <summary>
     /// Opts this pipeline into the curated-catalog taxonomy: <c>@All</c> is the visible pole
     /// (Default + Terse + <see cref="SectionEntry{TModel}.Noisy"/> sections, excluding expensive and
