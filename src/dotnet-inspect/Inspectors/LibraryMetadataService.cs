@@ -259,11 +259,15 @@ internal static class LibraryMetadataService
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
-                // Fallback for non-pipeline callers — open the assembly once for all five scans.
+                // Fallback for non-pipeline callers — open the assembly once for all bounded scans.
                 try
                 {
                     using var session = AssemblyInspectionSession.Open(path);
-                    inspection.Apply(ScanExtensionMembers(session, path, logger));
+                    ApplyExtensionMethodsResult(
+                        path,
+                        inspection,
+                        logger,
+                        ExtensionMethodsQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
                     inspection.ResourceInspection = ScanResources(session, path, logger);
                     inspection.Apply(ScanCustomAttributes(session, path, logger));
@@ -705,52 +709,6 @@ internal static class LibraryMetadataService
         }
 
         return nodes;
-    }
-
-    /// <summary>
-    /// Scans an assembly for extension members and retains Metadata's typed census.
-    /// </summary>
-    internal static ExtensionMemberScan ScanExtensionMembers(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanExtensionMembers(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
-            return new ExtensionMemberScan(
-                FailedInspection<ExtensionMemberObservation>(
-                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
-                DisplayOrder: null);
-        }
-    }
-
-    internal static ExtensionMemberScan ScanExtensionMembers(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            var extensions = session.ExtensionMethods().ToArray();
-            return new ExtensionMemberScan(
-                MetadataFindings.InspectExtensionMembers(
-                    extensions,
-                    FindingSubjectFor(path)),
-                extensions);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
-            return new ExtensionMemberScan(
-                FailedInspection<ExtensionMemberObservation>(
-                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
-                DisplayOrder: null);
-        }
     }
 
     /// <summary>
@@ -1777,6 +1735,13 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                ExtensionMethodsQuery.Definition,
+                out ExtensionMethodsResult? extensionMethods))
+        {
+            ApplyExtensionMethodsResult(path, inspection, logger, extensionMethods);
+        }
+
+        if (results.TryGet(
                 SourceLinkDocumentsQuery.Definition,
                 out SourceLinkDocumentsResult? sourceDocuments))
         {
@@ -1901,6 +1866,39 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown assembly-reference result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyExtensionMethodsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ExtensionMethodsResult result)
+    {
+        switch (result)
+        {
+            case ExtensionMethodsResult.Available available:
+                inspection.SetExtensionMemberInspection(
+                    MetadataFindings.InspectExtensionMembers(
+                        available.Methods,
+                        FindingSubjectFor(path)),
+                    available.Methods);
+                break;
+
+            case ExtensionMethodsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning extensions in {path}: {failed.Error.Message}");
+                inspection.SetExtensionMemberInspection(
+                    FailedInspection<ExtensionMemberObservation>(
+                        path,
+                        MetadataFindings.ExtensionMemberDescriptor,
+                        failed.Error),
+                    displayOrder: null);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown extension-method result '{result.GetType().Name}'.");
         }
     }
 

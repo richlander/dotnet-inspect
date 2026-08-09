@@ -20,7 +20,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerExtensionMethods = "ExtensionMethods";
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerResources = "Resources";
     public const string ScannerCustomAttributes = "CustomAttributes";
@@ -76,7 +75,7 @@ public static class LibrarySections
             .UseScannerCosts(scannerCost)
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
-            .Add<LibraryInfo>()
+            .Add<LibraryInfo>(ExtensionMethodsQuery.Definition)
             .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
@@ -117,7 +116,7 @@ public static class LibrarySections
             .Add<HealthChecks>(AssemblyContextIntegrationsQuery.Definition)
             .Add<HttpClient>(AssemblyContextIntegrationsQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
-            .Add<ExtensionMethods>()
+            .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
             .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
             .Add<TopLeverage>(HasMethodBodies)
             .Add<PerformanceBoxing>(HasMethodBodies)
@@ -182,10 +181,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerExtensionMethods, SectionCost.NetworkFree, ctx =>
-                ctx.Model.Apply(ctx.Scan(
-                    session => LibraryMetadataService.ScanExtensionMembers(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerClassifiedMethods, SectionCost.NetworkFree, ctx =>
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
@@ -206,7 +201,6 @@ public static class LibrarySections
                     () => LibraryMetadataService.ScanTypeForwarders(ctx.AssemblyPath, ctx.Logger)))
             .AddBundle(
                 ScannerInfoCounts,
-                ScannerExtensionMethods,
                 ScannerClassifiedMethods,
                 ScannerResources,
                 ScannerCustomAttributes,
@@ -274,6 +268,22 @@ public static class LibrarySections
                         catch (Exception ex)
                         {
                             return new AssemblyReferencesResult.Failed(ex);
+                        }
+                    }))
+            .Add(ExtensionMethodsQuery.Definition, ctx =>
+                ctx.Scan(
+                    ExtensionMethodsQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return ExtensionMethodsQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new ExtensionMethodsResult.Failed(ex);
                         }
                     }))
             .AddSourceLinkQueries(RequireSourceLinkContext);
@@ -642,7 +652,7 @@ public static class LibrarySections
         public static string Name => SectionNames.ExtensionMethods;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerExtensionMethods;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ExtensionMemberInspection.CanRenderWithPresence(model.HasExtensionTypes);
     }

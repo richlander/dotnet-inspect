@@ -1572,6 +1572,7 @@ public class SectionPipelineTests
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
@@ -1745,6 +1746,111 @@ public class SectionPipelineTests
         Assert.Equal(
             session.AssemblyReferences().OrderBy(reference => reference.Name),
             result.References.OrderBy(reference => reference.Name));
+    }
+
+    [Fact]
+    public void LibraryInfoAndExtensionMethodsSections_ShareTypedExtensionMethodsQuery()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        HashSet<string> sections =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.LibraryInfo,
+                SectionNames.ExtensionMethods,
+            };
+
+        HashSet<InspectionQueryDefinition> required = pipeline.GetRequiredQueries(
+            Verbosity.Minimal,
+            sections);
+
+        Assert.Equal([ExtensionMethodsQuery.Definition], required);
+    }
+
+    [Fact]
+    public void ExtensionMethodsQuery_ReturnsDeclaredMembersFromBorrowedContent()
+    {
+        using var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+
+        var result = Assert.IsType<ExtensionMethodsResult.Available>(
+            ExtensionMethodsQuery.Execute(session));
+
+        Assert.Contains(
+            result.Methods,
+            method => method.MethodName == "ToUpperCase");
+    }
+
+    [Fact]
+    public void ExtensionMethodsQuery_UsesTheCommandsOpenImage()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var metadataContext = PdbContext.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ExtensionMethodsQuery.Definition],
+            context);
+        var extensionMethods = Assert.IsType<ExtensionMethodsResult.Available>(
+            results.Get(ExtensionMethodsQuery.Definition));
+
+        Assert.Contains(
+            extensionMethods.Methods,
+            method => method.MethodName == "ToUpperCase");
+        Assert.Equal(1, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ExtensionMethodsQuery_OpenFailureRemainsTyped()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-{Guid.NewGuid():N}.dll");
+        using var context = new ScannerContext
+        {
+            AssemblyPath = missingPath,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+        };
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ExtensionMethodsQuery.Definition],
+            context);
+        var failure = Assert.IsType<ExtensionMethodsResult.Failed>(
+            results.Get(ExtensionMethodsQuery.Definition));
+
+        Assert.IsType<FileNotFoundException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
+    public void ExtensionMethodsQuery_FailureRemainsTypedAndProjectsFindingFailure()
+    {
+        var session = AssemblyInspectionSession.Open(
+            typeof(SectionPipelineTests).Assembly.Location);
+        session.Dispose();
+        var model = new LibraryInspection();
+
+        var result = Assert.IsType<ExtensionMethodsResult.Failed>(
+            ExtensionMethodsQuery.Execute(session));
+        LibraryMetadataService.ApplyExtensionMethodsResult(
+            "disposed.dll",
+            model,
+            new Output.VerboseLogger(false),
+            result);
+
+        Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
+            model.ExtensionMemberInspection!.Value);
+        Assert.Null(model.ExtensionMethods);
+        Assert.Equal("Extension Methods", Assert.Single(model.InspectionFailures!).Section);
     }
 
     [Fact]
@@ -2919,8 +3025,7 @@ public class SectionPipelineTests
         // observable that stands in for it.
         string[] sharedSessionScanners =
         [
-            // was ScanInfoCounts's five-way fan-out
-            LibrarySections.ScannerExtensionMethods,
+            // was ScanInfoCounts's four-way fan-out
             LibrarySections.ScannerClassifiedMethods,
             LibrarySections.ScannerResources,
             LibrarySections.ScannerCustomAttributes,
@@ -3091,7 +3196,11 @@ public class SectionPipelineTests
 
         Assert.Empty(trace.QueryClosure.Except(reachable));
         Assert.Equal(
-            [AssemblyReferencesQuery.Definition, MetadataImageQuery.Definition],
+            [
+                AssemblyReferencesQuery.Definition,
+                ExtensionMethodsQuery.Definition,
+                MetadataImageQuery.Definition,
+            ],
             requested.OrderBy(query => query.Name, StringComparer.Ordinal));
 
         IEnumerable<InertString> lines = trace.RenderLines();
@@ -3223,11 +3332,6 @@ public class SectionPipelineTests
         // field it alone must populate.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
-            ("ExtensionMethods",
-                m => m.Apply(LibraryMetadataService.ScanExtensionMembers(session, Path, logger)),
-                m => Xunit.Assert.IsType<FindingInspection<ExtensionMemberObservation>.Failed>(
-                    m.ExtensionMemberInspection!.Value)),
-
             ("ClassifiedMethods",
                 m => m.Apply(LibraryMetadataService.ScanClassifiedMethods(session, Path, logger)),
                 m => Xunit.Assert.IsType<FindingInspection<ClassifiedMethodObservation>.Failed>(
@@ -3323,7 +3427,7 @@ public class SectionPipelineTests
             Assert.NotEqual(expectedA.Full, expectedB.Full);
 
             // The action-based scanners must distinguish the fixtures on their own. Found by
-            // review: asserting only the combined signature let the five value-returning census
+            // review: asserting only the combined signature let the four value-returning census
             // scanners carry the whole assertion, so a tamper confined to the void Scan overload
             // -- which is how Audit Signals, Integrations and Integration Opportunities run --
             // left this gate green while three scanners reopened the path.
@@ -3339,14 +3443,14 @@ public class SectionPipelineTests
             };
 
             // First scanner opens the shared session against A.
-            registry.RunScanners([LibrarySections.ScannerExtensionMethods], context);
+            registry.RunScanners([LibrarySections.ScannerClassifiedMethods], context);
 
             Assert.True(TryLinkDirectory(link, dirB), "Could not retarget the directory link.");
 
             registry.RunScanners(
                 registry.ExpandRequired(
                     SharedSessionScannerKeys
-                        .Where(key => key != LibrarySections.ScannerExtensionMethods)),
+                        .Where(key => key != LibrarySections.ScannerClassifiedMethods)),
                 context);
 
             Assert.Equal(expectedA.Full, SignatureOf(model));
@@ -3504,7 +3608,7 @@ public class SectionPipelineTests
     /// <summary>
     /// Runs the shared-session scanners over an untouched path and returns their signature, split
     /// so a caller can assert that the action-based scanners on their own distinguish the two
-    /// fixtures. Without that split, the five value-returning census scanners could carry the whole
+    /// fixtures. Without that split, the four value-returning census scanners could carry the whole
     /// signature and a tamper confined to the void <c>Scan</c> overload would stay invisible.
     /// </summary>
     private static (string Full, string Actions) CensusSignature(string assemblyPath)
@@ -3525,11 +3629,10 @@ public class SectionPipelineTests
 
     /// <summary>
     /// Every scanner the fan-out held inside one session. Both retarget gates drive this whole set
-    /// so the three action-based scanners are covered, not just the five that return a value.
+    /// so the three action-based scanners are covered, not just the four that return a value.
     /// </summary>
     private static readonly string[] SharedSessionScannerKeys =
     [
-        LibrarySections.ScannerExtensionMethods,
         LibrarySections.ScannerClassifiedMethods,
         LibrarySections.ScannerResources,
         LibrarySections.ScannerCustomAttributes,
@@ -3539,7 +3642,6 @@ public class SectionPipelineTests
 
     private static string SignatureOf(LibraryInspection model) => string.Join(
         "|",
-        $"ext={model.ExtensionMethods?.Count}",
         $"attrs={model.CustomAttributes?.Count}",
         $"classified={PayloadCount(model.ClassifiedMethodInspection)}",
         $"resources={PayloadCount(model.ResourceInspection)}",
@@ -3637,7 +3739,7 @@ public class SectionPipelineTests
     public void CanRender_ExtensionMethods_UsesPresenceFlag()
     {
         var pipeline = LibrarySections.CreatePipeline();
-        // No scanner has run (ExtensionMethods list is null), but flag is set
+        // The query has not run (ExtensionMethods is null), but the presence flag is set.
         var model = new LibraryInspection
         {
             AssemblyInfo = new AssemblyInfo(),
