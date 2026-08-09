@@ -212,6 +212,36 @@ public sealed class AssemblyContextIntegrationsQueryTests
         Assert.Equal(0, available.Presence.IntegrationCount);
     }
 
+    [Fact]
+    public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly internalTelemetry = TestAssembly.Create(
+            "InternalTelemetryPresence",
+            "OpenTelemetry.Internal.CustomTracer",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [internalTelemetry.Participant]);
+
+        AssemblyContextIntegrationsResult result =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        var available =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                Assert.Single(result.Assemblies));
+        Assert.Contains(
+            available.OpenTelemetrySignals,
+            signal =>
+                signal.Name
+                == "OpenTelemetry.Internal.CustomTracer");
+        Assert.False(
+            available.Presence.HasOpenTelemetrySupport);
+        Assert.Equal(0, available.Presence.IntegrationCount);
+    }
+
     static void AssertSubject(
         TestAssembly expected,
         AssemblyContextSubject actual)

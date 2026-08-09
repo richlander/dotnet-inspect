@@ -128,12 +128,11 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Presence flags summarized from grouped integration evidence.</summary>
     public EcosystemIntegrationPresence EcosystemIntegrationPresence(
-        IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals,
-        bool hasOpenTelemetrySupport)
+        IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals)
         => EcosystemIntegrationScanner.SummarizePresence(
             _image.PEReader,
             ecosystemSignals,
-            hasOpenTelemetrySupport);
+            OpenTelemetryScanner.HasSupport(_image.PEReader));
 
     /// <summary>Integration opportunities, excluding already-present integrations.</summary>
     public List<IntegrationOpportunityInfo> IntegrationOpportunities(IReadOnlySet<string> existingIntegrations)

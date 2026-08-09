@@ -186,8 +186,7 @@ public static class AssemblyContextIntegrationsQuery
                 ecosystemSignals,
                 openTelemetrySignals,
                 session.EcosystemIntegrationPresence(
-                    ecosystemSignals,
-                    !openTelemetrySignals.IsDefaultOrEmpty));
+                    ecosystemSignals));
         }
         catch (BadImageFormatException ex)
         {

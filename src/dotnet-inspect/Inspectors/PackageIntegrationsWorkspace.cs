@@ -199,6 +199,9 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                             or NotSupportedException
                             or ObjectDisposedException)
                     {
+                        preflightFailures.Add(
+                            Path.GetFullPath(assembly.Path),
+                            "The selected image could not be read.");
                         continue;
                     }
 

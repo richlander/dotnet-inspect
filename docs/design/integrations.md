@@ -182,6 +182,8 @@ command incomplete with a nonzero exit code. Direct `library` and package
 gates grouping, correlation, provenance, and retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
 gates participant-at-a-time retention.
+`PackageIntegrationsWorkspaceTests.UnreadablePreflight_DoesNotFallBackToPathInspection`
+gates terminal failure for unreadable managed participants.
 `PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
@@ -208,7 +210,10 @@ and `GroupedEvidence_SuppliesIntegrationPresence` gate projection and
 duplicate-scan avoidance.
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`
 gates preservation of presence flags that are broader than rendered evidence
-rows. Existing
+rows.
+`AssemblyContextIntegrationsQueryTests.Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence`
+gates the close negative where an evidence row does not satisfy the legacy
+OpenTelemetry support predicate. Existing
 `PackageCommand_AllLibraries_*` tests gate rendering compatibility.
 
 Cancellation-aware execution, optional concurrent execution, and migration of

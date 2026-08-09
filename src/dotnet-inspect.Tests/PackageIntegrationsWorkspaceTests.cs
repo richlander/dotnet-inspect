@@ -355,6 +355,62 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
+    public async Task UnreadablePreflight_DoesNotFallBackToPathInspection()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-unreadable-").FullName;
+        string path = Path.Combine(directory, "Locked.dll");
+        File.Copy(
+            typeof(PackageIntegrationsWorkspaceTests)
+                .Assembly.Location,
+            path);
+        try
+        {
+            using var locked = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            using var workspace =
+                PackageIntegrationsWorkspace.Create(
+                    [new(path, "net11.0")],
+                    "Test.Package",
+                    "1.0.0");
+            List<(string FileName, string Reason)> failures = [];
+            int inspectionCount = 0;
+
+            LibraryInspection? inspection =
+                await Commands.PackageCommand
+                    .InspectGroupedAssemblyAsync(
+                        workspace,
+                        path,
+                        "ref/net11.0/Locked.dll",
+                        failures,
+                        (_, _) =>
+                        {
+                            inspectionCount++;
+                            return Task.FromResult<
+                                LibraryInspection?>(new());
+                        });
+
+            Assert.Null(inspection);
+            Assert.Equal(0, inspectionCount);
+            var failure = Assert.Single(failures);
+            Assert.Equal(
+                "ref/net11.0/Locked.dll",
+                failure.FileName);
+            Assert.Contains(
+                "could not be read",
+                failure.Reason,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task GroupedIntegrationsFailure_IsVisibleAndDeduplicated()
     {
         (string FileName, string Reason) failure =
