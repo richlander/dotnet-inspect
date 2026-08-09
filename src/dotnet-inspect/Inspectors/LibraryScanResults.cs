@@ -18,13 +18,6 @@ namespace DotnetInspector.Inspectors;
 // which is where it will be deleted once L1 owns the queries.
 
 /// <summary>
-/// Assembly attribute census, plus the order used for JSON serialization.
-/// </summary>
-internal readonly record struct AssemblyAttributeScan(
-    FindingInspection<AssemblyAttributeInfo> Inspection,
-    IReadOnlyList<AssemblyAttributeInfo>? JsonOrder);
-
-/// <summary>
 /// Method classification census, plus the three per-classification projections derived from it.
 /// All four come from one pass over the same classified-method list, so they are produced together;
 /// splitting them into separate scanners would re-walk the assembly three more times.
@@ -60,9 +53,6 @@ internal readonly record struct ResourceTriageScan(
 /// </summary>
 internal static class LibraryScanApply
 {
-    public static void Apply(this LibraryInspection inspection, AssemblyAttributeScan scan)
-        => inspection.SetAssemblyAttributeInspection(scan.Inspection, scan.JsonOrder);
-
     public static void Apply(this LibraryInspection inspection, ClassifiedMethodScan scan)
     {
         inspection.ClassifiedMethodInspection = scan.Inspection;
