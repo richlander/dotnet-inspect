@@ -61,6 +61,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
+            ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
 
             // Product-output validity under varying compilation options.
             ["ExpressionTreeLambdaTests.cs"] = (3, "Product-output validity + compile-back oracle: compiles synthesized expression-tree source under varying compilation options (overflow checks) and recompiles recovered arithmetic/comparison lambdas to assert their expression-tree node identity."),
@@ -112,9 +113,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3784 adds ValidDifferentFaultIsolationTests.cs (1 site): compiles
     //     runtime-varying authored and rejected bodies to gate successful
     //     IL-diff attribution.
-    //   Combined: 38 files, 48 sites.
-    const int ExpectedDynamicFiles = 38;
-    const int ExpectedDynamicSites = 48;
+    //   #3898 adds AuthoredRebuildFidelityTests.cs (1 site): constructs and
+    //     replaces a same-identity dependency to gate frozen-closure reuse.
+    //   Combined: 39 files, 49 sites.
+    const int ExpectedDynamicFiles = 39;
+    const int ExpectedDynamicSites = 49;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

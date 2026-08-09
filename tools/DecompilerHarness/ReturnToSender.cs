@@ -118,6 +118,11 @@ static class ReturnToSender
         Result All,
         RoundTripScopeComparisonResult Comparison);
 
+    internal sealed record CompilationClosure(
+        AssemblyDependencyResolver Resolver,
+        ResolvedAssemblyReference TargetAssembly,
+        MetadataReference[] References);
+
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
     enum ComparisonDelta
@@ -454,6 +459,8 @@ static class ReturnToSender
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
+        CompilationClosure compilationClosure =
+            CreateCompilationClosure(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -497,6 +504,7 @@ static class ReturnToSender
 
                 results.Add(CompileBackPropertyGetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -554,20 +562,24 @@ static class ReturnToSender
         RequestedTarget target)
     {
         var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
+        CompilationClosure compilationClosure =
+            CreateCompilationClosure(assemblyPath);
         var cluster = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
             RoundTripScope.Cluster,
-            RoundTripBodyPolicy.Selected));
+            RoundTripBodyPolicy.Selected,
+            compilationClosure));
         var all = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
             RoundTripScope.All,
-            RoundTripBodyPolicy.Selected));
+            RoundTripBodyPolicy.Selected,
+            compilationClosure));
         var clusterRequest = CreateRoundTripRequest(assemblyPath, cluster, RoundTripScope.Cluster);
         var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
         var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
@@ -727,7 +739,8 @@ static class ReturnToSender
         ReturnToSenderSourceIndex? sourceIndex,
         bool applyCompileBackFloor,
         RoundTripScope scope,
-        RoundTripBodyPolicy bodyPolicy)
+        RoundTripBodyPolicy bodyPolicy,
+        CompilationClosure? compilationClosure = null)
     {
         if (targets.Count == 0)
             return [];
@@ -746,6 +759,8 @@ static class ReturnToSender
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         var memberAnchors = MemberAnchorsByMethodToken(pe);
+        compilationClosure ??=
+            CreateCompilationClosure(assemblyPath);
         var typeHandles = reader.TypeDefinitions
             .Select(handle => (Handle: handle, Definition: reader.GetTypeDefinition(handle)))
             .Where(item => reader.GetFullTypeName(item.Definition) is { } fullName
@@ -770,6 +785,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackPropertyGetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -787,6 +803,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackPropertySetterOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -804,6 +821,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackEventAccessorOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -821,6 +839,7 @@ static class ReturnToSender
             {
                 results.Add(CompileBackMethodOrContextFail(
                     assemblyPath,
+                    compilationClosure,
                     pe,
                     reader,
                     source,
@@ -1188,6 +1207,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertyGetterOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1201,7 +1221,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertyGetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1211,6 +1231,7 @@ static class ReturnToSender
 
     static Result CompileBackMethodOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1223,7 +1244,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackMethod(assemblyPath, compilationClosure, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1233,6 +1254,7 @@ static class ReturnToSender
 
     static Result CompileBackEventAccessorOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1248,6 +1270,7 @@ static class ReturnToSender
         {
             return CompileBackEventAccessor(
                 assemblyPath,
+                compilationClosure,
                 pe,
                 reader,
                 source,
@@ -1273,6 +1296,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertySetterOrContextFail(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1286,7 +1310,7 @@ static class ReturnToSender
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
+            return CompileBackPropertySetter(assemblyPath, compilationClosure, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1296,6 +1320,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertyGetter(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1321,6 +1346,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1357,6 +1383,7 @@ static class ReturnToSender
 
     static Result CompileBackMethod(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1381,6 +1408,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1416,6 +1444,7 @@ static class ReturnToSender
 
     static Result CompileBackEventAccessor(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1472,6 +1501,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1512,6 +1542,7 @@ static class ReturnToSender
 
     static Result CompileBackPropertySetter(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader pe,
         MetadataReader reader,
         MetadataSource source,
@@ -1537,6 +1568,7 @@ static class ReturnToSender
 
         return CompileBackTarget(
             assemblyPath,
+            compilationClosure,
             pe,
             reader,
             typeHandle,
@@ -1573,6 +1605,7 @@ static class ReturnToSender
 
     static Result CompileBackTarget(
         string assemblyPath,
+        CompilationClosure compilationClosure,
         PEReader originalPe,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -1597,7 +1630,9 @@ static class ReturnToSender
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
-        var references = CompilationReferences(assemblyPath).ToArray();
+        AssemblyDependencyResolver compilationResolver =
+            compilationClosure.Resolver;
+        MetadataReference[] references = compilationClosure.References;
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
         var closureRoots = scope == RoundTripScope.All
@@ -1624,7 +1659,10 @@ static class ReturnToSender
                         facts.Add(fact);
                 }
             }
-            return CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+            ArtifactRequest request =
+                createRequest(closureRoots, closureFacts);
+            request.CompilationClosure = compilationClosure;
+            return CompileBackSourceComposer.Compose(request);
         }
 
         var firstArtifact = Compose();
@@ -2178,32 +2216,58 @@ static class ReturnToSender
     }
 
     internal static IEnumerable<MetadataReference> CompilationReferences(string targetPath)
+        => CreateCompilationClosure(targetPath).References;
+
+    internal static CompilationClosure CreateCompilationClosure(
+        string targetPath)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(targetPath)
         {
             ExcludeTargetAssembly = true,
+            SnapshotAssemblyImages = true,
         });
+        ResolvedAssemblyReference targetAssembly =
+            resolver.AcquireTargetAssembly()
+            ?? throw new InvalidOperationException(
+                "The target assembly could not be acquired into the compilation closure.");
+        return new CompilationClosure(
+            resolver,
+            targetAssembly,
+            CompilationReferences(resolver).ToArray());
+    }
+
+    static IEnumerable<MetadataReference> CompilationReferences(
+        AssemblyDependencyResolver resolver)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var dependency in resolver.ResolveAll())
         {
-            if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
-                continue;
-
             string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
-            if (!seen.Add(simpleName))
+            if (seen.Contains(simpleName))
                 continue;
 
             MetadataReference reference;
             try
             {
-                reference = MetadataReference.CreateFromFile(dependency.Path);
+                ResolvedAssemblyReference? assembly =
+                    resolver.Acquire(dependency);
+                if (assembly is null)
+                    continue;
+                using Stream stream = assembly.OpenRead();
+                using var image = new MemoryStream();
+                stream.CopyTo(image);
+                reference =
+                    RoundTripCompilationEngine.CreateFrozenReference(
+                        image.ToArray(),
+                        dependency.Path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException)
             {
                 continue;
             }
 
+            seen.Add(simpleName);
             yield return reference;
         }
     }
