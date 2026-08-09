@@ -1845,6 +1845,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_MarkdownUsesLfThroughout()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:n", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains('\n', output);
+        Assert.DoesNotContain('\r', output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12182,28 +12194,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiSectionPartialMatchReportsCleanRenderError()
+    public async Task Package_MultiSectionProjectionMatchesAcrossTheDocument()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            // Markout applies the projection to each table independently, so a column that
-            // matches one section can still abort on an earlier heterogeneous section.
+            // A projection is a document-wide allow list. Tables that do not expose a requested
+            // column contribute nothing; the request succeeds when another selected table does.
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
                 "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
 
-            Assert.Equal(1, normalExit);
-            Assert.Empty(normalOutput);
-            Assert.Contains("No columns matched projection: TFM", normalError);
-            Assert.DoesNotContain("System.InvalidOperationException", normalError);
+            Assert.Equal(0, normalExit);
+            Assert.Empty(normalError);
+            Assert.Contains("| TFM |", normalOutput);
+            Assert.Contains("net8.0", normalOutput);
 
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
                 "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
 
-            Assert.Equal(1, overviewExit);
-            Assert.Empty(overviewOutput);
-            Assert.Contains("No columns matched projection: Path", overviewError);
-            Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+            Assert.Equal(0, overviewExit);
+            Assert.Empty(overviewError);
+            Assert.Contains("| Path |", overviewOutput);
+            Assert.Contains("README.md", overviewOutput);
         }
         finally
         {

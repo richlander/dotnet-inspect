@@ -2949,6 +2949,8 @@ public class PackageCommand
         }
 
         var markdown = sb.ToString().TrimEnd();
+        // Windowed as text rather than at the writer seam because AppendAggregatedSection
+        // hand-builds its tables into `sb`; the writer never sees those rows. See #3624.
         return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
     }
 
