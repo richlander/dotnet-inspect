@@ -158,6 +158,21 @@ local phase:
 git diff --cached -G'ProjectReference.*Markout' --stat
 ```
 
+**Project-closure tests see the peer repository.** Project references make
+Markout's projects part of the build graph, and tests that deliberately inspect
+that graph see them too. In particular,
+`CommandErrorOwnershipTests.EveryProjectInTheCliClosureIsAnalyzedForTheStderrRule`
+requires every dotnet-inspect project to carry this repository's banned-API
+analyzer configuration. Markout correctly does not carry another repository's
+policy, so that test fails during the source-reference phase even when every
+product and output test passes.
+
+Do not weaken the closure test or add dotnet-inspect analyzers to Markout.
+Exclude that one test while proving the source-reference build, then run it
+normally after step 4 restores package references. The failure should disappear
+with the peer projects; if it does not, it is no longer co-development
+scaffolding.
+
 **The package version is not where you left it.** dotnet-inspect pins a Markout
 version that can be well behind Markout's `main`. Returning to
 `PackageReference` at step 4 may absorb unrelated drift along with the intended
