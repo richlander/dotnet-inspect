@@ -248,11 +248,9 @@ public class InspectionViewDescriptorTests
 
         foreach (LibrarySourceSectionPlan sourceSection in LibrarySourcePlans.Sections)
         {
-            SectionCapabilities expected = SectionCapabilities.MayDownloadPdb;
-            if (sourceSection.AuditSources)
-                expected |= SectionCapabilities.MayAuditSources;
-            if (sourceSection.VerifyIntegrity)
-                expected |= SectionCapabilities.MayFetchSources;
+            SectionCapabilities expected = sourceSection.DownloadPdb
+                ? SectionCapabilities.MayDownloadPdb
+                : SectionCapabilities.None;
 
             Assert.Equal(expected, views[sourceSection.Name].Capabilities);
         }
