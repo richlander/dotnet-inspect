@@ -40,7 +40,8 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 // from another block may be live-out and would be left on the old
                 // slot. Structured EH needs the stronger proof: later rewrites can
                 // reshape its regions, so every reference must belong to a top-level
-                // statement in this one block.
+                // statement in one direct try-body block, with no read-before-write
+                // hidden under a same-slot store.
                 if (hasStructuredEh
                     ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
                     : function.Descendants.OfType<LoadStackSlot>()
@@ -64,11 +65,21 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
     static bool ReferencesAreStraightLineInBlock(IrFunction function, int slot, Block block)
     {
+        if (!IsDirectTryBodyBlock(block))
+            return false;
+
         foreach (var node in function.Descendants)
         {
             if (node is StoreStackSlot store && store.Slot == slot
                 || node is LoadStackSlot load && load.Slot == slot)
             {
+                if (node is StoreStackSlot slotStore
+                    && slotStore.Value.Descendants.Prepend(slotStore.Value).OfType<LoadStackSlot>()
+                        .Any(nestedLoad => nestedLoad.Slot == slot))
+                {
+                    return false;
+                }
+
                 var statement = node;
                 while (statement.Parent is not null && !ReferenceEquals(statement.Parent, block))
                     statement = statement.Parent;
@@ -81,6 +92,19 @@ public sealed class StackSlotLiveRangePass : IIrPass
             }
         }
         return true;
+    }
+
+    static bool IsDirectTryBodyBlock(Block block)
+    {
+        if (block.Parent is not BlockContainer container)
+            return false;
+
+        return container.Parent switch
+        {
+            TryCatch tryCatch => ReferenceEquals(tryCatch.TryBody, container),
+            TryFinally tryFinally => ReferenceEquals(tryFinally.TryBody, container),
+            _ => false,
+        };
     }
 
     static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
