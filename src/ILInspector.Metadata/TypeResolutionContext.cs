@@ -37,6 +37,9 @@ sealed record BindingKey(
 /// </summary>
 public sealed record TypeResolutionContextOptions
 {
+    /// <summary>Default bound for forwarded type resolution.</summary>
+    public const int DefaultMaxForwarderHops = 8;
+
     /// <summary>Maximum acquisition registrations retained by the catalog.</summary>
     public int MaxCandidates { get; init; } =
         InspectionAcquisitionPlanOptions.DefaultMaxCandidates;
@@ -54,7 +57,7 @@ public sealed record TypeResolutionContextOptions
     /// <see cref="TypeResolutionFailure.HopBudgetExceeded"/>.
     /// </summary>
     public int MaxForwarderHops { get; init; } =
-        TypeForwardResolver.DefaultMaxHops;
+        DefaultMaxForwarderHops;
 
     internal InspectionAcquisitionPlanOptions AcquisitionOptions()
     {
