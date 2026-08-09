@@ -172,7 +172,7 @@ public class ForwardedCallerEdgeTests
     }
 
     [Fact]
-    public void CallerEdges_RetainReachabilityProvenFacadeWhenReplayIsUnbound()
+    public void CallerEdges_ReportPlatformFacadeCaller()
     {
         string? target = PrivateXmlPath();
         string? caller = DataContractSerializationPath();
