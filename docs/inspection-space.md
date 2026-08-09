@@ -295,8 +295,21 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-Catalogs, query authorization, integration-opportunity composition, concurrent
-execution, and command migration remain later slices.
+`AssemblyContextIntegrationOpportunitiesQuery` is the first dependent group
+query. It declares the Integrations result as a typed prerequisite, derives the
+set of already-present integrations from that result, and scans each available
+participant's same retained snapshot for missing registration surfaces.
+Rejected and failed prerequisite entries remain explicit in the dependent
+result. The query's local cost is `NetworkFree`, while registry planning exposes
+the `Unbounded` transitive cost of its Integrations prerequisite.
+`AssemblyContextIntegrationsQueryTests.Execute_ComposesOpportunitiesFromTypedIntegrations`
+and
+`AssemblyContextIntegrationsQueryTests.RegistryRun_OpportunityQueryUsesOneImmutableSnapshot`
+gate prerequisite composition, existing-integration suppression, and snapshot
+reuse.
+
+Catalogs, query authorization, concurrent execution, and broader command
+migration remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
