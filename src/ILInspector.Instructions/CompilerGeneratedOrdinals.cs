@@ -439,6 +439,12 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
     }
 
     internal static string? TryElideOrdinal(string name, GeneratedNameKind kind)
+        => TryElideOrdinal(name, kind, workBudget: null);
+
+    static string? TryElideOrdinal(
+        string name,
+        GeneratedNameKind kind,
+        StructuralSignatureWorkBudget? workBudget)
     {
         if (name.Length < 4 || name[0] != '<')
             return null;
@@ -461,9 +467,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         if (rest.StartsWith("d__", StringComparison.Ordinal))
         {
-            return kind == GeneratedNameKind.Type && IsCanonicalOrdinal(rest[3..])
-                ? $"{containing}d__{OrdinalPlaceholder}"
-                : null;
+            if (kind != GeneratedNameKind.Type
+                || !IsCanonicalOrdinal(rest[3..]))
+            {
+                return null;
+            }
+            workBudget?.Charge(name.Length);
+            return $"{containing}d__{OrdinalPlaceholder}";
         }
 
         if (kind == GeneratedNameKind.Type)
@@ -475,9 +485,10 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         // member index, which the harness's rebuilt type skeleton renumbers.
         if (rest.StartsWith("b__", StringComparison.Ordinal))
         {
-            return ElideScopeOrdinal(rest[3..]) is { } lambdaOrdinals
-                ? $"{containing}b__{lambdaOrdinals}"
-                : null;
+            if (ElideScopeOrdinal(rest[3..]) is not { } lambdaOrdinals)
+                return null;
+            workBudget?.Charge(name.Length);
+            return $"{containing}b__{lambdaOrdinals}";
         }
 
         if (!rest.StartsWith("g__", StringComparison.Ordinal))
@@ -496,9 +507,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         if (local.IsEmpty)
             return null;
 
-        return ElideScopeOrdinal(rest[(bar + 1)..]) is { } localOrdinals
-            ? $"{containing}g__{local}|{localOrdinals}"
-            : null;
+        if (ElideScopeOrdinal(
+                rest[(bar + 1)..]) is not { } localOrdinals)
+        {
+            return null;
+        }
+        workBudget?.Charge(name.Length);
+        return $"{containing}g__{local}|{localOrdinals}";
     }
 
     internal const string LambdaCacheFieldPrefix = "<>9__";
@@ -694,18 +709,56 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
             var ambiguousTypes = new HashSet<StructuralTypeKey>();
             var typeNames = new Dictionary<TypeDefinitionHandle, string>();
             var fieldSiblings = new Dictionary<FieldDefinitionHandle, MethodDefinitionHandle>();
+            var workBudget = new StructuralSignatureWorkBudget();
+            var typeNameElisions = new Dictionary<StringHandle, string?>();
+            var methodNameElisions =
+                new Dictionary<StringHandle, (string? Elided, string? SiblingTail)>();
+            var fieldTails = new Dictionary<StringHandle, string?>();
+
+            string DecodeName(StringHandle handle)
+            {
+                string name = reader.GetString(handle);
+                workBudget.Charge(name.Length);
+                return name;
+            }
 
             // Name discovery is separate because the shared key builder consumes a
             // complete handle-to-name map rather than owning generated-name policy.
+            // Parsing and materializing an elision is work even when the definition
+            // ultimately lacks ownership, so it is charged before the attribute gate.
+            // Failing the optional normalization whole-side is the safe outcome when
+            // attacker-controlled name work exhausts the shared budget.
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
-                if (TryEligibleName(reader, reader.GetString(type.Name), type.GetCustomAttributes(), GeneratedNameKind.Type, declaringTypeIsGenerated: false) is { } elidedType)
-                    typeNames[typeHandle] = elidedType;
+                if (!reader.StringComparer.StartsWith(type.Name, "<"))
+                    continue;
+                if (!typeNameElisions.TryGetValue(
+                        type.Name,
+                        out string? elidedType))
+                {
+                    elidedType = TryElideOrdinal(
+                        DecodeName(type.Name),
+                        GeneratedNameKind.Type,
+                        workBudget);
+                    typeNameElisions.Add(type.Name, elidedType);
+                }
+                if (TryEligibleName(
+                        reader,
+                        elidedType,
+                        type.GetCustomAttributes(),
+                        declaringTypeIsGenerated:
+                            false) is { } eligibleTypeName)
+                {
+                    typeNames[typeHandle] = eligibleTypeName;
+                }
             }
 
             var structuralKeys =
-                new StructuralSignatureBuilder(reader, typeNames);
+                new StructuralSignatureBuilder(
+                    reader,
+                    typeNames,
+                    workBudget);
             foreach (var typeHandle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(typeHandle);
@@ -754,28 +807,52 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var methodHandle in type.GetMethods())
                 {
                     var method = reader.GetMethodDefinition(methodHandle);
-                    string methodName = reader.GetString(method.Name);
-                    if (TryElideOrdinal(methodName, GeneratedNameKind.Method) is null)
+                    if (!reader.StringComparer.StartsWith(method.Name, "<"))
+                        continue;
+                    if (!methodNameElisions.TryGetValue(
+                            method.Name,
+                            out var nameInfo))
+                    {
+                        string name = DecodeName(method.Name);
+                        string? candidateElision = TryElideOrdinal(
+                            name,
+                            GeneratedNameKind.Method,
+                            workBudget);
+                        nameInfo = (
+                            candidateElision,
+                            candidateElision is null
+                                ? null
+                                : TryLambdaMethodTail(name));
+                        methodNameElisions.Add(
+                            method.Name,
+                            nameInfo);
+                    }
+                    if (nameInfo.Elided is not { } elided)
                         continue;
 
                     typeIsGenerated ??= HasCompilerGeneratedAttribute(reader, type.GetCustomAttributes());
-                    if (TryEligibleName(reader, methodName, method.GetCustomAttributes(), GeneratedNameKind.Method, declaringTypeIsGenerated: typeIsGenerated.Value) is not { } elided)
+                    if (TryEligibleName(
+                            reader,
+                            elided,
+                            method.GetCustomAttributes(),
+                            declaringTypeIsGenerated:
+                                typeIsGenerated.Value) is null)
                         continue;
 
+                    StructuralMethodKey key =
+                        structuralKeys.BuildMethodKey(method, elided);
                     methodNames[methodHandle] = elided;
 
                     // The pairing side of the lambda cache field. Recorded only for
                     // methods that were themselves found eligible, so a field can never
                     // borrow a name the method path refused to fold.
-                    if (TryLambdaMethodTail(methodName) is { } siblingTail)
+                    if (nameInfo.SiblingTail is { } siblingTail)
                     {
                         lambdaSiblings ??= new Dictionary<string, MethodDefinitionHandle>(StringComparer.Ordinal);
                         if (!lambdaSiblings.TryAdd(siblingTail, methodHandle))
                             (ambiguousSiblings ??= new HashSet<string>(StringComparer.Ordinal)).Add(siblingTail);
                     }
 
-                    StructuralMethodKey key =
-                        structuralKeys.BuildMethodKey(method, elided);
                     if (!methodGroups.TryGetValue(
                             key.DeclaringType,
                             out var group))
@@ -805,7 +882,21 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                 foreach (var fieldHandle in type.GetFields())
                 {
                     var field = reader.GetFieldDefinition(fieldHandle);
-                    if (TryLambdaCacheFieldTail(reader.GetString(field.Name)) is not { } tail)
+                    if (!reader.StringComparer.StartsWith(
+                            field.Name,
+                            LambdaCacheFieldPrefix))
+                    {
+                        continue;
+                    }
+                    if (!fieldTails.TryGetValue(
+                            field.Name,
+                            out string? tail))
+                    {
+                        tail = TryLambdaCacheFieldTail(
+                            DecodeName(field.Name));
+                        fieldTails.Add(field.Name, tail);
+                    }
+                    if (tail is null)
                         continue;
 
                     // Fail closed on an ambiguous pairing. Roslyn does not emit two lambda
@@ -903,15 +994,14 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
         /// </remarks>
         static string? TryEligibleName(
             MetadataReader reader,
-            string name,
+            string? elidedName,
             CustomAttributeHandleCollection attributes,
-            GeneratedNameKind kind,
             bool declaringTypeIsGenerated)
         {
-            if (TryElideOrdinal(name, kind) is not { } elided)
+            if (elidedName is null)
                 return null;
             return declaringTypeIsGenerated || HasCompilerGeneratedAttribute(reader, attributes)
-                ? elided
+                ? elidedName
                 : null;
         }
 

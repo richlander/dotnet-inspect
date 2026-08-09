@@ -149,6 +149,41 @@ public static class ApiMemberIdentity
         }
     }
 
+    sealed class ArrayAnchorSignatureType
+        : AnchorSignatureType
+    {
+        readonly AnchorSignatureType _elementType;
+        readonly int _rank;
+
+        internal ArrayAnchorSignatureType(
+            AnchorSignatureType elementType,
+            int rank)
+            : base(
+                CheckedLength(
+                    elementType.Length,
+                    rank <= 1
+                        ? 3
+                        : CheckedLength(rank, 1)))
+        {
+            _elementType = elementType;
+            _rank = rank;
+        }
+
+        internal override void AppendTo(StringBuilder builder)
+        {
+            _elementType.AppendTo(builder);
+            if (_rank <= 1)
+            {
+                builder.Append("[*]");
+                return;
+            }
+
+            builder.Append('[');
+            builder.Append(',', _rank - 1);
+            builder.Append(']');
+        }
+    }
+
     sealed class JoinedAnchorSignatureType
         : AnchorSignatureType
     {
@@ -312,18 +347,9 @@ public static class ApiMemberIdentity
         public AnchorSignatureType GetArrayType(
             AnchorSignatureType elementType,
             ArrayShape shape)
-        {
-            if (shape.Rank
-                > MetadataSafetyPolicy.MaxStructuralSignatureChars - 2)
-            {
-                throw new BadImageFormatException(
-                    "The member anchor array rank exceeds the encoded-character budget.");
-            }
-            string suffix = shape.Rank <= 1
-                ? "[*]"
-                : $"[{new string(',', shape.Rank - 1)}]";
-            return new WrappedAnchorSignatureType("", elementType, suffix);
-        }
+            => new ArrayAnchorSignatureType(
+                elementType,
+                shape.Rank);
 
         public AnchorSignatureType GetByReferenceType(
             AnchorSignatureType elementType)
@@ -563,6 +589,10 @@ public static class ApiMemberIdentity
             AnchorSignatureTypeProvider.Instance,
             context,
             new EncodedAnchorSignatureType("System.Object"));
+        EnsureAnchorSignatureBudget(
+            propertySignature.ReturnType,
+            markerSignature.ParameterTypes,
+            propertySignature.ParameterTypes);
         string propertyName = reader.GetString(property.Name);
         string typeFullName = FormatDefinitionName(reader, extensionClassHandle);
         string extendedType = markerSignature.ParameterTypes[0].Render();
@@ -597,6 +627,9 @@ public static class ApiMemberIdentity
             AnchorSignatureTypeProvider.Instance,
             GenericContext.ForMethod(reader, type, method),
             new EncodedAnchorSignatureType("System.Object"));
+        EnsureAnchorSignatureBudget(
+            signature.ReturnType,
+            signature.ParameterTypes);
         string typeFullName = FormatDefinitionName(reader, typeHandle);
         string memberName = MethodMemberName(reader, methodName, method);
         string returnType = signature.ReturnType.Render();
@@ -626,6 +659,32 @@ public static class ApiMemberIdentity
             builder.Add(type.Render());
         return builder.MoveToImmutable();
     }
+
+    static void EnsureAnchorSignatureBudget(
+        AnchorSignatureType returnType,
+        params ImmutableArray<AnchorSignatureType>[] parameterGroups)
+    {
+        int remaining =
+            MetadataSafetyPolicy.MaxStructuralSignatureChars
+            - returnType.Length;
+        if (remaining < 0)
+            throw AnchorSignatureBudgetExceeded();
+
+        foreach (ImmutableArray<AnchorSignatureType> parameters
+            in parameterGroups)
+        {
+            foreach (AnchorSignatureType parameter in parameters)
+            {
+                if (parameter.Length > remaining)
+                    throw AnchorSignatureBudgetExceeded();
+                remaining -= parameter.Length;
+            }
+        }
+    }
+
+    static BadImageFormatException AnchorSignatureBudgetExceeded()
+        => new(
+            "The member anchor signature exceeds the encoded-character budget.");
 
     public static MemberAnchor CreateAnchor(ApiType type, ApiMember member, string canonicalSignature)
     {

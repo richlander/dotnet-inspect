@@ -85,6 +85,19 @@ public class SignatureBlobGuardTests
     }
 
     [Fact]
+    public void TrailingBytes_AreUnsafe()
+    {
+        Assert.False(GuardTypeSpec([I4, 0x0e]));
+
+        var method = new BlobBuilder();
+        method.WriteByte(0x00);
+        method.WriteByte(0x00);
+        method.WriteByte(0x01);
+        method.WriteByte(I4);
+        Assert.False(GuardMethodSig(method));
+    }
+
+    [Fact]
     public void DeeplyNestedMethodParameter_IsUnsafe()
     {
         // void M(int[][]...[]) with a 2000-deep array parameter: shallow arity, deep structure.

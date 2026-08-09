@@ -805,6 +805,258 @@ public class CompilerGeneratedOrdinalTests
         Assert.True(Compare(pe, other, Ordinals).IsExact);
     }
 
+    [Fact]
+    public void TrailingMethodSignatureBytesFailTheWholeIndexClosed()
+    {
+        using var oldPe = new PEReader(new MemoryStream(
+            BuildImage(
+                "Old",
+                [Generated("<M>g__L|3_0") with
+                {
+                    RawSignature = [0x00, 0x00, 0x01, 0x08],
+                }])));
+        using var newPe = new PEReader(new MemoryStream(
+            BuildImage(
+                "New",
+                [Generated("<M>g__L|7_0")])));
+        MetadataReader oldReader = oldPe.GetMetadataReader();
+        MetadataReader newReader = newPe.GetMetadataReader();
+
+        var (oldSide, newSide) =
+            CompilerGeneratedOrdinalCorrespondence.Build(
+                oldReader,
+                newReader);
+
+        Assert.False(
+            oldSide.TryGetMethodName(
+                MethodNamed(oldReader, "<M>g__L|3_0"),
+                out _));
+        Assert.False(
+            newSide.TryGetMethodName(
+                MethodNamed(newReader, "<M>g__L|7_0"),
+                out _));
+    }
+
+    [Fact]
+    public void SharedLongGeneratedTypeNameFailsWithinBudget()
+    {
+        using (var warmOld = new PEReader(new MemoryStream(
+            BuildImage(
+                "Warm",
+                [],
+                generatedTypes: ["<M>d__0"]))))
+        using (var warmNew = new PEReader(new MemoryStream(
+            BuildImage(
+                "WarmOther",
+                [],
+                generatedTypes: ["<M>d__0"]))))
+        {
+            _ = CompilerGeneratedOrdinalCorrespondence.Build(
+                warmOld.GetMetadataReader(),
+                warmNew.GetMetadataReader());
+        }
+
+        string generatedName =
+            "<" + new string('X', 200_000) + ">d__0";
+        string[] generatedTypes =
+            Enumerable.Repeat(generatedName, 100).ToArray();
+        byte[] image = BuildImage(
+            "Probe",
+            [],
+            generatedTypes: generatedTypes);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var (side, _) =
+            CompilerGeneratedOrdinalCorrespondence.Build(
+                reader,
+                reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.False(
+            side.TryGetTypeName(
+                MetadataTokens.TypeDefinitionHandle(3),
+                out _));
+        Assert.True(
+            allocated < 32 * 1024 * 1024,
+            $"Generated-name rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GeneratedNameDiscoveryAndKeyConstructionShareOneBudget()
+    {
+        string[] names = Enumerable.Range(0, 100)
+            .Select(index =>
+            {
+                string suffix = index.ToString("D3");
+                return "<"
+                    + new string('X', 30_000 - suffix.Length)
+                    + suffix
+                    + ">g__L|0_0";
+            })
+            .ToArray();
+        var members = names
+            .Select(Generated)
+            .ToArray();
+        byte[] image = BuildImage("Probe", members);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+
+        var (side, _) =
+            CompilerGeneratedOrdinalCorrespondence.Build(
+                reader,
+                reader);
+
+        Assert.False(
+            side.TryGetMethodName(
+                MethodNamed(reader, names[0]),
+                out _));
+    }
+
+    [Fact]
+    public void SharedLongMethodAndFieldNamesAreDecodedOnce()
+    {
+        string methodName =
+            "<" + new string('X', 200_000) + ">g__L|0_0";
+        byte[] methodImage = BuildImage(
+            "Methods",
+            Enumerable.Repeat(
+                Generated(methodName),
+                100).ToArray());
+        using var methodPe =
+            new PEReader(new MemoryStream(methodImage));
+        MetadataReader methodReader = methodPe.GetMetadataReader();
+
+        long methodAllocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        _ = CompilerGeneratedOrdinalCorrespondence.Build(
+            methodReader,
+            methodReader);
+        long methodAllocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - methodAllocatedBefore;
+
+        Assert.True(
+            methodAllocated < 32 * 1024 * 1024,
+            $"Shared method names allocated {methodAllocated:N0} bytes.");
+
+        string fieldName =
+            CompilerGeneratedOrdinalCorrespondence.LambdaCacheFieldPrefix
+            + new string('F', 200_000);
+        byte[] fieldImage = BuildImage(
+            "Fields",
+            [Generated("Keep")],
+            generatedTypes: ["<>c"],
+            generatedTypeMethodNames: ["<M>b__0_0"],
+            generatedTypeFieldNames:
+                Enumerable.Repeat(fieldName, 100).ToArray());
+        using var fieldPe =
+            new PEReader(new MemoryStream(fieldImage));
+        MetadataReader fieldReader = fieldPe.GetMetadataReader();
+
+        long fieldAllocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        _ = CompilerGeneratedOrdinalCorrespondence.Build(
+            fieldReader,
+            fieldReader);
+        long fieldAllocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - fieldAllocatedBefore;
+
+        Assert.True(
+            fieldAllocated < 32 * 1024 * 1024,
+            $"Shared field names allocated {fieldAllocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void SuffixAliasedOrdinaryNamesAreScreenedBeforeDecoding()
+    {
+        string root = new('A', 5_000);
+        string[] suffixes = Enumerable.Range(0, root.Length)
+            .Select(index => root.Substring(index))
+            .ToArray();
+
+        byte[][] images =
+        [
+            BuildImage(
+                "Methods",
+                suffixes.Select(
+                    name => new Member(
+                        name,
+                        CompilerGenerated: false)).ToArray()),
+            BuildImage(
+                "Types",
+                [],
+                generatedTypes: suffixes),
+            BuildImage(
+                "Fields",
+                [],
+                generatedTypes: ["<>c"],
+                generatedTypeMethodNames: ["<M>b__0_0"],
+                generatedTypeFieldNames: suffixes),
+        ];
+
+        foreach (byte[] image in images)
+        {
+            using var pe =
+                new PEReader(new MemoryStream(image));
+            MetadataReader reader = pe.GetMetadataReader();
+
+            long allocatedBefore =
+                GC.GetAllocatedBytesForCurrentThread();
+            _ = CompilerGeneratedOrdinalCorrespondence.Build(
+                reader,
+                reader);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread()
+                - allocatedBefore;
+
+            Assert.True(
+                allocated < 4 * 1024 * 1024,
+                $"A {image.Length:N0}-byte image allocated "
+                + $"{allocated:N0} bytes.");
+        }
+    }
+
+    [Fact]
+    public void SuffixAliasedMalformedGeneratedNamesExhaustTheBudget()
+    {
+        string root = new string('<', 5_000) + ">d__0";
+        string[] suffixes = Enumerable.Range(0, 5_000)
+            .Select(index => root.Substring(index))
+            .ToArray();
+        byte[] image = BuildImage(
+            "Probe",
+            suffixes.Select(
+                name => new Member(
+                    name,
+                    CompilerGenerated: false)).ToArray());
+        using var pe =
+            new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var (side, _) =
+            CompilerGeneratedOrdinalCorrespondence.Build(
+                reader,
+                reader);
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Same(
+            CompilerGeneratedOrdinalCorrespondence.Empty,
+            side);
+        Assert.True(
+            allocated < 16 * 1024 * 1024,
+            $"A {image.Length:N0}-byte image allocated "
+            + $"{allocated:N0} bytes.");
+    }
+
     /// <summary>
     /// Repoints every reference to the <c>&lt;Module&gt;</c> type's name at an offset past
     /// the end of the string heap.

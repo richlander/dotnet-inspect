@@ -420,7 +420,7 @@ public sealed class StructuralSignatureBuilder
 {
     readonly MetadataReader _reader;
     readonly IReadOnlyDictionary<TypeDefinitionHandle, string>? _typeNameOverrides;
-    readonly StructuralSignatureWorkBudget _workBudget = new();
+    readonly StructuralSignatureWorkBudget _workBudget;
     readonly StructuralSignatureTypeProvider _provider;
     readonly Dictionary<TypeDefinitionHandle, StructuralTypeKey> _typeKeys = [];
     readonly Dictionary<TypeDefinitionHandle, string> _typeSegments = [];
@@ -433,11 +433,24 @@ public sealed class StructuralSignatureBuilder
     public StructuralSignatureBuilder(
         MetadataReader reader,
         IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides = null)
+        : this(
+            reader,
+            typeNameOverrides,
+            new StructuralSignatureWorkBudget())
+    {
+    }
+
+    internal StructuralSignatureBuilder(
+        MetadataReader reader,
+        IReadOnlyDictionary<TypeDefinitionHandle, string>? typeNameOverrides,
+        StructuralSignatureWorkBudget workBudget)
     {
         ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(workBudget);
         _reader = reader;
         _typeNameOverrides = typeNameOverrides;
-        _provider = new StructuralSignatureTypeProvider(_workBudget);
+        _workBudget = workBudget;
+        _provider = new StructuralSignatureTypeProvider(workBudget);
     }
 
     /// <summary>Builds a method key, optionally substituting its name.</summary>
@@ -452,6 +465,9 @@ public sealed class StructuralSignatureBuilder
         => StructuralSignatureKey.Build(_reader, () =>
         {
             _workBudget.EnsureAvailable();
+            string resolvedMethodName =
+                methodName ?? _reader.GetString(method.Name);
+            _workBudget.Charge(resolvedMethodName.Length);
             string genericParameters =
                 StructuralSignatureKey.EncodeGenericParameters(
                 _reader,
@@ -460,7 +476,7 @@ public sealed class StructuralSignatureBuilder
                 _workBudget);
             return new StructuralMethodKey(
                 BuildTypeCore(method.GetDeclaringType()),
-                methodName ?? _reader.GetString(method.Name),
+                resolvedMethodName,
                 genericParameters,
                 BuildMethodSignature(method));
         });

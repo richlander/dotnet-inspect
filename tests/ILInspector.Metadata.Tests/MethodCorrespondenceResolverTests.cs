@@ -67,6 +67,56 @@ public sealed class MethodCorrespondenceResolverTests
     }
 
     [Fact]
+    public void Resolve_TrailingMethodSignatureBytesFailClosed()
+    {
+        byte[] sourceImage =
+            BuildMethodSignatureImage([0x00, 0x00, 0x01, 0x08]);
+        byte[] targetImage =
+            BuildMethodSignatureImage([0x00, 0x00, 0x01]);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+    }
+
+    [Fact]
+    public void Resolve_TrailingConstraintTypeSpecBytesFailClosed()
+    {
+        byte[] sourceImage =
+            BuildConstraintTypeSpecImage([0x08, 0x0e]);
+        byte[] targetImage =
+            BuildConstraintTypeSpecImage([0x08]);
+        using var sourcePe = new PEReader(new MemoryStream(sourceImage));
+        using var targetPe = new PEReader(new MemoryStream(targetImage));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+    }
+
+    [Fact]
     public void Resolve_ReturnsFailedWithinBudgetForDeepOversizedStructuralSignature()
     {
         byte[] image = BuildConstrainedMethodImage(
@@ -183,6 +233,105 @@ public sealed class MethodCorrespondenceResolverTests
         Assert.True(
             allocated < 32 * 1024 * 1024,
             $"Deep declaring-type anchor allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void Resolve_WideGenericParameterAnchorFailsWithinBudget()
+    {
+        byte[] image = BuildWideGenericParameterImage(
+            parameterCount: 100_000,
+            genericParameterNameLength: 1_023);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+        MethodDefinition method =
+            sourceReader.GetMethodDefinition(sourceMethod);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<BadImageFormatException>(
+            () => ApiMemberIdentity.CreateMethodAnchor(
+                sourceReader,
+                method.GetDeclaringType(),
+                method));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.True(
+            allocated < 64 * 1024 * 1024,
+            $"Wide anchor rejection allocated {allocated:N0} bytes.");
+
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+    }
+
+    [Fact]
+    public void Resolve_WideArrayRanksFailWithinBudget()
+    {
+        byte[] image = BuildWideArrayRankImage(
+            parameterCount: 200,
+            rank: 1_000_000);
+        using var sourcePe = new PEReader(new MemoryStream(image));
+        using var targetPe = new PEReader(new MemoryStream(image));
+        MetadataReader sourceReader = sourcePe.GetMetadataReader();
+        MethodDefinitionHandle sourceMethod =
+            sourceReader.MethodDefinitions.Single();
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        MethodCorrespondenceResult result =
+            MethodCorrespondenceResolver.Resolve(
+                sourceReader,
+                MetadataMethodAddress.Create(
+                    sourceReader,
+                    sourceMethod),
+                targetPe.GetMetadataReader());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        Assert.Equal(MethodCorrespondenceStatus.Failed, result.Status);
+        Assert.Contains("BadImageFormatException", result.Failure);
+        Assert.True(
+            allocated < 64 * 1024 * 1024,
+            $"Wide array-rank rejection allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void BuildMethodKey_ChargesMethodNameWork()
+    {
+        byte[] image = BuildManyNamedMethodsImage(
+            methodCount: 210,
+            methodNameLength: 20_000);
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        var builder = new StructuralSignatureBuilder(reader);
+
+        int built = 0;
+        foreach (MethodDefinitionHandle handle
+            in reader.MethodDefinitions)
+        {
+            try
+            {
+                _ = builder.BuildMethodKey(
+                    reader.GetMethodDefinition(handle));
+                built++;
+            }
+            catch (BadImageFormatException)
+            {
+                break;
+            }
+        }
+
+        Assert.InRange(built, 1, 209);
     }
 
     [Fact]
@@ -320,6 +469,185 @@ public sealed class MethodCorrespondenceResolverTests
             new PEHeaderBuilder(
                 imageCharacteristics:
                     Characteristics.Dll | Characteristics.ExecutableImage),
+            new MetadataRootBuilder(metadata),
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildMethodSignatureImage(byte[] signature)
+    {
+        var metadata = CreateSingleTypeMetadata("MethodSignature");
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildConstraintTypeSpecImage(
+        byte[] typeSpecSignature)
+    {
+        var metadata = CreateSingleTypeMetadata("ConstraintTypeSpec");
+        TypeSpecificationHandle typeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(typeSpecSignature));
+        MethodDefinitionHandle method =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x10, 0x01, 0x00, 0x01 }),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                method,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(parameter, typeSpec);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideGenericParameterImage(
+        int parameterCount,
+        int genericParameterNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata(
+            "WideAnchor",
+            "C`1",
+            out TypeDefinitionHandle type);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x13);
+            signature.WriteCompressedInteger(0);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString(
+                new string('X', genericParameterNameLength)),
+            index: 0);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildWideArrayRankImage(
+        int parameterCount,
+        int rank)
+    {
+        var metadata = CreateSingleTypeMetadata("WideArrayRank");
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+        {
+            signature.WriteByte(0x14);
+            signature.WriteByte(0x08);
+            signature.WriteCompressedInteger(rank);
+            signature.WriteCompressedInteger(0);
+            signature.WriteCompressedInteger(0);
+        }
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildManyNamedMethodsImage(
+        int methodCount,
+        int methodNameLength)
+    {
+        var metadata = CreateSingleTypeMetadata("ManyNamedMethods");
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        for (int i = 0; i < methodCount; i++)
+        {
+            string suffix = i.ToString("D3");
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(
+                    new string(
+                        'M',
+                        methodNameLength - suffix.Length)
+                    + suffix),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata);
+    }
+
+    static MetadataBuilder CreateSingleTypeMetadata(
+        string name,
+        string typeName = "C")
+        => CreateSingleTypeMetadata(name, typeName, out _);
+
+    static MetadataBuilder CreateSingleTypeMetadata(
+        string name,
+        string typeName,
+        out TypeDefinitionHandle type)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{name}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString(typeName),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        return metadata;
+    }
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
+        var pe = new ManagedPEBuilder(
+            new PEHeaderBuilder(
+                imageCharacteristics:
+                    Characteristics.Dll
+                    | Characteristics.ExecutableImage),
             new MetadataRootBuilder(metadata),
             ilStream: new BlobBuilder());
         var image = new BlobBuilder();
