@@ -1836,7 +1836,8 @@ public partial class CommandExecutionTests
         var options = new TypeOptions
         {
             ShapeOutput = true,
-            Limit = 1
+            Limit = 1,
+            MemberLimit = 1
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -1875,7 +1876,8 @@ public partial class CommandExecutionTests
         {
             ShapeOutput = true,
             KindFilter = ["method"],
-            Limit = 0
+            Limit = 0,
+            MemberLimit = 0
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -1893,6 +1895,41 @@ public partial class CommandExecutionTests
         Assert.Contains("Inherits", output);
         Assert.Contains("Example.Base", output);
         Assert.DoesNotContain("Methods", output);
+
+        var unmatchedOptions = options with { KindFilter = ["event"] };
+        var unmatched = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                unmatchedOptions));
+
+        Assert.Equal(0, unmatched.ExitCode);
+        Assert.Empty(unmatched.Output);
+        Assert.Contains("No matching members for filter: event", unmatched.Error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.MemoryStream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Constructors", output);
+        Assert.Contains("Properties", output);
+        Assert.Contains("Methods", output);
     }
 
     [Fact]

@@ -345,6 +345,7 @@ public static class ApiOutputFormatter
         Verbosity verbosity = Verbosity.Minimal,
         int? memberLimit = null)
     {
+        bool filtersMatchedMembers = FilterShapeMembers(type, memberFilter, kindFilter).Any();
         var view = BuildShapeView(
             type,
             foundIn,
@@ -367,7 +368,7 @@ public static class ApiOutputFormatter
             writer.WriteTree([.. view.Members]);
         }
         else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
-                 && memberLimit is null or > 0)
+                 && !filtersMatchedMembers)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
@@ -553,19 +554,7 @@ public static class ApiOutputFormatter
         bool filtersMatchedMembers = false;
         if (type.Members.Count > 0)
         {
-            var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
-
-            if (memberFilter.Count > 0)
-            {
-                members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
-            }
-
-            if (kindFilter?.Count > 0)
-            {
-                members = members.Where(m => kindFilter.Contains(m.Kind));
-            }
-
-            var memberList = members.ToList();
+            var memberList = FilterShapeMembers(type, memberFilter, kindFilter).ToList();
             filtersMatchedMembers = memberList.Count > 0;
             if (memberLimit.HasValue)
             {
@@ -759,6 +748,22 @@ public static class ApiOutputFormatter
             Version = packageVersion,
             Members = nodes
         };
+    }
+
+    private static IEnumerable<ApiMember> FilterShapeMembers(
+        ApiType type,
+        HashSet<string> memberFilter,
+        HashSet<string>? kindFilter)
+    {
+        var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
+
+        if (memberFilter.Count > 0)
+            members = members.Where(m => TypeMatcher.MatchesMemberFilter(m.Name, memberFilter));
+
+        if (kindFilter?.Count > 0)
+            members = members.Where(m => kindFilter.Contains(m.Kind));
+
+        return members;
     }
 
     // Renders a type parameter's constraint list for display, delegating C# spelling
