@@ -296,10 +296,16 @@ public class LibraryCommand
             if (options.IncludeSections is not { Count: 1 }
                 || !options.IncludeSections.Contains(SectionNames.References))
             {
-                CommandError.Write("--tree requires exactly -S References.");
+                CommandError.Write("--tree requires exactly one tree-shaped section (-S References).");
                 return 1;
             }
+        }
 
+        if (!ValidateMultiTfmOutput(options))
+            return 1;
+
+        if (options.Tree && options.Discover == null)
+        {
             if (options.Count
                 || options.Print
                 || options.Value
@@ -1354,6 +1360,69 @@ public class LibraryCommand
             return true;
 
         CommandError.Write("--print requires -S/--select to match exactly one printable section.");
+        return false;
+    }
+
+    private static bool ValidateMultiTfmOutput(LibraryOptions options)
+    {
+        if (!string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)
+            || options.Discover != null
+            || options.Count)
+        {
+            return true;
+        }
+
+        string? incompatibleShape = options.Tree ? "--tree"
+            : options.Print ? "--print"
+            : options.Value ? "--value"
+            : options.Urls ? "--urls"
+            : options.Paths ? "--paths"
+            : options.ExtractResources != null ? "--extract-resources"
+            : !string.IsNullOrWhiteSpace(options.ILOffsetParameter) ? "--il-offset"
+            : !string.IsNullOrWhiteSpace(options.ILOffsetsPath) ? "--il-offsets"
+            : !string.IsNullOrWhiteSpace(options.HeapParameter) ? "--heap"
+            : null;
+
+        if (incompatibleShape is not null)
+        {
+            if (options.Tree)
+            {
+                CommandError.Write(
+                    "--tree requires exactly one tree shape; --tfm all selects one tree per inspection. Use Markdown or JSON for all TFMs, or select one --tfm for --tree.");
+                return false;
+            }
+
+            CommandError.Write(
+                $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; it cannot be combined with {incompatibleShape}.");
+            return false;
+        }
+
+        if (options.Format is OutputFormat.Markdown or OutputFormat.Json)
+            return true;
+
+        var tabularFormatName = options.Format switch
+        {
+            OutputFormat.Table => "--table",
+            OutputFormat.Tsv => "--tsv",
+            OutputFormat.Jsonl => "--jsonl",
+            _ => null
+        };
+        if (tabularFormatName is not null)
+        {
+            CommandError.Write(
+                $"{tabularFormatName} requires exactly one table shape; --tfm all selects one table per inspection. Use Markdown or JSON, or aggregate --count for all TFMs.");
+            return false;
+        }
+
+        var formatName = options.Format switch
+        {
+            OutputFormat.PlainText => "plain-text output (--plaintext)",
+            OutputFormat.Mermaid => "Mermaid output (--mermaid)",
+            _ => options.Format.ToString()
+        };
+
+        CommandError.Write(
+            $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; {formatName} is not supported.");
         return false;
     }
 
