@@ -1270,22 +1270,11 @@ public class ScanTokenTests
         // to be decomposed, and to have exercised every kind the corpus can produce.
         Assert.True(tokenCount > lineCount * 3, $"{tokenCount} tokens over {lineCount} lines is too coarse to be a real decomposition.");
 
-        var expected = Enum.GetValues<ScanTokenKind>().Except(KindsTheCorpusCannotReach).ToHashSet();
+        // ConditionalCorpusFixture makes directives part of the PDB-discovered corpus, so the
+        // real-source sweep must now exercise every token kind.
+        var expected = Enum.GetValues<ScanTokenKind>().ToHashSet();
         Assert.Equal(expected, kinds);
     }
-
-    /// <summary>
-    /// Kinds no corpus file happens to contain, so the corpus cannot be what proves the scanner
-    /// emits them.
-    /// <para>
-    /// This is compared for set equality rather than merely subtracted, so the entry cannot go
-    /// stale: if a corpus assembly later gains a preprocessor directive, this test fails and the
-    /// entry should be deleted. Directives are exercised instead by
-    /// <see cref="ConditionalDirective_MarksTheDepthUnknowable"/> and
-    /// <see cref="NonConditionalDirective_LeavesTheDepthKnown"/>.
-    /// </para>
-    /// </summary>
-    private static readonly ScanTokenKind[] KindsTheCorpusCannotReach = [ScanTokenKind.Directive];
 
     private static List<string> CorpusSourceFiles()
     {

@@ -41,6 +41,7 @@ internal static class Program
             "-class", "ILInspector.Decompiler.Tests.ByteNeutralityGateTests",
             "-class", "ILInspector.Decompiler.Tests.ClusterCaptureTests",
             "-class", "ILInspector.Decompiler.Tests.PrinterPrecedenceTests",
+            "-class", "ILInspector.Decompiler.Tests.SkeletonEmitTests",
             "-class", "ILInspector.Decompiler.Tests.DiffFixtureFidelityTests",
             "-class", "ILInspector.Decompiler.Tests.NestedTargetLookupTests",
             "-class", "ILInspector.DecompilerHarness.AuthoredRebuildFidelityTests",
