@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Commands;
+using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
@@ -282,6 +283,38 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_PreservesNonManagedInputBehavior()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, new byte[64]);
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                path,
+                                AssemblyResolutionProvenance.Local(
+                                    "non-managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(path));
+            Assert.Null(batch.AssemblyForInspection(path));
+            Assert.Empty(queries);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection()
     {
         string tempDir = Path.Combine(
@@ -292,6 +325,11 @@ public class LibraryFindingConsumerTests
         string originalPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
         string replacementPath = typeof(LibraryInspection).Assembly.Location;
         File.Copy(originalPath, targetPath);
+        DateTime originalTimestamp =
+            new(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        DateTime replacementTimestamp =
+            new(2025, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(targetPath, originalTimestamp);
 
         try
         {
@@ -308,10 +346,14 @@ public class LibraryFindingConsumerTests
                                 AssemblyResolutionProvenance.Local(
                                     "snapshot reuse test")),
                         ]));
-            AssemblyIntegrationsEntry entry = batch.EntryFor(targetPath);
+            AssemblyIntegrationsEntry entry =
+                Assert.IsAssignableFrom<AssemblyIntegrationsEntry>(
+                    batch.EntryFor(targetPath));
 
             File.Copy(replacementPath, targetPath, overwrite: true);
+            File.SetLastWriteTimeUtc(targetPath, replacementTimestamp);
 
+            CoreCache.Initialize("dotnet-inspect-test");
             using var httpClient = new HttpClient();
             LibraryInspection inspection = Assert.IsType<LibraryInspection>(
                 await LibraryMetadataService.InspectAsync(
@@ -331,6 +373,7 @@ public class LibraryFindingConsumerTests
             Assert.NotEqual(
                 Path.GetFileNameWithoutExtension(replacementPath),
                 inspection.AssemblyInfo.AssemblyName);
+            Assert.Equal(originalTimestamp, inspection.LastModified);
             Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
         }
         finally

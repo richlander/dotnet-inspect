@@ -63,6 +63,9 @@ public class InspectionAcquisitionPlanTests
 
         Assert.Equal(ReadIdentity(SelfBytes()), descriptor.Identity);
         Assert.Equal(Path.GetFullPath(SelfPath), descriptor.Path);
+        Assert.Equal(
+            File.GetLastWriteTimeUtc(SelfPath),
+            descriptor.LastWriteTimeUtc);
     }
 
     [Fact]

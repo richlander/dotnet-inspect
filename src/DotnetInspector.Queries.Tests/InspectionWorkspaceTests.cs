@@ -106,6 +106,7 @@ public sealed class InspectionWorkspaceTests
 
         Assert.Same(source.Assembly.Registration, retained.Registration);
         Assert.Same(source.Assembly.Provenance, retained.Provenance);
+        Assert.Equal(source.Assembly.LastWriteTimeUtc, retained.LastWriteTimeUtc);
         using Stream stream = retained.OpenRead();
         Assert.Equal(first, stream.ReadByte());
         Assert.Equal(1, source.OpenCount);

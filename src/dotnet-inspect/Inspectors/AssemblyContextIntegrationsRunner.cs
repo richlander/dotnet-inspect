@@ -17,7 +17,7 @@ internal sealed class AssemblyContextIntegrationsBatch
         IEnumerable<(
             string Path,
             ResolvedAssemblyReference? Assembly,
-            AssemblyIntegrationsEntry Entry)> entries)
+            AssemblyIntegrationsEntry? Entry)> entries)
     {
         _resultByPath = entries.ToDictionary(
             entry => System.IO.Path.GetFullPath(entry.Path),
@@ -25,7 +25,7 @@ internal sealed class AssemblyContextIntegrationsBatch
             StringComparer.OrdinalIgnoreCase);
     }
 
-    internal AssemblyIntegrationsEntry EntryFor(string path)
+    internal AssemblyIntegrationsEntry? EntryFor(string path)
         => ResultFor(path).Entry;
 
     internal ResolvedAssemblyReference? AssemblyForInspection(string path)
@@ -41,7 +41,7 @@ internal sealed class AssemblyContextIntegrationsBatch
 
     sealed record ParticipantResult(
         ResolvedAssemblyReference? Assembly,
-        AssemblyIntegrationsEntry Entry);
+        AssemblyIntegrationsEntry? Entry);
 }
 
 internal static class AssemblyContextIntegrationsRunner
@@ -67,11 +67,26 @@ internal static class AssemblyContextIntegrationsRunner
                 "Assembly context integrations requires at least one assembly.");
         }
 
-        var roots = inputArray
-            .Select(input => ResolvedAssemblyReference.CreateFromPath(
-                input.Path,
-                input.Provenance))
+        var candidates = inputArray
+            .Select(input => (
+                Input: input,
+                Assembly: ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    input.Path,
+                    input.Provenance)))
             .ToArray();
+        var roots = candidates
+            .Where(candidate => candidate.Assembly is not null)
+            .Select(candidate => candidate.Assembly!)
+            .ToArray();
+        if (roots.Length == 0)
+        {
+            return new AssemblyContextIntegrationsBatch(
+                inputArray.Select(input => (
+                    input.Path,
+                    Assembly: (ResolvedAssemblyReference?)null,
+                    Entry: (AssemblyIntegrationsEntry?)null)));
+        }
+
         var sourcePolicies = roots
             .Select(root => (
                 Assembly: root,
@@ -109,17 +124,26 @@ internal static class AssemblyContextIntegrationsRunner
                         : RetainAcquiredAssembly(group, root))
             .ToArray();
 
+        int managedIndex = 0;
         return new AssemblyContextIntegrationsBatch(
-            inputArray
-                .Zip(
-                    retainedAssemblies,
-                    static (input, assembly) => (input, assembly))
-                .Zip(
-                    result.Assemblies,
-                    static (participant, entry) => (
-                        participant.input.Path,
-                        participant.assembly,
-                        entry)));
+            candidates.Select(candidate =>
+            {
+                if (candidate.Assembly is null)
+                {
+                    return (
+                        Path: candidate.Input.Path,
+                        Assembly: (ResolvedAssemblyReference?)null,
+                        Entry: (AssemblyIntegrationsEntry?)null);
+                }
+
+                int index = managedIndex++;
+                return (
+                    Path: candidate.Input.Path,
+                    Assembly: (ResolvedAssemblyReference?)
+                        retainedAssemblies[index],
+                    Entry: (AssemblyIntegrationsEntry?)
+                        result.Assemblies[index]);
+            }));
     }
 
     static ResolvedAssemblyReference RetainAcquiredAssembly(

@@ -130,20 +130,23 @@ public sealed class ResolvedAssemblyReference
         AssemblyReferenceIdentity identity,
         string? path,
         Func<Stream> openRead,
-        AssemblyResolutionProvenance provenance)
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc)
     {
         Registration = registration;
         Identity = identity;
         Path = path;
         OpenRead = openRead;
         Provenance = provenance;
+        LastWriteTimeUtc = lastWriteTimeUtc;
     }
 
     public static ResolvedAssemblyReference Create(
         AssemblyReferenceIdentity selectedIdentity,
         string? path,
         Func<Stream> openRead,
-        AssemblyResolutionProvenance provenance)
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(selectedIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(selectedIdentity.Name);
@@ -155,10 +158,23 @@ public sealed class ResolvedAssemblyReference
             selectedIdentity,
             path,
             openRead,
-            provenance);
+            provenance,
+            lastWriteTimeUtc);
     }
 
     public static ResolvedAssemblyReference CreateFromPath(
+        string path,
+        AssemblyResolutionProvenance provenance)
+        => CreateFromPathIfManaged(path, provenance)
+            ?? throw new BadImageFormatException(
+                "The selected image has no managed metadata.");
+
+    /// <summary>
+    /// Creates a descriptor for a managed assembly path, or returns
+    /// <see langword="null"/> when the PE image has no managed metadata.
+    /// Malformed managed metadata remains a visible failure.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromPathIfManaged(
         string path,
         AssemblyResolutionProvenance provenance)
     {
@@ -166,12 +182,11 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(provenance);
 
         string fullPath = System.IO.Path.GetFullPath(path);
-        using var stream = File.OpenRead(fullPath);
+        using FileStream stream = File.OpenRead(fullPath);
         using var peReader =
             new System.Reflection.PortableExecutable.PEReader(stream);
         if (!peReader.HasMetadata)
-            throw new BadImageFormatException(
-                "The selected image has no managed metadata.");
+            return null;
 
         AssemblyReferenceIdentity identity =
             AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -180,7 +195,8 @@ public sealed class ResolvedAssemblyReference
             identity,
             fullPath,
             () => File.OpenRead(fullPath),
-            provenance);
+            provenance,
+            File.GetLastWriteTimeUtc(stream.SafeFileHandle));
     }
 
     public static bool TryCreateFromPath(
@@ -218,9 +234,15 @@ public sealed class ResolvedAssemblyReference
     /// </remarks>
     public Func<Stream> OpenRead { get; }
     public AssemblyResolutionProvenance Provenance { get; }
+    /// <summary>
+    /// Last write time captured by the acquisition owner for the content
+    /// returned by <see cref="OpenRead"/>, when available.
+    /// </summary>
+    public DateTime? LastWriteTimeUtc { get; }
 
     internal ResolvedAssemblyReference WithOpenRead(
-        Func<Stream> openRead)
+        Func<Stream> openRead,
+        DateTime? lastWriteTimeUtc)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         return new ResolvedAssemblyReference(
@@ -228,7 +250,8 @@ public sealed class ResolvedAssemblyReference
             Identity,
             Path,
             openRead,
-            Provenance);
+            Provenance,
+            lastWriteTimeUtc);
     }
 }
 

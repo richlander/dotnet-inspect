@@ -47,18 +47,25 @@ public sealed class AssemblyImageSnapshot
         ImmutableArray<byte> content,
         AssemblyReferenceIdentity identity,
         Guid moduleVersionId,
-        AssemblyAcquisitionRegistration registration)
+        AssemblyAcquisitionRegistration registration,
+        DateTime? lastWriteTimeUtc)
     {
         Content = content;
         Identity = identity;
         ModuleVersionId = moduleVersionId;
         Registration = registration;
+        LastWriteTimeUtc = lastWriteTimeUtc;
     }
 
     public ImmutableArray<byte> Content { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public Guid ModuleVersionId { get; }
     public AssemblyAcquisitionRegistration Registration { get; }
+    /// <summary>
+    /// Last write time captured from the source that supplied
+    /// <see cref="Content"/>, when available.
+    /// </summary>
+    public DateTime? LastWriteTimeUtc { get; }
     public long Length => Content.Length;
 
     /// <summary>
@@ -79,7 +86,8 @@ public sealed class AssemblyImageSnapshot
 
         byte[] bytes = ImmutableCollectionsMarshal.AsArray(Content)!;
         return assembly.WithOpenRead(
-            () => new MemoryStream(bytes, writable: false));
+            () => new MemoryStream(bytes, writable: false),
+            LastWriteTimeUtc);
     }
 
     /// <summary>
@@ -105,6 +113,9 @@ public sealed class AssemblyImageSnapshot
             AssemblyImageSnapshot snapshot;
             using (Stream stream = OpenSource(assembly))
             {
+                DateTime? lastWriteTimeUtc = stream is FileStream fileStream
+                    ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
+                    : assembly.LastWriteTimeUtc;
                 long length = ReadRemainingLength(stream);
 
                 if (length > int.MaxValue
@@ -146,7 +157,8 @@ public sealed class AssemblyImageSnapshot
                     identity,
                     reader.GetGuid(
                         reader.GetModuleDefinition().Mvid),
-                    assembly.Registration);
+                    assembly.Registration,
+                    lastWriteTimeUtc);
             }
 
             var result = new AssemblyImageSnapshotResult.Ready(

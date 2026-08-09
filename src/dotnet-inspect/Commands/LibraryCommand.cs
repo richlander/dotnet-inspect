@@ -583,7 +583,6 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
-                inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);

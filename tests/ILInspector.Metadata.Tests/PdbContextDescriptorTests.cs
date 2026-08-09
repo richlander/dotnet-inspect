@@ -15,18 +15,20 @@ public class PdbContextDescriptorTests
         string informationalPath = typeof(PdbContext).Assembly.Location;
         byte[] authoritativeImage = File.ReadAllBytes(authoritativePath);
         AssemblyReferenceIdentity identity = ReadIdentity(authoritativeImage);
+        DateTime authoritativeTimestamp = new(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         var descriptor = ResolvedAssemblyReference.Create(
             identity,
             informationalPath,
             () => new MemoryStream(authoritativeImage, writable: false),
-            AssemblyResolutionProvenance.Local("test"));
+            AssemblyResolutionProvenance.Local("test"),
+            authoritativeTimestamp);
 
         using var context = PdbContext.Open(descriptor);
 
         Assert.Equal(identity.Name, context.ExtractAssemblyInfo().AssemblyName);
         Assert.Equal(informationalPath, context.AssemblyPathOrNull);
         Assert.Equal(
-            File.GetLastWriteTimeUtc(informationalPath),
+            authoritativeTimestamp,
             context.LastWriteTimeUtc);
     }
 
