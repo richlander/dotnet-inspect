@@ -438,6 +438,19 @@ one that was here, and it had gone stale by two.
   same 985 bytes and SHA-256 as `path=/README.md`, while `scopePath=/` returns a
   different 425-byte response. Gated by
   `SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable`.
+- A query has one delimiter, not an arbitrary run of them. Trimming every
+  leading `?` from
+  `items??versionType=commit&version={sha}&path=/*` made this reader see
+  `versionType=commit`; Azure sees the first parameter as `?versionType`,
+  ignores it, and applies the default branch interpretation to `version`.
+  A 40-hex branch is valid, so the URL could serve a branch while provenance
+  and the cache identity named the same text as a commit. The reader now removes
+  exactly one delimiter and refuses the unknown `?versionType` name for
+  attribution. Resolution remains available because `path` still selects the
+  requested document. Gated by
+  `SourceLinkProvenanceTests.AnExtraQueryDelimiter_DoesNotTurnABranchIntoAnAttributedCommit`;
+  the non-refusal boundary is pinned by the corresponding row in
+  `SourceLinkMapConformanceTests.OnlyAnEntryThatCannotSelectContent_IsRefusedResolution`.
 - The two content selectors are each allow-listed, and their *combination* was
   never considered. `path` names an item and `scopePath` a collection, and the
   host refuses to be asked for both rather than preferring one: measured,

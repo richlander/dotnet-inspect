@@ -2490,6 +2490,7 @@ public class PackageCommand
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
+        var groupQueryRegistry = catalog.GroupQueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2518,6 +2519,23 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+        AssemblyContextIntegrationsBatch? integrations =
+            AssemblyContextIntegrationsRunner.RunIfRequested(
+                queries,
+                groupQueryRegistry,
+                selected.Select(selection =>
+                {
+                    string relativePath = Path.GetRelativePath(
+                        extractPath,
+                        selection.Path).Replace('\\', '/');
+                    return new AssemblyContextIntegrationsInput(
+                        selection.Path,
+                        AssemblyResolutionProvenance.Package(
+                            packageName,
+                            version,
+                            TfmResolver.ExtractTfmFromPath(relativePath),
+                            rid: null));
+                }));
         List<LibraryInspection> inspections = [];
         foreach (var selection in selected)
         {
@@ -2531,7 +2549,9 @@ public class PackageCommand
                 scanners: scanners,
                 scannerRegistry: scannerRegistry,
                 queries: queries,
-                queryRegistry: queryRegistry);
+                queryRegistry: queryRegistry,
+                assemblyReference: integrations?.AssemblyForInspection(selection.Path),
+                integrationsEntry: integrations?.EntryFor(selection.Path));
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");

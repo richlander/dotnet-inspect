@@ -48,6 +48,9 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
+
+    [JsonIgnore]
     public string? Tfm { get; set; }
 
     public string FileName { get; set; } = "";
