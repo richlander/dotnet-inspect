@@ -1010,6 +1010,19 @@ internal static class LibraryViewText
 {
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Contain(string? value) => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+
+    public static string DocumentTitle(LibraryInspection inspection)
+    {
+        var fileName = Contain(inspection.FileName) ?? string.Empty;
+        return Contain(inspection.Tfm) is { Length: > 0 } tfm
+            ? $"{fileName} ({tfm})"
+            : fileName;
+    }
+
+    public static string DocumentTitle(LibraryInspectionView view) =>
+        view.Tfm is { Length: > 0 } tfm
+            ? $"{view.FileName} ({tfm})"
+            : view.FileName;
 }
 
 [MarkoutSerializable]

@@ -222,7 +222,7 @@ public class LibraryCommand
             if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
-                if (!HasExactILCoordinateSelection(options.Select))
+                if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
                 {
                     var count = selectResult.Sections.Count;
                     selectResult.Sections.ExceptWith(ILCoordinateSections);
@@ -240,9 +240,10 @@ public class LibraryCommand
             {
                 // Same discipline as the IL coordinate sections above: reached through the
                 // @Metadata door the section is simply dropped, because a category selection is a
-                // request for whatever applies; named exactly it is an error, because the caller
-                // asked for a specific section that cannot exist without its coordinate.
-                if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
+                // request for whatever applies; reached by an exact name or compatible alias it is
+                // an error, because the caller asked for a specific section that cannot exist
+                // without its coordinate.
+                if (!selectResult.ExactSections.Contains(MetadataSectionNames.Heap))
                 {
                     removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
                 }
@@ -263,7 +264,11 @@ public class LibraryCommand
                 return 1;
             }
 
-            options = options with { IncludeSections = selectResult.Sections };
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
 
         options = options with
@@ -712,7 +717,7 @@ public class LibraryCommand
                     return WriteLibraryShapeProjection(inspections[0], options);
                 if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
-                WarnEmptySections(inspections[0], options, pipeline);
+                WarnEmptySections(inspections, options, pipeline);
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
@@ -1155,27 +1160,6 @@ public class LibraryCommand
     private static bool HasHeapCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
-    /// <summary>
-    /// True when <paramref name="select"/> names <paramref name="section"/> exactly, as opposed to
-    /// reaching it through an <c>@Category</c>. The distinction decides whether a coordinate
-    /// section with no coordinate is an error or is simply dropped.
-    /// </summary>
-    private static bool HasExactSelection(string[]? select, string section)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (value.Trim().Equals(section, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
-
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
     {
         if (options.Discover != null)
@@ -1339,23 +1323,6 @@ public class LibraryCommand
                 inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
                 return 0;
         }
-    }
-
-    private static bool HasExactILCoordinateSelection(string[]? select)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase)
-                || value.Equals("IL Offset", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
     }
 
     private static async Task<int> PopulateILOffsetIfRequestedAsync(
@@ -2171,25 +2138,48 @@ public class LibraryCommand
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline) =>
+        WarnEmptySections([inspection], options, pipeline);
+
+    internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count)
             return;
 
-        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
-        var failures = inspection.InspectionFailures;
-        List<LibraryInspectionFailureJson> relevantFailures = failures?
-            .Where(failure => empty.Any(section => FailureAffectsSection(failure.Section, section)))
-            .ToList() ?? [];
-        foreach (var failure in relevantFailures)
+        var emptyResults = inspections
+            .Select(inspection => pipeline.GetEmptySections(
+                inspection, options.Verbosity, options.IncludeSections))
+            .ToList();
+        if (emptyResults.Count == 0)
+            return;
+
+        var empty = emptyResults[0].Empty
+            .Where(section => emptyResults.Skip(1).All(
+                result => result.Empty.Contains(section, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+        var requested = emptyResults[0].RequestedCount;
+        var relevantFailures = inspections
+            .Zip(emptyResults)
+            .SelectMany(pair => (pair.First.InspectionFailures ?? [])
+                .Where(failure => pair.Second.Empty.Any(
+                    section => FailureAffectsSection(failure.Section, section)))
+                .Select(failure => (Inspection: pair.First, Failure: failure)))
+            .DistinctBy(entry => (entry.Inspection, entry.Failure))
+            .ToList();
+        foreach (var (inspection, failure) in relevantFailures)
         {
+            var prefix = inspections.Count > 1
+                ? LibraryViewText.DocumentTitle(inspection) + ": "
+                : string.Empty;
             CommandError.WriteWarning(
-                $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+                $"{prefix}{failure.Section} inspection failed "
+                + $"({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
             .Where(section => !relevantFailures.Any(
-                failure => FailureAffectsSection(failure.Section, section)))
+                entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
         if (unexplained.Count > 0 && empty.Count == requested)
         {
@@ -2209,6 +2199,10 @@ public class LibraryCommand
         if (options.Count || options.IncludeSections is not { Count: 1 })
             return false;
 
+        var section = options.IncludeSections.Single();
+        if (options.ExactIncludeSections?.Contains(section) != true)
+            return false;
+
         string? emptySection = null;
         foreach (var inspection in inspections)
         {
@@ -2219,7 +2213,6 @@ public class LibraryCommand
 
             emptySection ??= empty[0];
         }
-
         if (emptySection is null)
             return false;
 

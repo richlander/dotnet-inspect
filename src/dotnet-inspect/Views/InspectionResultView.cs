@@ -712,7 +712,6 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
-[MarkoutContext(typeof(LibraryInspectionReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]
