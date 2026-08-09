@@ -67,6 +67,26 @@ public class AuthoredSourceAcquisitionTests
     }
 
     [Fact]
+    public void FromContent_TokenDenseSourceProducesVisibleFailedEvidence()
+    {
+        string source = "class Sample { public void M() { "
+            + new string(';', 500_001)
+            + " } }";
+        byte[] content = Encoding.UTF8.GetBytes(source);
+
+        var result = AuthoredSourceAcquisition.FromContent(
+            Mapping(),
+            Document(content),
+            content,
+            "M",
+            Subject);
+
+        var failed = Assert.IsType<FindingInspection<string>.Failed>(result.Lines.Value);
+        Assert.Contains("lexical complexity limit", failed.Error.Reason, StringComparison.Ordinal);
+        Assert.Null(result.Text);
+    }
+
+    [Fact]
     public void VerifyChecksum_AcceptsLineEndingNormalization()
     {
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));

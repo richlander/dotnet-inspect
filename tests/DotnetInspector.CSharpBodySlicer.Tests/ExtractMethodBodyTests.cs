@@ -1362,6 +1362,37 @@ public class ExtractMethodBodyTests
             BodySlicer.ExtractMethodBody(source, 3, 5, "#ctor"));
     }
 
+    [Theory]
+    [InlineData(".ctor", "    C() { }", "    static C() { }")]
+    [InlineData(".cctor", "    static C() { }", "    C() { }")]
+    public void OppositeStaticnessConstructorCannotExplainARangeBoundary(
+        string methodName,
+        string requestedConstructor,
+        string otherConstructor)
+    {
+        var source = Lines(
+            "class C",                  // 1
+            "{",                        // 2
+            requestedConstructor,       // 3  <- StartLine
+            otherConstructor,           // 4  <- EndLine
+            "}");                       // 5
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 4, methodName));
+    }
+
+    [Fact]
+    public void NonInitializerSiblingCannotExplainAConstructorRangeBoundary()
+    {
+        var source = Lines(
+            "class C",          // 1
+            "{",                // 2
+            "    int Field;",   // 3  <- StartLine
+            "    C() { }",      // 4  <- EndLine
+            "}");               // 5
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 4, ".ctor"));
+    }
+
     /// <summary>
     /// When initializers bound both sides of an explicit constructor, the flattened PDB range
     /// does not identify which declaration supplied a sequence point. The slicer must refuse the
@@ -1475,14 +1506,14 @@ public class ExtractMethodBodyTests
     /// the slicer's defensive contract for direct and fallback callers.
     /// </summary>
     [Theory]
-    [InlineData(".ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
-    [InlineData(".Ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
-    [InlineData(".CTOR", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
-    [InlineData("#ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
-    [InlineData("#CTOR", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
-    [InlineData(".cctor", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
-    [InlineData(".Cctor", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
-    [InlineData(".CCTOR", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
+    [InlineData(".ctor", "    private readonly int X = 1;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".Ctor", "    private readonly int X = 1;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".CTOR", "    private readonly int X = 1;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData("#ctor", "    private readonly int X = 1;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData("#CTOR", "    private readonly int X = 1;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".cctor", "    private static readonly int X = 1;", "    static C() => Use(X);", "static C() => Use(X);")]
+    [InlineData(".Cctor", "    private static readonly int X = 1;", "    static C() => Use(X);", "static C() => Use(X);")]
+    [InlineData(".CCTOR", "    private static readonly int X = 1;", "    static C() => Use(X);", "static C() => Use(X);")]
     public void ConstructorMetadataNameCasing_PreservesConstructorCorrespondence(
         string methodName,
         string field,
@@ -1537,6 +1568,52 @@ public class ExtractMethodBodyTests
             "}");           // 4
 
         Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
+    }
+
+    [Fact]
+    public void ExtensionBlockSharingTheMembersBoundary_ReportsAbsent()
+    {
+        var source = Lines(
+            "static class C",                                                     // 1
+            "{",                                                                  // 2
+            "    extension(string value) { public void M() { Use(value); } }",    // 3
+            "}");                                                                 // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+    }
+
+    [Fact]
+    public void ExtensionBlockOnSeparateBoundaryLines_KeepsTheMemberSliceable()
+    {
+        var source = Lines(
+            "static class C",                     // 1
+            "{",                                  // 2
+            "    extension(string value)",        // 3
+            "    {",                              // 4
+            "        public void M()",            // 5
+            "        {",                          // 6
+            "            Use(value);",            // 7
+            "        }",                          // 8
+            "    }",                              // 9
+            "}");                                 // 10
+
+        Assert.Equal(
+            "public void M()\n{\n    Use(value);\n}",
+            BodySlicer.ExtractMethodBody(source, 5, 8, "M"));
+    }
+
+    [Fact]
+    public void CommentBeforeSameLineAttribute_IsRemovedWithoutRemovingTheAttribute()
+    {
+        var source = Lines(
+            "class C",                                          // 1
+            "{",                                                // 2
+            "    /* closed */ [Obsolete] public void M() { }",  // 3
+            "}");                                               // 4
+
+        Assert.Equal(
+            "[Obsolete] public void M() { }",
+            BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
     }
 
 }

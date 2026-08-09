@@ -2,9 +2,17 @@ namespace CSharpText;
 
 /// <summary>
 /// Tokenizes C# text and carries conservative lexical structure across lines.
+/// <para>
+/// The retained token stream is bounded because source text is untrusted and punctuation-dense
+/// input can otherwise amplify one source byte into a substantially larger token object. The
+/// limit is enforced while emitting, before another token is retained, and is gated by
+/// <c>ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission</c>.
+/// </para>
 /// </summary>
 internal static class CSharpLexer
 {
+    internal const int MaxTokenCount = 500_000;
+
     /// <summary>
     /// The lexical state a C# scan carries from one line to the next.
     /// <para>
@@ -378,14 +386,18 @@ internal static class CSharpLexer
     /// product callers use.
     /// </para>
     /// </summary>
-    internal static List<ScanToken> ScanTokens(IReadOnlyList<string> lines)
+    internal static List<ScanToken> ScanTokens(
+        IReadOnlyList<string> lines,
+        int maxTokenCount = MaxTokenCount)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokenCount);
+
         var state = new LexState();
         var tokens = new List<ScanToken>();
         int depth = 0;
 
         for (int i = 0; i < lines.Count; i++)
-            Scan(lines[i], state, ref depth, out _, tokens, i);
+            Scan(lines[i], state, ref depth, out _, tokens, i, maxTokenCount);
 
         return tokens;
     }
@@ -396,12 +408,20 @@ internal static class CSharpLexer
         ref int depth,
         out char significant,
         List<ScanToken> tokens,
-        int lineIndex)
+        int lineIndex,
+        int maxTokenCount)
     {
         bool knownOnEntry = state.StructuralDepthKnown;
         int mark = tokens.Count;
 
-        int stopped = ScanCore(line, state, ref depth, out significant, tokens, lineIndex);
+        int stopped = ScanCore(
+            line,
+            state,
+            ref depth,
+            out significant,
+            tokens,
+            lineIndex,
+            maxTokenCount);
 
         // Losing the place is discovered at the end of a line, after tokens on it were emitted.
         // Those tokens recorded a depth that has since become meaningless, so correct them rather
@@ -421,7 +441,8 @@ internal static class CSharpLexer
         ref int depth,
         out char significant,
         List<ScanToken> tokens,
-        int lineIndex)
+        int lineIndex,
+        int maxTokenCount)
     {
         significant = '\0';
         int i = 0;
@@ -451,6 +472,12 @@ internal static class CSharpLexer
                     tokens[^1] = previous with { Length = previous.Length + length };
                     return;
                 }
+            }
+
+            if (tokens.Count >= maxTokenCount)
+            {
+                throw new InvalidOperationException(
+                    $"C# source exceeds the lexical complexity limit of {maxTokenCount:N0} tokens.");
             }
 
             tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown, state.Section));

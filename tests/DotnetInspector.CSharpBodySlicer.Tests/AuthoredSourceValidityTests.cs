@@ -171,8 +171,10 @@ public class AuthoredSourceValidityTests
                     variable.Identifier.ValueText == EventAccessorName(terminalName)),
             DestructorDeclarationSyntax =>
                 terminalName == "Finalize",
-            OperatorDeclarationSyntax or ConversionOperatorDeclarationSyntax =>
-                terminalName.StartsWith("op_", StringComparison.Ordinal),
+            OperatorDeclarationSyntax op =>
+                terminalName == OperatorMetadataName(op),
+            ConversionOperatorDeclarationSyntax conversion =>
+                terminalName == ConversionMetadataName(conversion),
             _ => false,
         };
 
@@ -188,6 +190,54 @@ public class AuthoredSourceValidityTests
                 : name.StartsWith("remove_", StringComparison.Ordinal)
                     ? name[7..]
                     : name;
+
+        static string OperatorMetadataName(OperatorDeclarationSyntax op)
+        {
+            string name = op.OperatorToken.Kind() switch
+            {
+                SyntaxKind.PlusToken =>
+                    op.ParameterList.Parameters.Count == 1 ? "op_UnaryPlus" : "op_Addition",
+                SyntaxKind.MinusToken =>
+                    op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
+                SyntaxKind.ExclamationToken => "op_LogicalNot",
+                SyntaxKind.TildeToken => "op_OnesComplement",
+                SyntaxKind.PlusPlusToken => "op_Increment",
+                SyntaxKind.MinusMinusToken => "op_Decrement",
+                SyntaxKind.TrueKeyword => "op_True",
+                SyntaxKind.FalseKeyword => "op_False",
+                SyntaxKind.AsteriskToken => "op_Multiply",
+                SyntaxKind.SlashToken => "op_Division",
+                SyntaxKind.PercentToken => "op_Modulus",
+                SyntaxKind.AmpersandToken => "op_BitwiseAnd",
+                SyntaxKind.BarToken => "op_BitwiseOr",
+                SyntaxKind.CaretToken => "op_ExclusiveOr",
+                SyntaxKind.LessThanLessThanToken => "op_LeftShift",
+                SyntaxKind.GreaterThanGreaterThanToken => "op_RightShift",
+                SyntaxKind.GreaterThanGreaterThanGreaterThanToken => "op_UnsignedRightShift",
+                SyntaxKind.EqualsEqualsToken => "op_Equality",
+                SyntaxKind.ExclamationEqualsToken => "op_Inequality",
+                SyntaxKind.LessThanToken => "op_LessThan",
+                SyntaxKind.GreaterThanToken => "op_GreaterThan",
+                SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
+                SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+                _ => throw new InvalidOperationException(
+                    $"Unhandled operator token {op.OperatorToken.Kind()}."),
+            };
+
+            return op.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
+                ? $"op_Checked{name["op_".Length..]}"
+                : name;
+        }
+
+        static string ConversionMetadataName(ConversionOperatorDeclarationSyntax conversion)
+        {
+            string kind = conversion.ImplicitOrExplicitKeyword.IsKind(SyntaxKind.ImplicitKeyword)
+                ? "Implicit"
+                : "Explicit";
+            return conversion.CheckedKeyword.IsKind(SyntaxKind.CheckedKeyword)
+                ? $"op_Checked{kind}"
+                : $"op_{kind}";
+        }
     }
 
     [Fact]
@@ -209,6 +259,57 @@ public class AuthoredSourceValidityTests
         Assert.Equal(
             SliceOutcome.WrongDeclaration,
             Classify("int Q { get; }", "get_P"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("static C operator +(C left, C right) => left;", "op_Subtraction"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("static explicit operator int(C value) => 0;", "op_Implicit"));
+    }
+
+    [Fact]
+    public void SliceClassifier_MapsEveryOperatorToItsExactMetadataName()
+    {
+        (string Source, string MetadataName)[] cases =
+        [
+            ("static C operator +(C value) => value;", "op_UnaryPlus"),
+            ("static C operator +(C left, C right) => left;", "op_Addition"),
+            ("static C operator -(C value) => value;", "op_UnaryNegation"),
+            ("static C operator -(C left, C right) => left;", "op_Subtraction"),
+            ("static C operator !(C value) => value;", "op_LogicalNot"),
+            ("static C operator ~(C value) => value;", "op_OnesComplement"),
+            ("static C operator ++(C value) => value;", "op_Increment"),
+            ("static C operator --(C value) => value;", "op_Decrement"),
+            ("static bool operator true(C value) => true;", "op_True"),
+            ("static bool operator false(C value) => false;", "op_False"),
+            ("static C operator *(C left, C right) => left;", "op_Multiply"),
+            ("static C operator /(C left, C right) => left;", "op_Division"),
+            ("static C operator %(C left, C right) => left;", "op_Modulus"),
+            ("static C operator &(C left, C right) => left;", "op_BitwiseAnd"),
+            ("static C operator |(C left, C right) => left;", "op_BitwiseOr"),
+            ("static C operator ^(C left, C right) => left;", "op_ExclusiveOr"),
+            ("static C operator <<(C value, int count) => value;", "op_LeftShift"),
+            ("static C operator >>(C value, int count) => value;", "op_RightShift"),
+            ("static C operator >>>(C value, int count) => value;", "op_UnsignedRightShift"),
+            ("static bool operator ==(C left, C right) => true;", "op_Equality"),
+            ("static bool operator !=(C left, C right) => false;", "op_Inequality"),
+            ("static bool operator <(C left, C right) => true;", "op_LessThan"),
+            ("static bool operator >(C left, C right) => true;", "op_GreaterThan"),
+            ("static bool operator <=(C left, C right) => true;", "op_LessThanOrEqual"),
+            ("static bool operator >=(C left, C right) => true;", "op_GreaterThanOrEqual"),
+            ("static C operator checked +(C left, C right) => left;", "op_CheckedAddition"),
+            ("static implicit operator int(C value) => 0;", "op_Implicit"),
+            ("static explicit operator int(C value) => 0;", "op_Explicit"),
+            ("static explicit operator checked int(C value) => 0;", "op_CheckedExplicit"),
+        ];
+
+        foreach (var (source, metadataName) in cases)
+        {
+            Assert.Equal(SliceOutcome.WellFormed, Classify(source, metadataName));
+            Assert.Equal(
+                SliceOutcome.WrongDeclaration,
+                Classify(source, metadataName == "op_Addition" ? "op_Explicit" : "op_Addition"));
+        }
     }
 
     /// <summary>

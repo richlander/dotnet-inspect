@@ -21,6 +21,19 @@ namespace CSharpText.Tests;
 /// </remarks>
 public class DeclarationIndexTests
 {
+    [Fact]
+    public void TheBodySlicerCannotAccessLexerInternals()
+    {
+        Assert.DoesNotContain(
+            typeof(DeclarationIndex).Assembly.GetCustomAttributesData(),
+            attribute =>
+                attribute.AttributeType == typeof(System.Runtime.CompilerServices.InternalsVisibleToAttribute)
+                && attribute.ConstructorArguments[0].Value is string assemblyName
+                && assemblyName.StartsWith(
+                    "DotnetInspector.CSharpBodySlicer",
+                    StringComparison.Ordinal));
+    }
+
     private const string StableConditionalCorpusFile = "ConditionalCorpusFixture.cs";
 
     [Fact]
@@ -428,6 +441,32 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void SignatureColumnAndInitializerFacts_AreCarriedByTheIndex()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                /* closed */ static int Field = 1;
+                int Property { get; } = 2;
+                void M() { }
+            }
+            """);
+
+        var field = Assert.Single(index.Declarations, d => d.Name == "Field");
+        Assert.Equal(17, field.SignatureStartColumn);
+        Assert.Equal(17, field.FirstCodeColumn);
+        Assert.True(field.IsStatic);
+        Assert.True(field.HasInitializer);
+
+        var property = Assert.Single(index.Declarations, d => d.Name == "Property");
+        Assert.False(property.IsStatic);
+        Assert.True(property.HasInitializer);
+
+        var method = Assert.Single(index.Declarations, d => d.Name == "M");
+        Assert.False(method.HasInitializer);
+    }
+
+    [Fact]
     public void StaticInAnExpressionBody_IsNotADeclarationModifier()
     {
         var index = DeclarationIndex.Build("""
@@ -680,6 +719,10 @@ public class DeclarationIndexTests
         Assert.All(
             index.Declarations.Where(d => d.Kind is DeclarationKind.Method or DeclarationKind.Property),
             d => Assert.Equal(owner, index.ParentOf(d)));
+
+        Assert.Equal(
+            ["5-7", "10-13"],
+            index.TransparentScopes.Select(scope => scope.ToString()));
     }
 
     /// <summary>
@@ -3437,10 +3480,10 @@ public class DeclarationIndexTests
     }
 
     private static string Format(Declaration d) =>
-        $"{d.Kind} {d.Name} {d.SignatureStartLine}-{d.EndLine}";
+        $"{d.Kind} {d.Name} {d.SignatureStartLine}:{d.SignatureStartColumn}-{d.EndLine}";
 
     private static string Format(DeclarationSpan s) =>
-        $"{s.Kind} {s.Name} {s.SignatureStartLine}-{s.EndLine}";
+        $"{s.Kind} {s.Name} {s.SignatureStartLine}:{s.SignatureStartColumn}-{s.EndLine}";
 
     /// <summary>
     /// A multiset difference, not a set difference. Cardinality is the point: a builder that emits
@@ -3469,7 +3512,12 @@ public class DeclarationIndexTests
     }
 
     private sealed record Declaration(
-        DeclarationKind Kind, string Name, int TriviaStartLine, int SignatureStartLine, int EndLine)
+        DeclarationKind Kind,
+        string Name,
+        int TriviaStartLine,
+        int SignatureStartLine,
+        int SignatureStartColumn,
+        int EndLine)
     {
         public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
     }
@@ -3672,6 +3720,7 @@ public class DeclarationIndexTests
             name,
             TriviaStartLine(node),
             Line(node.SyntaxTree, signatureStart.SpanStart),
+            Column(node.SyntaxTree, signatureStart.SpanStart),
             EndLine(node))
         {
             AttributeLists = [.. attributes.Select(a => new LineRange(
@@ -3709,6 +3758,9 @@ public class DeclarationIndexTests
 
     private static int Line(SyntaxTree tree, int position) =>
         tree.GetLineSpan(new Microsoft.CodeAnalysis.Text.TextSpan(position, 0)).StartLinePosition.Line + 1;
+
+    private static int Column(SyntaxTree tree, int position) =>
+        tree.GetLineSpan(new Microsoft.CodeAnalysis.Text.TextSpan(position, 0)).StartLinePosition.Character;
 
     /// <summary>
     /// The last line of a declaration, from its span, which excludes trailing trivia. A file-scoped

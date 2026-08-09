@@ -633,6 +633,23 @@ Checksums from portable PDB documents authenticate source content when the
 workflow claims authored-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
+### Authored-source lexing is complexity-bounded
+
+The source byte limit is not by itself a memory bound. A punctuation-dense file
+can produce nearly one retained lexical token per byte, and each token costs
+more memory than its source spelling. `CSharpLexer` therefore stops emission at
+500,000 tokens. `DeclarationIndex` carries the declaration's starting column so
+`BodySlicer` consumes that bounded token stream once rather than tokenizing the
+same untrusted file again.
+
+Limit exhaustion is a visible extraction failure, not an absent declaration.
+`ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
+emission boundary, and
+`AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
+gates the product-facing result.
+`DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
+one-pass ownership boundary.
+
 ## Resource extraction contract
 
 Manifest resource names are attacker-controlled metadata. They are not safe

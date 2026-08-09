@@ -22,6 +22,8 @@ internal static class DeclarationIndexBuilder
         public string Name = "";
         public int TriviaStartLine;
         public int SignatureStartLine;
+        public int SignatureStartColumn;
+        public int FirstCodeColumn;
         public int SignatureEndLine;
         public int BodyStartLine = -1;
         public int BodyEndLine = -1;
@@ -29,6 +31,7 @@ internal static class DeclarationIndexBuilder
         public int ParentIndex = -1;
         public bool SpanKnown = true;
         public bool IsStatic;
+        public bool HasInitializer;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
     }
@@ -48,11 +51,21 @@ internal static class DeclarationIndexBuilder
             "partial", "readonly", "ref", "unsafe", "new",
         ];
 
-    public static ImmutableArray<DeclarationSpan> Build(IReadOnlyList<string> lines)
+    public static ImmutableArray<DeclarationSpan> Build(
+        IReadOnlyList<string> lines,
+        out ImmutableArray<LineRange> transparentScopes)
     {
         var tokens = CSharpLexer.ScanTokens(lines);
         var rows = new List<Row>();
+        var transparentScopeRows = ImmutableArray.CreateBuilder<LineRange>();
+        var transparentScopeStarts = new Dictionary<int, int>();
         bool depthLost = false;
+        var firstCodeColumns = new Dictionary<int, int>();
+        foreach (ScanToken token in tokens)
+        {
+            if (token.Kind is not (ScanTokenKind.Comment or ScanTokenKind.Directive))
+                firstCodeColumns.TryAdd(token.Line, token.Column);
+        }
 
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
         // collection initializer. Members are only recognized inside a type, so an anonymous
@@ -240,7 +253,12 @@ internal static class DeclarationIndexBuilder
         // Emits a declaration that has no scope of its own: a field, an enum member, an abstract
         // or interface member, an extern member, a positional record, an expression-bodied member,
         // or a file-scoped namespace.
-        void EmitBodiless(ScanToken terminator, DeclarationKind kind, string name, int bodyStart)
+        void EmitBodiless(
+            ScanToken terminator,
+            DeclarationKind kind,
+            string name,
+            int bodyStart,
+            bool hasInitializer = false)
         {
             int sigStart = pending.Count > 0 ? pending[0].Line + 1 : terminator.Line + 1;
             rows.Add(new Row
@@ -249,6 +267,8 @@ internal static class DeclarationIndexBuilder
                 Name = name,
                 TriviaStartLine = triviaStart >= 0 ? triviaStart : sigStart,
                 SignatureStartLine = sigStart,
+                SignatureStartColumn = pending.Count > 0 ? pending[0].Column : terminator.Column,
+                FirstCodeColumn = firstCodeColumns.GetValueOrDefault(sigStart - 1),
                 SignatureEndLine = terminator.Line + 1,
                 BodyStartLine = bodyStart,
                 EndLine = terminator.Line + 1,
@@ -260,6 +280,7 @@ internal static class DeclarationIndexBuilder
                     Truncate(pending, Text).Header,
                     "static",
                     Text),
+                HasInitializer = hasInitializer,
             });
         }
 
@@ -623,6 +644,7 @@ internal static class DeclarationIndexBuilder
                 // inside a parent that has no metadata counterpart.
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
+                    transparentScopeStarts[scopes.Count] = tok.Line + 1;
                     scopes.Add((EnclosingIndex(), false, true));
                     EndDeclaration(tok);
                     lastClosed = -1;
@@ -639,6 +661,8 @@ internal static class DeclarationIndexBuilder
                         Name = name,
                         TriviaStartLine = triviaStart >= 0 ? triviaStart : sigStart,
                         SignatureStartLine = sigStart,
+                        SignatureStartColumn = pending.Count > 0 ? pending[0].Column : tok.Column,
+                        FirstCodeColumn = firstCodeColumns.GetValueOrDefault(sigStart - 1),
                         SignatureEndLine = tok.Line + 1,
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
@@ -695,7 +719,12 @@ internal static class DeclarationIndexBuilder
 
                     var (ek, en) = Classify(pending, Enclosing(), opensBody: false, Text);
                     if (ek is not null)
-                        EmitBodiless(pending[^1], DeclarationKind.EnumMember, en, bodyStart: -1);
+                        EmitBodiless(
+                            pending[^1],
+                            DeclarationKind.EnumMember,
+                            en,
+                            bodyStart: -1,
+                            hasInitializer: Truncate(pending, Text).CutAtEquals);
                     EndDeclaration(tok);
                 }
 
@@ -715,6 +744,12 @@ internal static class DeclarationIndexBuilder
                         lastClosed = -1;
                         EndDeclaration(tok);
                         continue;
+                    }
+
+                    int scopeIndex = scopes.Count - 1;
+                    if (transparentScopeStarts.Remove(scopeIndex, out int transparentStartLine))
+                    {
+                        transparentScopeRows.Add(new LineRange(transparentStartLine, tok.Line + 1));
                     }
 
                     var (idx, ownsRow, _) = scopes[^1];
@@ -841,6 +876,7 @@ internal static class DeclarationIndexBuilder
                     if (lastClosed >= 0 && eq == 0)
                     {
                         rows[lastClosed].EndLine = tok.Line + 1;
+                        rows[lastClosed].HasInitializer = true;
 
                         // This extends a span that was already measured and marked known when its
                         // accessor block closed, so it needs the same correction that close took:
@@ -979,7 +1015,9 @@ internal static class DeclarationIndexBuilder
                     var (kind, name) = Classify(pending, Enclosing(), opensBody: false, Text);
                     if (kind is { } k && Allowed(k, Enclosing(), InAnonymousScope()))
                     {
-                        int arrow = Truncate(pending, Text).ArrowLine;
+                        var truncated = Truncate(pending, Text);
+                        int arrow = truncated.ArrowLine;
+                        bool hasInitializer = truncated.CutAtEquals && arrow < 0;
 
                         // "public int A, B, C;" declares three fields. Metadata sees three, so the
                         // index owes a row apiece — a field is declaration-only, which is exactly
@@ -989,7 +1027,7 @@ internal static class DeclarationIndexBuilder
                             ? ExtraDeclaratorNames(pending, Text)
                             : null;
 
-                        EmitBodiless(tok, k, name, arrow);
+                        EmitBodiless(tok, k, name, arrow, hasInitializer);
 
                         // A file-scoped namespace has no braces, but it encloses every declaration
                         // below it exactly as a block namespace encloses the ones inside it. Open a
@@ -1016,7 +1054,7 @@ internal static class DeclarationIndexBuilder
 
                         if (extra is not null)
                             foreach (var more in extra)
-                                EmitBodiless(tok, k, more, bodyStart: -1);
+                                EmitBodiless(tok, k, more, bodyStart: -1, hasInitializer);
                     }
                 }
                 EndDeclaration(tok);
@@ -1032,7 +1070,12 @@ internal static class DeclarationIndexBuilder
                     RefuseSiblingsAnInitializerCouldReach();
 
                 var (_, name) = Classify(pending, Enclosing(), opensBody: false, Text);
-                EmitBodiless(pending[^1], DeclarationKind.EnumMember, name, bodyStart: -1);
+                EmitBodiless(
+                    pending[^1],
+                    DeclarationKind.EnumMember,
+                    name,
+                    bodyStart: -1,
+                    hasInitializer: Truncate(pending, Text).CutAtEquals);
                 EndDeclaration(tok);
                 continue;
             }
@@ -1100,12 +1143,21 @@ internal static class DeclarationIndexBuilder
         for (int i = 0; i < rows.Count; i++)
             depths[i] = rows[i].ParentIndex >= 0 ? depths[rows[i].ParentIndex] + 1 : 0;
 
+        foreach (int startLine in transparentScopeStarts.Values)
+            transparentScopeRows.Add(new LineRange(startLine, lines.Count));
+
+        transparentScopes = [.. transparentScopeRows
+            .OrderBy(scope => scope.StartLine)
+            .ThenBy(scope => scope.EndLine)];
+
         return [.. rows.Select((r, i) => new DeclarationSpan(
-            r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureEndLine,
+            r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureStartColumn,
+            r.FirstCodeColumn, r.SignatureEndLine,
             r.BodyStartLine, r.BodyEndLine, r.EndLine, depths[i], r.ParentIndex, r.SpanKnown)
         {
             AttributeLists = r.AttributeLists,
             IsStatic = r.IsStatic,
+            HasInitializer = r.HasInitializer,
         })];
     }
 

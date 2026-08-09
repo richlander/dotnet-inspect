@@ -53,7 +53,8 @@ public static class BodySlicer
         if (row is null
             || IsTypeOrNamespace(row.Kind)
             || SharesBoundaryWithParentType(index, row)
-            || SharesBoundaryWithSibling(index, row))
+            || SharesBoundaryWithSibling(index, row)
+            || SharesBoundaryWithTransparentScope(index, row))
         {
             return null;
         }
@@ -67,18 +68,16 @@ public static class BodySlicer
 
         var methodLines = lines[from..to];
 
-        // A declaration can begin after a block comment closes on its first line. Scan tokens
-        // identify the first code column so the returned fragment does not begin with a stray
-        // comment terminator, while retaining the declaration's indentation for dedenting.
-        var firstCode = CSharpLexer.ScanTokens(lines).FirstOrDefault(t =>
-            t.Line >= from && t.Kind is not (ScanTokenKind.Comment or ScanTokenKind.Directive));
-        if (firstCode.Line == from && firstCode.Column > 0)
+        // A declaration can begin after a block comment closes on its first line. The index carries
+        // the first code column so slicing does not tokenize the entire untrusted file a second time.
+        int firstCodeColumn = row.FirstCodeColumn;
+        if (firstCodeColumn > 0)
         {
             var head = methodLines[0];
-            if (head.AsSpan(0, Math.Min(firstCode.Column, head.Length)).TrimStart().Length > 0)
+            if (head.AsSpan(0, Math.Min(firstCodeColumn, head.Length)).TrimStart().Length > 0)
             {
                 int indent = head.Length - head.TrimStart().Length;
-                methodLines[0] = head[..indent] + head[firstCode.Column..];
+                methodLines[0] = head[..indent] + head[firstCodeColumn..];
             }
         }
 
@@ -140,6 +139,13 @@ public static class BodySlicer
             line >= candidate.TriviaStartLine && line <= candidate.EndLine;
     }
 
+    private static bool SharesBoundaryWithTransparentScope(
+        DeclarationIndex index,
+        DeclarationSpan declaration) =>
+        index.TransparentScopes.Any(scope =>
+            scope.StartLine == declaration.SignatureStartLine
+            || scope.EndLine == declaration.EndLine);
+
     private static DeclarationSpan? FindConstructorAtRangeBoundary(
         DeclarationIndex index,
         int startLine,
@@ -186,6 +192,11 @@ public static class BodySlicer
         return index.Declarations.Any(declaration =>
             declaration.SpanKnown
             && declaration.ParentIndex == constructor.ParentIndex
+            && declaration.Kind is DeclarationKind.Field
+                or DeclarationKind.Property
+                or DeclarationKind.Event
+            && declaration.HasInitializer
+            && declaration.IsStatic == constructor.IsStatic
             && declaration.Contains(line));
     }
 }

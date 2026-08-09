@@ -113,6 +113,12 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// caller slices from to include a member's documentation.
 /// </param>
 /// <param name="SignatureStartLine">The first line of the declaration itself.</param>
+/// <param name="SignatureStartColumn">The zero-based column of the declaration's first token.</param>
+/// <param name="FirstCodeColumn">
+/// The zero-based column of the first non-comment, non-directive token on
+/// <paramref name="SignatureStartLine"/>. This may precede
+/// <paramref name="SignatureStartColumn"/> when an attribute list shares that line.
+/// </param>
 /// <param name="SignatureEndLine">
 /// The last line of the signature: the line carrying the <c>{</c>, <c>=&gt;</c>, or <c>;</c> that
 /// ends it. A signature may span lines, so this is not always <see cref="SignatureStartLine"/>.
@@ -217,6 +223,8 @@ public sealed record DeclarationSpan(
     string Name,
     int TriviaStartLine,
     int SignatureStartLine,
+    int SignatureStartColumn,
+    int FirstCodeColumn,
     int SignatureEndLine,
     int BodyStartLine,
     int BodyEndLine,
@@ -246,6 +254,9 @@ public sealed record DeclarationSpan(
 
     /// <summary>True when the declaration carries a top-level <c>static</c> modifier.</summary>
     public bool IsStatic { get; init; }
+
+    /// <summary>True when the declaration has an initializer introduced by <c>=</c>.</summary>
+    public bool HasInitializer { get; init; }
 
     /// <summary>True when this declaration can itself contain member declarations.</summary>
     public bool IsType => Kind is DeclarationKind.Class or DeclarationKind.Struct
@@ -299,16 +310,22 @@ public sealed record DeclarationSpan(
 /// <para>
 /// Whole-file correctness is gated by
 /// <c>DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex</c>,
-/// which compares kind, name, first line, and last line against Roslyn over the real source of
-/// every PDB-bearing assembly beside the test binary; leading trivia is gated separately by
-/// <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
-/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a
-/// test-only oracle; this library stays Roslyn-free.
+/// which compares kind, name, first line and column, and last line against Roslyn over the real
+/// source of every PDB-bearing assembly beside the test binary; leading trivia is gated separately
+/// by <c>ADeclarationsTriviaStart_MatchesRoslynsLeadingTrivia</c>, and the nesting the containment
+/// lookup depends on by <c>RowsNestWithinTheirParentAndNeverOverlapASibling</c>. Roslyn is a test-only
+/// oracle; this library stays Roslyn-free.
 /// </para>
 /// </summary>
 public sealed class DeclarationIndex
 {
-    private DeclarationIndex(ImmutableArray<DeclarationSpan> declarations) => Declarations = declarations;
+    private DeclarationIndex(
+        ImmutableArray<DeclarationSpan> declarations,
+        ImmutableArray<LineRange> transparentScopes)
+    {
+        Declarations = declarations;
+        TransparentScopes = transparentScopes;
+    }
 
     /// <summary>
     /// Every declaration in the file, in source order of the point each was recognized. A
@@ -316,13 +333,27 @@ public sealed class DeclarationIndex
     /// </summary>
     public ImmutableArray<DeclarationSpan> Declarations { get; }
 
+    /// <summary>
+    /// Structural scope spans that do not own declaration rows.
+    /// </summary>
+    /// <remarks>
+    /// C# extension blocks are transparent for declaration parentage, but their opening and
+    /// closing lines remain structural boundaries for source slicing. Gated by
+    /// <c>DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne</c>.
+    /// </remarks>
+    public ImmutableArray<LineRange> TransparentScopes { get; }
+
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
         Build(sourceText.Split('\n'));
 
     /// <summary>Builds the index for a file already split into lines.</summary>
-    public static DeclarationIndex Build(IReadOnlyList<string> lines) =>
-        new(DeclarationIndexBuilder.Build(lines));
+    public static DeclarationIndex Build(IReadOnlyList<string> lines)
+    {
+        ImmutableArray<DeclarationSpan> declarations =
+            DeclarationIndexBuilder.Build(lines, out ImmutableArray<LineRange> transparentScopes);
+        return new DeclarationIndex(declarations, transparentScopes);
+    }
 
     /// <summary>
     /// The innermost declaration containing <paramref name="line"/> — its signature or its body —

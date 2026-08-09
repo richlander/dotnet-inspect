@@ -53,6 +53,15 @@ public class ScanTokenTests
     };
 
     [Fact]
+    public void TokenLimit_StopsTokenDenseInputDuringEmission()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => CSharpLexer.ScanTokens(["; ; ; ;"], maxTokenCount: 3));
+
+        Assert.Contains("3 tokens", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Declaration_SeparatesWordsFromPunctuation()
     {
         Assert.Equal(
