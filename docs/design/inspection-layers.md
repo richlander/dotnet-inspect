@@ -55,9 +55,10 @@ the ownership boundaries below, not the project count.
 SourceLink audit, assembly-context Integrations, and progressive member
 call-graph slices. The call-graph seam composes Analysis indexes and one
 catalog generation over workspace-owned immutable snapshots; it returns typed
-roots and diagnostics without choosing a renderer or graph format. The library CLI
-executes metadata-image and direct assembly-reference queries through a typed,
-content-shaped registry over a host-owned `AssemblyInspectionSession`. The
+roots and diagnostics without choosing a renderer or graph format. The library
+CLI executes metadata-image and direct assembly-reference queries through a
+typed, content-shaped registry over a host-owned
+`AssemblyInspectionSession`. The
 `References` section binds to its concrete query definition rather than a string
 scanner key, and the CLI and package convenience route lower section selection
 into that same registry. Library and package SourceLink sections execute a
