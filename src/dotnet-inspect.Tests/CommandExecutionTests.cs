@@ -12477,6 +12477,44 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_ReferenceTree_RendersPerAssembly()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"references-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            {
+                var dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+            }
+            var packagePath = Path.Combine(tempDir, "References.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "References", "--tree", "--depth", "1", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.StartsWith("# Lib\n\n## Libraries", output);
+            Assert.Contains("### Lib.dll (net10.0)", output);
+            Assert.Contains("### Lib.dll (net8.0)", output);
+            Assert.Equal(
+                2,
+                output.Split("#### References", StringSplitOptions.None).Length - 1);
+            Assert.True(
+                output.Split("System.Runtime", StringSplitOptions.None).Length - 1 >= 2,
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");

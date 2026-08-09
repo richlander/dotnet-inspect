@@ -441,13 +441,26 @@ public static class OutputFormatter
 
     private static void WriteReferenceTree(LibraryInspection inspection)
     {
+        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        WriteReferenceTree(
+            writer,
+            inspection,
+            1,
+            LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
+        writer.Flush();
+    }
+
+    private static void WriteReferenceTree(
+        MarkoutWriter writer,
+        LibraryInspection inspection,
+        int headingLevel,
+        string title)
+    {
         var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
         var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
-        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
-        writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
-        writer.WriteHeading(2, SectionNames.References);
+        writer.WriteHeading(headingLevel, title);
+        writer.WriteHeading(headingLevel + 1, SectionNames.References);
         writer.WriteTree([.. tree]);
-        writer.Flush();
     }
 
     /// <summary>
@@ -575,6 +588,12 @@ public static class OutputFormatter
             return;
         }
 
+        if (options.Tree && options.Discover == null)
+        {
+            WriteReferenceTrees(inspections);
+            return;
+        }
+
         if (options.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
@@ -645,6 +664,21 @@ public static class OutputFormatter
         writer.WriteHeading(level, title);
         writer.Flush();
         return output.ToString().TrimEnd();
+    }
+
+    private static void WriteReferenceTrees(IReadOnlyList<LibraryInspection> inspections)
+    {
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
+        writer.WriteHeading(
+            1,
+            LibraryViewText.Contain(
+                Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty);
+        writer.WriteHeading(2, "Libraries");
+        foreach (var inspection in inspections)
+            WriteReferenceTree(writer, inspection, 3, LibraryViewText.DocumentTitle(inspection));
+        writer.Flush();
+        WriteLfLine(Console.Out, output.ToString().TrimEnd());
     }
 
     private static string RemoveMarkdownDocumentTitle(string markdown)
