@@ -249,14 +249,22 @@ internal static class LibraryMetadataService
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
-                // Fallback for non-pipeline callers — open the assembly once for all five scans.
+                // Fallback for non-pipeline callers — open the assembly once for all bounded scans.
                 try
                 {
                     using var session = AssemblyInspectionSession.Open(path);
-                    inspection.Apply(ScanExtensionMembers(session, path, logger));
+                    ApplyExtensionMethodsResult(
+                        path,
+                        inspection,
+                        logger,
+                        ExtensionMethodsQuery.Execute(session));
+                    ApplyCustomAttributesResult(
+                        path,
+                        inspection,
+                        logger,
+                        CustomAttributesQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
                     inspection.ResourceInspection = ScanResources(session, path, logger);
-                    inspection.Apply(ScanCustomAttributes(session, path, logger));
                     inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                     inspection.TypeForwarderInspection = ScanTypeForwarders(session, path, logger);
                 }
@@ -695,52 +703,6 @@ internal static class LibraryMetadataService
         }
 
         return nodes;
-    }
-
-    /// <summary>
-    /// Scans an assembly for extension members and retains Metadata's typed census.
-    /// </summary>
-    internal static ExtensionMemberScan ScanExtensionMembers(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanExtensionMembers(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
-            return new ExtensionMemberScan(
-                FailedInspection<ExtensionMemberObservation>(
-                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
-                DisplayOrder: null);
-        }
-    }
-
-    internal static ExtensionMemberScan ScanExtensionMembers(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            var extensions = session.ExtensionMethods().ToArray();
-            return new ExtensionMemberScan(
-                MetadataFindings.InspectExtensionMembers(
-                    extensions,
-                    FindingSubjectFor(path)),
-                extensions);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning extensions in {path}: {ex.Message}");
-            return new ExtensionMemberScan(
-                FailedInspection<ExtensionMemberObservation>(
-                    path, MetadataFindings.ExtensionMemberDescriptor, ex),
-                DisplayOrder: null);
-        }
     }
 
     /// <summary>
@@ -1662,47 +1624,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    /// <summary>
-    /// Scans an assembly for custom attributes (assembly-level and module-level).
-    /// </summary>
-    internal static AssemblyAttributeScan ScanCustomAttributes(string path, VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanCustomAttributes(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning custom attributes in {path}: {ex.Message}");
-            return new AssemblyAttributeScan(
-                FailedInspection<AssemblyAttributeInfo>(
-                    path, MetadataFindings.AssemblyAttributeDescriptor, ex),
-                JsonOrder: null);
-        }
-    }
-
-    internal static AssemblyAttributeScan ScanCustomAttributes(AssemblyInspectionSession session, string path, VerboseLogger logger)
-    {
-        try
-        {
-            var attributes = session.CustomAttributes();
-            return new AssemblyAttributeScan(
-                MetadataFindings.InspectAssemblyAttributes(
-                    attributes,
-                    FindingSubjectFor(path)),
-                attributes);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning custom attributes in {path}: {ex.Message}");
-            return new AssemblyAttributeScan(
-                FailedInspection<AssemblyAttributeInfo>(
-                    path, MetadataFindings.AssemblyAttributeDescriptor, ex),
-                JsonOrder: null);
-        }
-    }
-
     internal static FindingInspection<UnionTypeInfo> ScanUnionTypes(
         string path,
         VerboseLogger logger)
@@ -1797,6 +1718,20 @@ internal static class LibraryMetadataService
                 out AssemblyReferencesResult? references))
         {
             ApplyAssemblyReferencesResult(path, inspection, logger, references);
+        }
+
+        if (results.TryGet(
+                ExtensionMethodsQuery.Definition,
+                out ExtensionMethodsResult? extensionMethods))
+        {
+            ApplyExtensionMethodsResult(path, inspection, logger, extensionMethods);
+        }
+
+        if (results.TryGet(
+                CustomAttributesQuery.Definition,
+                out CustomAttributesResult? customAttributes))
+        {
+            ApplyCustomAttributesResult(path, inspection, logger, customAttributes);
         }
 
         if (results.TryGet(
@@ -1924,6 +1859,72 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown assembly-reference result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyExtensionMethodsResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ExtensionMethodsResult result)
+    {
+        switch (result)
+        {
+            case ExtensionMethodsResult.Available available:
+                inspection.SetExtensionMemberInspection(
+                    MetadataFindings.InspectExtensionMembers(
+                        available.Methods,
+                        FindingSubjectFor(path)),
+                    available.Methods);
+                break;
+
+            case ExtensionMethodsResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning extensions in {path}: {failed.Error.Message}");
+                inspection.SetExtensionMemberInspection(
+                    FailedInspection<ExtensionMemberObservation>(
+                        path,
+                        MetadataFindings.ExtensionMemberDescriptor,
+                        failed.Error),
+                    displayOrder: null);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown extension-method result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyCustomAttributesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        CustomAttributesResult result)
+    {
+        switch (result)
+        {
+            case CustomAttributesResult.Available available:
+                inspection.SetAssemblyAttributeInspection(
+                    MetadataFindings.InspectAssemblyAttributes(
+                        available.Attributes,
+                        FindingSubjectFor(path)),
+                    available.Attributes);
+                break;
+
+            case CustomAttributesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning custom attributes in {path}: {failed.Error.Message}");
+                inspection.SetAssemblyAttributeInspection(
+                    FailedInspection<AssemblyAttributeInfo>(
+                        path,
+                        MetadataFindings.AssemblyAttributeDescriptor,
+                        failed.Error),
+                    jsonOrder: null);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown custom-attributes result '{result.GetType().Name}'.");
         }
     }
 
