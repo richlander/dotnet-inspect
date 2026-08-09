@@ -7,6 +7,9 @@ namespace NuGetFetch;
 /// </summary>
 public class SearchService(HttpClient client, string? searchUrl = null)
 {
+    private const int PrefixSearchPageSize = 100;
+    private const int MaxPrefixSearchPages = 32;
+    private static readonly TimeSpan PrefixSearchTimeout = TimeSpan.FromSeconds(30);
     private readonly string _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
 
     /// <summary>
@@ -23,9 +26,25 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         bool prerelease = false,
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
+        => await SearchPageAsync(
+            query,
+            skip: 0,
+            take,
+            prerelease,
+            auth,
+            cancellationToken).ConfigureAwait(false);
+
+    private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
+        string query,
+        int skip,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        CancellationToken cancellationToken)
     {
         string pre = prerelease ? "true" : "false";
-        string url = $"{_searchUrl}?q={Uri.EscapeDataString(query)}&take={take}&prerelease={pre}";
+        string url =
+            $"{_searchUrl}?q={Uri.EscapeDataString(query)}&skip={skip}&take={take}&prerelease={pre}";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (auth is not null)
@@ -57,11 +76,53 @@ public class SearchService(HttpClient client, string? searchUrl = null)
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<SearchResult> results = await SearchAsync(
-            prefix, take, prerelease, auth, cancellationToken).ConfigureAwait(false);
+        List<SearchResult> matches = [];
+        var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int skip = 0;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(PrefixSearchTimeout);
 
-        return results
-            .Where(r => r.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        for (int pageNumber = 0;
+            pageNumber < MaxPrefixSearchPages && matches.Count < take;
+            pageNumber++)
+        {
+            IReadOnlyList<SearchResult> page = await SearchPageAsync(
+                prefix,
+                skip,
+                PrefixSearchPageSize,
+                prerelease,
+                auth,
+                timeout.Token).ConfigureAwait(false);
+            if (page.Count == 0)
+                return matches;
+
+            bool madeProgress = false;
+            foreach (SearchResult result in page)
+            {
+                madeProgress |= observedResults.Add(
+                    $"{result.Id.Length}:{result.Id}{result.Version}");
+                if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    && matchedIds.Add(result.Id))
+                {
+                    matches.Add(result);
+                    if (matches.Count == take)
+                        break;
+                }
+            }
+
+            if (!madeProgress)
+                throw new InvalidOperationException(
+                    "NuGet search pagination repeated a page without making progress.");
+
+            skip += page.Count;
+        }
+
+        if (matches.Count < take)
+            throw new InvalidOperationException(
+                $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
+
+        return matches;
     }
 }

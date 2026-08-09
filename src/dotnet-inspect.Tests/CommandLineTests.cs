@@ -488,6 +488,15 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void LibraryCommand_WithReferenceTreeDepth_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["library", "MyLib.dll", "-S", "References", "--tree", "--depth", "2"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void HelpOption_IsAvailable()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["--help"]);

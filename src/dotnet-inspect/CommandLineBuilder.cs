@@ -102,6 +102,11 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
+        catch (DotnetInspector.Services.NuspecParseException ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             return 1;
@@ -144,6 +149,8 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(offlineOption);
         var traceMermaidOption = new Option<bool>("--trace-mermaid") { Description = "Write a Mermaid request trace diagram to stderr at process exit" };
         rootCommand.Options.Add(traceMermaidOption);
+        var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
+        rootCommand.Options.Add(httpTimeoutOption);
 
         // API command (deprecated, hidden)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateDeprecatedApiCommand());

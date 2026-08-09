@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -13,12 +14,12 @@ public static class CoreCache
     private static string? _appName;
     private static string? _basePathOverride;
     private static readonly object s_maintenanceLock = new();
-    private static readonly List<VersionedCacheCategory> s_versionedCategories = [];
+    private static readonly Dictionary<string, VersionedCacheCategory> s_versionedCategories =
+        new(StringComparer.OrdinalIgnoreCase);
     private static CancellationTokenSource? s_maintenanceCts;
     private static Task<CacheMaintenanceResult>? s_maintenanceTask;
     private static CacheMaintenanceProgress? s_maintenanceProgress;
-    private static AsyncCache<string, CacheMaintenanceResult> s_maintenanceRequests =
-        new(StringComparer.Ordinal);
+    private static Dictionary<VersionedCacheCleanupKey, Task> s_maintenanceTasks = [];
 
     /// <summary>
     /// Initializes the cache with the application name used for the cache directory.
@@ -27,17 +28,28 @@ public static class CoreCache
     public static void Initialize(string appName, string? basePath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(appName);
-        _appName = appName;
-        _basePathOverride = basePath;
         lock (s_maintenanceLock)
         {
+            string? previousRoot = _appName is null ? null : GetBasePath();
             s_maintenanceCts?.Cancel();
+            WaitForMaintenanceTasksBestEffort();
+            CacheMaintenanceResult previousProgress =
+                s_maintenanceProgress?.TakeSnapshot() ?? default;
             s_maintenanceCts?.Dispose();
-            s_maintenanceCts = null;
+            _appName = appName;
+            _basePathOverride = basePath;
+            s_maintenanceCts = new CancellationTokenSource();
             s_maintenanceTask = null;
-            s_maintenanceProgress = null;
-            s_maintenanceRequests = new AsyncCache<string, CacheMaintenanceResult>(
-                StringComparer.Ordinal);
+            s_maintenanceProgress = new CacheMaintenanceProgress();
+            s_maintenanceTasks = [];
+            if (previousRoot is not null
+                && IsSamePath(previousRoot, GetBasePath()))
+            {
+                s_maintenanceProgress.Record(previousProgress);
+            }
+
+            foreach (VersionedCacheCategory category in s_versionedCategories.Values)
+                ScheduleVersionedCategoryCleanup(category);
         }
     }
 
@@ -151,23 +163,33 @@ public static class CoreCache
     /// <summary>
     /// Registers a versioned cache category family for best-effort cleanup.
     /// For example, prefix <c>pkg-index-v</c> with current <c>pkg-index-v8</c>
-    /// causes maintenance to delete sibling directories such as <c>pkg-index-v7</c>.
+    /// causes maintenance to delete older sibling directories such as
+    /// <c>pkg-index-v7</c> while preserving future versions.
     /// </summary>
     public static void RegisterVersionedCategory(string prefix, string current)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
         ArgumentException.ThrowIfNullOrWhiteSpace(current);
+        VersionedCacheCategory category = CreateVersionedCacheCategory(prefix, current);
 
         lock (s_maintenanceLock)
         {
-            if (s_versionedCategories.Any(c =>
-                c.Prefix.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-                && c.Current.Equals(current, StringComparison.OrdinalIgnoreCase)))
+            if (s_versionedCategories.TryGetValue(prefix, out VersionedCacheCategory registered))
             {
+                if (registered.CurrentVersion != category.CurrentVersion
+                    || !registered.Current.Equals(current, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"Cache category prefix '{prefix}' is already registered "
+                        + $"with current category '{registered.Current}'.");
+                }
+
+                ScheduleVersionedCategoryCleanup(registered);
                 return;
             }
 
-            s_versionedCategories.Add(new(prefix, current));
+            s_versionedCategories.Add(prefix, category);
+            ScheduleVersionedCategoryCleanup(category);
         }
     }
 
@@ -291,7 +313,7 @@ public static class CoreCache
             {
                 Directory.CreateDirectory(dir);
             }
-            File.WriteAllText(path, content);
+            WriteAtomically(path, tempPath => File.WriteAllText(tempPath, content));
             CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
@@ -314,12 +336,26 @@ public static class CoreCache
             {
                 Directory.CreateDirectory(dir);
             }
-            File.WriteAllBytes(path, content);
+            WriteAtomically(path, tempPath => File.WriteAllBytes(tempPath, content));
             CacheTelemetry.Record(GetTelemetryCategory(category, extension), key, CacheAccessResult.Store);
         }
         catch
         {
             // Caching is best-effort
+        }
+    }
+
+    private static void WriteAtomically(string path, Action<string> write)
+    {
+        string tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            write(tempPath);
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(tempPath);
         }
     }
 
@@ -329,21 +365,30 @@ public static class CoreCache
     /// <returns>The number of bytes freed.</returns>
     public static long Clear(string? category = null)
     {
-        var targetPath = category != null ? GetCategoryPath(category) : GetBasePath();
-        EnsurePathInCacheContext(targetPath);
-        if (!Directory.Exists(targetPath))
-            return 0;
+        lock (s_maintenanceLock)
+        {
+            CacheMaintenanceResult maintenance =
+                WaitForMaintenance(
+                    Timeout.InfiniteTimeSpan,
+                    consumeProgress: category is null);
+            var targetPath = category != null ? GetCategoryPath(category) : GetBasePath();
+            EnsurePathInCacheContext(targetPath);
+            long maintenanceBytes = category is null ? maintenance.BytesFreed : 0;
+            if (!Directory.Exists(targetPath))
+                return maintenanceBytes;
 
-        var size = GetDirectorySize(targetPath);
-        try
-        {
-            Directory.Delete(targetPath, recursive: true);
+            var size = GetDirectorySize(targetPath);
+            try
+            {
+                Directory.Delete(targetPath, recursive: true);
+            }
+            catch (DirectoryNotFoundException) when (!Directory.Exists(targetPath))
+            {
+                // Another process completed the same cache deletion.
+            }
+
+            return maintenanceBytes + size;
         }
-        catch
-        {
-            // Best-effort
-        }
-        return size;
     }
 
     /// <summary>
@@ -362,22 +407,21 @@ public static class CoreCache
 
     /// <summary>
     /// Waits briefly for in-flight cleanup to finish, cancels if it exceeds the timeout, and returns
-    /// the amount of obsolete cache data removed so far.
+    /// the amount of obsolete cache data removed since the previous drain.
     /// </summary>
     public static CacheMaintenanceResult CancelAndWaitForMaintenance(TimeSpan timeout)
+        => WaitForMaintenance(timeout, consumeProgress: true);
+
+    private static CacheMaintenanceResult WaitForMaintenance(
+        TimeSpan timeout,
+        bool consumeProgress)
     {
-        Task<CacheMaintenanceResult>? task;
-        CancellationTokenSource? cts;
-        CacheMaintenanceProgress? progress;
         lock (s_maintenanceLock)
         {
-            task = s_maintenanceTask;
-            cts = s_maintenanceCts;
-            progress = s_maintenanceProgress;
-        }
+            Task<CacheMaintenanceResult> task = RequestVersionedCategoryCleanupAsync();
+            CancellationTokenSource? cts = s_maintenanceCts;
+            CacheMaintenanceProgress? progress = s_maintenanceProgress;
 
-        if (task != null)
-        {
             try
             {
                 if (!task.Wait(timeout))
@@ -390,12 +434,14 @@ public static class CoreCache
             {
                 // Best-effort shutdown hook; cleanup must never affect command success.
             }
+
+            if (progress is null)
+                return default;
+
+            return consumeProgress
+                ? progress.TakeSnapshot()
+                : progress.Snapshot();
         }
-
-        if (task is { IsCompletedSuccessfully: true })
-            return task.Result;
-
-        return progress?.Snapshot() ?? default;
     }
 
     /// <summary>
@@ -421,95 +467,173 @@ public static class CoreCache
     private static void RecordCacheMiss()
     {
         InfoTracker.RecordCacheMiss();
-        _ = RequestVersionedCategoryCleanupAsync();
     }
 
     /// <summary>
-    /// Returns the single versioned-category cleanup task used by cache-miss
-    /// maintenance so callers can observe or drain the real operation.
+    /// Returns the aggregate versioned-category cleanup task so callers can
+    /// observe or drain the real operation.
     /// </summary>
     internal static Task<CacheMaintenanceResult> RequestVersionedCategoryCleanupAsync()
     {
         lock (s_maintenanceLock)
         {
-            if (s_versionedCategories.Count == 0)
+            if (_appName is null || s_versionedCategories.Count == 0)
                 return Task.FromResult(default(CacheMaintenanceResult));
 
-            string root = GetBasePath();
+            foreach (VersionedCacheCategory category in s_versionedCategories.Values)
+                ScheduleVersionedCategoryCleanup(category);
 
-            if (s_maintenanceTask is { IsFaulted: false, IsCanceled: false })
-                return s_maintenanceTask;
-
-            VersionedCacheCategory[] categories = [.. s_versionedCategories];
-            s_maintenanceCts?.Dispose();
-            s_maintenanceCts = new CancellationTokenSource();
-            s_maintenanceProgress = new CacheMaintenanceProgress();
-            var token = s_maintenanceCts.Token;
-            var progress = s_maintenanceProgress;
-            s_maintenanceTask = s_maintenanceRequests.GetOrAddAsync(
-                root,
-                _ => Task.Run(
-                    () => CleanupVersionedCategories(
-                        root,
-                        categories,
-                        token,
-                        progress),
-                    CancellationToken.None));
-            return s_maintenanceTask;
+            return s_maintenanceTask ??= AwaitMaintenanceAsync(
+                [.. s_maintenanceTasks.Values],
+                s_maintenanceProgress!);
         }
     }
 
-    private static CacheMaintenanceResult CleanupVersionedCategories(
+    private static void ScheduleVersionedCategoryCleanup(
+        VersionedCacheCategory category)
+    {
+        if (_appName is null)
+            return;
+
+        StartNewMaintenanceGenerationIfCanceled();
+        string root = GetBasePath();
+        var key = new VersionedCacheCleanupKey(
+            root,
+            category.Prefix,
+            category.CurrentVersion);
+        if (s_maintenanceTasks.ContainsKey(key))
+            return;
+
+        s_maintenanceCts ??= new CancellationTokenSource();
+        s_maintenanceProgress ??= new CacheMaintenanceProgress();
+        CancellationToken token = s_maintenanceCts.Token;
+        CacheMaintenanceProgress progress = s_maintenanceProgress;
+        s_maintenanceTasks.Add(
+            key,
+            Task.Run(
+                () => CleanupVersionedCategory(
+                    root,
+                    category,
+                    token,
+                    progress),
+                CancellationToken.None));
+        s_maintenanceTask = null;
+    }
+
+    private static void StartNewMaintenanceGenerationIfCanceled()
+    {
+        if (s_maintenanceCts is not { IsCancellationRequested: true })
+            return;
+
+        WaitForMaintenanceTasksBestEffort();
+
+        CacheMaintenanceResult carriedProgress =
+            s_maintenanceProgress?.TakeSnapshot() ?? default;
+        s_maintenanceCts.Dispose();
+        s_maintenanceCts = new CancellationTokenSource();
+        s_maintenanceTask = null;
+        s_maintenanceProgress = new CacheMaintenanceProgress();
+        s_maintenanceProgress.Record(carriedProgress);
+        s_maintenanceTasks = [];
+    }
+
+    private static void WaitForMaintenanceTasksBestEffort()
+    {
+        try
+        {
+            Task.WaitAll([.. s_maintenanceTasks.Values]);
+        }
+        catch
+        {
+            // Replacement and shutdown still proceed after best-effort maintenance.
+        }
+    }
+
+    private static async Task<CacheMaintenanceResult> AwaitMaintenanceAsync(
+        Task[] tasks,
+        CacheMaintenanceProgress progress)
+    {
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        return progress.Snapshot();
+    }
+
+    private static void CleanupVersionedCategory(
         string root,
-        IReadOnlyList<VersionedCacheCategory> categories,
+        VersionedCacheCategory category,
         CancellationToken cancellationToken,
         CacheMaintenanceProgress progress)
     {
         if (!Directory.Exists(root))
-            return progress.Snapshot();
+            return;
 
-        foreach (var category in categories)
+        string[] directories;
+        try
+        {
+            directories = Directory.GetDirectories(root);
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (string directory in directories)
         {
             if (cancellationToken.IsCancellationRequested)
-                return progress.Snapshot();
+                return;
 
-            string[] directories;
             try
             {
-                directories = Directory.GetDirectories(root, $"{category.Prefix}*");
-            }
-            catch
-            {
-                continue;
-            }
-
-            foreach (var directory in directories)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    return progress.Snapshot();
-
                 var name = Path.GetFileName(directory);
-                if (name.Equals(category.Current, StringComparison.OrdinalIgnoreCase))
-                    continue;
                 if (!name.StartsWith(category.Prefix, StringComparison.OrdinalIgnoreCase))
                     continue;
+                ReadOnlySpan<char> suffix = name.AsSpan(category.Prefix.Length);
+                // A newer executable may run beside or before this one, so a
+                // downgrade must preserve contracts it does not understand.
+                if (!int.TryParse(
+                    suffix,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int version)
+                    || version >= category.CurrentVersion)
+                {
+                    continue;
+                }
+
                 if (!IsSameOrChildPath(directory, root))
                     continue;
 
                 var size = GetDirectorySizeBestEffort(directory);
-                try
-                {
-                    Directory.Delete(directory, recursive: true);
-                    progress.RecordDeletion(size);
-                }
-                catch
-                {
-                    // Cache cleanup is best-effort.
-                }
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                Directory.Delete(directory, recursive: true);
+                progress.RecordDeletion(size);
+            }
+            catch
+            {
+                // Cache cleanup is best-effort and retried on the next initialization.
             }
         }
+    }
 
-        return progress.Snapshot();
+    private static VersionedCacheCategory CreateVersionedCacheCategory(
+        string prefix,
+        string current)
+    {
+        if (!current.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(
+                current.AsSpan(prefix.Length),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int currentVersion))
+        {
+            throw new ArgumentException(
+                $"Current cache category '{current}' must be the prefix '{prefix}' "
+                + "followed by a non-negative integer contract version.",
+                nameof(current));
+        }
+
+        return new VersionedCacheCategory(prefix, current, currentVersion);
     }
 
     private static long GetDirectorySizeBestEffort(string path)
@@ -543,11 +667,25 @@ public static class CoreCache
             || fullPath.StartsWith(fullRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
             || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsSamePath(string left, string right) =>
+        Path.TrimEndingDirectorySeparator(Path.GetFullPath(left))
+            .Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                StringComparison.OrdinalIgnoreCase);
 }
 
 public readonly record struct CacheMaintenanceResult(long BytesFreed, int DirectoriesDeleted);
 
-internal readonly record struct VersionedCacheCategory(string Prefix, string Current);
+internal readonly record struct VersionedCacheCategory(
+    string Prefix,
+    string Current,
+    int CurrentVersion);
+
+internal readonly record struct VersionedCacheCleanupKey(
+    string Root,
+    string Prefix,
+    int CurrentVersion);
 
 internal sealed class CacheMaintenanceProgress
 {
@@ -560,10 +698,21 @@ internal sealed class CacheMaintenanceProgress
         Interlocked.Increment(ref _directoriesDeleted);
     }
 
+    public void Record(CacheMaintenanceResult result)
+    {
+        Interlocked.Add(ref _bytesFreed, result.BytesFreed);
+        Interlocked.Add(ref _directoriesDeleted, result.DirectoriesDeleted);
+    }
+
     public CacheMaintenanceResult Snapshot()
         => new(
             Interlocked.Read(ref _bytesFreed),
             Volatile.Read(ref _directoriesDeleted));
+
+    public CacheMaintenanceResult TakeSnapshot()
+        => new(
+            Interlocked.Exchange(ref _bytesFreed, 0),
+            Interlocked.Exchange(ref _directoriesDeleted, 0));
 }
 
 /// <summary>

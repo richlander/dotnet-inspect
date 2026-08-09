@@ -1,3 +1,5 @@
+using DotnetInspector.Queries;
+
 namespace DotnetInspector.Sections;
 
 /// <summary>
@@ -23,4 +25,19 @@ public enum SectionCost
     /// <c>-v:d</c>); reachable only by exact name or an explicit category door.
     /// </summary>
     Unbounded,
+}
+
+internal static class InspectionCostMapping
+{
+    public static SectionCost ToSectionCost(
+        this InspectionCost cost,
+        InspectionQueryDefinition query)
+        => cost switch
+        {
+            InspectionCost.NetworkFree => SectionCost.NetworkFree,
+            InspectionCost.Moderated => SectionCost.Moderated,
+            InspectionCost.Unbounded => SectionCost.Unbounded,
+            _ => throw new InvalidOperationException(
+                $"Unknown inspection query cost for '{query.Name}'."),
+        };
 }

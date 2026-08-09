@@ -594,8 +594,9 @@ public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixtur
         MetadataReader reader = peReader.GetMetadataReader();
 
         Assert.Equal(0, reader.GetTableRowCount(TableIndex.FieldRva));
-        Assert.Empty(reader.MethodDefinitions
-            .Where(h => reader.GetMethodDefinition(h).RelativeVirtualAddress != 0));
+        Assert.DoesNotContain(
+            reader.MethodDefinitions,
+            h => reader.GetMethodDefinition(h).RelativeVirtualAddress != 0);
     }
 
     /// <summary>

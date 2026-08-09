@@ -462,6 +462,347 @@ public class TypeResolutionContextTests
                 .ToHashSet());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedBindingKey_IsStableForOneCompleteBinding(
+        bool policyUnavailable)
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        AssemblyBindingOrigin origin =
+            AssemblyBindingOrigin.FromAssembly(owner);
+        AssemblyReferenceIdentity target = Identity("Missing");
+        TypeResolutionRequest firstRequest =
+            TypeResolutionRequest.FromReference(
+                target,
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest secondRequest =
+            TypeResolutionRequest.FromReference(
+                target,
+                origin,
+                AssemblyResolutionScope.Any,
+                TypeName("Other"));
+        AssemblyBindingFailure? failure = policyUnavailable
+            ? new AssemblyBindingFailure(
+                AssemblyBindingFailureKind.CandidateUnavailable)
+            : null;
+        var policy = new RecordingPolicy(
+            _ => failure is null
+                ? AssemblyBindingSelection.NotFound()
+                : AssemblyBindingSelection.CannotSelect(failure));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            [owner],
+            [firstRequest, secondRequest]);
+
+        TypeResolutionOutcome firstOutcome = context.Resolve(firstRequest);
+        TypeResolutionOutcome secondOutcome = context.Resolve(secondRequest);
+        if (failure is null)
+        {
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(firstOutcome);
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(secondOutcome);
+        }
+        else
+        {
+            Assert.Same(
+                failure,
+                Assert.IsType<TypeResolutionOutcome.Unavailable>(firstOutcome)
+                    .Failure);
+            Assert.Same(
+                failure,
+                Assert.IsType<TypeResolutionOutcome.Unavailable>(secondOutcome)
+                    .Failure);
+        }
+
+        UnresolvedBindingKey first = IssuedBindingKey(
+            catalog,
+            UnresolvedBinding(firstOutcome));
+        UnresolvedBindingKey second = IssuedBindingKey(
+            catalog,
+            UnresolvedBinding(secondOutcome));
+        var equivalent = new UnresolvedBindingKey(
+            first.Catalog,
+            first.Generation,
+            first.Value);
+
+        Assert.Same(first, second);
+        Assert.Equal(first, equivalent);
+        Assert.True(first == equivalent);
+        Assert.False(first != equivalent);
+        Assert.Equal(first.GetHashCode(), equivalent.GetHashCode());
+        Assert.Contains(
+            equivalent,
+            new HashSet<UnresolvedBindingKey> { first });
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void UnresolvedBindingKey_PreservesEveryBindingCoordinate()
+    {
+        byte[] firstOwnerImage =
+            BuildAssembly("FirstOwner", definesType: false);
+        byte[] secondOwnerImage =
+            BuildAssembly("SecondOwner", definesType: false);
+        ResolvedAssemblyReference firstOwner = Descriptor(firstOwnerImage);
+        ResolvedAssemblyReference secondOwner = Descriptor(secondOwnerImage);
+        AssemblyBindingOrigin firstOrigin =
+            AssemblyBindingOrigin.FromAssembly(firstOwner);
+        AssemblyReferenceIdentity target = Identity("Target");
+        TypeResolutionRequest baseline =
+            TypeResolutionRequest.FromReference(
+                target,
+                firstOrigin,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest equivalent =
+            TypeResolutionRequest.FromReference(
+                new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                AssemblyBindingOrigin.FromAssembly(firstOwner),
+                AssemblyResolutionScope.Any,
+                TypeName("Equivalent"));
+        TypeResolutionRequest[] closeNegatives =
+        [
+            TypeResolutionRequest.FromReference(
+                new AssemblyReferenceIdentity(
+                    "Other",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                firstOrigin,
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    null),
+                firstOrigin,
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    "fr",
+                    null),
+                firstOrigin,
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    "0011223344556677"),
+                firstOrigin,
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                target,
+                AssemblyBindingOrigin.FromAssembly(secondOwner),
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                target,
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any,
+                TypeName()),
+            TypeResolutionRequest.FromReference(
+                target,
+                firstOrigin,
+                AssemblyResolutionScope.Platform,
+                TypeName()),
+            TypeResolutionRequest.FromCoreLibrary(
+                firstOwner,
+                AssemblyResolutionScope.Any,
+                TypeName()),
+        ];
+        TypeResolutionRequest[] requests =
+            [baseline, equivalent, .. closeNegatives];
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [firstOwner, secondOwner],
+            requests);
+
+        UnresolvedBindingKey baselineKey = IssuedBindingKey(
+            catalog,
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(baseline)).Binding);
+        UnresolvedBindingKey equivalentKey = IssuedBindingKey(
+            catalog,
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(equivalent)).Binding);
+        UnresolvedBindingKey[] negativeKeys = closeNegatives
+            .Select(request => IssuedBindingKey(
+                catalog,
+                Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                    context.Resolve(request)).Binding))
+            .ToArray();
+
+        Assert.Same(baselineKey, equivalentKey);
+        Assert.Equal(
+            negativeKeys.Length,
+            negativeKeys.Distinct().Count());
+        Assert.DoesNotContain(baselineKey, negativeKeys);
+    }
+
+    [Fact]
+    public void UnresolvedBindingKey_UsesTheTerminalForwardedBinding()
+    {
+        AssemblyReferenceIdentity target = Identity("Missing");
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: target);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        TypeResolutionRequest forwarded =
+            TypeResolutionRequest.FromAssembly(
+                facade,
+                AssemblyResolutionScope.Any,
+                TypeName());
+        TypeResolutionRequest direct =
+            TypeResolutionRequest.FromReference(
+                target,
+                AssemblyBindingOrigin.FromAssembly(facade),
+                AssemblyResolutionScope.Any,
+                TypeName("Other"));
+        TypeResolutionRequest differentScope =
+            TypeResolutionRequest.FromReference(
+                target,
+                AssemblyBindingOrigin.FromAssembly(facade),
+                AssemblyResolutionScope.Platform,
+                TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [facade],
+            [forwarded, direct, differentScope]);
+
+        var forwardedOutcome =
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(forwarded));
+        var directOutcome =
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(direct));
+        var scopedOutcome =
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(differentScope));
+
+        Assert.Single(forwardedOutcome.Hops);
+        Assert.Same(
+            IssuedBindingKey(catalog, forwardedOutcome.Binding),
+            IssuedBindingKey(catalog, directOutcome.Binding));
+        Assert.NotEqual(
+            IssuedBindingKey(catalog, forwardedOutcome.Binding),
+            IssuedBindingKey(catalog, scopedOutcome.Binding));
+    }
+
+    [Fact]
+    public async Task UnresolvedBindingKey_ConcurrentIssuanceReturnsOneKey()
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromReference(
+                Identity("Missing"),
+                AssemblyBindingOrigin.FromAssembly(owner),
+                AssemblyResolutionScope.Any,
+                TypeName());
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
+            [owner],
+            [request]);
+        UnresolvedBindingReference binding =
+            Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                context.Resolve(request)).Binding;
+
+        UnresolvedBindingKey[] keys = await Task.WhenAll(
+            Enumerable.Range(0, 32)
+                .Select(_ => Task.Run(
+                    () => IssuedBindingKey(catalog, binding),
+                    TestContext.Current.CancellationToken)));
+
+        Assert.All(keys, key => Assert.Same(keys[0], key));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnresolvedBindingKey_RejectsCrossCatalogAndStaleReferences(
+        bool policyUnavailable)
+    {
+        byte[] ownerImage = BuildAssembly("Owner", definesType: false);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromReference(
+                Identity("Missing"),
+                AssemblyBindingOrigin.FromAssembly(owner),
+                AssemblyResolutionScope.Any,
+                TypeName());
+        var failure = new AssemblyBindingFailure(
+            AssemblyBindingFailureKind.CandidateUnavailable);
+        var policy = new RecordingPolicy(
+            _ => policyUnavailable
+                ? AssemblyBindingSelection.CannotSelect(failure)
+                : AssemblyBindingSelection.NotFound());
+        using var firstCatalog = new TypeResolutionCatalog();
+        using var secondCatalog = new TypeResolutionCatalog();
+        using TypeResolutionContext first =
+            firstCatalog.CreateContext(policy, [owner], [request]);
+        TypeResolutionOutcome oldOutcome = first.Resolve(request);
+        UnresolvedBindingReference oldBinding =
+            UnresolvedBinding(oldOutcome);
+        UnresolvedBindingKey oldKey =
+            IssuedBindingKey(firstCatalog, oldBinding);
+
+        var incomparable = Assert.IsType<
+            UnresolvedBindingKeyProjection.IncomparableCatalogs>(
+                secondCatalog.ProjectUnresolvedBindingKey(oldBinding));
+        Assert.Equal(secondCatalog.Id, incomparable.Catalog);
+        Assert.Equal(firstCatalog.Id, incomparable.BindingCatalog);
+
+        using TypeResolutionContext current =
+            firstCatalog.CreateContext(policy, [owner], [request]);
+        TypeResolutionOutcome currentOutcome = current.Resolve(request);
+        UnresolvedBindingReference currentBinding =
+            UnresolvedBinding(currentOutcome);
+        UnresolvedBindingKey currentKey =
+            IssuedBindingKey(firstCatalog, currentBinding);
+        var stale = Assert.IsType<
+            UnresolvedBindingKeyProjection.StaleGeneration>(
+                firstCatalog.ProjectUnresolvedBindingKey(oldBinding));
+
+        Assert.NotSame(oldOutcome, currentOutcome);
+        Assert.NotSame(oldBinding, currentBinding);
+        Assert.Same(oldKey.Generation, stale.BindingGeneration);
+        Assert.Same(currentKey.Generation, stale.CurrentGeneration);
+        Assert.NotEqual(oldKey, currentKey);
+        Assert.NotEqual(
+            oldKey,
+            new UnresolvedBindingKey(
+                oldKey.Catalog,
+                new AssemblyCatalogGenerationId(),
+                oldKey.Value));
+        Assert.NotEqual(
+            oldKey,
+            new UnresolvedBindingKey(
+                new AssemblyCatalogId(Guid.NewGuid()),
+                oldKey.Generation,
+                oldKey.Value));
+        Assert.Single(policy.Requests);
+    }
+
     [Fact]
     public void DefinitionAddress_ResolvesOnlyAgainstMatchingModuleAndRow()
     {
@@ -537,6 +878,56 @@ public class TypeResolutionContextTests
         Assert.Single(policy.Requests);
         Assert.IsType<AssemblyBindingOutcome.Resolved>(
             context.Bind(policy.Requests[0]));
+    }
+
+    [Fact]
+    public void NestedForwarder_ResolvesFullDeclarationChain()
+    {
+        ImmutableArray<string> segments = ["Outer", "Inner"];
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true,
+            typeSegments: segments);
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: ReadIdentity(targetImage),
+            typeSegments: segments);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", segments))
+            .Name;
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            facade,
+            AssemblyResolutionScope.Any,
+            nestedName);
+
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                _ => AssemblyBindingSelection.Found(target)),
+            [facade],
+            [request]);
+        var resolved = Assert.IsType<TypeResolutionOutcome.Resolved>(
+            context.Resolve(request));
+
+        TypeForwardingHop hop = Assert.Single(resolved.Hops);
+        Assert.Equal(2, hop.Declarations.Length);
+        Assert.Equal(nestedName, resolved.Definition.Type);
+        Assert.Same(target, resolved.Definition.Assembly.Assembly);
+        using var stream = new MemoryStream(targetImage, writable: false);
+        using var peReader = new PEReader(stream);
+        Assert.True(
+            resolved.Definition.Address.TryResolve(
+                peReader.GetMetadataReader(),
+                out TypeDefinitionHandle definition));
+        Assert.Equal(
+            "Inner",
+            peReader.GetMetadataReader().GetString(
+                peReader.GetMetadataReader()
+                    .GetTypeDefinition(definition)
+                    .Name));
     }
 
     [Fact]
@@ -1687,6 +2078,48 @@ public class TypeResolutionContextTests
                 type.GetConstructors(
                     BindingFlags.Public | BindingFlags.Instance)));
         Assert.Empty(
+            typeof(UnresolvedBindingReference)
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(UnresolvedBindingReference)
+                .GetFields(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(UnresolvedBindingReference)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(UnresolvedBindingKey)
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(UnresolvedBindingKey)
+                .GetFields(BindingFlags.Public | BindingFlags.Instance));
+        Assert.Empty(
+            typeof(UnresolvedBindingKey)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance));
+        ConstructorInfo bindingProjectionConstructor = Assert.Single(
+            typeof(UnresolvedBindingKeyProjection)
+                .GetConstructors(
+                    BindingFlags.NonPublic | BindingFlags.Instance));
+        Assert.True(bindingProjectionConstructor.IsFamilyAndAssembly);
+        Assert.All(
+            typeof(UnresolvedBindingKeyProjection).GetNestedTypes(),
+            type => Assert.Empty(
+                type.GetConstructors(
+                    BindingFlags.Public | BindingFlags.Instance)));
+        Assert.Equal(
+            [
+                typeof(TypeResolutionOutcome.Unavailable),
+                typeof(TypeResolutionOutcome.UnboundBinding),
+            ],
+            typeof(TypeResolutionOutcome).Assembly
+                .GetExportedTypes()
+                .SelectMany(type => type.GetProperties(
+                    BindingFlags.Public | BindingFlags.Instance))
+                .Where(property =>
+                    property.PropertyType
+                        == typeof(UnresolvedBindingReference))
+                .Select(property => property.DeclaringType)
+                .OrderBy(type => type!.FullName, StringComparer.Ordinal));
+        Assert.Empty(
             typeof(ResolvedAssemblyCandidate)
                 .GetConstructors(BindingFlags.Public | BindingFlags.Instance));
     }
@@ -1696,6 +2129,23 @@ public class TypeResolutionContextTests
         ResolvedTypeDefinitionKey definition) =>
         Assert.IsType<DefinitionJoinTokenProjection.Issued>(
             catalog.ProjectDefinitionJoinToken(definition)).Token;
+
+    static UnresolvedBindingReference UnresolvedBinding(
+        TypeResolutionOutcome outcome) =>
+        outcome switch
+        {
+            TypeResolutionOutcome.UnboundBinding unbound => unbound.Binding,
+            TypeResolutionOutcome.Unavailable unavailable =>
+                unavailable.Binding,
+            _ => throw new Xunit.Sdk.XunitException(
+                "The outcome does not carry an unresolved binding."),
+        };
+
+    static UnresolvedBindingKey IssuedBindingKey(
+        TypeResolutionCatalog catalog,
+        UnresolvedBindingReference binding) =>
+        Assert.IsType<UnresolvedBindingKeyProjection.Issued>(
+            catalog.ProjectUnresolvedBindingKey(binding)).Key;
 
     [Fact]
     public async Task FrozenContext_IsConcurrentAndDoesNotReinvokePolicy()
@@ -1887,8 +2337,12 @@ public class TypeResolutionContextTests
         AssemblyReferenceIdentity? forwardTarget = null,
         int forwarderCount = 1,
         bool definesOtherType = false,
-        Guid? moduleVersionId = null)
+        Guid? moduleVersionId = null,
+        ImmutableArray<string> typeSegments = default)
     {
+        ImmutableArray<string> segments = typeSegments.IsDefault
+            ? ["Type"]
+            : typeSegments;
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -1913,13 +2367,25 @@ public class TypeResolutionContextTests
 
         if (definesType)
         {
-            metadata.AddTypeDefinition(
-                TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
-                baseType: default,
-                fieldList: MetadataTokens.FieldDefinitionHandle(1),
-                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle enclosing = default;
+            for (int i = 0; i < segments.Length; i++)
+            {
+                TypeDefinitionHandle definition =
+                    metadata.AddTypeDefinition(
+                        i == 0
+                            ? TypeAttributes.Public
+                            : TypeAttributes.NestedPublic,
+                        i == 0
+                            ? metadata.GetOrAddString("N")
+                            : default,
+                        metadata.GetOrAddString(segments[i]),
+                        baseType: default,
+                        fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                        methodList: MetadataTokens.MethodDefinitionHandle(1));
+                if (!enclosing.IsNil)
+                    metadata.AddNestedType(definition, enclosing);
+                enclosing = definition;
+            }
         }
         if (definesOtherType)
         {
@@ -1948,12 +2414,22 @@ public class TypeResolutionContextTests
                     hashValue: default);
             for (int i = 0; i < forwarderCount; i++)
             {
-                metadata.AddExportedType(
-                    TypeAttributes.Public | Forwarder,
-                    metadata.GetOrAddString("N"),
-                    metadata.GetOrAddString("Type"),
-                    target,
-                    typeDefinitionId: 0);
+                EntityHandle implementation = target;
+                for (int segment = 0;
+                    segment < segments.Length;
+                    segment++)
+                {
+                    implementation = metadata.AddExportedType(
+                        segment == 0
+                            ? TypeAttributes.Public | Forwarder
+                            : TypeAttributes.NestedPublic,
+                        segment == 0
+                            ? metadata.GetOrAddString("N")
+                            : default,
+                        metadata.GetOrAddString(segments[segment]),
+                        implementation,
+                        typeDefinitionId: 0);
+                }
             }
         }
 

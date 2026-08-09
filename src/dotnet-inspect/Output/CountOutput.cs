@@ -24,9 +24,14 @@ public static class CountOutput
     /// <see cref="ValidateSingleSection"/> this permits multi-section selection (e.g. a
     /// category such as <c>@Performance</c>), which renders a per-section count map.
     /// </summary>
-    public static bool ValidateSectionsSelected(HashSet<string>? includeSections)
+    /// <param name="fixedOverview">
+    /// Whether bare <c>-S</c> selected the fixed overview. That route carries its selection as a
+    /// flag rather than as <paramref name="includeSections"/>, so reading the include set alone
+    /// reports a selection the user did make as no selection at all (#3547).
+    /// </param>
+    public static bool ValidateSectionsSelected(HashSet<string>? includeSections, bool fixedOverview)
     {
-        if (includeSections is { Count: >= 1 })
+        if (includeSections is { Count: >= 1 } || fixedOverview)
             return true;
 
         CommandError.Write(SectionRequiredMessage);
@@ -79,20 +84,28 @@ public static class CountOutput
     /// </summary>
     public static void WriteCount(int count, string? outputPath)
     {
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         // Invariant: a count is machine-readable output, so it must not pick up
         // culture-specific digits or grouping from the ambient locale.
-        var text = count.ToString(CultureInfo.InvariantCulture);
-        if (string.IsNullOrEmpty(outputPath))
-            Console.WriteLine(text);
-        else
-            File.WriteAllText(outputPath, text + '\n');
+        WriteCountResult(count.ToString(CultureInfo.InvariantCulture), outputPath);
     }
 
-    public static void WriteCountFromMarkdown(string markdown)
+    /// <summary>
+    /// Writes an already-rendered scalar or per-section count to <paramref name="outputPath"/>,
+    /// or to stdout when it is null.
+    /// </summary>
+    public static void WriteCountResult(string result, string? outputPath)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        Console.WriteLine(CountMarkdownTableRows(markdown));
+        var text = result.TrimEnd('\r', '\n') + '\n';
+        if (string.IsNullOrEmpty(outputPath))
+            Console.Write(text);
+        else
+            File.WriteAllText(outputPath, text);
+    }
+
+    public static void WriteCountFromMarkdown(string markdown, string? outputPath = null)
+    {
+        WriteCount(CountMarkdownTableRows(markdown), outputPath);
     }
 
     /// <summary>
@@ -156,11 +169,25 @@ public static class CountOutput
     public static string RenderCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
     {
         var counts = CountMarkdownTableRowsBySection(markdown);
+        return RenderCountMap(counts, orderedSections);
+    }
+
+    /// <summary>
+    /// Renders a per-section count map from counts that were already aggregated across one or
+    /// more independently rendered documents.
+    /// </summary>
+    public static string RenderCountMap(
+        IReadOnlyDictionary<string, int> counts,
+        IReadOnlyList<string> orderedSections)
+    {
         var builder = new System.Text.StringBuilder();
-        builder.AppendLine("| Section | Count |");
-        builder.AppendLine("| ------- | ----- |");
+        builder.Append("| Section | Count |\n");
+        builder.Append("| ------- | ----- |\n");
         foreach (var section in orderedSections)
-            builder.AppendLine($"| {section} | {counts.GetValueOrDefault(section)} |");
+        {
+            counts.TryGetValue(section, out var count);
+            builder.Append($"| {section} | {count} |\n");
+        }
 
         return builder.ToString().TrimEnd();
     }
@@ -169,9 +196,23 @@ public static class CountOutput
     /// Emits a per-section count map (<c>| Section | Count |</c>) over <paramref name="orderedSections"/>,
     /// reporting 0 for sections absent from the rendered markdown.
     /// </summary>
-    public static void WriteCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
+    public static void WriteCountMapFromMarkdown(
+        string markdown,
+        IReadOnlyList<string> orderedSections,
+        string? outputPath = null)
     {
-        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-        Console.WriteLine(RenderCountMapFromMarkdown(markdown, orderedSections));
+        WriteCountMap(CountMarkdownTableRowsBySection(markdown), orderedSections, outputPath);
+    }
+
+    /// <summary>
+    /// Emits a per-section count map from counts that were already aggregated across one or more
+    /// independently rendered documents.
+    /// </summary>
+    public static void WriteCountMap(
+        IReadOnlyDictionary<string, int> counts,
+        IReadOnlyList<string> orderedSections,
+        string? outputPath = null)
+    {
+        WriteCountResult(RenderCountMap(counts, orderedSections), outputPath);
     }
 }

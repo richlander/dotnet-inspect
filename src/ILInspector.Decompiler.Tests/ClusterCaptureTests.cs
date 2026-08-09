@@ -25,6 +25,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class ClusterCaptureTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";

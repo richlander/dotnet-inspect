@@ -44,14 +44,10 @@ namespace ILInspector.Decompiler.Tests;
 /// compile-back proves neutrality at the IL level a mis-tiered token change cannot pass.
 /// </description></item>
 /// <item><description>
-/// The one <see cref="StyleOptionTier.Synthesis"/> byte-neutral knob (readable local
-/// names) renames a local, and a local's name lives in the PDB, never the method body,
-/// so it is byte-neutral by construction. It also cannot fire through the member-body
-/// entrypoint when a source name is present — the test assembly's embedded PDB supplies
-/// one — so the gate pins its inert render (on == off) on a source-named local. Firing
-/// the synthesis (proving IL-identity by compile-back, since names are absent from the
-/// IL) needs a name-less compiler temporary this corpus cannot author deterministically;
-/// that is tracked as follow-up.
+/// The one <see cref="StyleOptionTier.Synthesis"/> byte-neutral knob replaces a
+/// synthesized readable local name with its V_index slot name. The gate opens the
+/// fixture without symbols so the two renders differ, then compiles both back and
+/// proves the local-name-only change leaves the method IL identical.
 /// </description></item>
 /// </list>
 ///
@@ -66,6 +62,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </para>
 /// </summary>
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public sealed class ByteNeutralityGateTests
 {
     static string AssemblyPath => typeof(ByteNeutralityGateTests).Assembly.Location;
@@ -89,11 +86,10 @@ public sealed class ByteNeutralityGateTests
     /// <para>
     /// <see cref="Emits"/> distinguishes a value the printer actually consumes today (the
     /// render changes, so the value is compiled back) from one that renders identically to
-    /// the default — either a catalog value not yet wired into emission (the deferred var
-    /// buckets) or a knob that is inert on this corpus (readable-local-names, whose
-    /// synthesis a present PDB source name suppresses). The inert values are pinned as
-    /// no-ops on an input they <em>would</em> govern once active, so the day emission
-    /// lands (or a name-less local appears) the pin flips and forces an emitting specimen.
+    /// the default because a catalog value is not yet wired into emission (the deferred
+    /// var buckets). Inert values are pinned as no-ops on an input they <em>would</em>
+    /// govern once active, so the day emission lands the pin flips and forces an emitting
+    /// specimen.
     /// </para>
     /// </summary>
     sealed record ValueSpecimen(
@@ -103,6 +99,7 @@ public sealed class ByteNeutralityGateTests
         string Method,
         string Signature,
         bool Emits = true,
+        bool WithoutSymbols = false,
         FidelityCheck.CompileBackStatus ExpectedBaseline = FidelityCheck.CompileBackStatus.Exact);
 
     static readonly IReadOnlyList<ValueSpecimen> Specimens =
@@ -137,12 +134,11 @@ public sealed class ByteNeutralityGateTests
         new("var-spelling-style", "var-elsewhere",
             typeof(VarWhenApparentSpecimen), nameof(VarWhenApparentSpecimen.NotApparent),
             "() -> corelib:System.Int32", Emits: false),
-        // Synthesis: readable-local-names renames a local, and a name lives in the PDB,
-        // not the IL. It is inert here (the embedded PDB names this local), so it is
-        // pinned as a no-op; when a name-less local makes it fire, the pin flips.
-        new("readable-local-names", "true",
+        // Synthesis: suppress symbols so the product default invents `num`, while
+        // slot-local-names restores V_0. Both forms must compile back identically.
+        new("slot-local-names", "true",
             typeof(FormattingSynthesisSpecimen), nameof(FormattingSynthesisSpecimen.ReadableLocal),
-            "() -> corelib:System.Int32", Emits: false),
+            "() -> corelib:System.Int32", WithoutSymbols: true),
         // Formatting: whitespace-only knobs, each on a specimen it wraps or flattens.
         // Compiled back like every other byte-neutral value — layout never reaches the IL,
         // so the on/off renders recompile identically.
@@ -168,14 +164,27 @@ public sealed class ByteNeutralityGateTests
     // The knob's non-default state, built through the catalog descriptor (never a raw
     // property set) so the gate exercises the same value-domain plumbing a host uses.
     static PrinterOptions On(ValueSpecimen specimen) =>
-        Knob(specimen.KnobId).WithValue(PrinterOptions.Default, specimen.ValueToken);
+        Knob(specimen.KnobId).WithValue(StyleOptionCatalog.DefaultOptions, specimen.ValueToken);
 
-    static string Render(System.Type declaringType, string member, PrinterOptions? options)
+    static string Render(ValueSpecimen specimen, PrinterOptions? options)
     {
+        if (specimen.WithoutSymbols)
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(AssemblyPath);
+            var function = IrImporter.Import(
+                source,
+                specimen.DeclaringType.FullName!,
+                specimen.Method,
+                overloadIndex: 0)
+                ?? throw new InvalidOperationException($"{specimen.DeclaringType.FullName}::{specimen.Method} has no IL body");
+            return CSharpPrinter.PrintRaised(function, importMethodBody: null, options: options).Output
+                ?? throw new InvalidOperationException($"{specimen.DeclaringType.FullName}::{specimen.Method} did not render");
+        }
+
         using var pe = new PEReader(File.OpenRead(AssemblyPath));
         var api = ApiSurfaceExtractor.Extract(pe);
-        var type = Assert.Single(api.Types, t => t.FullName == declaringType.FullName);
-        var m = Assert.Single(type.Members, x => x.Name == member);
+        var type = Assert.Single(api.Types, t => t.FullName == specimen.DeclaringType.FullName);
+        var m = Assert.Single(type.Members, x => x.Name == specimen.Method);
         var rendered = MemberBodyProducer.ProduceMember(type, m, AssemblyPath, pdbPath: null, printerOptions: options);
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.NotNull(rendered.Text);
@@ -192,9 +201,19 @@ public sealed class ByteNeutralityGateTests
     // target into one pass keeps the gate to a few passes instead of one per knob.
     static IReadOnlyDictionary<string, FidelityCheck.CompileBackResult> CompileBackAll(
         IReadOnlyList<ValueSpecimen> specimens, PrinterOptions? options)
-        => FidelityCheck.EvaluateTargets(
-                [AssemblyPath], [.. specimens.Select(Target)], lowered: false, options)
-            .ToDictionary(r => $"{r.Type}::{r.Method}", r => r, StringComparer.Ordinal);
+    {
+        var results = new List<FidelityCheck.CompileBackResult>();
+        foreach (var group in specimens.GroupBy(s => s.WithoutSymbols))
+        {
+            results.AddRange(FidelityCheck.EvaluateTargets(
+                [AssemblyPath],
+                [.. group.Select(Target)],
+                lowered: false,
+                options,
+                readSymbols: !group.Key));
+        }
+        return results.ToDictionary(r => $"{r.Type}::{r.Method}", r => r, StringComparer.Ordinal);
+    }
 
     // Every non-default value token of a byte-neutral knob, across all tiers — the
     // coverage unit the drift guard and value-state tests are keyed on.
@@ -238,14 +257,14 @@ public sealed class ByteNeutralityGateTests
         // Non-vacuity + wiring pin, fast (no compile-back). An emitting value must
         // actually change its specimen's render (off != on) — this is what makes the
         // compile-back proof below a real check rather than a comparison of two identical
-        // renders. An inert value (a declared-but-unwired var bucket, or readable local
-        // names when a source name is present) must render identically to the default
-        // (off == on) on the input it would govern; when the value becomes active that
-        // equality breaks and this test forces it into the emitting set.
+        // renders. An inert value (a declared-but-unwired var bucket) must render
+        // identically to the default (off == on) on the input it would govern; when the
+        // value becomes active that equality breaks and this test forces it into the
+        // emitting set.
         foreach (var specimen in Specimens)
         {
-            var offText = Render(specimen.DeclaringType, specimen.Method, options: null);
-            var onText = Render(specimen.DeclaringType, specimen.Method, On(specimen));
+            var offText = Render(specimen, StyleOptionCatalog.DefaultOptions);
+            var onText = Render(specimen, On(specimen));
             if (specimen.Emits)
                 Assert.NotEqual(offText, onText);
             else
@@ -281,13 +300,13 @@ public sealed class ByteNeutralityGateTests
         // (qualification x var), while each method's site is governed by exactly one
         // value, so the per-method verdict still isolates that value's neutrality.
         var emitting = Specimens.Where(s => s.Emits).ToArray();
-        var off = CompileBackAll(emitting, options: null);
+        var off = CompileBackAll(emitting, StyleOptionCatalog.DefaultOptions);
 
         foreach (var group in emitting.GroupBy(s => s.DeclaringType))
         {
             var groupSpecimens = group.ToArray();
             var onOptions = groupSpecimens.Aggregate(
-                PrinterOptions.Default, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
+                StyleOptionCatalog.DefaultOptions, (o, s) => Knob(s.KnobId).WithValue(o, s.ValueToken));
             var on = CompileBackAll(groupSpecimens, onOptions);
 
             foreach (var specimen in groupSpecimens)

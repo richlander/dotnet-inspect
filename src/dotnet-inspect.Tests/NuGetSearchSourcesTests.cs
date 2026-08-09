@@ -102,6 +102,54 @@ public class NuGetSearchSourcesTests
 
         Assert.Contains("No configured NuGet source could be searched", ex.Message);
         Assert.Contains("no searchable endpoint", ex.Message);
+        Assert.DoesNotContain("requires credentials", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "requires credentials")]
+    [InlineData(HttpStatusCode.Forbidden, "denied access")]
+    [InlineData(HttpStatusCode.BadRequest, "service index unavailable")]
+    public async Task SearchAsync_RefusedServiceIndex_ReportsTypedFailure(
+        HttpStatusCode status,
+        string expectedReason)
+    {
+        var handler = new RouteHandler();
+        handler.RespondWith(IndexUrl, status);
+        using var client = new HttpClient(handler);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client, "Contoso", sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] }));
+
+        Assert.Contains(expectedReason, ex.Message);
+        Assert.Contains($"HTTP {(int)status} {status}", ex.Message);
+        Assert.Contains("reading the service index", ex.Message);
+        Assert.DoesNotContain("no searchable endpoint", ex.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ServiceIndexFailures_AreAttributedPerSource()
+    {
+        const string refusedIndex = "https://refused.example/v3/index.json";
+        const string unsearchableIndex = "https://unsearchable.example/v3/index.json";
+
+        var handler = new RouteHandler
+        {
+            [unsearchableIndex] = """{"version":"3.0.0","resources":[]}"""
+        };
+        handler.RespondWith(refusedIndex, HttpStatusCode.Unauthorized);
+        using var client = new HttpClient(handler);
+        using var config = new TempNuGetConfig(
+            [("refused", refusedIndex), ("unsearchable", unsearchableIndex)]);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await NuGetSearchService.SearchAsync(
+                client, "Contoso", sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Contains("refused: source requires credentials", ex.Message);
+        Assert.Contains(
+            $"unsearchable: no searchable endpoint for '{unsearchableIndex}'",
+            ex.Message);
     }
 
     [Fact]
@@ -361,8 +409,8 @@ public class NuGetSearchSourcesTests
     public void ResolveSources_WellFormedConfigDeclaringNoSources_ThrowsRatherThanDefaultingToNuGetOrg()
     {
         // Well-formed XML is not enough: any XML file parses, including a .csproj passed by
-        // mistake, and SourceResolver would then substitute nuget.org and answer with packages
-        // from a feed the user never chose.
+        // mistake. Explicit configuration starts empty, so such a file must fail rather than
+        // answer from an unrelated feed.
         string path = Path.Combine(Path.GetTempPath(), $"notaconfig-{Guid.NewGuid():N}.config");
         File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup /></Project>");
         try
@@ -386,9 +434,7 @@ public class NuGetSearchSourcesTests
         try
         {
             Assert.Empty(NuGetFetch.SourceResolver.ResolveConfiguredSources(path));
-
-            // The fallback still belongs to ResolveSources, which discovered configs rely on.
-            Assert.Equal("nuget.org", Assert.Single(NuGetFetch.SourceResolver.ResolveSources(configPath: path)).Name);
+            Assert.Empty(NuGetFetch.SourceResolver.ResolveSources(configPath: path));
         }
         finally
         {
@@ -638,6 +684,101 @@ public class NuGetSearchSourcesTests
                 $"unexpected request to {url}"));
     }
 
+    [Fact]
+    public async Task SearchByPrefixAsync_UsesSelectedSourcesAndFiltersTheirResults()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """
+                {"data":[
+                    {"id":"Contoso.Tools","version":"1.0.0"},
+                    {"id":"Other.Contoso","version":"1.0.0"}
+                ]}
+                """
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+        Assert.All(handler.Requested, url =>
+            Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_FiltersBeforeAggregateLimit()
+    {
+        const string index = "https://a.example/v3/index.json";
+        const string search = "https://a.example/v3/query";
+        var handler = new PrefixPagingHandler(index, search);
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_DeduplicatesPackageIdsAcrossSources()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"contoso.tools","version":"2.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Single(results);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_FailsClosedWhenSelectedSourceIsUnsearchable()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NuGetSearchService.SearchByPrefixAsync(
+                client,
+                "Contoso.",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index, "/local/packages"],
+                }));
+
+        Assert.Contains("Could not search every configured NuGet source", error.Message);
+    }
+
     /// <summary>
     /// Regression: source resolution ran only when a source option was passed, so a NuGet.Config
     /// discovered from the working directory was ignored and search silently went to nuget.org —
@@ -730,19 +871,22 @@ public class NuGetSearchSourcesTests
     /// requested URL never served — the same "searched the wrong feed" failure this change exists
     /// to remove.
     /// </summary>
-    [Fact]
-    public async Task SearchAsync_NuGetOrgHostButNotServiceIndex_DoesNotUseWellKnownEndpoint()
+    [Theory]
+    [InlineData("https://api.nuget.org/definitely-not-a-service-index")]
+    [InlineData("https://api.nuget.org/v3/index.json//")]
+    [InlineData("https://api.nuget.org/v3/index.json#custom")]
+    public async Task SearchAsync_NoncanonicalNuGetOrgSource_DoesNotUseWellKnownEndpoint(
+        string odd)
     {
-        const string odd = "https://api.nuget.org/definitely-not-a-service-index";
-
         var handler = new RouteHandler();
         using var client = new HttpClient(handler);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
             client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
 
-        // The named endpoint was consulted; nuget.org's well-known search endpoint was not.
-        Assert.Contains(handler.Requested, url => url.StartsWith(odd, StringComparison.Ordinal));
+        // The source was consulted through ordinary service-index discovery; nuget.org's
+        // well-known search endpoint was not substituted for it.
+        Assert.NotEmpty(handler.Requested);
         Assert.DoesNotContain(
             handler.Requested,
             url => url.Contains("api.nuget.org/v3/query", StringComparison.Ordinal));
@@ -808,12 +952,16 @@ public class NuGetSearchSourcesTests
     /// </summary>
     private sealed class RouteHandler : HttpMessageHandler
     {
-        private readonly Dictionary<string, string> _routes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, (HttpStatusCode Status, string Body)> _routes =
+            new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Url, AuthenticationHeaderValue? Auth)> _requests = [];
 
-        public string this[string url] { set => _routes[url] = value; }
+        public string this[string url] { set => _routes[url] = (HttpStatusCode.OK, value); }
 
         public IReadOnlyList<string> Requested => _requests.Select(r => r.Url).ToList();
+
+        public void RespondWith(string url, HttpStatusCode status, string body = "") =>
+            _routes[url] = (status, body);
 
         public AuthenticationHeaderValue? AuthFor(string url) =>
             _requests.FirstOrDefault(r => WithoutQuery(r.Url).Equals(url, StringComparison.OrdinalIgnoreCase)).Auth;
@@ -824,8 +972,21 @@ public class NuGetSearchSourcesTests
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
 
-            HttpResponseMessage response = _routes.TryGetValue(WithoutQuery(url), out string? body)
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) }
+            bool laterSearchPage = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Any(parameter =>
+                    parameter.StartsWith("skip=", StringComparison.OrdinalIgnoreCase)
+                    && parameter is not "skip=0");
+            HttpResponseMessage response = laterSearchPage
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"data":[]}""")
+                }
+                : _routes.TryGetValue(
+                    WithoutQuery(url),
+                    out (HttpStatusCode Status, string Body) route)
+                ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
 
             response.RequestMessage = request;
@@ -836,6 +997,37 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class PrefixPagingHandler(
+        string indexUrl,
+        string searchUrl) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            bool takeOne = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&')
+                .Contains("take=1", StringComparer.Ordinal);
+            string body = url.StartsWith(indexUrl, StringComparison.Ordinal)
+                ? $$"""{"resources":[{"@id":"{{searchUrl}}","@type":"SearchQueryService"}]}"""
+                : takeOne
+                    ? """{"data":[{"id":"Other.Package","version":"1.0.0"}]}"""
+                    : """
+                        {"data":[
+                            {"id":"Other.Package","version":"1.0.0"},
+                            {"id":"Contoso.Tools","version":"1.0.0"}
+                        ]}
+                        """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request
+            });
         }
     }
 }

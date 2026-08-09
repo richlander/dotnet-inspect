@@ -1,5 +1,5 @@
 using System.Text.Json;
-using ILInspector.CSharp;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -170,7 +170,7 @@ public sealed class HostileNameIdentityTests
                 continue;
 
             var name = $"A{(char)c}B";
-            var displayed = CSharpIdentifierCore.ContainIdentifier(name, _ => false);
+            var displayed = CSharpIdentifier.ContainIdentifier(name);
             if (string.Equals(displayed, name, StringComparison.Ordinal))
                 continue;
 

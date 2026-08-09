@@ -39,6 +39,31 @@
   `Size`, worth a measured 6-7% on real commands for about 9% more binary size
   (#3675).
 
+### Package source fidelity
+
+- Uses package-content caches only for an already-selected exact coordinate.
+  Version candidates come from source-scoped feed metadata, including offline
+  candidate-cache hits; installed package directories no longer introduce
+  versions for bare, wildcard, range, routing, or version-list operations.
+- Uses a NuGet global-packages payload only when `.nupkg.metadata.source`
+  identifies an authorized producer. Discovered coordinates are restricted to
+  feeds that reported the selected version; pinned coordinates may use any
+  active eligible feed.
+- Uses unambiguous, atomically published `versions-v5` candidate entries and
+  rejects malformed latest entries and incomplete listing snapshots. Reporter
+  restrictions apply to the selected coordinate only; pinned tool-wrapper
+  redirects recalculate authorization from the ambient active sources.
+- Canonicalizes selected package versions and treats malformed version-index
+  elements as a source miss rather than a coordinate or parser failure.
+- Recognizes the NuGet.org shortcut only for its canonical service index;
+  other `nuget.org` hosts and paths remain ordinary configured sources.
+- Keeps stable and prerelease latest-selection evidence separate while allowing
+  package-existence probes to use either flavor.
+- Resolves single-version queries across every active source and preserves
+  structured output formatting on candidate-cache hits, pinned versions, and
+  forced-latest queries. Stable single-version listings no longer fall back to
+  prerelease-only coordinates.
+
 ### Metadata text containment
 
 - Contains metadata cell text by Unicode general category rather than by a
@@ -49,6 +74,9 @@
   contained keep the same meaning but change spelling, from `\u001B` to caret
   notation `\^[`; the quote is no longer escaped, because cells are not quote
   wrapped in any rendered format.
+- Leaves literal backslashes unchanged when they cannot introduce a visual
+  spelling, while keeping complete escape-like text disambiguated and
+  invertible.
 - **Breaking:** `mdi` now refuses, rather than renders, when an assembly carries
   text that a terminal would act on — bidi overrides, separators, and other
   non-graphic scalars. It exits non-zero and reports the heap coordinate, the
@@ -61,6 +89,16 @@
   differing only in how it is written. Ordinary assemblies are unaffected: the
   modes differ only in whether they can fail, so output is unchanged wherever no
   such text exists.
+
+### Package manifest hardening
+
+- Rejects malformed nuspec XML with a one-line diagnostic naming only the parse
+  location, rather than emitting the parser stack or quoting package-authored
+  text.
+- Carries nuspec descriptions as `InertString` through the service and
+  inspection models. Markdown renders the description as a quotation so its
+  headings and tables cannot impersonate tool sections; JSON retains the prose
+  shape and applies its own structural escaping.
 
 ### Output and projections
 
@@ -286,7 +324,7 @@
 
 ### Cache
 
-- Cleans obsolete versioned cache categories, such as older package-index schema caches, in the background after cache misses.
+- Silently cleans older versioned cache categories in the background when each family registers, while preserving cache contracts created by newer tool versions.
 - Cache deletion paths are guarded so cache clearing and cleanup refuse to delete outside the active or legacy dotnet-inspect cache roots.
 
 ### Lowered C# output

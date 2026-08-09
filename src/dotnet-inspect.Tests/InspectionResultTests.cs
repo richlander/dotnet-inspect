@@ -5,7 +5,9 @@ using DotnetInspector;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using Markout;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -14,6 +16,124 @@ namespace DotnetInspector.Tests;
 /// </summary>
 public class InspectionResultTests
 {
+    [Fact]
+    public void PackageSourceLinkSections_RenderAggregateEvidence()
+    {
+        var result = new InspectionResult
+        {
+            SourceAvailability = new PackageSourceAvailability(
+                TotalLibraries: 2,
+                AuditedLibraries: 1,
+                TotalSourceFiles: 3,
+                AccessibleSourceFiles: 2,
+                EmbeddedSourceFiles: 1,
+                MissingFiles: [new("lib/net8.0/Test.dll", "/src/Missing.cs")],
+                UnavailableLibraries:
+                [
+                    new("lib/net9.0/Test.dll", "A matching portable PDB is unavailable."),
+                ],
+                FailedLibraries: null),
+            SourceIntegrity = new PackageSourceIntegrity(
+                TotalLibraries: 2,
+                CheckedLibraries: 1,
+                Verified: 1,
+                Mismatched: 1,
+                LineEndingNormalized: 0,
+                Unverifiable: 1,
+                MismatchedFiles: [new("lib/net8.0/Test.dll", "/src/Changed.cs")],
+                UnavailableLibraries: null,
+                FailedLibraries: null),
+        };
+
+        string output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Contains("## SourceLink: Availability", output);
+        Assert.Contains("| Audited Libraries | 1/2 audited |", output);
+        Assert.Contains("| Status | Partial |", output);
+        Assert.Contains("## SourceLink: Missing Files", output);
+        Assert.Contains("| lib/net8.0/Test.dll | /src/Missing.cs | Missing |", output);
+        Assert.Contains(
+            "| lib/net9.0/Test.dll |  | Unavailable: A matching portable PDB is unavailable. |",
+            output);
+        Assert.Contains("## SourceLink: Integrity", output);
+        Assert.Contains("| Status | Mismatch |", output);
+        Assert.Contains("`lib/net8.0/Test.dll: /src/Changed.cs`", output);
+    }
+
+    [Fact]
+    public void PackageSourceLinkResults_SerializeWithStableWireNames()
+    {
+        var result = new InspectionResult
+        {
+            SourceAvailability = new PackageSourceAvailability(
+                1,
+                1,
+                2,
+                1,
+                0,
+                [new("lib/net8.0/Test.dll", "/src/Missing.cs")],
+                null,
+                null),
+            SourceIntegrity = new PackageSourceIntegrity(
+                1,
+                1,
+                0,
+                1,
+                0,
+                0,
+                [new("lib/net8.0/Test.dll", "/src/Changed.cs")],
+                null,
+                null),
+        };
+
+        string json = JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
+
+        Assert.Contains("\"source_availability\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"missing_files\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"source_integrity\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"mismatched_files\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageSourceLinkSections_ReportNoSelectedLibrariesAsUnavailable()
+    {
+        var result = new InspectionResult
+        {
+            SourceAvailability = new PackageSourceAvailability(
+                0, 0, 0, 0, 0, null, null, null),
+            SourceIntegrity = new PackageSourceIntegrity(
+                0, 0, 0, 0, 0, 0, null, null, null),
+        };
+
+        string output = MarkoutSerializer.Serialize(
+            new InspectionResultView(result),
+            InspectionContext.Default);
+
+        Assert.Equal(2, output.Split("| Status | Unavailable |").Length - 1);
+    }
+
+    [Theory]
+    [InlineData("ordinary text", false)]
+    [InlineData("C:\\tmp\\package", false)]
+    [InlineData("literal \\u202E text", false)]
+    [InlineData("text\u202Eoverride", true)]
+    public void PackageView_AggregatesRequiredContainmentBeforeRendering(
+        string description,
+        bool expected)
+    {
+        var result = new InspectionResult
+        {
+            Description = new InertString(TextPolicy.Prose, description),
+        };
+
+        var view = new InspectionResultView(result);
+
+        Assert.Equal(expected, view.RequiredContainment);
+        Assert.NotNull(view.Description);
+    }
+
     [Theory]
     [InlineData(500, "500")]
     [InlineData(1_000, "1K")]

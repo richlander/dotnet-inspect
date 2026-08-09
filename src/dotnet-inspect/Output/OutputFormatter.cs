@@ -237,6 +237,33 @@ public static class OutputFormatter
         });
     }
 
+    /// <summary>
+    /// The ordered sections a <c>--count</c> map should report, or <c>null</c> when the selection
+    /// names at most one section and a scalar count is the answer.
+    /// </summary>
+    /// <remarks>
+    /// Bare <c>-S</c> on a curated pipeline carries its selection as
+    /// <see cref="LibraryOptions.FixedOverview"/> rather than as an include set, so a map decision
+    /// that reads only <paramref name="includeSections"/> silently degrades a multi-section
+    /// overview to one meaningless total across heterogeneous tables (#3547). The request - not the
+    /// rendered set - is what the map describes, so a requested section with no rows reports zero
+    /// rather than disappearing, matching how a category renders.
+    /// </remarks>
+    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+        SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
+    {
+        var requested = includeSections is { Count: > 0 }
+            ? includeSections
+            : fixedOverview
+                ? new HashSet<string>(pipeline.BareSelectSectionNames, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+        if (requested is not { Count: > 1 })
+            return null;
+
+        return pipeline.AlphabeticalSectionOrder.Where(requested.Contains).ToList();
+    }
+
     public static string FormatResult(InspectionResult result, InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
@@ -247,9 +274,8 @@ public static class OutputFormatter
 
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
-        bool includeContext = ShouldRenderPackageContext(options);
         var view = new InspectionResultView(result, includeTitleVersion: false);
-        var writerOptions = BuildWriterOptions(result, options, pipeline, includeContext);
+        var writerOptions = BuildWriterOptions(result, options, pipeline);
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
         if (selectAll)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(result));
@@ -261,11 +287,9 @@ public static class OutputFormatter
 
         // A category selects many sections at once; report each member's count, including the
         // members that rendered nothing, so the map describes the whole category.
-        if (options.IncludeSections is { Count: > 1 })
-        {
-            var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
+        var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+        if (ordered != null)
             return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
-        }
 
         return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
@@ -303,19 +327,19 @@ public static class OutputFormatter
     }
 
     internal static MarkoutWriterOptions BuildWriterOptions(InspectionResult result, InspectionOptions options,
-        SectionPipeline<InspectionResult> pipeline, bool includeContext = false)
+        SectionPipeline<InspectionResult> pipeline)
     {
         var selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         var selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var includeSections = pipeline.ComputeIncludeSections(
             result, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
-        if (includeContext && includeSections is { Count: > 0 })
-            includeSections = [PackageSections.Summary, .. includeSections];
 
         return new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
-            IncludeDescription = options.Verbosity != Verbosity.Quiet && !includeContext && !selectInfo,
+            IncludeDescription = options.Verbosity != Verbosity.Quiet
+                && options.IncludeSections is not { Count: > 0 }
+                && !selectInfo,
             Projection = BuildProjection(options.Columns, options.Fields)
         };
     }
@@ -338,23 +362,21 @@ public static class OutputFormatter
         {
             var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
             }
             return;
         }
 
-        if (inspection.UseDependenciesView)
+        if (options.Tree && options.Discover == null)
         {
-            CommandError.WriteLine("Tip: use 'depends --library' for dependency trees.");
-            var view = AssemblyDependenciesView.FromInspection(inspection);
-            MarkoutSerializer.Serialize(view, Console.Out, AssemblyDependenciesContext.Default);
+            WriteReferenceTree(inspection);
             return;
         }
 
@@ -366,22 +388,8 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
-            // would otherwise terminate lines whose interiors this branch already emits as LF —
-            // the appended metadata is LF on every platform. Buffering matches the Markdown
-            // sibling below, which composes its document before writing for the same reason.
-            var plain = new StringWriter { NewLine = "\n" };
-            MarkoutSerializer.Serialize(auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
-            var plainText = plain.ToString().TrimEnd();
-            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections, writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
-            {
-                var trimmedMetadata = plainMetadata.TrimEnd();
-                // A single separator, not a blank line: the streamed original ended its last body
-                // line and wrote the metadata on the next one. The Markdown sibling below joins
-                // with a blank line because Markdown sections require one; plain text does not.
-                plainText = plainText.Length == 0 ? trimmedMetadata : plainText + "\n" + trimmedMetadata;
-            }
-            WriteLfLine(Console.Out, plainText);
+            WriteLfLine(Console.Out, SerializeLibraryPlainText(
+                auditView, inspection, writerOpts));
         }
         else if (options.VerbosityEnabled)
         {
@@ -399,6 +407,47 @@ public static class OutputFormatter
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
             WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    private static string SerializeLibraryPlainText(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts)
+    {
+        // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
+        // would otherwise terminate lines whose interiors this branch already emits as LF —
+        // the appended metadata is LF on every platform. Buffering matches the Markdown
+        // sibling below, which composes its document before writing for the same reason.
+        var plain = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            auditView, plain, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+        var plainText = plain.ToString().TrimEnd();
+        if (MetadataLensRenderer.RenderMarkdown(
+            inspection,
+            writerOpts.IncludeSections,
+            writerOpts.Projection?.IncludeColumns) is { } plainMetadata)
+        {
+            var trimmedMetadata = plainMetadata.TrimEnd();
+            // A single separator, not a blank line: the streamed original ended its last body
+            // line and wrote the metadata on the next one. The Markdown sibling below joins
+            // with a blank line because Markdown sections require one; plain text does not.
+            plainText = plainText.Length == 0
+                ? trimmedMetadata
+                : plainText + "\n" + trimmedMetadata;
+        }
+
+        return plainText;
+    }
+
+    private static void WriteReferenceTree(LibraryInspection inspection)
+    {
+        var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
+        var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
+        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
+        writer.WriteHeading(2, SectionNames.References);
+        writer.WriteTree([.. tree]);
+        writer.Flush();
     }
 
     /// <summary>
@@ -489,31 +538,39 @@ public static class OutputFormatter
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
-        var report = new LibraryInspectionReport
-        {
-            Title = Path.GetFileNameWithoutExtension(inspections[0].FileName),
-            Assemblies = inspections.Select(a => new LibraryInspectionView(a, topFieldsOnly)).ToList()
-        };
-        var writerOptions = new MarkoutWriterOptions
+
+        MarkoutWriterOptions WriterOptions(LibraryInspection inspection) => new()
         {
             IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
+                inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
         if (options.Count)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
-            markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            if (options.IncludeSections is { Count: > 1 })
+            var markdownDocuments = inspections.Select(inspection =>
             {
-                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var markdown = SerializeLibraryMarkdown(
+                    auditView, inspection, WriterOptions(inspection), pipeline);
+                return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+            }).ToList();
+            var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
+            if (ordered != null)
+            {
+                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var markdown in markdownDocuments)
+                {
+                    foreach (var (section, count) in CountOutput.CountMarkdownTableRowsBySection(markdown))
+                        counts[section] = counts.GetValueOrDefault(section) + count;
+                }
+                CountOutput.WriteCountMap(counts, ordered, options.OutputPath);
             }
             else
             {
-                CountOutput.WriteCountFromMarkdown(markdown);
+                CountOutput.WriteCount(
+                    markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
+                    options.OutputPath);
             }
             return;
         }
@@ -524,28 +581,123 @@ public static class OutputFormatter
             return;
         }
 
-        if (options.VerbosityEnabled)
+        if (options.Format == OutputFormat.PlainText)
         {
-            var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
-            Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
+            var documents = new List<string>
+            {
+                LibraryViewText.Contain(Path.GetFileNameWithoutExtension(inspections[0].FileName))
+                    ?? string.Empty,
+                "Libraries"
+            };
+            documents.AddRange(inspections.Select(inspection =>
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var title = LibraryViewText.DocumentTitle(inspection);
+                var body = RemovePlainTextDocumentTitle(
+                    SerializeLibraryPlainText(
+                        auditView, inspection, WriterOptions(inspection)),
+                    LibraryViewText.DocumentTitle(auditView));
+                return body.Length == 0 ? title : title + "\n\n" + body;
+            }));
+            WriteLfLine(Console.Out, string.Join("\n\n", documents));
+        }
+        else if (options.VerbosityEnabled)
+        {
+            var documents = new List<string>
+            {
+                RenderMarkdownHeading(1, LibraryViewText.Contain(
+                    Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty),
+                RenderMarkdownHeading(2, "Libraries")
+            };
+            documents.AddRange(inspections.Select(inspection =>
+            {
+                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
+                var title = LibraryViewText.DocumentTitle(inspection);
+                var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
+                    auditView, inspection, WriterOptions(inspection), pipeline));
+                body = ShiftMarkdownHeadingLevels(body, 2);
+                var heading = RenderMarkdownHeading(3, title);
+                return body.Length == 0
+                    ? heading
+                    : heading + "\n\n" + body;
+            }));
+            var markdown = string.Join("\n\n", documents);
+            WriteLfLine(
+                Console.Out,
+                MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
         {
             foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var includeSections = pipeline.ComputeIncludeSections(
-                    inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
-                var writerOpts = new MarkoutWriterOptions
-                {
-                    IncludeSections = includeSections,
-                    Projection = BuildProjection(options.Columns, options.Fields),
-                };
+                var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
+    }
+
+    private static string RenderMarkdownHeading(int level, string title)
+    {
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
+        writer.WriteHeading(level, title);
+        writer.Flush();
+        return output.ToString().TrimEnd();
+    }
+
+    private static string RemoveMarkdownDocumentTitle(string markdown)
+    {
+        if (!markdown.StartsWith("# ", StringComparison.Ordinal))
+            return markdown;
+
+        var lineEnd = markdown.IndexOf('\n');
+        return lineEnd < 0 ? string.Empty : markdown[(lineEnd + 1)..].TrimStart('\n');
+    }
+
+    private static string RemovePlainTextDocumentTitle(string plainText, string title)
+    {
+        if (plainText.Equals(title, StringComparison.Ordinal))
+            return string.Empty;
+
+        var prefix = title + "\n";
+        return plainText.StartsWith(prefix, StringComparison.Ordinal)
+            ? plainText[prefix.Length..].TrimStart('\n')
+            : plainText;
+    }
+
+    internal static string ShiftMarkdownHeadingLevels(string markdown, int offset)
+    {
+        if (offset == 0 || markdown.Length == 0)
+            return markdown;
+
+        var newline = MarkdownScan.DetectNewline(markdown);
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (MarkdownScan.IsCodeFence(lines[i]))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence)
+                continue;
+
+            var level = 0;
+            while (level < lines[i].Length && level < 6 && lines[i][level] == '#')
+                level++;
+
+            if (level == 0 || level >= lines[i].Length || lines[i][level] != ' ')
+                continue;
+
+            var shiftedLevel = Math.Clamp(level + offset, 1, 6);
+            lines[i] = new string('#', shiftedLevel) + lines[i][level..];
+        }
+
+        return string.Join(newline, lines);
     }
 
     /// <summary>
@@ -568,19 +720,5 @@ public static class OutputFormatter
     }
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
-        options.Verbosity == Verbosity.Quiet
-        || (options.IncludeSections is { Count: > 0 }
-            && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-            && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-            && !options.Count
-            && !options.JsonOutput
-            && !options.Tabular);
-
-    internal static bool ShouldRenderPackageContext(InspectionOptions options) =>
-        options.IncludeSections is { Count: > 0 }
-        && !SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
-        && !SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
-        && !options.Count
-        && !options.JsonOutput
-        && !options.Tabular;
+        options.Verbosity == Verbosity.Quiet;
 }

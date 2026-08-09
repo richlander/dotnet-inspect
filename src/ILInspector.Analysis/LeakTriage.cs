@@ -83,6 +83,8 @@ public static class LeakTriageAnalyzer
     internal static MethodIdentity CreateAssemblyScanMethodIdentity(
         MethodIdentity method)
     {
+        const byte GenericSignature = 0x10;
+
         ArgumentNullException.ThrowIfNull(method);
         return method with
         {
@@ -90,6 +92,8 @@ public static class LeakTriageAnalyzer
             CallerUnsafeMode = CallerUnsafeMode.None,
             GenericArity = 0,
             GenericParameterNames = [],
+            SignatureHeader =
+                (byte)(method.SignatureHeader & ~GenericSignature),
         };
     }
 

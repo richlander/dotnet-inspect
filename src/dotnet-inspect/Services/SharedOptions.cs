@@ -22,7 +22,7 @@ public class SharedOptions
     public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
-    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Synthesize readable names (from a local's type/role) for locals that have no usable PDB source name, instead of the V_index fallback; byte-preserving (names do not affect IL)" };
+    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Use the default readable local-name synthesis even when configuration disables it; byte-preserving (names do not affect IL)" };
     public Option<string?> Focus { get; } = new("--focus") { Description = "Report a fact family with the caret gesture (underlined beneath the statement) instead of a trailing comment: a category (allocation), a descriptor id (alloc.box), or an id prefix (alloc). Promotes, never filters: unmatched facts keep their trailing comment", Arity = ArgumentArity.ExactlyOne };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
@@ -61,7 +61,11 @@ public class SharedOptions
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
     public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
-    public Option<bool> Tree { get; } = new("--tree") { Description = "Show discovery as a tree (sections → items)" };
+    public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
+    public Option<bool> Effective { get; } = new("--effective")
+    {
+        Description = "With -D: run the producers needed to identify sections with data"
+    };
 
     // Performance Triage row predicates
     public Option<bool> PerformanceTriageLoop { get; } = new("--loop") { Description = "Performance Triage: show only opportunities inside loops" };
@@ -121,7 +125,7 @@ public class SharedOptions
 
         Select = new Option<string?>("-S")
         {
-            Description = "Select sections/categories by name, wildcard, or @All (comma/semicolon-separated)",
+            Description = "Select sections/categories by name or wildcard (comma/semicolon-separated)",
             Arity = ArgumentArity.ZeroOrOne
         };
         Select.Aliases.Add("--select");

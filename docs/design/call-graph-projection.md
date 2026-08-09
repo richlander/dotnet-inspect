@@ -64,24 +64,38 @@ The projection owns everything a host must not re-invent in JavaScript:
 - **Edge direction.** Caller-tree edges point child → parent (a caller flows
   *into* the target); callee-tree edges point parent → child (the target flows
   *out* to a callee).
-- **Stable node identity.** Members are keyed with the Analysis layer's
-  erased-identity convention (`GenericMemberIdentity`): the assembly-qualified
-  `KeyFragment` of the *open* declaring type, the member name, the open parameter
-  count, the erased/open parameter shape, and the open return type. This is the
-  same key the builders compute, so the open definition side (caller tree, generic
-  root) and the constructed call-site side (callee tree MethodSpec) agree. A
-  generic method therefore keeps one identity across recursion and across distinct
-  instantiations — they collapse onto one node with a self-loop rather than
-  splitting into same-named twins. Following that convention, same-name generic
-  overloads that differ only by arity coarsen together (the accepted coarsening
-  `GenericMemberIdentity` documents), while overloads that differ by parameter
-  types or by return type (C# conversion operators) and same-namespace/same-name
-  types from *different assemblies* all stay separate. Shared callees, cycles, and
-  the target-as-both-caller-and-callee collapse to one node.
+- **Stable node identity.** A catalog-scoped tree carries
+  `GraphNodeEvidence`: total physical storage identity plus the optional
+  generation-scoped `CatalogMemberJoinKey` issued for its open signature.
+  Exact and indeterminate issued keys are the logical graph identity;
+  incomplete projections retain their unique storage identity and therefore
+  cannot fabricate a join. Definitions and call sites remain separate physical
+  occurrences even when correspondence collapses them onto one logical node.
+  Generic recursion, constructed `MethodSpec` calls, varargs, modifiers,
+  function pointers, instance/static shape, member kind, generic arity,
+  parameters, and return types follow `CatalogMemberCorrespondencePlan`.
+  Optional vararg arguments are not part of the member identity.
+
+  Synthetic and same-assembly trees predating catalog evidence remain accepted.
+  For those inputs the projection uses Analysis's typed structural fallback for
+  the *entire* projection. It never mixes catalog and structural identities in
+  one result. Shared callees, cycles, and the target as both caller and callee
+  collapse to one node in either domain.
+- **Physical evidence.** Every projected node retains the distinct
+  `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
+  The catalog scope retains the complete physical store independently. A
+  call-site storage key identifies one physical operand occurrence (source
+  registration, MVID, caller token, IL offset, and operand token); it is
+  evidence, never a logical node count or a cycle key.
 - **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are emitted in id order and edges in first-seen order, so the same input
-  always yields an identical projection.
+  always yields an identical projection. Both the cheap assembly-local caller
+  tree and the catalog caller tree order inbound edges by assembly name,
+  qualified member identity, physical definition identity, and call-site
+  offset. Requesting an otherwise noncontributing catalog scope therefore does
+  not change sibling order, revisit placement, or which nodes fit in a bounded
+  traversal.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
@@ -166,9 +180,15 @@ the outbound half immediately and fill in the expensive tiers as they land:
 The layer names name the tier that was unlocked, not a direction: at `depth > 1`
 the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
-`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`), so a host renders
-them with its own per-section tree rendering *or* projects them with
+`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
+host renders them with its own per-section tree rendering *or* projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
+`Diagnostics` is a stable count summary of incomplete correspondence and exact
+bindings to a different identity of the primary assembly, distilled before any
+temporary catalog scope is released. A host can therefore disclose those
+boundaries without retaining generation-bound graph evidence or rebuilding the
+graph. The exact binding remains exact graph identity; the diagnostic does not
+join one assembly version to another.
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library
@@ -177,17 +197,23 @@ projection. The scoped build exists only for the progressive first paint: a
 consumer that wants the whole graph calls `Callers()` or `CrossLibrary()`
 directly and pays exactly one full build, with callees derived for free from it.
 Once the full build lands it supersedes the scoped one, which is never rebuilt.
-The `IndexBuildGuard`-collected seam tests assert these build counts through
-`MethodBodyInspectionSession.OpenCountForTests`.
+For the cross-library tier, `CatalogCallGraphScope` then plans each distinct
+source signature once, unions all type-resolution requests, freezes one catalog
+generation, projects every plan once, and stores physical definitions, call
+sites, and edges once. Both traversal directions and every later
+`CallGraphProjection` reuse that storage; Mermaid does not trigger a second
+walk or acquisition. `ProgressiveMemberCallGraph.Dispose()` releases the graph
+generation and catalog. The `IndexBuildGuard`-collected seam tests assert index
+build counts, while `CatalogCallGraphScopeTests` pins the single-generation,
+single-policy-evaluation, shared-storage, release, duplicate-artifact, and
+incomplete-evidence contracts.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
 `Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
 `Completed`). The push path is a thin wrapper over the same memoized pull core,
-so the two never double the work. The forward cross-library expansion is the
-callee mirror of `BuildCallerTree(scopes)`: `LibraryBodyIndex.BuildCallTree(token,
-calleeScopes, …)` builds a structural forward map keyed by the same erased
-identity the caller builder uses, tagging each boundary-crossing callee with its
-source assembly.
+so the two never double the work. The forward and reverse cross-library
+expansions are two queries over the same `CatalogCallGraphScope`; neither builds
+a direction-specific identity map.
 
 ## Consumers
 

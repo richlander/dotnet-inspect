@@ -1,7 +1,6 @@
-using System.Globalization;
-using System.Text;
 using System.Diagnostics.CodeAnalysis;
 using ILInspector.CSharp;
+using InertText;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -37,8 +36,20 @@ public class InspectionResultView
     /// <inheritdoc cref="PackageViewText"/>
     public string? TitleVersion => _includeTitleVersion ? PackageViewText.Contain(_data.Version) : null;
 
-    /// <inheritdoc cref="PackageViewText.ContainProse"/>
-    public string? Description => PackageViewText.ContainProse(_data.Description);
+    /// <inheritdoc cref="PackageViewText.QuoteProse"/>
+    public string? Description => PackageViewText.QuoteProse(_data.Description);
+
+    /// <summary>
+    /// Whether any typed artifact text carried by this view required visual containment.
+    /// </summary>
+    /// <remarks>
+    /// Aggregated before properties such as <see cref="Description"/> unwrap their
+    /// <see cref="InertString"/> values for a structural serializer. The CLI owns what to do
+    /// with the signal; the view only reports it.
+    /// </remarks>
+    [MarkoutIgnore]
+    public bool RequiredContainment =>
+        _data.Description?.RequiredContainment == true;
 
     // ===== Field Collections for Serializer =====
 
@@ -120,11 +131,61 @@ public class InspectionResultView
         }
         : null;
 
+    [MarkoutSection(Name = PackageSections.SourceLinkAvailability)]
+    public PackageSourceAvailabilitySection? SourceAvailability =>
+        _data.SourceAvailability is { } availability
+            ? new PackageSourceAvailabilitySection
+            {
+                AuditedLibraries =
+                    $"{availability.AuditedLibraries}/{availability.TotalLibraries} audited",
+                Embedded = availability.EmbeddedSourceFiles,
+                FailedLibraries = FormatIssues(availability.FailedLibraries),
+                Missing = availability.MissingFiles?.Count ?? 0,
+                SourceFiles =
+                    $"{availability.AccessibleSourceFiles}/{availability.TotalSourceFiles} available",
+                Status = AvailabilityStatus(availability),
+                UnavailableLibraries = FormatIssues(availability.UnavailableLibraries),
+            }
+            : null;
+
     [MarkoutFormat("yyyy-MM-dd")]
     [MarkoutSection(Name = PackageSections.SourceLinkFiles, EmptyText = "No SourceLink source files found for this package.")]
     public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
         .Select(row => new PackageSourceFileRow(row.Library, row.Type, row.Url))
         .ToList();
+
+    [MarkoutSection(Name = PackageSections.SourceLinkIntegrity)]
+    public PackageSourceIntegritySection? SourceIntegrity =>
+        _data.SourceIntegrity is { } integrity
+            ? new PackageSourceIntegritySection
+            {
+                CheckedLibraries =
+                    $"{integrity.CheckedLibraries}/{integrity.TotalLibraries} checked",
+                CrlfMismatch = integrity.LineEndingNormalized > 0
+                    ? $"{integrity.LineEndingNormalized} normalized"
+                    : null,
+                FailedLibraries = FormatIssues(integrity.FailedLibraries),
+                Mismatched = integrity.Mismatched,
+                MismatchedFiles = integrity.MismatchedFiles is { Count: > 0 } mismatches
+                    ? string.Join(
+                        ", ",
+                        mismatches.Select(
+                            static mismatch =>
+                                MarkoutInline.Code(
+                                    $"{mismatch.Library}: {mismatch.Path}")))
+                    : null,
+                Status = IntegrityStatus(integrity),
+                UnavailableLibraries = FormatIssues(integrity.UnavailableLibraries),
+                Unverifiable = integrity.Unverifiable,
+                Verified = integrity.Verified,
+            }
+            : null;
+
+    [MarkoutSection(Name = PackageSections.SourceLinkMissingFiles)]
+    public List<PackageSourceLinkFileRow>? MissingSourceFiles =>
+        _data.SourceAvailability is { } availability
+            ? MissingSourceRows(availability)
+            : null;
 
     [MarkoutSection(Name = PackageSections.Statistics)]
     [MarkoutPropertyName("Published")]
@@ -282,6 +343,82 @@ public class InspectionResultView
         => PackageFileFamily.PredicateFor(section) is { } predicate
             ? _data.PackageFiles?.Where(predicate).Select(ToFileRow).ToList()
             : null;
+
+    private static string? FormatIssues(List<PackageSourceLinkIssue>? issues)
+        => issues is { Count: > 0 }
+            ? string.Join(
+                ", ",
+                issues.Select(
+                    static issue =>
+                        $"{MarkoutInline.Code(issue.Library)} ({PackageViewText.Contain(issue.Reason)})"))
+            : null;
+
+    private static List<PackageSourceLinkFileRow> MissingSourceRows(
+        PackageSourceAvailability availability)
+    {
+        List<PackageSourceLinkFileRow> rows = [];
+        if (availability.MissingFiles is { } missing)
+        {
+            rows.AddRange(missing.Select(static file =>
+                new PackageSourceLinkFileRow(file.Library, file.Path, "Missing")));
+        }
+        if (availability.UnavailableLibraries is { } unavailable)
+        {
+            rows.AddRange(unavailable.Select(static issue =>
+                new PackageSourceLinkFileRow(
+                    issue.Library,
+                    "",
+                    $"Unavailable: {issue.Reason}")));
+        }
+        if (availability.FailedLibraries is { } failed)
+        {
+            rows.AddRange(failed.Select(static issue =>
+                new PackageSourceLinkFileRow(
+                    issue.Library,
+                    "",
+                    $"Failed: {issue.Reason}")));
+        }
+
+        return rows
+            .OrderBy(static row => row.Library, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static row => row.File, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string AvailabilityStatus(PackageSourceAvailability availability)
+    {
+        if (availability.TotalLibraries == 0)
+            return "Unavailable";
+        if (availability.TotalSourceFiles == 0)
+            return "Partial";
+        if (availability.AuditedLibraries == 0
+            && availability.FailedLibraries is { Count: > 0 })
+        {
+            return "Failed";
+        }
+
+        return availability.AuditedLibraries < availability.TotalLibraries
+               || availability.MissingFiles is { Count: > 0 }
+            ? "Partial"
+            : "Complete";
+    }
+
+    private static string IntegrityStatus(PackageSourceIntegrity integrity)
+    {
+        if (integrity.TotalLibraries == 0)
+            return "Unavailable";
+        if (integrity.CheckedLibraries == 0
+            && integrity.FailedLibraries is { Count: > 0 })
+        {
+            return "Failed";
+        }
+        if (integrity.Mismatched > 0)
+            return "Mismatch";
+        return integrity.CheckedLibraries < integrity.TotalLibraries
+               || integrity.Unverifiable > 0
+            ? "Partial"
+            : "Verified";
+    }
 
     private List<MarkoutField> GetCompactFields()
     {
@@ -451,47 +588,27 @@ internal static class PackageViewText
         => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
 
     /// <summary>
-    /// Containment for a free-form prose block, as distinct from a table cell.
+    /// Renders contained prose as a Markdown quotation.
     /// </summary>
     /// <remarks>
-    /// A nuspec description is legitimately several paragraphs, and it renders
-    /// as a standalone block rather than inside a cell, so folding its line
-    /// endings the way <see cref="Contain"/> does would silently merge and drop
-    /// paragraphs of real package documentation. This escapes every other
-    /// rendering hazard -- bidi overrides, ANSI escapes, C0/C1 controls, and the
-    /// U+2028/U+2029 separators -- and deliberately leaves CR and LF alone.
-    ///
-    /// The boundary that leaves is explicit and unverified by any gate: a
-    /// hostile description can still introduce a line break, and because the
-    /// block is rendered as Markdown it could already introduce a heading or a
-    /// table before this change. Constraining a package's own description to
-    /// inert text is a separate decision from #3319, which is about untrusted
-    /// text escaping a structure it was placed inside.
+    /// The value reaches this sink as an <see cref="InertString"/>, so visual containment is
+    /// already a property of the object model. The quotation is the separate structural
+    /// containment Markdown requires: package-authored headings and tables remain inside a
+    /// visibly quoted block instead of becoming peer structures in tool output.
     /// </remarks>
     [return: NotNullIfNotNull(nameof(value))]
-    public static string? ContainProse(string? value)
+    public static string? QuoteProse(InertString? value)
     {
-        if (value is null || !value.Any(NeedsEscape))
-            return value;
+        if (value is not { } prose || prose.IsEmpty)
+            return value?.ToString();
 
-        var builder = new StringBuilder(value.Length);
-        foreach (var ch in value)
-        {
-            if (NeedsEscape(ch))
-                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
-            else
-                builder.Append(ch);
-        }
-
-        return builder.ToString();
-
-        // U+2028 and U+2029 are categories Zl/Zp, so char.IsControl is false for
-        // them and IsRenderingHazard does not claim them; they are named here
-        // because a terminal still breaks the line on them, which would split
-        // the block just as CR/LF do without being visible in the source text.
-        static bool NeedsEscape(char ch)
-            => ch is '\u2028' or '\u2029'
-                || (ch is not '\n' and not '\r' and not '\t' && CSharpIdentifier.IsRenderingHazard(ch));
+        // Markout's DescriptionProperty writes a paragraph verbatim. Prefixing every line
+        // makes the package's prose a quotation, so headings, tables, and other block syntax
+        // remain visibly package-authored instead of becoming peer sections in tool output.
+        string text = prose.ToString().ReplaceLineEndings("\n");
+        return string.Join(
+            "\n",
+            text.Split('\n').Select(static line => line.Length == 0 ? ">" : $"> {line}"));
     }
 }
 
@@ -525,10 +642,76 @@ public record PackageSourceFileRow(
     public string? Url { get; init; } = PackageViewText.Contain(Url);
 }
 
+[MarkoutSerializable]
+public record PackageSourceLinkFileRow(
+    string Library,
+    string File,
+    string Status)
+{
+    public string Library { get; init; } = PackageViewText.Contain(Library);
+    public string File { get; init; } = PackageViewText.Contain(File);
+    public string Status { get; init; } = PackageViewText.Contain(Status);
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public sealed record PackageSourceAvailabilitySection(
+    string AuditedLibraries = "",
+    int Embedded = 0,
+    string? FailedLibraries = null,
+    int Missing = 0,
+    string SourceFiles = "",
+    string Status = "",
+    string? UnavailableLibraries = null)
+{
+    public string AuditedLibraries { get; init; } =
+        PackageViewText.Contain(AuditedLibraries);
+    public int Embedded { get; init; } = Embedded;
+    public string? FailedLibraries { get; init; } =
+        PackageViewText.Contain(FailedLibraries);
+    public int Missing { get; init; } = Missing;
+    public string SourceFiles { get; init; } =
+        PackageViewText.Contain(SourceFiles);
+    public string Status { get; init; } =
+        PackageViewText.Contain(Status);
+    public string? UnavailableLibraries { get; init; } =
+        PackageViewText.Contain(UnavailableLibraries);
+}
+
+[MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
+[MarkoutSkipNull]
+public sealed record PackageSourceIntegritySection(
+    string CheckedLibraries = "",
+    string? CrlfMismatch = null,
+    string? FailedLibraries = null,
+    int Mismatched = 0,
+    string? MismatchedFiles = null,
+    string Status = "",
+    string? UnavailableLibraries = null,
+    int Unverifiable = 0,
+    int Verified = 0)
+{
+    public string CheckedLibraries { get; init; } =
+        PackageViewText.Contain(CheckedLibraries);
+    [MarkoutPropertyName("CR/LF Mismatch")]
+    public string? CrlfMismatch { get; init; } =
+        PackageViewText.Contain(CrlfMismatch);
+    public string? FailedLibraries { get; init; } =
+        PackageViewText.Contain(FailedLibraries);
+    public int Mismatched { get; init; } = Mismatched;
+    public string? MismatchedFiles { get; init; } =
+        PackageViewText.Contain(MismatchedFiles);
+    public string Status { get; init; } =
+        PackageViewText.Contain(Status);
+    public string? UnavailableLibraries { get; init; } =
+        PackageViewText.Contain(UnavailableLibraries);
+    public int Unverifiable { get; init; } = Unverifiable;
+    public int Verified { get; init; } = Verified;
+}
+
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(InspectionResultView))]
 [MarkoutContext(typeof(LibraryInspectionView))]
-[MarkoutContext(typeof(LibraryInspectionReport))]
 [MarkoutContext(typeof(ReferenceRow))]
 [MarkoutContext(typeof(ExtensionMethodRow))]
 [MarkoutContext(typeof(ClassifiedMethodRow))]
@@ -552,6 +735,9 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(TargetFrameworkRow))]
 [MarkoutContext(typeof(PackageFileRow))]
 [MarkoutContext(typeof(PackageSourceFileRow))]
+[MarkoutContext(typeof(PackageSourceLinkFileRow))]
+[MarkoutContext(typeof(PackageSourceAvailabilitySection))]
+[MarkoutContext(typeof(PackageSourceIntegritySection))]
 [MarkoutContext(typeof(ILOffsetSection))]
 [MarkoutContext(typeof(ILOffsetMemberContextSection))]
 [MarkoutContext(typeof(ILOffsetInstructionContextSection))]

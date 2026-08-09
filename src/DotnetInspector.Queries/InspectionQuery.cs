@@ -1,0 +1,490 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+
+namespace DotnetInspector.Queries;
+
+/// <summary>
+/// A typed query could not be planned or executed. This is a query contract failure, not an
+/// inspected-artifact failure.
+/// </summary>
+public sealed class InspectionQueryException : InvalidOperationException
+{
+    public InspectionQueryException(string message)
+        : base(message)
+    {
+    }
+
+    public InspectionQueryException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+/// <summary>
+/// The identity, result contract, and cost of one typed inspection query. Identity is the
+/// definition instance, not <see cref="Name"/>; a consumer supplies execution context separately.
+/// </summary>
+public abstract class InspectionQueryDefinition
+{
+    private protected InspectionQueryDefinition(string name, InspectionCost cost)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Name = name;
+        Cost = cost;
+    }
+
+    /// <summary>A stable diagnostic name. It is never used for lookup or binding.</summary>
+    public string Name { get; }
+
+    /// <summary>The acquisition cost declared by the query.</summary>
+    public InspectionCost Cost { get; }
+}
+
+/// <summary>
+/// A typed inspection query definition that produces <typeparamref name="TResult"/>.
+/// </summary>
+public sealed class InspectionQuery<TResult> : InspectionQueryDefinition
+{
+    public InspectionQuery(string name, InspectionCost cost)
+        : base(name, cost)
+    {
+    }
+}
+
+/// <summary>
+/// Results produced by an <see cref="InspectionQueryRegistry{TContext}"/>. The completed result
+/// set exposes every produced query; the view passed to an executor exposes only that query's
+/// declared transitive prerequisites.
+/// </summary>
+public sealed class InspectionQueryResults
+{
+    private readonly Dictionary<InspectionQueryDefinition, object?> _values;
+    private readonly IReadOnlySet<InspectionQueryDefinition>? _accessible;
+
+    internal InspectionQueryResults()
+    {
+        _values = [];
+    }
+
+    private InspectionQueryResults(
+        Dictionary<InspectionQueryDefinition, object?> values,
+        IReadOnlySet<InspectionQueryDefinition> accessible)
+    {
+        _values = values;
+        _accessible = accessible;
+    }
+
+    internal void Set<TResult>(InspectionQuery<TResult> query, TResult result)
+        => _values.Add(query, result);
+
+    internal InspectionQueryResults RestrictTo(
+        IReadOnlySet<InspectionQueryDefinition> accessible)
+        => new(_values, accessible);
+
+    /// <summary>Gets the result produced for <paramref name="query"/>.</summary>
+    public TResult Get<TResult>(InspectionQuery<TResult> query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        EnsureAccessible(query);
+        if (!_values.TryGetValue(query, out object? value))
+            throw new InspectionQueryException($"Query '{query.Name}' did not produce a result.");
+
+        return (TResult)value!;
+    }
+
+    /// <summary>Attempts to get the result produced for <paramref name="query"/>.</summary>
+    public bool TryGet<TResult>(
+        InspectionQuery<TResult> query,
+        [MaybeNullWhen(false)] out TResult result)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        EnsureAccessible(query);
+        if (_values.TryGetValue(query, out object? value))
+        {
+            result = (TResult)value!;
+            return true;
+        }
+
+        result = default;
+        return false;
+    }
+
+    private void EnsureAccessible(InspectionQueryDefinition query)
+    {
+        if (_accessible is not null && !_accessible.Contains(query))
+        {
+            throw new InspectionQueryException(
+                $"Query '{query.Name}' is not a declared prerequisite of the query being executed.");
+        }
+    }
+}
+
+/// <summary>
+/// Executes heterogeneous typed queries without reducing their identity to string keys.
+/// </summary>
+public sealed class InspectionQueryRegistry<TContext>
+{
+    private readonly Dictionary<InspectionQueryDefinition, Registration> _registrations = [];
+    private readonly Func<
+        TContext,
+        InspectionQueryDefinition,
+        InspectionCost,
+        IDisposable>? _enterExecutionScope;
+
+    /// <summary>
+    /// Creates a query registry.
+    /// </summary>
+    /// <param name="enterExecutionScope">
+    /// Optional host callback invoked immediately around each query executor with that query's
+    /// maximum transitive cost. Hosts can use it to enforce resource acquisition policy without
+    /// coupling this query layer to host-specific resource types.
+    /// </param>
+    public InspectionQueryRegistry(
+        Func<TContext, InspectionQueryDefinition, InspectionCost, IDisposable>?
+            enterExecutionScope = null)
+    {
+        _enterExecutionScope = enterExecutionScope;
+    }
+
+    /// <summary>Every registered query, in registration order.</summary>
+    public IReadOnlyCollection<InspectionQueryDefinition> RegisteredQueries => _registrations.Keys;
+
+    /// <summary>Registers a typed query and its context adapter.</summary>
+    public InspectionQueryRegistry<TContext> Add<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, InspectionQueryResults, TResult> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(execute);
+        ArgumentNullException.ThrowIfNull(requires);
+
+        if (_registrations.ContainsKey(query))
+            throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
+
+        _registrations.Add(
+            query,
+            new Registration<TResult>(query, execute, [.. requires]));
+        return this;
+    }
+
+    /// <summary>Registers a query that does not consume prerequisite results.</summary>
+    public InspectionQueryRegistry<TContext> Add<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, TResult> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+        return Add(query, (context, _) => execute(context), requires);
+    }
+
+    /// <summary>Registers an asynchronous typed query and its context adapter.</summary>
+    public InspectionQueryRegistry<TContext> AddAsync<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(execute);
+        ArgumentNullException.ThrowIfNull(requires);
+
+        if (_registrations.ContainsKey(query))
+            throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
+
+        _registrations.Add(
+            query,
+            new AsyncRegistration<TResult>(query, execute, [.. requires]));
+        return this;
+    }
+
+    /// <summary>
+    /// Registers an asynchronous query that does not consume prerequisite results.
+    /// </summary>
+    public InspectionQueryRegistry<TContext> AddAsync<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, CancellationToken, ValueTask<TResult>> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+        return AddAsync(
+            query,
+            (context, _, cancellationToken) => execute(context, cancellationToken),
+            requires);
+    }
+
+    /// <summary>The queries directly required by <paramref name="query"/>.</summary>
+    public ImmutableArray<InspectionQueryDefinition> RequirementsOf(InspectionQueryDefinition query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return _registrations.TryGetValue(query, out Registration? registration)
+            ? registration.Requires
+            : [];
+    }
+
+    /// <summary>
+    /// Returns the maximum cost over <paramref name="query"/>'s prerequisite closure.
+    /// </summary>
+    public InspectionCost CostOf(InspectionQueryDefinition query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        EnsureRegistered(query);
+
+        InspectionCost cost = InspectionCost.NetworkFree;
+        foreach (InspectionQueryDefinition member in ExpandRequired([query]))
+        {
+            if (member.Cost > cost)
+                cost = member.Cost;
+        }
+
+        return cost;
+    }
+
+    /// <summary>Expands queries to include every transitively required query.</summary>
+    public HashSet<InspectionQueryDefinition> ExpandRequired(
+        IEnumerable<InspectionQueryDefinition> requested)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+
+        HashSet<InspectionQueryDefinition> closure = [];
+        HashSet<InspectionQueryDefinition> visiting = [];
+        foreach (InspectionQueryDefinition query in requested)
+            AddWithRequirements(query, closure, visiting);
+        return closure;
+    }
+
+    /// <summary>
+    /// Executes the requested queries and their prerequisites once, in deterministic order.
+    /// </summary>
+    public InspectionQueryResults Run(
+        IEnumerable<InspectionQueryDefinition> requested,
+        TContext context,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution = null)
+    {
+        HashSet<InspectionQueryDefinition> required = ExpandRequired(requested);
+        HashSet<InspectionQueryDefinition> ran = [];
+        var results = new InspectionQueryResults();
+
+        foreach (InspectionQueryDefinition query in _registrations.Keys)
+        {
+            if (required.Contains(query))
+                RunWithRequirements(query, context, results, ran, recordExecution);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Executes synchronous and asynchronous queries and their prerequisites once, in
+    /// deterministic order.
+    /// </summary>
+    public async Task<InspectionQueryResults> RunAsync(
+        IEnumerable<InspectionQueryDefinition> requested,
+        TContext context,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution = null,
+        CancellationToken cancellationToken = default)
+    {
+        HashSet<InspectionQueryDefinition> required = ExpandRequired(requested);
+        HashSet<InspectionQueryDefinition> ran = [];
+        var results = new InspectionQueryResults();
+
+        foreach (InspectionQueryDefinition query in _registrations.Keys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (required.Contains(query))
+            {
+                await RunWithRequirementsAsync(
+                    query,
+                    context,
+                    results,
+                    ran,
+                    recordExecution,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return results;
+    }
+
+    private void AddWithRequirements(
+        InspectionQueryDefinition query,
+        HashSet<InspectionQueryDefinition> closure,
+        HashSet<InspectionQueryDefinition> visiting)
+    {
+        EnsureRegistered(query);
+        if (!visiting.Add(query))
+            throw new InspectionQueryException(
+                $"Inspection query prerequisite cycle detected at '{query.Name}'.");
+
+        if (closure.Add(query))
+        {
+            foreach (InspectionQueryDefinition required in _registrations[query].Requires)
+                AddWithRequirements(required, closure, visiting);
+        }
+
+        visiting.Remove(query);
+    }
+
+    private void RunWithRequirements(
+        InspectionQueryDefinition query,
+        TContext context,
+        InspectionQueryResults results,
+        HashSet<InspectionQueryDefinition> ran,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
+    {
+        if (ran.Contains(query))
+            return;
+
+        Registration registration = _registrations[query];
+        foreach (InspectionQueryDefinition required in registration.Requires)
+            RunWithRequirements(required, context, results, ran, recordExecution);
+
+        ran.Add(query);
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            HashSet<InspectionQueryDefinition> prerequisites =
+                ExpandRequired(registration.Requires);
+            using IDisposable? scope = _enterExecutionScope?.Invoke(
+                context,
+                query,
+                CostOf(query));
+            registration.Execute(
+                context,
+                results,
+                results.RestrictTo(prerequisites));
+        }
+        finally
+        {
+            recordExecution?.Invoke(query, Stopwatch.GetElapsedTime(start));
+        }
+    }
+
+    private async ValueTask RunWithRequirementsAsync(
+        InspectionQueryDefinition query,
+        TContext context,
+        InspectionQueryResults results,
+        HashSet<InspectionQueryDefinition> ran,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution,
+        CancellationToken cancellationToken)
+    {
+        if (ran.Contains(query))
+            return;
+
+        Registration registration = _registrations[query];
+        foreach (InspectionQueryDefinition required in registration.Requires)
+        {
+            await RunWithRequirementsAsync(
+                required,
+                context,
+                results,
+                ran,
+                recordExecution,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        ran.Add(query);
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            HashSet<InspectionQueryDefinition> prerequisites =
+                ExpandRequired(registration.Requires);
+            using IDisposable? scope = _enterExecutionScope?.Invoke(
+                context,
+                query,
+                CostOf(query));
+            await registration.ExecuteAsync(
+                context,
+                results,
+                results.RestrictTo(prerequisites),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            recordExecution?.Invoke(query, Stopwatch.GetElapsedTime(start));
+        }
+    }
+
+    private void EnsureRegistered(InspectionQueryDefinition query)
+    {
+        if (!_registrations.ContainsKey(query))
+            throw new InspectionQueryException($"Query '{query.Name}' is not registered.");
+    }
+
+    private abstract class Registration(
+        InspectionQueryDefinition query,
+        ImmutableArray<InspectionQueryDefinition> requires)
+    {
+        public InspectionQueryDefinition Query { get; } = query;
+        public ImmutableArray<InspectionQueryDefinition> Requires { get; } = requires;
+        public abstract void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults);
+        public abstract ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken);
+    }
+
+    private sealed class Registration<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, InspectionQueryResults, TResult> execute,
+        ImmutableArray<InspectionQueryDefinition> requires)
+        : Registration(query, requires)
+    {
+        public override void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults)
+            => results.Set(query, execute(context, prerequisiteResults));
+
+        public override ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Execute(context, results, prerequisiteResults);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class AsyncRegistration<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        ImmutableArray<InspectionQueryDefinition> requires)
+        : Registration(query, requires)
+    {
+        public override void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults)
+            => throw new InspectionQueryException(
+                $"Query '{query.Name}' is asynchronous and must be executed with RunAsync.");
+
+        public override async ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken)
+        {
+            TResult result = await execute(
+                context,
+                prerequisiteResults,
+                cancellationToken).ConfigureAwait(false);
+            results.Set(query, result);
+        }
+    }
+}
