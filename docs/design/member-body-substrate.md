@@ -444,8 +444,8 @@ it was printed with**, whenever the construct continues onto a later C# line:
 the break is the construct's text, and dropping it makes the runs concatenate
 `for (...)` onto `{` and `...;` onto `}` — C# that was never rendered. Exactly
 that one newline is kept, never a character of the IL that follows. Spans are
-ordered, non-overlapping, and non-empty, and the constructor enforces all three
-plus bounds. Bounds are checked by subtraction (`Start > Text.Length ||
+ordered, separated, non-overlapping, and non-empty, and the constructor
+enforces all four plus bounds. Bounds are checked by subtraction (`Start > Text.Length ||
 Length > Text.Length - Start`) and run ends are tracked widened, because a
 hostile `Start + Length` overflows `int`, wraps negative, and would read as
 comfortably inside the buffer — deferring the failure to whichever consumer

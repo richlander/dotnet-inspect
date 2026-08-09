@@ -486,7 +486,15 @@ public class PrintedBodyMapTests
             "NewObject",
             SourceLineKind.CSharp,
             [new AnnotatedSourceSpan(0, 12), new AnnotatedSourceSpan(7, 3)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "NewObject",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(0, 7), new AnnotatedSourceSpan(7, 3)]));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceRegion(PrintedRegionRole.Body, []));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceRegion(
+            PrintedRegionRole.Body,
+            [new AnnotatedSourceSpan(0, 7), new AnnotatedSourceSpan(7, 3)]));
 
         // Bounds are the document's, because only the document holds the text.
         Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
@@ -578,6 +586,45 @@ public class PrintedBodyMapTests
             [],
             [],
             []));
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentRejectsOverlayTextThatIsNotWellFormedUtf16()
+    {
+        static AnnotatedSourceDocument Make(
+            AnnotatedSourceNode node,
+            AnnotatedSourceFact fact) => new(
+                DocumentText,
+                [node],
+                [],
+                [fact],
+                []);
+
+        var kind = Assert.Throws<ArgumentException>(
+            () => Make(
+                new AnnotatedSourceNode(
+                    0,
+                    "New\ud800Object",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(7, 12)]),
+                AllocationFact()));
+        Assert.Equal("Nodes", kind.ParamName);
+        Assert.Contains("Node 0 kind", kind.Message, StringComparison.Ordinal);
+
+        var descriptor = Assert.Throws<ArgumentException>(
+            () => Make(AllocationNode(), AllocationFact() with { Descriptor = "alloc.\ud800" }));
+        Assert.Equal("Facts", descriptor.ParamName);
+        Assert.Contains("Fact 0 descriptor", descriptor.Message, StringComparison.Ordinal);
+
+        var category = Assert.Throws<ArgumentException>(
+            () => Make(AllocationNode(), AllocationFact() with { Category = "Alloc\udc00ation" }));
+        Assert.Equal("Facts", category.ParamName);
+        Assert.Contains("Fact 0 category", category.Message, StringComparison.Ordinal);
+
+        var detail = Assert.Throws<ArgumentException>(
+            () => Make(AllocationNode(), AllocationFact() with { Detail = "obj\ud800ect" }));
+        Assert.Equal("Facts", detail.ParamName);
+        Assert.Contains("Fact 0 detail", detail.Message, StringComparison.Ordinal);
     }
 
     [Fact]

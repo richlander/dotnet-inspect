@@ -71,7 +71,7 @@ public sealed record AnnotatedSourceNode
     /// <param name="Id">This node's identity within its document: contiguous from <c>0</c> in list order.</param>
     /// <param name="Kind">The structure kind these characters are, e.g. <c>NewObject</c> for C# or <see cref="InstructionKind"/> for IL.</param>
     /// <param name="Medium">The language these characters belong to.</param>
-    /// <param name="Spans">The node's exact characters: one or more absolute spans, in increasing order and never overlapping. More than one means the node is discontinuous in the rendered text.</param>
+    /// <param name="Spans">The node's exact characters: one or more absolute spans, in increasing order, separated, and never overlapping. More than one means the node is discontinuous in the rendered text.</param>
     /// <param name="IlOffset">The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <paramref name="Kind"/> is <see cref="InstructionKind"/>.</param>
     public AnnotatedSourceNode(
         int Id,
@@ -129,7 +129,7 @@ public sealed record AnnotatedSourceNode
     /// <summary>The language these characters belong to.</summary>
     public SourceLineKind Medium { get; }
 
-    /// <summary>The node's exact characters, as absolute spans in increasing, non-overlapping order.</summary>
+    /// <summary>The node's exact characters, as absolute spans in increasing, separated, non-overlapping order.</summary>
     public IReadOnlyList<AnnotatedSourceSpan> Spans { get; }
 
     /// <summary>The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <see cref="Kind"/> is <see cref="InstructionKind"/>.</summary>
@@ -173,7 +173,7 @@ public sealed record AnnotatedSourceRegion
 {
     /// <summary>Creates one named region.</summary>
     /// <param name="Role">The region's role within its enclosing construct.</param>
-    /// <param name="Spans">The region's exact characters: one or more absolute spans, in increasing order and never overlapping.</param>
+    /// <param name="Spans">The region's exact characters: one or more absolute spans, in increasing order, separated, and never overlapping.</param>
     public AnnotatedSourceRegion(PrintedRegionRole Role, IReadOnlyList<AnnotatedSourceSpan> Spans)
     {
         ArgumentNullException.ThrowIfNull(Spans);
@@ -187,7 +187,7 @@ public sealed record AnnotatedSourceRegion
     /// <summary>The region's role within its enclosing construct.</summary>
     public PrintedRegionRole Role { get; }
 
-    /// <summary>The region's exact characters, as absolute spans in increasing, non-overlapping order.</summary>
+    /// <summary>The region's exact characters, as absolute spans in increasing, separated, non-overlapping order.</summary>
     public IReadOnlyList<AnnotatedSourceSpan> Spans { get; }
 
     /// <inheritdoc/>
@@ -333,7 +333,7 @@ public sealed record AnnotatedSourceDocument
         ArgumentNullException.ThrowIfNull(Facts);
         ArgumentNullException.ThrowIfNull(Targets);
 
-        ValidateText(Text);
+        ValidateWellFormedUtf16(Text, nameof(Text), "Text");
 
         var nodes = Nodes.ToArray();
         if (nodes.Any(node => node is null))
@@ -400,26 +400,26 @@ public sealed record AnnotatedSourceDocument
         return hash.ToHashCode();
     }
 
-    static void ValidateText(string text)
+    static void ValidateWellFormedUtf16(
+        string value,
+        string parameterName,
+        string valueName)
     {
-        // Spans index the decoded UTF-16 text, and a document is only useful if
-        // it replays: a lone surrogate has no UTF-8 form, so System.Text.Json
-        // writes U+FFFD in its place and the round trip comes back a different
-        // string -- unequal to the original, and with every absolute span after
-        // the substitution now naming characters it was not minted for.
+        // A portable document is only useful if every string replays exactly:
+        // a lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
+        // in its place and the round trip comes back with different content.
+        // For Text, that would also invalidate every absolute span after it.
         // Producers already contain this before a document exists: ILStringEscaper
         // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
-        // fact escaping does the same, so malformed producer input reaches the
-        // buffer as text a reader can see rather than a code unit that cannot
-        // survive the wire.
-        for (int index = 0; index < text.Length; index++)
+        // fact escaping does the same.
+        for (int index = 0; index < value.Length; index++)
         {
-            char c = text[index];
+            char c = value[index];
             if (!char.IsSurrogate(c))
                 continue;
             if (char.IsHighSurrogate(c)
-                && index + 1 < text.Length
-                && char.IsLowSurrogate(text[index + 1]))
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
             {
                 index++;
                 continue;
@@ -427,9 +427,9 @@ public sealed record AnnotatedSourceDocument
 
             string half = char.IsHighSurrogate(c) ? "high" : "low";
             throw new ArgumentException(
-                $"Text must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
-                    + "spans index the decoded text and exact JSON replay would substitute U+FFFD for it.",
-                "Text");
+                $"{valueName} must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
+                    + "exact JSON replay would substitute U+FFFD for it.",
+                parameterName);
         }
     }
 
@@ -445,6 +445,7 @@ public sealed record AnnotatedSourceDocument
                     $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
                     "Nodes");
             }
+            ValidateWellFormedUtf16(node.Kind, "Nodes", $"Node {index} kind");
             AnnotatedSourceSpans.ValidateBounds(node.Spans, text, "Nodes");
 
             // Only the offset-bearing nodes are ordered, and only against each
@@ -482,6 +483,10 @@ public sealed record AnnotatedSourceDocument
             }
             if (fact.Descriptor is null || fact.Category is null)
                 throw new ArgumentException("Fact descriptors and categories cannot be null.", "Facts");
+            ValidateWellFormedUtf16(fact.Descriptor, "Facts", $"Fact {index} descriptor");
+            ValidateWellFormedUtf16(fact.Category, "Facts", $"Fact {index} category");
+            if (fact.Detail is { } detail)
+                ValidateWellFormedUtf16(detail, "Facts", $"Fact {index} detail");
             if (!Enum.IsDefined(fact.Conditionality))
                 throw new ArgumentException($"Unknown fact conditionality: {fact.Conditionality}.", "Facts");
             if (!Enum.IsDefined(fact.Origin))
@@ -609,10 +614,10 @@ static class AnnotatedSourceSpans
                     span.Start,
                     "Spans must start at a non-negative offset.");
             }
-            if (index > 0 && span.Start < previousEnd)
+            if (index > 0 && span.Start <= previousEnd)
             {
                 throw new ArgumentException(
-                    $"Spans must be strictly ordered and non-overlapping; span {index} starts at {span.Start}, inside the run ending at {previousEnd}.",
+                    $"Spans must be strictly ordered, separated, and non-overlapping; span {index} starts at {span.Start}, at or before the run ending at {previousEnd}.",
                     parameterName);
             }
 
