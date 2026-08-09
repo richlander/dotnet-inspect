@@ -3,6 +3,8 @@ using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -172,7 +174,10 @@ public class LibraryFindingConsumerTests
         inspection.Apply(LibraryMetadataService.ScanExtensionMembers(missingPath, logger));
         inspection.Apply(LibraryMetadataService.ScanCustomAttributes(missingPath, logger));
         inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
-        LibraryMetadataService.ScanIntegrations(missingPath, inspection, logger);
+        LibraryMetadataService.ScanIntegrationOpportunities(
+            missingPath,
+            inspection,
+            logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
         AssertFailure(inspection.ExtensionMemberInspection, MetadataFindings.ExtensionMemberDescriptor);
@@ -184,6 +189,154 @@ public class LibraryFindingConsumerTests
         AssertFailure(inspection.EcosystemIntegrationInspection, MetadataFindings.EcosystemIntegrationDescriptor);
         AssertFailure(inspection.OpenTelemetryInspection, MetadataFindings.OpenTelemetrySignalDescriptor);
         Assert.Equal(9, inspection.InspectionFailures!.Count);
+    }
+
+    [Fact]
+    public void AssemblyContextIntegrationsRunner_ExecutesOneGroupAndRetainsProvenance()
+    {
+        string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        string secondPath = typeof(LibraryInspection).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+        var trace = new DotnetInspector.Sections.InspectionTrace();
+
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            firstPath,
+                            AssemblyResolutionProvenance.Local("first test input")),
+                        new AssemblyContextIntegrationsInput(
+                            secondPath,
+                            AssemblyResolutionProvenance.Local("second test input")),
+                    ],
+                    trace));
+
+        var first = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(firstPath));
+        var second = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(secondPath));
+        Assert.Equal(
+            "first test input",
+            Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+                first.Subject.Provenance).ResolverSource);
+        Assert.Equal(
+            "second test input",
+            Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+                second.Subject.Provenance).ResolverSource);
+        Assert.Empty(queries);
+        Assert.Same(
+            AssemblyContextIntegrationsQuery.Definition,
+            Assert.Single(trace.QueryExecutions).Query);
+    }
+
+    [Fact]
+    public void AssemblyContextIntegrationsRunner_ProjectsBudgetFailureBesideAvailableEntry()
+    {
+        string firstPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        string secondPath = typeof(LibraryInspection).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            firstPath,
+                            AssemblyResolutionProvenance.Local("available test input")),
+                        new AssemblyContextIntegrationsInput(
+                            secondPath,
+                            AssemblyResolutionProvenance.Local("rejected test input")),
+                    ],
+                    groupOptions: new AssemblyContextGroupOptions
+                    {
+                        MaxRetainedImageBytes = new FileInfo(firstPath).Length,
+                    }));
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(firstPath));
+        var rejected = Assert.IsType<AssemblyIntegrationsEntry.Rejected>(
+            batch.EntryFor(secondPath));
+        Assert.Equal(CandidateOpenFailureKind.ResourceBudget, rejected.Failure.Kind);
+
+        var inspection = new LibraryInspection();
+        LibraryMetadataService.ApplyAssemblyIntegrationsEntry(
+            secondPath,
+            inspection,
+            new VerboseLogger(enabled: false),
+            rejected);
+
+        Assert.Same(rejected, inspection.AssemblyIntegrationsEntry);
+        Assert.Equal(
+            [
+                LibraryIntegrationCatalog.RollupName,
+                EcosystemIntegrationNames.OpenTelemetry,
+            ],
+            inspection.InspectionFailures!.Select(failure => failure.Section));
+    }
+
+    [Fact]
+    public async Task AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-integrations-snapshot-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        string targetPath = Path.Combine(tempDir, "Target.dll");
+        string originalPath = typeof(LibraryFindingConsumerTests).Assembly.Location;
+        string replacementPath = typeof(LibraryInspection).Assembly.Location;
+        File.Copy(originalPath, targetPath);
+
+        try
+        {
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                targetPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "snapshot reuse test")),
+                        ]));
+            AssemblyIntegrationsEntry entry = batch.EntryFor(targetPath);
+
+            File.Copy(replacementPath, targetPath, overwrite: true);
+
+            using var httpClient = new HttpClient();
+            LibraryInspection inspection = Assert.IsType<LibraryInspection>(
+                await LibraryMetadataService.InspectAsync(
+                    targetPath,
+                    new DotnetInspector.Options.LibraryOptions(),
+                    new VerboseLogger(enabled: false),
+                    packageName: null,
+                    packageVersion: null,
+                    httpClient,
+                    assemblyReference: Assert.IsType<ResolvedAssemblyReference>(
+                        batch.AssemblyForInspection(targetPath)),
+                    integrationsEntry: entry));
+
+            Assert.Equal(
+                entry.Subject.Identity.Name,
+                inspection.AssemblyInfo!.AssemblyName);
+            Assert.NotEqual(
+                Path.GetFileNameWithoutExtension(replacementPath),
+                inspection.AssemblyInfo.AssemblyName);
+            Assert.Same(entry, inspection.AssemblyIntegrationsEntry);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

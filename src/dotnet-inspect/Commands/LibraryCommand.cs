@@ -88,6 +88,7 @@ public class LibraryCommand
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
+        var groupQueryRegistry = catalog.GroupQueryRegistry;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -554,10 +555,25 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                resolvedPath!,
+                                AssemblyResolutionProvenance.Platform(
+                                    framework!,
+                                    version,
+                                    "library --platform")),
+                        ],
+                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries, queryRegistry: queryRegistry,
+                    assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
+                    integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -647,10 +663,23 @@ public class LibraryCommand
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        inspectionPaths.Select(path =>
+                            new AssemblyContextIntegrationsInput(
+                                path,
+                                PackageIntegrationProvenance(
+                                    path,
+                                    extractPath,
+                                    packageName,
+                                    packageVersion))),
+                        trace);
                 var inspections = await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
-                    queries, queryRegistry,
+                    queries, queryRegistry, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
@@ -729,10 +758,23 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                assemblyPath!,
+                                AssemblyResolutionProvenance.Local(
+                                    "library path")),
+                        ],
+                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries, queryRegistry: queryRegistry,
+                    assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
+                    integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -2254,6 +2296,7 @@ public class LibraryCommand
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
@@ -2262,7 +2305,21 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, queries: queries, queryRegistry: queryRegistry, discoveryOnly: discoveryOnly, trace: trace);
+            var inspection = await LibraryMetadataService.InspectAsync(
+                targetPath,
+                options,
+                logger,
+                packageName,
+                version,
+                httpClient,
+                scanners: scanners,
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryRegistry: queryRegistry,
+                assemblyReference: integrations?.AssemblyForInspection(targetPath),
+                integrationsEntry: integrations?.EntryFor(targetPath),
+                discoveryOnly: discoveryOnly,
+                trace: trace);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
@@ -2285,6 +2342,29 @@ public class LibraryCommand
         }
 
         return inspections;
+    }
+
+    private static AssemblyResolutionProvenance PackageIntegrationProvenance(
+        string assemblyPath,
+        string extractPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        if (string.IsNullOrWhiteSpace(packageName)
+            || string.IsNullOrWhiteSpace(packageVersion))
+        {
+            return AssemblyResolutionProvenance.Local(
+                "library package extraction");
+        }
+
+        string relativePath = Path.GetRelativePath(
+            extractPath,
+            assemblyPath).Replace('\\', '/');
+        return AssemblyResolutionProvenance.Package(
+            packageName,
+            packageVersion,
+            TfmResolver.ExtractTfmFromPath(relativePath),
+            rid: null);
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(

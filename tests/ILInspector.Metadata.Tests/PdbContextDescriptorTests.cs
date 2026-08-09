@@ -25,6 +25,28 @@ public class PdbContextDescriptorTests
 
         Assert.Equal(identity.Name, context.ExtractAssemblyInfo().AssemblyName);
         Assert.Equal(informationalPath, context.AssemblyPathOrNull);
+        Assert.Equal(
+            File.GetLastWriteTimeUtc(informationalPath),
+            context.LastWriteTimeUtc);
+    }
+
+    [Fact]
+    public void OpenPrefetchedDescriptor_UsesAuthoritativeStreamInsteadOfPath()
+    {
+        string authoritativePath = typeof(PdbContextDescriptorTests).Assembly.Location;
+        string informationalPath = typeof(PdbContext).Assembly.Location;
+        byte[] authoritativeImage = File.ReadAllBytes(authoritativePath);
+        AssemblyReferenceIdentity identity = ReadIdentity(authoritativeImage);
+        var descriptor = ResolvedAssemblyReference.Create(
+            identity,
+            informationalPath,
+            () => new MemoryStream(authoritativeImage, writable: false),
+            AssemblyResolutionProvenance.Local("test"));
+
+        using var context = PdbContext.OpenPrefetched(descriptor);
+
+        Assert.Equal(identity.Name, context.ExtractAssemblyInfo().AssemblyName);
+        Assert.Equal(informationalPath, context.AssemblyPathOrNull);
     }
 
     [Fact]

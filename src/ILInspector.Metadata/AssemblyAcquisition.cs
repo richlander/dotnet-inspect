@@ -218,6 +218,18 @@ public sealed class ResolvedAssemblyReference
     /// </remarks>
     public Func<Stream> OpenRead { get; }
     public AssemblyResolutionProvenance Provenance { get; }
+
+    internal ResolvedAssemblyReference WithOpenRead(
+        Func<Stream> openRead)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        return new ResolvedAssemblyReference(
+            Registration,
+            Identity,
+            Path,
+            openRead,
+            Provenance);
+    }
 }
 
 /// <summary>Identifies one acquisition catalog's candidate key space.</summary>

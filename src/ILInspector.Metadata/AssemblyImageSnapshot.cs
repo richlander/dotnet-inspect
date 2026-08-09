@@ -46,17 +46,41 @@ public sealed class AssemblyImageSnapshot
     AssemblyImageSnapshot(
         ImmutableArray<byte> content,
         AssemblyReferenceIdentity identity,
-        Guid moduleVersionId)
+        Guid moduleVersionId,
+        AssemblyAcquisitionRegistration registration)
     {
         Content = content;
         Identity = identity;
         ModuleVersionId = moduleVersionId;
+        Registration = registration;
     }
 
     public ImmutableArray<byte> Content { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public Guid ModuleVersionId { get; }
+    public AssemblyAcquisitionRegistration Registration { get; }
     public long Length => Content.Length;
+
+    /// <summary>
+    /// Returns the same acquisition descriptor backed by this immutable snapshot instead of its
+    /// original content source.
+    /// </summary>
+    public ResolvedAssemblyReference RetainAssemblyReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (!ReferenceEquals(assembly.Registration, Registration)
+            || assembly.Identity != Identity)
+        {
+            throw new ArgumentException(
+                "The assembly descriptor does not own this snapshot.",
+                nameof(assembly));
+        }
+
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(Content)!;
+        return assembly.WithOpenRead(
+            () => new MemoryStream(bytes, writable: false));
+    }
 
     /// <summary>
     /// Opens, bounds, copies, and validates an assembly image.
@@ -121,7 +145,8 @@ public sealed class AssemblyImageSnapshot
                     content,
                     identity,
                     reader.GetGuid(
-                        reader.GetModuleDefinition().Mvid));
+                        reader.GetModuleDefinition().Mvid),
+                    assembly.Registration);
             }
 
             var result = new AssemblyImageSnapshotResult.Ready(

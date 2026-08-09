@@ -230,7 +230,9 @@ public class PdbContext : IDisposable
         FileSize = peStream.Length;
         LastWriteTimeUtc = peStream is FileStream fileStream
             ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
-            : default;
+            : assemblyPath is not null && File.Exists(assemblyPath)
+                ? File.GetLastWriteTimeUtc(assemblyPath)
+                : default;
     }
 
     /// <summary>
@@ -298,6 +300,22 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
             loadLocalPdb: true);
+
+    /// <summary>
+    /// Opens an acquisition descriptor with its complete authoritative image prefetched.
+    /// </summary>
+    public static PdbContext OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+    }
 
     static PdbContext Open(
         string assemblyPath,

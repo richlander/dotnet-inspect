@@ -87,6 +87,31 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+
+        var retained = Assert.IsType<
+            AssemblyImageAccessResult<
+                ResolvedAssemblyReference>.Available>(
+                    group.RetainAssemblyReference(source.Assembly)).Value;
+        byte first = source.Bytes[0];
+
+        source.Bytes[0] ^= 0xff;
+        workspace.Dispose();
+
+        Assert.Same(source.Assembly.Registration, retained.Registration);
+        Assert.Same(source.Assembly.Provenance, retained.Provenance);
+        using Stream stream = retained.OpenRead();
+        Assert.Equal(first, stream.ReadByte());
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
     public void DisposalInsideCallback_DoesNotRevokeActiveView()
     {
         TestAssembly source = TestAssembly.Create();
