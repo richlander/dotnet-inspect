@@ -1819,6 +1819,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_MarkdownUsesLfThroughout()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:n", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains('\n', output);
+        Assert.DoesNotContain('\r', output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(

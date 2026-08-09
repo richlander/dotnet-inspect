@@ -402,9 +402,8 @@ public static class OutputFormatter
 
         if (options.Format == OutputFormat.PlainText)
         {
-            ApplyLibraryRowWindow(writerOpts, options.Rows);
             WriteLfLine(Console.Out, SerializeLibraryPlainText(
-                auditView, inspection, writerOpts));
+                auditView, inspection, writerOpts, options.Rows));
         }
         else if (options.VerbosityEnabled)
         {
@@ -429,8 +428,13 @@ public static class OutputFormatter
     private static string SerializeLibraryPlainText(
         LibraryInspectionView auditView,
         LibraryInspection inspection,
-        MarkoutWriterOptions writerOpts)
+        MarkoutWriterOptions writerOpts,
+        RowWindow? rows)
     {
+        var includesMetadata = MetadataLensRenderer.IsSelected(writerOpts.IncludeSections);
+        if (!includesMetadata)
+            writerOpts.RowWindow = RowWindow.ToMarkout(rows);
+
         // Serialize into an LF writer rather than straight to Console.Out, whose ambient CRLF
         // would otherwise terminate lines whose interiors this branch already emits as LF —
         // the appended metadata is LF on every platform. Buffering matches the Markdown
@@ -453,7 +457,9 @@ public static class OutputFormatter
                 : plainText + "\n" + trimmedMetadata;
         }
 
-        return plainText;
+        return includesMetadata
+            ? MarkdownTableRowLimiter.Apply(plainText, rows)
+            : plainText;
     }
 
     private static void WriteReferenceTree(LibraryInspection inspection)
@@ -521,12 +527,6 @@ public static class OutputFormatter
 
         markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
         return MarkdownTableRowLimiter.Apply(markdown, rows);
-    }
-
-    private static void ApplyLibraryRowWindow(MarkoutWriterOptions writerOpts, RowWindow? rows)
-    {
-        if (!MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
-            writerOpts.RowWindow = RowWindow.ToMarkout(rows);
     }
 
     /// <summary>
@@ -636,11 +636,10 @@ public static class OutputFormatter
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var writerOpts = WriterOptions(inspection);
-                ApplyLibraryRowWindow(writerOpts, options.Rows);
                 var title = LibraryViewText.DocumentTitle(inspection);
                 var body = RemovePlainTextDocumentTitle(
                     SerializeLibraryPlainText(
-                        auditView, inspection, writerOpts),
+                        auditView, inspection, writerOpts, options.Rows),
                     LibraryViewText.DocumentTitle(auditView));
                 return body.Length == 0 ? title : title + "\n\n" + body;
             }));

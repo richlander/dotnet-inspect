@@ -794,10 +794,13 @@ public class ApiCommand
             else
             {
                 writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                var markdownWriter = new StringWriter { NewLine = "\n" };
+                MarkoutSerializer.Serialize(
+                    view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
+                var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
-                OutputFormatter.WriteLfLine(Console.Out, markdown.TrimEnd());
+                OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
 
