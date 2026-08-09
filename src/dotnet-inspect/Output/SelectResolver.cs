@@ -20,6 +20,12 @@ public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool I
 public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> Unresolved)
 {
     public bool HasError => Unresolved.Count > 0;
+
+    /// <summary>
+    /// Canonical section names reached through an exact name or compatible legacy alias.
+    /// Category and glob expansions are intentionally excluded.
+    /// </summary>
+    public HashSet<string> ExactSections { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -150,11 +156,19 @@ public static class SelectResolver
     public static (List<string> Matches, SelectMiss? Miss) ResolveSingle(
         string name, string[] knownSections, bool singleGlob = false)
     {
+        var (matches, miss, _) = ResolveSingleWithProvenance(name, knownSections, singleGlob);
+        return (matches, miss);
+    }
+
+    private static (List<string> Matches, SelectMiss? Miss, bool IsExact)
+        ResolveSingleWithProvenance(
+            string name, string[] knownSections, bool singleGlob = false)
+    {
         // Exact match (case-insensitive)
         var exact = knownSections.FirstOrDefault(s =>
             s.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
-            return ([exact], null);
+            return ([exact], null, true);
 
         // Legacy alias for a renamed section (keeps old selectors working).
         if (LegacySectionAliases.TryGetValue(name, out var canonical))
@@ -162,7 +176,7 @@ public static class SelectResolver
             var aliased = knownSections.FirstOrDefault(s =>
                 s.Equals(canonical, StringComparison.OrdinalIgnoreCase));
             if (aliased != null)
-                return ([aliased], null);
+                return ([aliased], null, true);
         }
 
         // Glob match
@@ -175,12 +189,12 @@ public static class SelectResolver
             if (globMatches.Count > 0)
             {
                 if (singleGlob && globMatches.Count > 1)
-                    return (globMatches, new SelectMiss(name, globMatches, IsGlob: true));
+                    return (globMatches, new SelectMiss(name, globMatches, IsGlob: true), false);
 
-                return (globMatches, null);
+                return (globMatches, null, false);
             }
 
-            return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true));
+            return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true), false);
         }
 
         // No match. Offer close fuzzy matches, or the full section list when none is close
@@ -190,8 +204,8 @@ public static class SelectResolver
             return ([], new SelectMiss(
                 name,
                 [.. knownSections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)],
-                ListsAllSections: true));
-        return ([], new SelectMiss(name, suggestions));
+                ListsAllSections: true), false);
+        return ([], new SelectMiss(name, suggestions), false);
     }
 
     /// <summary>
@@ -217,6 +231,7 @@ public static class SelectResolver
 
         categories ??= BuildFallbackCategories(knownSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
         if (selectDefault)
@@ -238,9 +253,13 @@ public static class SelectResolver
                 continue;
             }
 
-            var (matches, miss) = ResolveSingle(value, knownSections);
+            var (matches, miss, isExactSection) = ResolveSingleWithProvenance(value, knownSections);
             foreach (var m in matches)
+            {
                 matched.Add(m);
+                if (isExactSection)
+                    exact.Add(m);
+            }
             if (miss != null)
             {
                 // Fall back to a category alias (e.g. retired "Performance Triage" / bare
@@ -275,7 +294,10 @@ public static class SelectResolver
             }
         }
 
-        return new(matched.Count > 0 ? matched : null, unresolved);
+        return new(matched.Count > 0 ? matched : null, unresolved)
+        {
+            ExactSections = exact
+        };
     }
 
     private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections)

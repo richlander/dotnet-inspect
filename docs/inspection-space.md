@@ -14,20 +14,18 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace today. Library
-metadata, direct-reference, extension-method, and SourceLink inspection are the
-first typed-query canaries: the section catalog plans typed demand and executes
-it through a prerequisite-aware registry, while the command still owns
-orchestration. `DotnetInspector.Queries` also contains the first workspace
-foundation: an ephemeral workspace can own binding-consistent assembly context
-groups, and a group retains lazily acquired immutable assembly snapshots behind
-callback-scoped and stack-only access. The first group-scoped query scans
-Integrations evidence across every participant sequentially while preserving
-per-assembly identity, provenance, and failures. Existing commands have not
-migrated to that workspace owner yet. Other foundations include shared image
-and inspection session ownership, catalog generations, `CoreCache`, typed
-provenance and resolution currencies, and `InertString`; the remaining
-workspace model describes how those pieces will be composed.
+govern its migration. Library metadata, direct-reference, extension-method, and
+SourceLink inspection are the first typed-query canaries: the section catalog
+plans typed demand and executes it through a prerequisite-aware registry, while
+the command still owns orchestration. The library CLI and package
+`--all-libraries` now use an ephemeral workspace for focused Integrations
+demand. One binding-consistent assembly context group scans every selected
+participant sequentially, preserves per-assembly identity, provenance, and
+failures, and retains each available immutable snapshot for the rest of that
+library inspection without reopening the source path. Other foundations
+include shared image and inspection session ownership, catalog generations,
+`CoreCache`, typed provenance and resolution currencies, and `InertString`;
+the remaining workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:

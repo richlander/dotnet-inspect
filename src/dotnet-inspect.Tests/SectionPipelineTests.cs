@@ -478,7 +478,9 @@ public class SectionPipelineTests
         var detailedQueries = pipeline.GetRequiredQueries(Verbosity.Detailed);
 
         Assert.DoesNotContain(MetadataImageQuery.Definition, detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerIntegrations, detailedScanners);
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationsQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerIntegrationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
@@ -1528,16 +1530,44 @@ public class SectionPipelineTests
     [Fact]
     public void LibraryQueryRegistry_RegistrationMatchesDeclaration()
     {
-        var registry = LibrarySections.CreateQueryRegistry();
-        var pipeline = LibrarySections.CreatePipeline();
+        LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        HashSet<InspectionQueryDefinition> scannerContextQueries =
+        [
+            .. pipeline.DeclaredQueries.Where(
+                catalog.QueryRegistry.RegisteredQueries.Contains),
+        ];
+        HashSet<InspectionQueryDefinition> groupQueries =
+        [
+            .. pipeline.DeclaredQueries.Where(
+                catalog.GroupQueryRegistry.RegisteredQueries.Contains),
+        ];
         HashSet<InspectionQueryDefinition> closure =
-            registry.ExpandRequired(pipeline.DeclaredQueries);
+            catalog.QueryRegistry.ExpandRequired(scannerContextQueries);
+        closure.UnionWith(
+            catalog.GroupQueryRegistry.ExpandRequired(groupQueries));
+        HashSet<InspectionQueryDefinition> registered =
+        [
+            .. catalog.QueryRegistry.RegisteredQueries,
+            .. catalog.GroupQueryRegistry.RegisteredQueries,
+        ];
 
+        Assert.Empty(
+            catalog.QueryRegistry.RegisteredQueries.Intersect(
+                catalog.GroupQueryRegistry.RegisteredQueries));
         Assert.Equal(
             closure.OrderBy(q => q.Name, StringComparer.Ordinal),
-            registry.RegisteredQueries.OrderBy(q => q.Name, StringComparer.Ordinal));
+            registered.OrderBy(q => q.Name, StringComparer.Ordinal));
+        Assert.Equal(
+            pipeline.DeclaredQueries.OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal),
+            scannerContextQueries.Union(groupQueries).OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal));
         Assert.Equal(
             [
+                AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
@@ -2646,7 +2676,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySections_AboveNetworkFree_AreExactlyTheBodyIndexFamily()
+    public void LibrarySections_AboveNetworkFree_AreExplicitlyPinned()
     {
         // GPT review of #3626 caught Switches silently leaving -v:n: its scanner had been declared
         // Moderated, and Moderated means "auto-runs only at -v:d". Nothing failed. The regression
@@ -2695,12 +2725,14 @@ public class SectionPipelineTests
             scannerAboveCheap);
 
         // The effective axis: everything the ladder will refuse to auto-render, whichever
-        // declaration made it so. The Metadata table sections and the SourceLink family were
-        // already Unbounded by their own descriptors before this change — they are here because
-        // this list is the honest full set, not because this PR moved them.
+        // declaration made it so. Metadata and SourceLink declare their own cost; Integrations
+        // inherits the group query's Unbounded cost. This is the honest full set, so either kind
+        // of cost declaration crossing the boundary requires an explicit review update.
         string[] expectedAboveCheap =
         [
             .. expectedBodyIndexFamily,
+            .. LibraryIntegrationCatalog.CategorySections,
+            IntegrationSectionNames.Opportunities,
             "Metadata: #Blob",
             "Metadata: #GUID",
             "Metadata: #Strings",
@@ -2915,28 +2947,41 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void IntegrationOpportunities_DeclaresIntegrationsPrerequisite()
+    public void IntegrationSections_BindToTheAssemblyContextQueryByIdentity()
     {
-        // This pins the declaration, not the behavior, and that is a deliberate weakening.
-        // LibrarySections_RenderIdenticallyAloneAndTogether covers every other prerequisite
-        // behaviorally, but it cannot cover this one.
-        //
-        // Not because the section never renders offline — it does; System.Data.Common yields two
-        // rows (DbDataSource under Aspire and Health Checks). It is because the failure mode is
-        // EXTRA rows rather than missing ones: without Integrations the existing-integration set
-        // is empty, so already-integrated categories stop being suppressed. Distinguishing the
-        // two therefore needs an assembly that both renders opportunities AND carries an existing
-        // integration in one of those same categories, so that dropping the prerequisite makes a
-        // suppressed row reappear. No assembly available offline does both.
-        //
-        // Closing the gap properly needs a purpose-built fixture with that combination. Until
-        // then this catches the realistic failure — someone deleting the declaration — and
-        // nothing more.
-        var registry = LibrarySections.CreateScannerRegistry();
-
+        LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
+        SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
         Assert.Contains(
-            LibrarySections.ScannerIntegrations,
-            registry.RequirementsOf(LibrarySections.ScannerIntegrationOpportunities));
+            AssemblyContextIntegrationsQuery.Definition,
+            catalog.GroupQueryRegistry.RegisteredQueries);
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationsQuery.Definition,
+            catalog.QueryRegistry.RegisteredQueries);
+
+        foreach (string section in LibraryIntegrationCatalog.CategorySections
+                     .Append(IntegrationSectionNames.Opportunities))
+        {
+            var include = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                section,
+            };
+            HashSet<InspectionQueryDefinition> queries =
+                pipeline.GetRequiredQueries(Verbosity.Minimal, include);
+
+            Assert.Contains(
+                AssemblyContextIntegrationsQuery.Definition,
+                queries);
+        }
+
+        var opportunities = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            IntegrationSectionNames.Opportunities,
+        };
+        Assert.Contains(
+            LibrarySections.ScannerIntegrationOpportunities,
+            pipeline.GetRequiredScanners(Verbosity.Minimal, opportunities));
     }
 
     [Fact]
@@ -2967,8 +3012,6 @@ public class SectionPipelineTests
             LibrarySections.ScannerResources,
             LibrarySections.ScannerCustomAttributes,
             LibrarySections.ScannerTypeForwarders,
-            // was ScanIntegrationOpportunities re-running ScanIntegrations
-            LibrarySections.ScannerIntegrations,
             LibrarySections.ScannerIntegrationOpportunities,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
@@ -3299,16 +3342,6 @@ public class SectionPipelineTests
                 m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
                     m.TypeForwarderInspection!.Value)),
 
-            ("Integrations",
-                m => LibraryMetadataService.ScanIntegrations(session, Path, m, logger),
-                m =>
-                {
-                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
-                        m.OpenTelemetryInspection!.Value);
-                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
-                        m.EcosystemIntegrationInspection!.Value);
-                }),
-
             ("IntegrationOpportunities",
                 m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
                 m =>
@@ -3606,7 +3639,6 @@ public class SectionPipelineTests
         LibrarySections.ScannerResources,
         LibrarySections.ScannerCustomAttributes,
         LibrarySections.ScannerTypeForwarders,
-        LibrarySections.ScannerIntegrations,
         LibrarySections.ScannerIntegrationOpportunities,
         LibrarySections.ScannerAuditSignals,
     ];

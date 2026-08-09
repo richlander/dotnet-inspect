@@ -88,6 +88,7 @@ public class LibraryCommand
         var pipeline = catalog.Pipeline;
         var scannerRegistry = catalog.ScannerRegistry;
         var queryRegistry = catalog.QueryRegistry;
+        var groupQueryRegistry = catalog.GroupQueryRegistry;
 
         var schemaMap = MetadataSectionNames.AugmentSchema(
             InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
@@ -221,7 +222,7 @@ public class LibraryCommand
             if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
-                if (!HasExactILCoordinateSelection(options.Select))
+                if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
                 {
                     var count = selectResult.Sections.Count;
                     selectResult.Sections.ExceptWith(ILCoordinateSections);
@@ -239,9 +240,10 @@ public class LibraryCommand
             {
                 // Same discipline as the IL coordinate sections above: reached through the
                 // @Metadata door the section is simply dropped, because a category selection is a
-                // request for whatever applies; named exactly it is an error, because the caller
-                // asked for a specific section that cannot exist without its coordinate.
-                if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
+                // request for whatever applies; reached by an exact name or compatible alias it is
+                // an error, because the caller asked for a specific section that cannot exist
+                // without its coordinate.
+                if (!selectResult.ExactSections.Contains(MetadataSectionNames.Heap))
                 {
                     removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
                 }
@@ -262,7 +264,11 @@ public class LibraryCommand
                 return 1;
             }
 
-            options = options with { IncludeSections = selectResult.Sections };
+            options = options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+            };
         }
 
         options = options with
@@ -554,10 +560,25 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                resolvedPath!,
+                                AssemblyResolutionProvenance.Platform(
+                                    framework!,
+                                    version,
+                                    "library --platform")),
+                        ],
+                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true, scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries, queryRegistry: queryRegistry,
+                    assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
+                    integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -567,7 +588,6 @@ public class LibraryCommand
 
                 inspection.Source = SourceKind.Platform;
                 inspection.PlatformVersion = version;
-                inspection.LastModified = File.GetLastWriteTimeUtc(resolvedPath!);
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
@@ -647,10 +667,23 @@ public class LibraryCommand
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        inspectionPaths.Select(path =>
+                            new AssemblyContextIntegrationsInput(
+                                path,
+                                PackageIntegrationProvenance(
+                                    path,
+                                    extractPath,
+                                    packageName,
+                                    packageVersion))),
+                        trace);
                 var inspections = await CollectPackageInspectionsAsync(
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult, scanners, scannerRegistry,
-                    queries, queryRegistry,
+                    queries, queryRegistry, integrations,
                     discoveryInspection && !fullEffectiveDiscovery, trace);
 
                 if (inspections.Count == 0)
@@ -729,10 +762,23 @@ public class LibraryCommand
                     }
                 }
 
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryRegistry,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                assemblyPath!,
+                                AssemblyResolutionProvenance.Local(
+                                    "library path")),
+                        ],
+                        trace);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     scanners: scanners, scannerRegistry: scannerRegistry,
                     queries: queries, queryRegistry: queryRegistry,
+                    assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
+                    integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -1114,27 +1160,6 @@ public class LibraryCommand
     private static bool HasHeapCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
-    /// <summary>
-    /// True when <paramref name="select"/> names <paramref name="section"/> exactly, as opposed to
-    /// reaching it through an <c>@Category</c>. The distinction decides whether a coordinate
-    /// section with no coordinate is an error or is simply dropped.
-    /// </summary>
-    private static bool HasExactSelection(string[]? select, string section)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (value.Trim().Equals(section, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
-
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
     {
         if (options.Discover != null)
@@ -1298,23 +1323,6 @@ public class LibraryCommand
                 inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
                 return 0;
         }
-    }
-
-    private static bool HasExactILCoordinateSelection(string[]? select)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase)
-                || value.Equals("IL Offset", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
     }
 
     private static async Task<int> PopulateILOffsetIfRequestedAsync(
@@ -2168,6 +2176,10 @@ public class LibraryCommand
         if (options.Count || options.IncludeSections is not { Count: 1 })
             return false;
 
+        var section = options.IncludeSections.Single();
+        if (options.ExactIncludeSections?.Contains(section) != true)
+            return false;
+
         string? emptySection = null;
         foreach (var inspection in inspections)
         {
@@ -2178,7 +2190,6 @@ public class LibraryCommand
 
             emptySection ??= empty[0];
         }
-
         if (emptySection is null)
             return false;
 
@@ -2254,6 +2265,7 @@ public class LibraryCommand
         HashSet<string>? scanners = null, ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        AssemblyContextIntegrationsBatch? integrations = null,
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
@@ -2262,7 +2274,21 @@ public class LibraryCommand
         {
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
 
-            var inspection = await LibraryMetadataService.InspectAsync(targetPath, options, logger, packageName, version, httpClient, scanners: scanners, scannerRegistry: scannerRegistry, queries: queries, queryRegistry: queryRegistry, discoveryOnly: discoveryOnly, trace: trace);
+            var inspection = await LibraryMetadataService.InspectAsync(
+                targetPath,
+                options,
+                logger,
+                packageName,
+                version,
+                httpClient,
+                scanners: scanners,
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryRegistry: queryRegistry,
+                assemblyReference: integrations?.AssemblyForInspection(targetPath),
+                integrationsEntry: integrations?.EntryFor(targetPath),
+                discoveryOnly: discoveryOnly,
+                trace: trace);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
@@ -2285,6 +2311,29 @@ public class LibraryCommand
         }
 
         return inspections;
+    }
+
+    private static AssemblyResolutionProvenance PackageIntegrationProvenance(
+        string assemblyPath,
+        string extractPath,
+        string? packageName,
+        string? packageVersion)
+    {
+        if (string.IsNullOrWhiteSpace(packageName)
+            || string.IsNullOrWhiteSpace(packageVersion))
+        {
+            return AssemblyResolutionProvenance.Local(
+                "library package extraction");
+        }
+
+        string relativePath = Path.GetRelativePath(
+            extractPath,
+            assemblyPath).Replace('\\', '/');
+        return AssemblyResolutionProvenance.Package(
+            packageName,
+            packageVersion,
+            TfmResolver.ExtractTfmFromPath(relativePath),
+            rid: null);
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(

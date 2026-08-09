@@ -121,7 +121,6 @@ public class UnraisedLocalFunctionCallTests
         Assert.Equal(
             """
             F();
-            return;
             static void F()
             {
             }
