@@ -171,7 +171,7 @@ static class FidelityCheck
                 try { source = MetadataSource.Open(path, context: metadata); }
                 catch (Exception ex) when (ex is not OutOfMemoryException) { continue; }
                 RegisterSourceContext(source, metadata);
-                var references = RuntimeReferences(path);
+                var references = RuntimeReferences(pe, path);
                 using (source)
                 {
                     var render = Renderer(source, lowered);
@@ -488,7 +488,7 @@ static class FidelityCheck
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered);
-        var references = RuntimeReferences(assemblyPath);
+        var references = RuntimeReferences(pe, assemblyPath);
 
         foreach (var typeHandle in selectedTypes)
         {
@@ -607,7 +607,7 @@ static class FidelityCheck
                 {
                     // Pre-warm type maps.
                     _ = source.ResolveShape(TypeRef.CoreLib("System", "Int32"));
-                    var references = RuntimeReferences(assemblyPath);
+                    var references = RuntimeReferences(pe, assemblyPath);
 
                     Parallel.ForEach(reader.TypeDefinitions, options, (typeHandle, state) =>
                     {
@@ -704,7 +704,11 @@ static class FidelityCheck
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
-    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
+    sealed record ReferenceSet(
+        ImmutableArray<MetadataReference> Metadata,
+        SignatureSpellability Accessibility,
+        IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> TargetApi,
+        bool TargetApiIsResolutionAware);
 
     sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
 
@@ -953,7 +957,7 @@ static class FidelityCheck
                         continue;
 
                     var render = Renderer(source, lowered, options);
-                    var references = RuntimeReferences(assemblyPath, assemblies);
+                    var references = RuntimeReferences(pe, assemblyPath, assemblies);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
                         if (pending.Count == 0)
@@ -1533,8 +1537,8 @@ static class FidelityCheck
 
         BuiltUnit built;
         try { built = timings is null
-            ? BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)
-            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references.Accessibility)); }
+            ? BuildUnit(reader, targets, fieldInits, typeHandle, references)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, targets, fieldInits, typeHandle, references)); }
         catch (Exception ex) when (ex is not OutOfMemoryException) { return false; }
         string unit = built.Source;
 
@@ -1603,8 +1607,8 @@ static class FidelityCheck
     {
         BuiltUnit built;
         try { built = timings is null
-            ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)
-            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)); }
+            ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references)); }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit");
@@ -2002,8 +2006,8 @@ static class FidelityCheck
         {
             BuiltUnit built;
             try { built = timings is null
-                ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)
-                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)); }
+                ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references, include)
+                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references, include)); }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 captureDetail = "cluster-source-build-failed";
@@ -2822,12 +2826,12 @@ static class FidelityCheck
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
     static BuiltUnit BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
-        SignatureSpellability accessibility,
+        ReferenceSet references,
         IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
         var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = targetBody };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots, targetBody.RequiredNamespaces);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, references, includeRoots, targetBody.RequiredNamespaces);
     }
 
     /// <summary>
@@ -2842,9 +2846,26 @@ static class FidelityCheck
     /// </summary>
     static BuiltUnit BuildUnit(MetadataReader reader, IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
-        SignatureSpellability accessibility, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
+        ReferenceSet references, IReadOnlySet<TypeDefinitionHandle>? includeRoots = null,
         IReadOnlySet<string>? isolatedTargetNamespaces = null)
     {
+        var targetApiTypes = new Dictionary<TypeDefinitionHandle, ApiType>();
+        if (references.TargetApiIsResolutionAware)
+        {
+            foreach (var target in targets.Keys)
+            {
+                int token =
+                    System.Reflection.Metadata.Ecma335.MetadataTokens
+                        .GetToken(target);
+                if (references.TargetApi.TryGetValue(token, out var entry))
+                {
+                    targetApiTypes.TryAdd(
+                        reader.GetMethodDefinition(target).GetDeclaringType(),
+                        entry.Type);
+                }
+            }
+        }
+
         var sb = new StringBuilder();
         var productWholeMembers = new HashSet<MethodDefinitionHandle>();
         sb.AppendLine("#pragma warning disable");
@@ -2891,7 +2912,8 @@ static class FidelityCheck
                     targets,
                     fieldInits,
                     fieldInitType,
-                    accessibility,
+                    references.Accessibility,
+                    targetApiTypes,
                     productWholeMembers,
                     sb,
                     1);
@@ -2905,7 +2927,8 @@ static class FidelityCheck
                     targets,
                     fieldInits,
                     fieldInitType,
-                    accessibility,
+                    references.Accessibility,
+                    targetApiTypes,
                     productWholeMembers,
                     sb,
                     0);
@@ -2915,15 +2938,20 @@ static class FidelityCheck
     }
 
     /// <summary>
-    /// A <c>: Base</c> clause for a class whose base is a non-generic type in
-    /// this assembly (so its constructors are visible to a lifted
-    /// <c>: base(args)</c> initializer). Object and value-type bases need no
-    /// clause; generic bases (TypeSpec) and out-of-assembly bases are skipped
-    /// except for framework bases the skeleton must preserve for C# semantics.
-    /// <see cref="System.Attribute"/> keeps reconstructed custom-attribute types
-    /// usable, and <see cref="System.Exception"/> preserves constructor chains.
+    /// A <c>: Base</c> clause for the reconstructed class. Same-assembly bases
+    /// come from the local reader; a selected target's external base comes from
+    /// the resolution-aware product surface, so overrides bind to the same API
+    /// that Roslyn receives as a metadata reference. Unselected external-base
+    /// siblings remain omitted except for framework bases the skeleton must
+    /// preserve for C# semantics. <see cref="System.Attribute"/> keeps
+    /// reconstructed custom-attribute types usable, and
+    /// <see cref="System.Exception"/> preserves constructor chains.
     /// </summary>
-    static string BaseClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind)
+    static string BaseClause(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        TypeKind kind,
+        ApiType? targetApiType)
     {
         if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
             return "";
@@ -2938,6 +2966,13 @@ static class FidelityCheck
         else if (typeDef.BaseType.Kind == HandleKind.TypeSpecification)
         {
             return GenericBaseClause(reader, typeDef.BaseType);
+        }
+        else if (typeDef.BaseType.Kind == HandleKind.TypeReference
+                 && targetApiType?.BaseType is { } resolvedBaseType)
+        {
+            return resolvedBaseType is "System.Object" or "object"
+                ? ""
+                : $" : {Clean(resolvedBaseType)}";
         }
         else if (typeDef.BaseType.Kind != HandleKind.TypeReference
             || BaseTypeName(reader, typeDef.BaseType) is not ("System.Attribute" or "System.Exception"))
@@ -3200,6 +3235,7 @@ static class FidelityCheck
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
         SignatureSpellability accessibility,
+        IReadOnlyDictionary<TypeDefinitionHandle, ApiType> targetApiTypes,
         ISet<MethodDefinitionHandle> productWholeMembers,
         StringBuilder sb,
         int indent)
@@ -3227,7 +3263,17 @@ static class FidelityCheck
 
         if (kind == TypeKind.Interface)
         {
-            EmitInterface(reader, typeHandle, name, genParams, whereClauses, accessibility, sb, pad, indent);
+            EmitInterface(
+                reader,
+                typeHandle,
+                name,
+                genParams,
+                whereClauses,
+                accessibility,
+                targetApiTypes,
+                sb,
+                pad,
+                indent);
             return;
         }
 
@@ -3236,7 +3282,11 @@ static class FidelityCheck
         string keyword = kind == TypeKind.Struct
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef) ? "static class" : "class";
-        string baseClause = BaseClause(reader, typeDef, kind);
+        string baseClause = BaseClause(
+            reader,
+            typeDef,
+            kind,
+            targetApiTypes.GetValueOrDefault(typeHandle));
         string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
@@ -3376,6 +3426,7 @@ static class FidelityCheck
                 fieldInits,
                 fieldInitType,
                 accessibility,
+                targetApiTypes,
                 productWholeMembers,
                 sb,
                 indent + 1);
@@ -3429,7 +3480,10 @@ static class FidelityCheck
     /// without bodies or accessibility, as the interface form requires.
     /// </summary>
     static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
-        string name, string genParams, string whereClauses, SignatureSpellability accessibility, StringBuilder sb, string pad, int indent)
+        string name, string genParams, string whereClauses,
+        SignatureSpellability accessibility,
+        IReadOnlyDictionary<TypeDefinitionHandle, ApiType> targetApiTypes,
+        StringBuilder sb, string pad, int indent)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         string interfaceBaseClause = InterfaceBaseClause(reader, typeDef);
@@ -3488,6 +3542,7 @@ static class FidelityCheck
                 [],
                 default,
                 accessibility,
+                targetApiTypes,
                 new HashSet<MethodDefinitionHandle>(),
                 sb,
                 indent + 1);
@@ -3914,10 +3969,10 @@ static class FidelityCheck
 
     /// <summary>
     /// Per-assembly index from a method's metadata token to its extracted API
-    /// model, so the product's whole-member render can be resolved from a raw
-    /// <see cref="MethodDefinitionHandle"/> without extracting the API surface
-    /// once per method. Keyed on the open <see cref="PEReader"/>, so it lives
-    /// exactly as long as the reader does.
+    /// model. Compile-back registers a resolution-aware surface before rendering;
+    /// callers that only enumerate types retain the single-reader fallback.
+    /// Keyed on the open <see cref="PEReader"/>, so it lives exactly as long as
+    /// the reader does.
     /// </summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PEReader, Dictionary<int, (ApiType Type, ApiMember Member)>> TargetApiIndexCache = new();
 
@@ -3985,6 +4040,23 @@ static class FidelityCheck
             }
             return index;
         });
+
+    static Dictionary<int, (ApiType Type, ApiMember Member)>
+        BuildTargetApiIndex(ApiSurface surface)
+    {
+        var index =
+            new Dictionary<int, (ApiType Type, ApiMember Member)>();
+        foreach (var type in surface.Types)
+        {
+            foreach (var member in type.Members)
+            {
+                if (member.MetadataToken is { } token)
+                    index[token] = (type, member);
+            }
+        }
+
+        return index;
+    }
 
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
@@ -4956,12 +5028,15 @@ static class FidelityCheck
     /// References for recompilation: the running runtime (TPA), every sibling
     /// assembly in the target's own directory (project deps, test framework, etc.),
     /// and package assets named by the target's deps.json, EXCLUDING the target
-    /// assembly itself. We reconstruct the target's own types from metadata, so
-    /// referencing the real DLL would duplicate them (ambiguous-reference errors);
-    /// referencing its neighbours resolves cross-assembly types in the stubbed
-    /// signatures.
+    /// assembly itself. The same resolved set binds the product-owned API surface
+    /// used for target signatures and external-base context. We reconstruct the
+    /// target's own types from metadata, so referencing the real DLL would
+    /// duplicate them (ambiguous-reference errors).
     /// </summary>
-    static ReferenceSet RuntimeReferences(string targetPath, IReadOnlyList<string>? corpusAssemblies = null)
+    static ReferenceSet RuntimeReferences(
+        PEReader target,
+        string targetPath,
+        IReadOnlyList<string>? corpusAssemblies = null)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var resolvedReferences = new List<CompilerReference>();
@@ -5011,7 +5086,47 @@ static class FidelityCheck
         foreach (var dependency in resolver.ResolveAll())
             Add(dependency.Path, dependency.Provenance);
 
-        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
+        var compilerResolver =
+            new CompilerReferenceResolver(resolvedReferences);
+        var (targetApi, targetApiIsResolutionAware) =
+            ResolutionAwareTargetApiIndex(
+                target,
+                targetPath,
+                compilerResolver);
+        TargetApiIndexCache.AddOrUpdate(target, targetApi);
+        return new ReferenceSet(
+            builder.ToImmutable(),
+            new SignatureSpellability(compilerResolver),
+            targetApi,
+            targetApiIsResolutionAware);
+    }
+
+    static (
+        Dictionary<int, (ApiType Type, ApiMember Member)> Index,
+        bool IsResolutionAware)
+        ResolutionAwareTargetApiIndex(
+            PEReader target,
+            string targetPath,
+            IAssemblyReferenceResolver resolver)
+    {
+        string fullPath = Path.GetFullPath(targetPath);
+        var source = ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                target.GetMetadataReader()),
+            fullPath,
+            () => File.OpenRead(fullPath),
+            AssemblyResolutionProvenance.Local(
+                nameof(ResolutionAwareTargetApiIndex)));
+        using var catalog = new TypeResolutionCatalog();
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+        ResolutionAwareApiSurfaceOutcome outcome =
+            catalog.ExtractApiSurface(
+                source,
+                policy,
+                includeAll: true);
+        return outcome is ResolutionAwareApiSurfaceOutcome.Read read
+            ? (BuildTargetApiIndex(read.Surface), true)
+            : (TargetApiIndex(target), false);
     }
 
     static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)

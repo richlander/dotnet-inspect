@@ -137,6 +137,24 @@ public class SkeletonEmitTests
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
     }
 
+    [Fact]
+    public void SkeletonRetainsCrossAssemblyBaseContext()
+    {
+        const string typeName =
+            "ILInspector.Decompiler.Tests.CrossAssemblyCompileBackFixture";
+        var results = FidelityCheck.Evaluate(
+            typeof(CrossAssemblyCompileBackFixture).Assembly.Location,
+            type => type == typeName);
+
+        Assert.Equal(7, results.Count);
+        Assert.All(
+            results,
+            result => Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{typeName}.{result.Method} did not retain its external base context: "
+                + $"{result.Status} / {result.Detail}"));
+    }
+
     static string CreateAssemblyWithDuplicateUnrelatedType()
     {
         byte[] bytes = File.ReadAllBytes(typeof(SkeletonEmitFixture).Assembly.Location);
