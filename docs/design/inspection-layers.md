@@ -51,14 +51,17 @@ the ownership boundaries below, not the project count.
 
 ## Implementation status
 
-`DotnetInspector.Queries` now implements the first L1 slice. The library CLI
-executes metadata-image, direct assembly-reference, and extension-method queries
-through a typed, content-shaped registry over a host-owned
-`AssemblyInspectionSession`. The `References`, `Extension Methods`, and
-`Library Info` sections bind to concrete query definitions rather than string
-scanner keys, and the CLI and package convenience route lower section selection
-into that same registry. Separately, the first workspace query executes
-Integrations inspection across every participant in one binding-consistent
+`DotnetInspector.Queries` now implements metadata-image, direct-reference,
+extension-method, SourceLink audit, and assembly-context Integrations slices.
+The library CLI executes metadata-image, direct assembly-reference, and
+extension-method queries through a typed, content-shaped registry over a
+host-owned `AssemblyInspectionSession`. The `References`, `Extension Methods`,
+and `Library Info` sections bind to concrete query definitions rather than
+string scanner keys, and the CLI and package convenience route lower section
+selection into that same registry. Library and package SourceLink sections
+execute a shared document prerequisite plus availability or integrity query
+over a host-owned `SourceLinkService`. Separately, the first workspace query
+executes Integrations inspection across every participant in one binding-consistent
 assembly context group, reusing retained immutable content and returning
 per-participant evidence or failure. No command uses that group-scoped query
 yet.
@@ -66,10 +69,12 @@ yet.
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
-`LibraryInspection` compatibility aggregate, and acquisition and transitive
-reference resolution remain host-owned. The current queries are network-free;
-the registry passes their maximum transitive cost into the host execution scope
-so broader cost tiers can retain the same enforcement boundary.
+`LibraryInspection` compatibility aggregate, and transitive reference resolution
+remains host-owned. The SourceLink document query delegates PDB acquisition to
+shared Services while the host supplies trusted symbol and SSRF-hardened source
+clients. The registry supports deterministic synchronous and asynchronous
+execution and passes each query's maximum transitive cost into the host execution
+scope.
 
 ### L1 — `DotnetInspector.Queries`
 
@@ -218,8 +223,8 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image, direct-reference, and extension-method inspection are the first
-vertical L1 canaries:
+Metadata-image, direct-reference, extension-method, and SourceLink inspection
+are the first vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -232,6 +237,14 @@ vertical L1 canaries:
 - `ExtensionMethodsQuery` returns one immutable result shared by `Library Info`
   and `Extension Methods`. The CLI adds path-based Finding provenance and
   compatibility projections after query execution.
+- `SourceLinkDocumentsQuery` may acquire one matching portable PDB and returns
+  the typed source-document Finding inspection.
+- `SourceAvailabilityQuery` and `SourceIntegrityQuery` consume that prerequisite
+  and return explicit `Available`, `Absent`, or `Failed` outcomes. Availability
+  and Missing Files share one query result.
+- Library and package sections bind to the same SourceLink query definitions.
+  Package owns compatible/highest-TFM asset selection and aggregation, not a
+  parallel audit implementation.
 - Metadata sections, `References`, `Library Info`, and `Extension Methods` bind
   to query definitions by object identity. Diagnostic names are never lookup
   keys.
@@ -260,9 +273,9 @@ intentional and visible:
 
 - Other library facets still use `ScannerRegistry`, string keys, and shared
   `LibraryInspection` mutation.
-- L2 currently registers the L1 executor through a `ScannerContext` adapter so
-  the typed query and legacy scanners can borrow one metadata session. The L1
-  query itself does not depend on that CLI context.
+- L2 currently registers assembly queries through a `ScannerContext` adapter so
+  typed queries and legacy scanners can borrow one metadata session. SourceLink
+  queries instead receive their narrower host-neutral context.
 - The CLI retains the typed metadata result on `LibraryInspection` because the
   existing renderer still consumes that aggregate. Its `Failed` case feeds the
   existing inspection-failure surface rather than collapsing into empty output.
@@ -282,15 +295,16 @@ establishes the L1 project and structural pattern, but the remaining facets and
 the L2 project split still need migration.
 
 The structural fix is completing L1. Outside the metadata, direct-reference,
-and extension-method canaries, collection is still neither typed nor
-demand-driven:
+extension-method, and SourceLink canaries, collection is still neither typed
+nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed
   results for most scanner families, so a consumer cannot yet take those
   queries without materializing `LibraryInspection`.
 - The binding to residual collection is a **nullable string key** for the
-  remaining scanner-backed sections. Metadata and `References` use checked
-  query-definition bindings.
+  remaining scanner-backed sections. Metadata, `References`, `Library Info`,
+  `Extension Methods`, and SourceLink sections use checked query-definition
+  bindings.
 - The collection context is **path-shaped**, so a consumer without a filesystem
   cannot call the residual `LibraryMetadataService` orchestration. The
   implemented queries themselves take a borrowed content owner, not a path.

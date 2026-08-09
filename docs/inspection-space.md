@@ -15,9 +15,9 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. No command runs through a workspace today. Library
-metadata, direct-reference, and extension-method inspection are the first
-typed-query canaries: the section catalog plans typed demand and executes it
-through a prerequisite-aware registry, while the command still owns
+metadata, direct-reference, extension-method, and SourceLink inspection are the
+first typed-query canaries: the section catalog plans typed demand and executes
+it through a prerequisite-aware registry, while the command still owns
 orchestration. `DotnetInspector.Queries` also contains the first workspace
 foundation: an ephemeral workspace can own binding-consistent assembly context
 groups, and a group retains lazily acquired immutable assembly snapshots behind
@@ -427,15 +427,16 @@ own acquisition cost or producer dependencies.
 
 The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` now owns the first
-typed sequential plan and the direct-reference and extension-method section
-bindings. String keys, mutable CLI models, path-shaped residual inputs, and
-library-command ownership remain migration boundaries rather than workspace
-contracts.
+tracing are useful foundations. `DotnetInspector.Queries` now owns typed
+metadata, direct-reference, extension-method, and SourceLink plans. String keys,
+mutable CLI models, path-shaped residual inputs, and library-command ownership
+remain migration boundaries rather than workspace contracts.
 
-The initial registry contains only network-free metadata queries. It passes each
-query's maximum transitive cost into the host execution scope; capability
-lowering for network or source-content queries remains part of their migration.
+The registry executes synchronous and asynchronous queries in deterministic
+prerequisite order. It passes each query's maximum transitive cost into the host
+execution scope. SourceLink demonstrates the network boundary: a moderated
+document prerequisite may acquire one PDB, while availability and integrity
+declare unbounded work and accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 

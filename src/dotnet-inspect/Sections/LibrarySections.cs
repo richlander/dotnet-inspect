@@ -77,9 +77,15 @@ public static class LibrarySections
             .Add<SafetyContext>()
             .Add<CostContext>()
             .Add<SourceFiles>(SourceLinkDiscoverable)
-            .Add<SourceLinkAudit>(SourceLinkDiscoverable)
-            .Add<MissingSourceFiles>(SourceLinkDiscoverable)
-            .Add<SourceIntegrity>(SourceLinkDiscoverable)
+            .Add<SourceLinkAudit>(
+                SourceAvailabilityQuery.Definition,
+                SourceLinkDiscoverable)
+            .Add<MissingSourceFiles>(
+                SourceAvailabilityQuery.Definition,
+                SourceLinkDiscoverable)
+            .Add<SourceIntegrity>(
+                SourceIntegrityQuery.Definition,
+                SourceLinkDiscoverable)
             .Add<Symbols>()
             .Add<Signals>(HasAssemblyInfo)
             .Add<Switches>()
@@ -276,8 +282,14 @@ public static class LibrarySections
                         {
                             return new ExtensionMethodsResult.Failed(ex);
                         }
-                    }));
+                    }))
+            .AddSourceLinkQueries(RequireSourceLinkContext);
     }
+
+    private static SourceLinkQueryContext RequireSourceLinkContext(ScannerContext context)
+        => context.SourceLinkContext
+            ?? throw new InspectionQueryException(
+                "SourceLink query execution requires a SourceLink query context.");
 
     // ===== Primary section =====
 
@@ -582,7 +594,6 @@ public static class LibrarySections
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
         public static bool ExplicitOnly => true;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AllSourcesAccessible.HasValue || model.TotalSourceFiles > 0;
@@ -594,7 +605,6 @@ public static class LibrarySections
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink: Availability.
         public static bool ExplicitOnly => true;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.MissingSourceFiles is { Count: > 0 };
@@ -605,7 +615,6 @@ public static class LibrarySections
         public static string Name => SectionNames.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model) => model.SourceIntegrityChecked;
     }
