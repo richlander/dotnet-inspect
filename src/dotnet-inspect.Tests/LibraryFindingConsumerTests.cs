@@ -288,7 +288,6 @@ public class LibraryFindingConsumerTests
         string path = Path.GetTempFileName();
         try
         {
-            File.WriteAllBytes(path, new byte[64]);
             HashSet<InspectionQueryDefinition> queries =
                 [AssemblyContextIntegrationsQuery.Definition];
 
@@ -311,6 +310,45 @@ public class LibraryFindingConsumerTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsInvalidFileBesideManagedInput()
+    {
+        string invalidPath = Path.GetTempFileName();
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        try
+        {
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                invalidPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "invalid compatibility test")),
+                            new AssemblyContextIntegrationsInput(
+                                managedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(invalidPath));
+            Assert.Null(batch.AssemblyForInspection(invalidPath));
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                batch.EntryFor(managedPath));
+            Assert.NotNull(batch.AssemblyForInspection(managedPath));
+        }
+        finally
+        {
+            File.Delete(invalidPath);
         }
     }
 

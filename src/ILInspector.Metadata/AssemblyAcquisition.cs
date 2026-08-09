@@ -183,20 +183,35 @@ public sealed class ResolvedAssemblyReference
 
         string fullPath = System.IO.Path.GetFullPath(path);
         using FileStream stream = File.OpenRead(fullPath);
-        using var peReader =
-            new System.Reflection.PortableExecutable.PEReader(stream);
-        if (!peReader.HasMetadata)
+        System.Reflection.PortableExecutable.PEReader? peReader = null;
+        try
+        {
+            peReader =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                peReader.Dispose();
+                return null;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            peReader?.Dispose();
             return null;
+        }
 
-        AssemblyReferenceIdentity identity =
-            AssemblyReferenceIdentity.FromAssemblyDefinition(
-                peReader.GetMetadataReader());
-        return Create(
-            identity,
-            fullPath,
-            () => File.OpenRead(fullPath),
-            provenance,
-            File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+        using (peReader)
+        {
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            return Create(
+                identity,
+                fullPath,
+                () => File.OpenRead(fullPath),
+                provenance,
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+        }
     }
 
     public static bool TryCreateFromPath(

@@ -93,6 +93,23 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
+    {
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    invalid,
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
     public void Register_SameDescriptor_IsOneCandidateAndOneInventoryRead()
     {
         byte[] image = SelfBytes();
