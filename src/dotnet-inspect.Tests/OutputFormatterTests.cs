@@ -2733,4 +2733,72 @@ public class OutputFormatterTests
         var (_, error) = await ConsoleCapture.RunAsync(action);
         return error;
     }
+
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections declare a <see cref="MarkoutTable"/> rather
+    /// than appending Markdown, so their rows reach the writer and <c>--rows</c> applies at the
+    /// writer seam. This is the gate for that routing: a window set on the writer options must
+    /// drop rows from a runtime-column table it never saw at compile time.
+    /// </summary>
+    [Fact]
+    public void AggregatedSection_RowWindow_AppliesAtTheWriterSeam()
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(
+                        ["Kind", "Switch"],
+                        [["AppContext", "A"], ["AppContext", "B"], ["Feature Switch", "C"]])
+                }
+            ]
+        };
+
+        var all = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+        var windowed = MarkoutSerializer.Serialize(
+            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(RowWindow.Head(2)));
+
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Feature Switch | C |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Feature Switch | C |", windowed, StringComparison.Ordinal);
+        Assert.Contains("| AppContext | B |", windowed, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Routing aggregate cells through markout's semantic code tag rather than literal backticks
+    /// corrects two escapes that a hand-written code span gets wrong, neither of which the
+    /// differential corpus exercises. This is the gate that keeps them fixed.
+    ///
+    /// A pipe must not become <c>&amp;#124;</c> inside a code span, where it would render as that
+    /// literal text; GFM unescapes <c>\|</c> while splitting table rows, before code spans are
+    /// parsed. A backtick must not be backslash-escaped, because backslash escapes do not apply
+    /// inside a code span; the delimiter has to be doubled instead.
+    /// </summary>
+    [Theory]
+    [InlineData("Foo.Bar(a|b)", "\\|")]
+    [InlineData("IEnumerable`1", "``")]
+    public void AggregatedSection_CodeCell_EscapesForACodeSpanRatherThanForPlainText(
+        string value, string expectedSpelling)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections =
+            [
+                new AggregatedSectionView
+                {
+                    Name = "Switches",
+                    Body = new MarkoutTable(["API"], [[MarkoutInline.Code(value)]])
+                }
+            ]
+        };
+
+        var rendered = MarkoutSerializer.Serialize(document, InspectionContext.Default);
+
+        Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
+    }
 }
