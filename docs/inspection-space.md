@@ -25,9 +25,12 @@ scans selected participants sequentially, preserves per-assembly identity,
 provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by target framework and releases
-each participant before advancing. Other foundations include shared image and
-inspection session ownership, catalog generations, `CoreCache`, typed
-provenance and resolution currencies, and `InertString`; the remaining
+each participant before advancing. Progressive member call
+graphs now run over the same group: they build Analysis indexes from retained
+snapshots, keep one cross-assembly catalog generation for both traversal
+directions, and remain independent of rendering. Other foundations include
+shared image and inspection session ownership, catalog generations, `CoreCache`,
+typed provenance and resolution currencies, and `InertString`; the remaining
 workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
@@ -276,9 +279,20 @@ access and releases its retained references after active callbacks complete,
 but it never attempts to revoke or recycle an already returned span or retained
 descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
-isolation, callback, span, and asynchronous descriptor lifetimes, concurrent
-disposal, bounded retention, per-participant single-flight acquisition, and
-typed acquisition failures.
+isolation, callback and span lifetimes, concurrent disposal, bounded retention,
+per-participant single-flight acquisition, and typed acquisition failures.
+`InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
+derived-resource-before-snapshot disposal order.
+`InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
+gates that order when asynchronous host work releases its participant.
+`InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
+all-group cleanup after an owned-resource failure, and
+`InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
+gates preservation of an in-flight callback failure when deferred cleanup also
+fails.
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+gates asynchronous host work over a retained descriptor without reopening its
+source.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
 
@@ -355,8 +369,26 @@ rows. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output
 compatibility.
 
-Catalogs, query authorization, concurrent execution, and broader command
-migration remain later slices.
+`ProgressiveMemberCallGraph` is the first group-owned derived Analysis resource.
+It builds one scoped target index only for first paint, one full target index
+when a caller-capable tier is requested, and one full index per distinct
+cross-library image. The group owns its catalog lifetime and disposes the
+catalog before releasing snapshots. Stream-only participants use the same path,
+and projection is downstream of acquisition. Typed participant acquisition
+failures remain visible as `MemberCallGraphAcquisitionException`.
+`ProgressiveMemberCallGraphTests` gates build and source-open counts,
+stream-only operation, duplicate-image reuse, typed failures, projection reuse,
+and group-owned disposal.
+`ProgressiveMemberCallGraphTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
+also gates disposal of the graph's catalog scope.
+`ProgressiveMemberCallGraphTests.MalformedMetadata_IsTypedAndCached` gates
+malformed-image failure caching, and
+`ProgressiveMemberCallGraphTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
+gates the complete metadata-decoder exception classification.
+
+Other domain catalogs, query authorization, integration-opportunity
+composition migration, concurrent execution, and broader command migration
+remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

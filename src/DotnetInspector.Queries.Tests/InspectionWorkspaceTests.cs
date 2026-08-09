@@ -562,6 +562,127 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void OwnedResourceFailure_DoesNotRetainSnapshots()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        group.RegisterOwnedResource(new ThrowingResource());
+
+        Assert.Throws<AggregateException>(workspace.Dispose);
+
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
+    public void OwnedResources_AreDisposedBeforeSnapshots()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        var resource = new RetainedImageAssertingResource(group);
+        group.RegisterOwnedResource(resource);
+
+        workspace.Dispose();
+
+        Assert.True(resource.IsDisposed);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
+    public async Task AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        var resource = new RetainedImageAssertingResource(group);
+        group.RegisterOwnedResource(resource);
+
+        AssemblyImageAccessResult<int> result =
+            await group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                (_, _) =>
+                {
+                    workspace.Dispose();
+                    return Task.FromResult(1);
+                });
+
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(result);
+        Assert.True(resource.IsDisposed);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
+    public void WorkspaceDisposal_ContinuesAfterAGroupFails()
+    {
+        TestAssembly first = TestAssembly.Create();
+        TestAssembly second = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup failingGroup =
+            workspace.CreateAssemblyContextGroup(
+                [first.Participant]);
+        AssemblyContextGroup laterGroup =
+            workspace.CreateAssemblyContextGroup(
+                [second.Participant]);
+        Assert.True(
+            failingGroup.GetAssemblyImageSpan(first.Assembly).IsAvailable);
+        Assert.True(
+            laterGroup.GetAssemblyImageSpan(second.Assembly).IsAvailable);
+        failingGroup.RegisterOwnedResource(new ThrowingResource());
+
+        Assert.Throws<AggregateException>(workspace.Dispose);
+
+        Assert.Equal(0, failingGroup.RetainedImageBytes);
+        Assert.Equal(0, laterGroup.RetainedImageBytes);
+        Assert.Throws<ObjectDisposedException>(
+            () => laterGroup.UseAssemblyImage(
+                second.Assembly,
+                static image => image.Content.Length));
+    }
+
+    [Fact]
+    public void CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        group.RegisterOwnedResource(new ThrowingResource());
+
+        AggregateException failure = Assert.Throws<AggregateException>(
+            () => group.UseContext<int>(
+                () =>
+                {
+                    group.Dispose();
+                    throw new NotSupportedException(
+                        "Synthetic callback failure.");
+                }));
+
+        IReadOnlyCollection<Exception> failures =
+            failure.Flatten().InnerExceptions;
+        Assert.Contains(
+            failures,
+            ex => ex is NotSupportedException
+                && ex.Message == "Synthetic callback failure.");
+        Assert.Contains(
+            failures,
+            ex => ex is InvalidOperationException
+                && ex.Message
+                    == "Synthetic owned-resource disposal failure.");
+    }
+
+    [Fact]
     public void ImageViewAndSpanResult_AreStackOnly()
     {
         Assert.True(typeof(AssemblyImageView).IsByRefLike);
@@ -646,6 +767,26 @@ public sealed class InspectionWorkspaceTests
                 throw new InvalidOperationException(
                     "Synthetic disposal failure.");
             }
+        }
+    }
+
+    sealed class ThrowingResource : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException(
+                "Synthetic owned-resource disposal failure.");
+    }
+
+    sealed class RetainedImageAssertingResource(
+        AssemblyContextGroup group)
+        : IDisposable
+    {
+        internal bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            Assert.True(group.RetainedImageBytes > 0);
+            IsDisposed = true;
         }
     }
 }
