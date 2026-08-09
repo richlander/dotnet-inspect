@@ -84,6 +84,15 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenPrefetched(assemblyPath, log), DefaultCache, log);
 
+    public static SourceLinkService OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+        => new(
+            PdbContext.OpenPrefetched(assembly, log),
+            cache ?? DefaultCache,
+            log);
+
     public PdbContext Context => _context;
     public bool HasPdb => _context.HasPdb;
     public bool NeedsPdb => _context.NeedsPdb;

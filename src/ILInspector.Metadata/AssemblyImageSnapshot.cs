@@ -46,17 +46,49 @@ public sealed class AssemblyImageSnapshot
     AssemblyImageSnapshot(
         ImmutableArray<byte> content,
         AssemblyReferenceIdentity identity,
-        Guid moduleVersionId)
+        Guid moduleVersionId,
+        AssemblyAcquisitionRegistration registration,
+        DateTime? lastWriteTimeUtc)
     {
         Content = content;
         Identity = identity;
         ModuleVersionId = moduleVersionId;
+        Registration = registration;
+        LastWriteTimeUtc = lastWriteTimeUtc;
     }
 
     public ImmutableArray<byte> Content { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public Guid ModuleVersionId { get; }
+    public AssemblyAcquisitionRegistration Registration { get; }
+    /// <summary>
+    /// Last write time captured from the source that supplied
+    /// <see cref="Content"/>, when available.
+    /// </summary>
+    public DateTime? LastWriteTimeUtc { get; }
     public long Length => Content.Length;
+
+    /// <summary>
+    /// Returns the same acquisition descriptor backed by this immutable snapshot instead of its
+    /// original content source.
+    /// </summary>
+    public ResolvedAssemblyReference RetainAssemblyReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (!ReferenceEquals(assembly.Registration, Registration)
+            || assembly.Identity != Identity)
+        {
+            throw new ArgumentException(
+                "The assembly descriptor does not own this snapshot.",
+                nameof(assembly));
+        }
+
+        byte[] bytes = ImmutableCollectionsMarshal.AsArray(Content)!;
+        return assembly.WithOpenRead(
+            () => new MemoryStream(bytes, writable: false),
+            LastWriteTimeUtc);
+    }
 
     /// <summary>
     /// Opens, bounds, copies, and validates an assembly image.
@@ -81,6 +113,9 @@ public sealed class AssemblyImageSnapshot
             AssemblyImageSnapshot snapshot;
             using (Stream stream = OpenSource(assembly))
             {
+                DateTime? lastWriteTimeUtc = stream is FileStream fileStream
+                    ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
+                    : assembly.LastWriteTimeUtc;
                 long length = ReadRemainingLength(stream);
 
                 if (length > int.MaxValue
@@ -121,7 +156,9 @@ public sealed class AssemblyImageSnapshot
                     content,
                     identity,
                     reader.GetGuid(
-                        reader.GetModuleDefinition().Mvid));
+                        reader.GetModuleDefinition().Mvid),
+                    assembly.Registration,
+                    lastWriteTimeUtc);
             }
 
             var result = new AssemblyImageSnapshotResult.Ready(
