@@ -52,7 +52,10 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 Some large families expose only their category door in the top-level catalog;
 drill in with `-D @Performance` or `-D @Metadata`. Row formats
 (`--tsv`/`--jsonl`/`--table`) require one concrete section or a supported
-homogeneous family; `Performance:*` flattens with a leading `Kind` column.
+homogeneous family. `Performance:*` flattens with a leading `Kind` column when
+two or more kinds have rows; if only one kind survives filtering, row formats
+use its concrete schema without `Kind`. Use structured `--json` when the kind
+discriminator must remain explicit.
 
 ## Filter and order performance rows
 

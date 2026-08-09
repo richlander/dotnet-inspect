@@ -8,8 +8,9 @@ description: Reconstruct a method or type locally as C# and IL — decompiled so
 
 Use this skill to understand how code actually works from the assembly you have.
 The decompiler is local and always available (no network), and the IL and
-annotated views can reveal more than the original source. For the authoritative
-original source as written by the author, use the `sourcelink` skill.
+annotated views can reveal more than the original source. For authored original
+source, use the `sourcelink` skill and follow its checksum-verification
+boundaries before treating fetched content as authoritative.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -18,8 +19,8 @@ dnx dotnet-inspect -y -- <command>
 ## Decompiled source and IL
 
 A selected overload defaults to `Signature`; bare `-S` adds `Decompiled Source`.
-Use `-S @Source` for the full local evidence set (it also pulls `Original
-Source` when SourceLink is available — see the `sourcelink` skill):
+Use `-S "Decompiled Source,Annotated Source,IL"` for the full local evidence
+set:
 
 - `Decompiled Source` — raised, lowered C# (readable best-effort); locals without
   PDB names use byte-preserving type/role-derived names by default.
@@ -28,14 +29,17 @@ Source` when SourceLink is available — see the `sourcelink` skill):
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
+`-S @Source` is broader and may fetch network `Original Source` content when
+SourceLink is available; that network body is not checksum-verified by default.
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S @Source
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json \
+  Serialize:1 -S "Decompiled Source,Annotated Source,IL"
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Annotated Source"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Decompiled Source" --bare
-dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S @Source
+dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled Source,Annotated Source,IL"
 ```
 
 ### Readability and taste

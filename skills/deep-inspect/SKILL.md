@@ -45,6 +45,9 @@ gh run download <run-id> -D /tmp/deep-inspect-<run-id>
 For the test lane:
 
 ```bash
+dotnet build dotnet-inspect.slnx -c Release
+dotnet run --project src/dotnet-inspect.Tests -c Release
+source eng/activate-iltools.sh
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 dotnet run --project src/ILInspector.Analysis.Tests -c Release
 bash eng/restore-ilassembler.sh

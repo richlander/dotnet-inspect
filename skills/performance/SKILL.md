@@ -56,10 +56,13 @@ Use `--loop` for repeated hot costs, `--min-confidence high|medium|low` for a
 confidence floor, `--triage-shape` for one or more shapes, and `--top N` for the
 curated ranked prefix. Supplying any of those flags selects the applicable
 performance lens automatically. In library row formats, `Performance:*`
-flattens the homogeneous kind sections into one table with a leading `Kind`
-column. `@Performance` also includes heterogeneous sections, so use it for
-discovery, counts, Markdown, or JSON documents instead. `--top` narrows ranked
-data before rendering; `--rows N` caps rendered rows afterward. Common shapes
+flattens two or more populated kind sections into one table with a leading
+`Kind` column. If filtering leaves one populated kind, row formats use that
+kind's concrete schema without `Kind`; use structured `--json` when the kind
+discriminator must remain explicit. `@Performance` also includes heterogeneous
+sections, so use it for discovery, counts, Markdown, or JSON documents instead.
+`--top` narrows ranked data before rendering; `--rows N` caps rendered rows
+afterward. Common shapes
 include `capturing-delegate`, `box-value-type`, `small-array`,
 `linq-scan-in-loop`, `scan-method-in-loop-call` (a linear-scan helper invoked
 from a caller loop), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
@@ -112,7 +115,7 @@ Select rows with an exact direct invocation receipt:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
-  --where "CallerLoop=direct" --jsonl
+  --where "CallerLoop=direct" --json
 ```
 
 `CallerLoopDepth` and `CallerLoopWitness` identify the deterministic invocation
