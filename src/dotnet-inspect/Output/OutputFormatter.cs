@@ -468,7 +468,7 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, inspection, writerOpts, options);
+            WriteLibraryTabular(Console.Out, auditView, inspection, writerOpts, options);
         }
     }
 
@@ -558,6 +558,7 @@ public static class OutputFormatter
     /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
     /// </summary>
     private static void WriteLibraryTabular(
+        TextWriter output,
         LibraryInspectionView auditView, LibraryInspection inspection,
         MarkoutWriterOptions writerOpts, LibraryOptions options)
     {
@@ -569,7 +570,7 @@ public static class OutputFormatter
         if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
         {
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
                     inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
@@ -584,13 +585,13 @@ public static class OutputFormatter
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
                 options.Rows);
         }
         else
         {
-            WriteTable(Console.Out, !options.NoHeader,
+            WriteTable(output, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
                 options.Rows);
         }
@@ -691,13 +692,15 @@ public static class OutputFormatter
         }
         else
         {
+            var output = new StringWriter { NewLine = Console.Out.NewLine };
             foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(auditView, inspection, writerOpts, options);
+                WriteLibraryTabular(output, auditView, inspection, writerOpts, options);
             }
+            Console.Out.Write(output.ToString());
         }
     }
 

@@ -12863,6 +12863,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_ProjectionFailure_DoesNotLeakEarlierAssemblyRows()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"projection-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            File.Copy(typeof(OutputFormatter).Assembly.Location, Path.Combine(net8Dir, "Lib.dll"));
+            File.Copy(FixtureCatalog.DiffPair.OldAssemblyPath(), Path.Combine(net10Dir, "Lib.dll"));
+            var packagePath = Path.Combine(tempDir, "Projection.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Top Leverage", "--columns", "Member,Generated,G*",
+                "--jsonl", "--rows", "1", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                ProjectionHeaderValidation.DuplicateResolvedColumnMessage,
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");
