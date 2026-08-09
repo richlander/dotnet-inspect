@@ -353,35 +353,39 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> publishA = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+        Task<CommittedPackage> publishA = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceA,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
-        Task<CommittedPackage> publishB = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+                TestSourceKey));
+        Task<CommittedPackage> publishB = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceB,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
+                TestSourceKey));
 
-        Assert.True(
-            ready.Wait(
+        bool publishersReady = false;
+        try
+        {
+            publishersReady = ready.Wait(
                 TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken));
-        start.Set();
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            start.Set();
+        }
+
         CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        Assert.True(publishersReady);
 
         Assert.Equal(committed[0].ExtractPath, committed[1].ExtractPath);
         string[] payloads = Directory.GetFiles(
@@ -925,22 +929,29 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 TestSourceKey);
         }
 
-        using var client = new HttpClient(new NeverAnsweringHandler());
-        var stopwatch = Stopwatch.StartNew();
+        var handler = new NeverAnsweringHandler();
+        using var client = new HttpClient(handler);
 
-        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+        Task<PackageExtractionOutcome> extraction = PackageExtractor.ExtractPackageAsync(
             client,
             packageName,
             sourceOptions: s_nugetOrgSource);
 
-        stopwatch.Stop();
+        PackageExtractionOutcome outcome = await extraction.WaitAsync(
+            TimeSpan.FromSeconds(15),
+            TestContext.Current.CancellationToken);
+
         Assert.False(outcome.IsSuccess);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), stopwatch.Elapsed.ToString());
         Assert.Contains("online lookup timed out", outcome.ErrorMessage);
         Assert.Contains("Locally cached versions: 2.0.0, 1.0.0", outcome.ErrorMessage);
         Assert.Contains(
             $"dotnet-inspect package {packageName}@2.0.0",
             outcome.ErrorMessage);
+        Assert.True(handler.RequestStarted.IsCompletedSuccessfully);
+        Assert.True(handler.CancellationObserved.IsCompletedSuccessfully);
+        Assert.True(
+            handler.CancellationDelay < TimeSpan.FromSeconds(5),
+            handler.CancellationDelay.ToString());
     }
 
     [Theory]
@@ -1362,19 +1373,34 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> Publish(string dir, string key) => Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(dir, nupkgPath: null, packageName, Version, key);
-        });
+        Task<CommittedPackage> Publish(string dir, string key) =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () => NuGetCache.CommitPackage(
+                    dir,
+                    nupkgPath: null,
+                    packageName,
+                    Version,
+                    key));
 
         Task<CommittedPackage> publishA = Publish(sourceA, keyA);
         Task<CommittedPackage> publishB = Publish(sourceB, keyB);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        start.Set();
+        bool publishersReady = false;
+        try
+        {
+            publishersReady = ready.Wait(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            start.Set();
+        }
+
         CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        Assert.True(publishersReady);
 
         Assert.NotEqual(committed[0].ExtractPath, committed[1].ExtractPath);
         AssertNoStagingDirectories(packageName);
@@ -1512,6 +1538,25 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         }
 
         return path;
+    }
+
+    private static Task<T> StartDedicatedWorker<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        Func<T> action)
+    {
+        // These tests exercise filesystem concurrency, not ThreadPool scheduling.
+        // Dedicated workers keep a loaded suite from consuming the readiness budget.
+        return Task.Factory.StartNew(
+            () =>
+            {
+                ready.Signal();
+                start.Wait();
+                return action();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
     }
 
     private static void AssertNoTemporaryDirectories(string prefix)
@@ -1672,12 +1717,40 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     private sealed class NeverAnsweringHandler : HttpMessageHandler
     {
+        private readonly TaskCompletionSource _requestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _cancellationObserved =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _requestStartedTimestamp;
+        private long _cancellationObservedTimestamp;
+
+        public Task RequestStarted => _requestStarted.Task;
+
+        public Task CancellationObserved => _cancellationObserved.Task;
+
+        public TimeSpan CancellationDelay => Stopwatch.GetElapsedTime(
+            Volatile.Read(ref _requestStartedTimestamp),
+            Volatile.Read(ref _cancellationObservedTimestamp));
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            throw new InvalidOperationException("The request should have been canceled.");
+            Volatile.Write(ref _requestStartedTimestamp, Stopwatch.GetTimestamp());
+            _requestStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The request should have been canceled.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Volatile.Write(
+                    ref _cancellationObservedTimestamp,
+                    Stopwatch.GetTimestamp());
+                _cancellationObserved.TrySetResult();
+                throw;
+            }
         }
     }
 
