@@ -20,6 +20,7 @@ bound.
 Point `INSPECT` at the published NativeAOT executable and validate the apphost:
 
 ```bash
+set -e -o pipefail
 : "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
 : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
 export INSPECT="$DOTNET_INSPECT_WORKFLOW_BINARY"

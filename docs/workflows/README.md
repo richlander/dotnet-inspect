@@ -67,8 +67,8 @@ Within each goal or variant, code fences define the executable scenario:
 - **`prompt`** — The natural language request an agent or user would make. Essential for eval systems; the H2/H3 headings are categories, not prompts.
 - **`setup`** — Commands to run before this specific scenario (scenario-level, unlike file-level Preconditions).
 - **`bash`** — The exact command to run.
-- **`expect`** — Substrings that must appear in stdout.
-- **`expect-not`** — Substrings that must NOT appear (stdout or stderr).
+- **`expect`** — Substrings that must appear in the current assertion output.
+- **`expect-not`** — Substrings that must NOT appear in the current assertion output.
 - **`expect-error`** — Like `expect`, but command must exit nonzero.
 - **`expect-stderr`** — Substrings that must appear in stderr.
 - **`expect-not-stderr`** — Substrings that must NOT appear in stderr.
@@ -80,6 +80,12 @@ This structure makes scenarios simultaneously:
 1. **Readable** — Markdown renders nicely in any viewer; goals and variants are scannable.
 2. **Executable** — Code fences are unambiguous; automation can parse and run them.
 3. **Evaluable** — The `prompt` + `expect` pattern maps directly to agent evals: give the prompt, check the output.
+
+Before evaluation, publish the exact revision under test, set
+`DOTNET_INSPECT_WORKFLOW_BINARY` to that apphost and
+`DOTNET_INSPECT_WORKFLOW_VERSION` to its `--version` output, and prepend the
+apphost directory to `PATH`. Bare `dotnet-inspect` commands and workflows that
+use `$INSPECT` must therefore resolve to the same executable.
 
 ## Example
 
@@ -191,9 +197,11 @@ dotnet-inspect System.Text.Json -v:q
 ```
 ````
 
-### `expect` — content that must appear in stdout
+### `expect` — content that must appear in the current assertion output
 
-Each line is a substring that must appear somewhere in the command's stdout. All lines must match.
+Each line is a substring that must appear in the current assertion output.
+Before a `query`, that is the command's stdout. After a `query`, it is only the
+derived query output. All lines must match.
 
 ````markdown
 ```expect

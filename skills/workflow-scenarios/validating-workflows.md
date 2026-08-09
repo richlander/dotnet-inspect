@@ -47,9 +47,19 @@ Many workflows have a **Preconditions** section at the top (isolated sessions, c
 
 General preconditions for all workflows:
 
-- **NativeAOT build**: Performance workflows require
-  `DOTNET_INSPECT_WORKFLOW_BINARY` to name the exact published apphost and
-  `DOTNET_INSPECT_WORKFLOW_VERSION` to match its `--version` output.
+- **Exact NativeAOT build**: Set `DOTNET_INSPECT_WORKFLOW_BINARY` to the
+  published apphost for the exact revision under test,
+  `DOTNET_INSPECT_WORKFLOW_VERSION` to its `--version` output, and prepend the
+  apphost directory to `PATH`. Verify that bare `dotnet-inspect`, `$INSPECT`
+  workflows, and the recorded version all identify that same NativeAOT apphost:
+
+  ```bash
+  export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
+  test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
+  test "$(dotnet-inspect --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+  dotnet-inspect --flavor | grep -q '^NativeAOT;'
+  ```
+
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).
 
@@ -122,6 +132,7 @@ Before shipping a new build:
 
 1. Publish the exact revision as NativeAOT and set
    `DOTNET_INSPECT_WORKFLOW_BINARY` and `DOTNET_INSPECT_WORKFLOW_VERSION`.
+   Prepend its directory to `PATH` and verify the apphost as described above.
 2. Run all workflow scenarios.
 3. Run [perf scenarios](performance-testing.md) and check latency targets.
 4. Report version + pass/fail summary.

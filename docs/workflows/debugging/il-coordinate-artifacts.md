@@ -18,6 +18,7 @@ Validate the published NativeAOT executable, then build the test assembly used
 by the demo scenarios.
 
 ```bash
+set -e -o pipefail
 : "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
 : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
 export INSPECT="$DOTNET_INSPECT_WORKFLOW_BINARY"

@@ -18,6 +18,7 @@ export DOTNET_INSPECT_WORKFLOW_BINARY=/tmp/dotnet-inspect-workflow-aot/dotnet-in
 export DOTNET_INSPECT_WORKFLOW_VERSION=$(
   "$DOTNET_INSPECT_WORKFLOW_BINARY" --version
 )
+export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
 ```
 
 Verify the install:
@@ -25,6 +26,7 @@ Verify the install:
 ```bash
 test "$("$DOTNET_INSPECT_WORKFLOW_BINARY" --version)" = \
   "$DOTNET_INSPECT_WORKFLOW_VERSION"
+test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
 "$DOTNET_INSPECT_WORKFLOW_BINARY" --flavor
 ```
 

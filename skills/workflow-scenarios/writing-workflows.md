@@ -44,8 +44,8 @@ Organize scenarios as numbered **goals** (H2) with optional **variants** (H3):
 | Fence | Purpose |
 | --- | --- |
 | `bash` | The exact command to run |
-| `expect` | Substrings that must appear in stdout (all must match) |
-| `expect-not` | Substrings that must NOT appear in stdout or stderr |
+| `expect` | Substrings that must appear in the current assertion output |
+| `expect-not` | Substrings that must NOT appear in the current assertion output |
 | `expect-error` | Like expect, but command must exit nonzero |
 | `expect-stderr` | Substrings that must appear in stderr |
 | `expect-not-stderr` | Substrings that must NOT appear in stderr |
@@ -53,6 +53,10 @@ Organize scenarios as numbered **goals** (H2) with optional **variants** (H3):
 | `prompt` | Natural language request for eval systems |
 | `query` | Shell pipeline to extract a value from stdout |
 | `perf` | Latency (`max_ms`) and exit code constraints |
+
+Before the first `query`, the current assertion output is the command output.
+After a `query`, it is the derived query output. Put command-output negative
+assertions before the first query.
 
 ## Writing good expect blocks
 
