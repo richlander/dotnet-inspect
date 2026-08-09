@@ -179,6 +179,44 @@ public sealed class InspectionQueryRegistry<TContext>
         return Add(query, (context, _) => execute(context), requires);
     }
 
+    /// <summary>Registers an asynchronous typed query and its context adapter.</summary>
+    public InspectionQueryRegistry<TContext> AddAsync<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(execute);
+        ArgumentNullException.ThrowIfNull(requires);
+
+        if (_registrations.ContainsKey(query))
+            throw new InspectionQueryException($"Query '{query.Name}' is already registered.");
+
+        _registrations.Add(
+            query,
+            new AsyncRegistration<TResult>(query, execute, [.. requires]));
+        return this;
+    }
+
+    /// <summary>
+    /// Registers an asynchronous query that does not consume prerequisite results.
+    /// </summary>
+    public InspectionQueryRegistry<TContext> AddAsync<TResult>(
+        InspectionQuery<TResult> query,
+        Func<TContext, CancellationToken, ValueTask<TResult>> execute,
+        params InspectionQueryDefinition[] requires)
+    {
+        ArgumentNullException.ThrowIfNull(execute);
+        return AddAsync(
+            query,
+            (context, _, cancellationToken) => execute(context, cancellationToken),
+            requires);
+    }
+
     /// <summary>The queries directly required by <paramref name="query"/>.</summary>
     public ImmutableArray<InspectionQueryDefinition> RequirementsOf(InspectionQueryDefinition query)
     {
@@ -240,6 +278,38 @@ public sealed class InspectionQueryRegistry<TContext>
         return results;
     }
 
+    /// <summary>
+    /// Executes synchronous and asynchronous queries and their prerequisites once, in
+    /// deterministic order.
+    /// </summary>
+    public async Task<InspectionQueryResults> RunAsync(
+        IEnumerable<InspectionQueryDefinition> requested,
+        TContext context,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution = null,
+        CancellationToken cancellationToken = default)
+    {
+        HashSet<InspectionQueryDefinition> required = ExpandRequired(requested);
+        HashSet<InspectionQueryDefinition> ran = [];
+        var results = new InspectionQueryResults();
+
+        foreach (InspectionQueryDefinition query in _registrations.Keys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (required.Contains(query))
+            {
+                await RunWithRequirementsAsync(
+                    query,
+                    context,
+                    results,
+                    ran,
+                    recordExecution,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return results;
+    }
+
     private void AddWithRequirements(
         InspectionQueryDefinition query,
         HashSet<InspectionQueryDefinition> closure,
@@ -294,6 +364,52 @@ public sealed class InspectionQueryRegistry<TContext>
         }
     }
 
+    private async ValueTask RunWithRequirementsAsync(
+        InspectionQueryDefinition query,
+        TContext context,
+        InspectionQueryResults results,
+        HashSet<InspectionQueryDefinition> ran,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution,
+        CancellationToken cancellationToken)
+    {
+        if (ran.Contains(query))
+            return;
+
+        Registration registration = _registrations[query];
+        foreach (InspectionQueryDefinition required in registration.Requires)
+        {
+            await RunWithRequirementsAsync(
+                required,
+                context,
+                results,
+                ran,
+                recordExecution,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        ran.Add(query);
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            HashSet<InspectionQueryDefinition> prerequisites =
+                ExpandRequired(registration.Requires);
+            using IDisposable? scope = _enterExecutionScope?.Invoke(
+                context,
+                query,
+                CostOf(query));
+            await registration.ExecuteAsync(
+                context,
+                results,
+                results.RestrictTo(prerequisites),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            recordExecution?.Invoke(query, Stopwatch.GetElapsedTime(start));
+        }
+    }
+
     private void EnsureRegistered(InspectionQueryDefinition query)
     {
         if (!_registrations.ContainsKey(query))
@@ -310,6 +426,11 @@ public sealed class InspectionQueryRegistry<TContext>
             TContext context,
             InspectionQueryResults results,
             InspectionQueryResults prerequisiteResults);
+        public abstract ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken);
     }
 
     private sealed class Registration<TResult>(
@@ -323,5 +444,47 @@ public sealed class InspectionQueryRegistry<TContext>
             InspectionQueryResults results,
             InspectionQueryResults prerequisiteResults)
             => results.Set(query, execute(context, prerequisiteResults));
+
+        public override ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Execute(context, results, prerequisiteResults);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class AsyncRegistration<TResult>(
+        InspectionQuery<TResult> query,
+        Func<
+            TContext,
+            InspectionQueryResults,
+            CancellationToken,
+            ValueTask<TResult>> execute,
+        ImmutableArray<InspectionQueryDefinition> requires)
+        : Registration(query, requires)
+    {
+        public override void Execute(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults)
+            => throw new InspectionQueryException(
+                $"Query '{query.Name}' is asynchronous and must be executed with RunAsync.");
+
+        public override async ValueTask ExecuteAsync(
+            TContext context,
+            InspectionQueryResults results,
+            InspectionQueryResults prerequisiteResults,
+            CancellationToken cancellationToken)
+        {
+            TResult result = await execute(
+                context,
+                prerequisiteResults,
+                cancellationToken).ConfigureAwait(false);
+            results.Set(query, result);
+        }
     }
 }

@@ -183,6 +183,16 @@ public class InspectionResult
     public List<PackageSourceFileInfo>? SourceFiles { get; set; }
 
     /// <summary>
+    /// Package-level aggregation of SourceLink reachability over the selected library assets.
+    /// </summary>
+    public PackageSourceAvailability? SourceAvailability { get; set; }
+
+    /// <summary>
+    /// Package-level aggregation of SourceLink checksum verification over selected libraries.
+    /// </summary>
+    public PackageSourceIntegrity? SourceIntegrity { get; set; }
+
+    /// <summary>
     /// Complete package file listing used to derive focused file sections.
     /// </summary>
     [JsonIgnore]
@@ -270,3 +280,32 @@ public sealed record PackageSourceFileInfo(
     string Library,
     string Type,
     string? Url);
+
+public sealed record PackageSourceLinkIssue(
+    string Library,
+    string Reason);
+
+public sealed record PackageSourceLinkFile(
+    string Library,
+    string Path);
+
+public sealed record PackageSourceAvailability(
+    int TotalLibraries,
+    int AuditedLibraries,
+    int TotalSourceFiles,
+    int AccessibleSourceFiles,
+    int EmbeddedSourceFiles,
+    List<PackageSourceLinkFile>? MissingFiles,
+    List<PackageSourceLinkIssue>? UnavailableLibraries,
+    List<PackageSourceLinkIssue>? FailedLibraries);
+
+public sealed record PackageSourceIntegrity(
+    int TotalLibraries,
+    int CheckedLibraries,
+    int Verified,
+    int Mismatched,
+    int LineEndingNormalized,
+    int Unverifiable,
+    List<PackageSourceLinkFile>? MismatchedFiles,
+    List<PackageSourceLinkIssue>? UnavailableLibraries,
+    List<PackageSourceLinkIssue>? FailedLibraries);

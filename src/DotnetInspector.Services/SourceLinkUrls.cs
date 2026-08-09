@@ -6,7 +6,7 @@ namespace DotnetInspector.Services;
 /// Classifies SourceLink URLs by mutability. Only commit-pinned (content-addressed) URLs are
 /// immutable and therefore safe to cache permanently; everything else must be re-validated.
 /// </summary>
-internal static partial class SourceLinkUrls
+public static partial class SourceLinkUrls
 {
     /// <summary>
     /// Matches URLs whose path embeds a full 40-hex commit SHA, e.g.

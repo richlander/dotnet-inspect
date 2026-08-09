@@ -72,6 +72,18 @@ public class FidelityCheckSelectionGuardTests
 
             Assert.Contains("selected no processable top-level class or struct", error.Message);
             Assert.Contains("does not contain managed metadata", error.Message);
+
+            var methodError = Assert.Throws<ArgumentException>(
+                "methodFilter",
+                () => FidelityCheck.Evaluate(
+                    path,
+                    lowered: false,
+                    FidelityCheck.ClusterMode.Off,
+                    typeFilter: null,
+                    methodFilter: _ => true));
+
+            Assert.Contains("selected no processable method", methodError.Message);
+            Assert.Contains("does not contain managed metadata", methodError.Message);
         }
         finally
         {
@@ -90,6 +102,45 @@ public class FidelityCheckSelectionGuardTests
             row => row.Type == fixtureType && row.Method == nameof(FidelityCheckSelectionGuardFixture.Increment));
 
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    [Fact]
+    public void Evaluate_MethodFilterMatchingNothing_Rejects()
+    {
+        string fixtureType = typeof(FidelityCheckMethodSelectionFixture).FullName!;
+
+        var error = Assert.Throws<ArgumentException>(
+            "methodFilter",
+            () => FidelityCheck.Evaluate(
+                TestAssembly,
+                type => type == fixtureType,
+                method => method.Method == "Missing"));
+
+        Assert.Contains("selected no processable method", error.Message);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_MethodFilterDistinguishesOverloadsAndNoFilterPreservesRows()
+    {
+        string fixtureType = typeof(FidelityCheckMethodSelectionFixture).FullName!;
+
+        var unfiltered = FidelityCheck.Evaluate(TestAssembly, type => type == fixtureType);
+        Assert.Equal(4, unfiltered.Count);
+
+        var named = FidelityCheck.Evaluate(
+            TestAssembly,
+            type => type == fixtureType,
+            method => method.Method == nameof(FidelityCheckMethodSelectionFixture.Transform));
+        Assert.Equal(2, named.Count);
+        Assert.Equal([0, 1], named.Select(row => row.Overload).Order());
+
+        var overload = Assert.Single(FidelityCheck.Evaluate(
+            TestAssembly,
+            type => type == fixtureType,
+            method => method.Method == nameof(FidelityCheckMethodSelectionFixture.Transform)
+                && method.Overload == 1));
+        Assert.Equal(1, overload.Overload);
     }
 
     static string CreatePeWithoutManagedMetadata()
@@ -112,6 +163,7 @@ public class FidelityCheckSelectionGuardTests
         File.WriteAllBytes(path, bytes);
         return path;
     }
+
 }
 
 public sealed class FidelityCheckSelectionGuardFixture
@@ -119,6 +171,13 @@ public sealed class FidelityCheckSelectionGuardFixture
     public static int Increment(int value) => value + 1;
 
     public sealed class Inner;
+}
+
+public sealed class FidelityCheckMethodSelectionFixture
+{
+    public static int Transform(int value) => value + 1;
+    public static int Transform(int left, int right) => left + right;
+    public static int Identity(int value) => value;
 }
 
 [System.Runtime.CompilerServices.CompilerGenerated]

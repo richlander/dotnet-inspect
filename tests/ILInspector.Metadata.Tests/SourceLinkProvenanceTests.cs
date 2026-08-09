@@ -398,13 +398,11 @@ public class SourceLinkProvenanceTests
     /// </para>
     /// </remarks>
     [Theory]
-    [InlineData("path=/fixed.cs&path=/*", "repeats the")]
     [InlineData("path=/*&path=/fixed.cs", "repeats the")]
     // The wildcard has to sit in one of the repeats: with none, the entry is refused a layer
     // earlier for pairing a wildcard key with a constant URL, which is not this rule.
     [InlineData("scopePath=/*&scopePath=/other", "repeats the")]
     [InlineData("api-version=1.0&api-version=7.1&path=/*", "repeats the")]
-    [InlineData("PATH=/fixed.cs&path=/*", "case-insensitively is not stated")]
     [InlineData("path=/*&PATH=/fixed.cs", "case-insensitively is not stated")]
     public void ARepeatedContentSelector_IsNotAttributable(string query, string reason)
     {
@@ -414,6 +412,38 @@ public class SourceLinkProvenanceTests
 
         Assert.False(result.IsEstablished);
         Assert.Contains(reason, result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The rows above whose wildcard sits in the occurrence the host does <em>not</em> serve are
+    /// refused one layer earlier, by the matcher, since issue #3599's resolution half landed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Azure serves the first occurrence, so <c>path=/fixed.cs&amp;path=/*</c> substitutes into a
+    /// position the host will never read: every document fetches <c>fixed.cs</c>. That is the
+    /// definition of an entry that cannot select content, so it is now rejected outright rather
+    /// than resolved and left unattributed.
+    /// </para>
+    /// <para>
+    /// The split between this theory and the one above is the whole point of separating them:
+    /// which layer refuses depends on whether the substitution is in the served occurrence, and
+    /// asserting that here keeps a future change from moving a row between layers unnoticed.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("path=/fixed.cs&path=/*")]
+    [InlineData("PATH=/fixed.cs&path=/*")]
+    public void ARepeatedContentSelectorWhoseWildcardIsNeverRead_IsRefusedResolution(string query)
+    {
+        string map =
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items?versionType=commit&version={{{Sha}}}&{{{query}}}"}}""";
+
+        var resolver = SLF.SourceLinkResolver.Parse(map);
+
+        Assert.Equal(["/_/*"], resolver.RejectedKeys);
+        Assert.Null(resolver.ResolveUrl("/_/A.cs"));
+        Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]).IsEstablished);
     }
 
     /// <summary>
@@ -475,6 +505,26 @@ public class SourceLinkProvenanceTests
             "/_/A.cs");
 
         Assert.Equal(established, result.IsEstablished);
+    }
+
+    /// <summary>
+    /// Only the first <c>?</c> is URI query syntax. A second one belongs to the first parameter
+    /// name, so it must not turn Azure's default branch interpretation into an attributed commit.
+    /// </summary>
+    [Fact]
+    public void AnExtraQueryDelimiter_DoesNotTurnABranchIntoAnAttributedCommit()
+    {
+        string mapText =
+            $$$"""{"documents":{"/_/*":"https://dev.azure.com/contoso/widgets/_apis/git/repositories/core/items??versionType=commit&version={{{Sha}}}&path=/*"}}""";
+        var resolver = SLF.SourceLinkResolver.Parse(mapText);
+
+        Assert.Empty(resolver.RejectedKeys);
+        Assert.NotNull(resolver.ResolveUrl("/_/A.cs"));
+
+        var result = SLF.SourceLinkProvenance.Determine(resolver, ["/_/A.cs"]);
+
+        Assert.False(result.IsEstablished);
+        Assert.Contains("?versionType", result.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -587,6 +637,14 @@ public class SourceLinkProvenanceTests
     /// document, because an assembly declaring one document offers no second URL to compare
     /// against and the defect is present there just the same.
     /// </summary>
+    /// <remarks>
+    /// This once demonstrated the defect by resolving: both documents produced distinct URLs that
+    /// fetched one file, and the assertion was that provenance declined to attribute them. Since
+    /// issue #3599's resolution half landed, the entry is refused by the matcher instead, so the
+    /// stronger statement is available and is made here — nothing is fetched at all. The
+    /// intermediate property is kept as the reason the refusal is not redundant with the
+    /// two-probe check: the request texts really do differ, so only a host-aware rule catches it.
+    /// </remarks>
     [Fact]
     public void AnAzureMapWhoseWildcardSelectsNothing_IsRefusedEvenForOneDocument()
     {
@@ -594,14 +652,12 @@ public class SourceLinkProvenanceTests
             $$$"""{"documents":{"*":"{{{AzureItems}}}api-version=*&versionType=commit&version={{{Sha}}}&path=/README.md"}}""";
 
         var resolver = SLF.SourceLinkResolver.Parse(Map);
-        Assert.True(resolver.TryResolve("1.0", out var a));
-        Assert.True(resolver.TryResolve("7.1", out var b));
 
-        // The two-probe check passes: the request texts really are different.
-        Assert.NotEqual(a.Url, b.Url);
-
-        // And the part the host selects on is identical, so both fetch one file.
-        Assert.Equal(a.Url[a.Url.IndexOf("&path=", StringComparison.Ordinal)..], b.Url[b.Url.IndexOf("&path=", StringComparison.Ordinal)..]);
+        // The two-probe check would pass: substituting '1.0' and '7.1' really does produce two
+        // different request texts. Only the host's grammar says both fetch README.md.
+        Assert.Equal(["*"], resolver.RejectedKeys);
+        Assert.False(resolver.TryResolve("1.0", out _));
+        Assert.False(resolver.TryResolve("7.1", out _));
 
         Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0", "7.1"]).IsEstablished);
         Assert.False(SLF.SourceLinkProvenance.Determine(resolver, ["1.0"]).IsEstablished);
@@ -611,6 +667,10 @@ public class SourceLinkProvenanceTests
     /// The defect the rule above prevents, stated as the behaviour rather than the refusal: two
     /// documents must not both resolve to one file while reporting an origin.
     /// </summary>
+    /// <remarks>
+    /// As above, the refusal now happens at the matcher rather than at attribution, so the
+    /// documents resolve to nothing instead of resolving to one file unattributed.
+    /// </remarks>
     [Fact]
     public void AGitHubMapWhoseWildcardIsConfinedToTheQuery_DoesNotAttributeEveryDocumentToOneFile()
     {
@@ -618,22 +678,435 @@ public class SourceLinkProvenanceTests
             $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/fixed.cs?ignored=*"}}""";
 
         var resolver = SLF.SourceLinkResolver.Parse(Map);
-        Assert.True(resolver.TryResolve("A.cs", out var a));
-        Assert.True(resolver.TryResolve("B.cs", out var b));
 
-        // The two-probe check passes: the request texts really are different.
-        Assert.NotEqual(a.Url, b.Url);
-
-        // And yet both fetch the same file, because the host ignores what differs. So the map
-        // must not be attributable, or one file would be reported as the source of every
-        // document with a correct-looking origin.
-        Assert.Equal(
-            a.Url[..a.Url.IndexOf('?', StringComparison.Ordinal)],
-            b.Url[..b.Url.IndexOf('?', StringComparison.Ordinal)]);
+        Assert.Equal(["*"], resolver.RejectedKeys);
+        Assert.False(resolver.TryResolve("A.cs", out _));
+        Assert.False(resolver.TryResolve("B.cs", out _));
 
         var result = SLF.SourceLinkProvenance.Determine(resolver, ["A.cs", "B.cs"]);
         Assert.False(result.IsEstablished);
-        Assert.Contains("ignores the query", result.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A host spelled with any label separator the request folds to <c>'.'</c> is read as the host
+    /// it denotes, by both readers — not as a host this code has never heard of.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three adversarial reviews found three spellings of one defect. Round one, independently
+    /// from GPT-5.6-sol and Gemini 3.1 Pro: <see cref="Uri.Host"/> keeps the DNS root label, so
+    /// <c>raw.githubusercontent.com.</c> compared unequal to the host it names. Round two, from
+    /// Gemini 3.1 Pro: <see cref="Uri.Host"/> also keeps Unicode full stops, so the same trick
+    /// worked again with U+3002, U+FF0E, or U+FF61. Each time the content-selector rule read an
+    /// unrecognized host, stood aside, and the map went back to resolving every document to one
+    /// file.
+    /// </para>
+    /// <para>
+    /// Measured against GitHub, requesting <c>dotnet/core</c>'s README by each spelling: all four
+    /// return 200 and byte-identical content (2389 bytes, SHA-256 prefix 59E1A6989F35557A),
+    /// because the request is sent using the IDN form. So these were live fetches, not a parser
+    /// curiosity.
+    /// </para>
+    /// <para>
+    /// The first assertion is the one that is not implied by the refusal: attribution reads the
+    /// same host as resolution. Two readers disagreeing about which host a URL names is issue
+    /// #3391's defect, and a host spelling is exactly where it would come back.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(".")]
+    [InlineData("\u3002")]
+    [InlineData("\uFF0E")]
+    [InlineData("\uFF61")]
+    public void AHostSpelledWithAnyLabelSeparator_IsReadAsThatHostByBothReaders(string separator)
+    {
+        const string Bare =
+            $$$"""{"documents":{"*":"https://raw.githubusercontent.com/owner/repo/{{{Sha}}}/*"}}""";
+
+        var bare = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(Bare), ["A.cs"]);
+
+        string spelled = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
+            + "/owner/repo/" + Sha + "/*\"}}";
+        var fqdn = SLF.SourceLinkProvenance.Determine(SLF.SourceLinkResolver.Parse(spelled), ["A.cs"]);
+
+        Assert.True(bare.IsEstablished, bare.Reason);
+        Assert.True(fqdn.IsEstablished, fqdn.Reason);
+        Assert.Equal(bare.Origin!.Value.Identity, fqdn.Origin!.Value.Identity);
+
+        // And the spelling buys nothing: the query-confined wildcard is refused either way.
+        string hostile = "{\"documents\":{\"*\":\"https://raw.githubusercontent.com" + separator
+            + "/o/r/" + Sha + "/fixed.cs?ignored=*\"}}";
+        var refused = SLF.SourceLinkResolver.Parse(hostile);
+
+        Assert.Equal(["*"], refused.RejectedKeys);
+        Assert.False(refused.TryResolve("A.cs", out _));
+    }
+
+    /// <summary>
+    /// A query parameter written without a value still binds its name, so it is the occurrence the
+    /// host serves and a wildcard in a later pair of the same name is never read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found by Gemini 3.1 Pro in the second review round. The scan looked for <c>'='</c> within
+    /// the pair and skipped a pair that had none, so <c>&amp;path&amp;path=/*</c> presented a
+    /// wildcard this reader examined and the host never read.
+    /// </para>
+    /// <para>
+    /// Measured by the reviewer against <c>dev.azure.com/dnceng-public/public</c>: that shape
+    /// returns 425 bytes — the repository root listing, which is what an empty path selects — and
+    /// not the 985-byte file the second pair names. So the valueless pair binds and wins, and
+    /// every document would have resolved to that one response.
+    /// </para>
+    /// <para>
+    /// The second half is the non-vacuity, and the reason this is not simply "refuse a valueless
+    /// pair": a valueless parameter that is not the selector the wildcard sits in says nothing
+    /// about where that wildcard lands, and refusing it would strand a correct map. Measured
+    /// against the same endpoint, the asymmetry is real and this reader now matches it both ways:
+    /// <c>&amp;path&amp;path=/README.md</c> returns 425 bytes of root listing, because the empty
+    /// first pair binds and wins, while <c>&amp;scopePath&amp;path=/README.md</c> returns the
+    /// 985-byte file, because a valueless <c>scopePath</c> is ignored rather than pairing with
+    /// <c>path</c> — the pair is refused (400) only when both carry values.
+    /// </para>
+    /// <para>
+    /// One shape sits outside what this pins, non-generated and failing safe, recorded so the
+    /// boundary is not mistaken for a claim: <c>scopePath=&lt;value&gt;&amp;path=/*</c> resolves
+    /// here while Azure answers 400 for every document, so nothing is fetched rather than one
+    /// fixed file being shown. That is not the defect this rule is about, and it was measured in
+    /// review rather than assumed.
+    /// </para>
+    /// <para>
+    /// <c>path&amp;scopePath=/*</c> was also listed here, as a shape this refused while Azure
+    /// selects through <c>scopePath</c>. A fourth-round review was right to call that a defect
+    /// rather than a boundary — over-refusal is one here — so it is now accepted, and
+    /// <see cref="AnEmptyContentSelector_FallsThroughToTheOtherOne"/> owns the model.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AValuelessContentSelector_IsTheOccurrenceTheHostServes()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        foreach ((string valueless, string wildcarded) in
+            new[] { ("path", "path"), ("scopePath", "scopePath"), ("%70ath", "path") })
+        {
+            var shadowed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&" + wildcarded + "=/*\"}}");
+
+            Assert.Equal(["*"], shadowed.RejectedKeys);
+            Assert.False(shadowed.TryResolve("A.cs", out _));
+        }
+
+        foreach (string valueless in new[] { "download", "scopePath" })
+        {
+            var unrelated = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + valueless + "&path=/*\"}}");
+
+            Assert.Empty(unrelated.RejectedKeys);
+            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
+    }
+
+    /// <summary>
+    /// An empty content selector is not a selection, so the host falls through to the other one
+    /// and the wildcard there is read.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found in the fourth review round, and the first finding on this branch in the
+    /// <em>over-refusal</em> direction rather than the bypass direction. Reading only whichever
+    /// name appeared first refused <c>path&amp;scopePath=/*</c>, a map whose wildcard the host
+    /// genuinely reads — and over-refusal is a real defect in this predicate, because the whole
+    /// reason it is weaker than attribution is that refusing a working map strands deployments.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, where
+    /// the requested file is 985 bytes, the repository root listing is 425, and a missing file
+    /// answers 404. Nine shapes, and one model accounts for all nine: the first occurrence of
+    /// each name binds, an empty value is not a selection, <c>path</c> outranks <c>scopePath</c>
+    /// when both select, and both selecting at once is an error.
+    /// </para>
+    /// <code>
+    /// path&amp;scopePath=/README.md                    200  985
+    /// path=&amp;scopePath=/README.md                   200  985
+    /// path&amp;scopePath=/nope.txt                     404
+    /// path&amp;scopePath=/README.md&amp;path=/nope.txt      200  985
+    /// scopePath&amp;path=/README.md                    200  985
+    /// path&amp;path=/README.md                         200  425
+    /// path&amp;scopePath&amp;path=/README.md                200  425
+    /// scopePath=/README.md                        200  985
+    /// path=/README.md&amp;scopePath=/nope.txt          400
+    /// </code>
+    /// </remarks>
+    [Fact]
+    public void AnEmptyContentSelector_FallsThroughToTheOtherOne()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // The empty 'path' is not what the host selects with, so the wildcard in 'scopePath' is.
+        // Blank is decided after decoding: measured, every one of these falls through exactly as
+        // an absent value does.
+        foreach (string query in new[]
+        {
+            "path&scopePath=/*", "path=&scopePath=/*", "scopePath&path=/*",
+            "path=%20&scopePath=/*", "path=%20%20&scopePath=/*", "path=+&scopePath=/*",
+            "path=%09&scopePath=/*", "path=%0a&scopePath=/*", "path=%0d&scopePath=/*",
+            "path=%C2%A0&scopePath=/*",
+        })
+        {
+            var resolver = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
+
+            Assert.Empty(resolver.RejectedKeys);
+            Assert.True(resolver.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(resolver.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
+
+        // With nothing left to fall through to, the host serves its root listing for every
+        // document, so the fall-through cannot become a blanket acceptance of an empty selector.
+        // Blank text is still blank when it is the only spelling present.
+        foreach (string query in new[]
+        {
+            "path&path=/*", "path&scopePath&path=/*", "path=%20&path=/*",
+        })
+        {
+            var resolver = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + query + "\"}}");
+
+            Assert.Equal(["*"], resolver.RejectedKeys);
+            Assert.False(resolver.TryResolve("A.cs", out _));
+        }
+
+        // Blank is emptiness, not trimming: the host answers 404 for a value with a space in
+        // front of a real file, so a value that merely contains blank text still selects.
+        var padded = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&path=%20/*\"}}");
+
+        Assert.Empty(padded.RejectedKeys);
+    }
+
+    /// <summary>
+    /// A parameter name folds case over ASCII only, because a Unicode fold onto one of these
+    /// names invents a selector the host does not have.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Raised in the fifth review round. <see cref="char.ToUpperInvariant(char)"/> maps U+017F
+    /// LATIN SMALL LETTER LONG S to <c>'S'</c>, so <c>ſcopePath</c> compared equal to
+    /// <c>scopePath</c> here while the host ignores it entirely. Ordered with the wildcard in the
+    /// spelling only this reader believes in, that was issue #3599 again rather than the
+    /// over-refusal it was first reported as: this reader found its wildcard and accepted, and
+    /// the host served one file under every document's name.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// </para>
+    /// <code>
+    /// ſcopePath=/README.md                        200  425   ignored, so root listing
+    /// ſcopePath=/nope.txt&amp;scopePath=/README.md     200  985   does not bind or win
+    /// ſcopePath=/A.cs&amp;scopePath=/README.md         200  985   one file for
+    /// ſcopePath=/B.cs&amp;scopePath=/README.md         200  985   every document
+    /// PATH=/nope.txt&amp;path=/README.md              404        ASCII still folds
+    /// </code>
+    /// </remarks>
+    [Fact]
+    public void ANonAsciiCaseFold_DoesNotInventAContentSelector()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // The host has no such parameter, so the wildcard is in nothing it reads and the real
+        // scopePath alongside it selects one fixed file for every document.
+        var invented = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/*&scopePath=/One.cs\"}}");
+
+        Assert.Equal(["*"], invented.RejectedKeys);
+        Assert.False(invented.TryResolve("A.cs", out _));
+
+        // Nor may it shadow one: the host ignores it, so the map resolves and must not be refused.
+        var ignored = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&\u017FcopePath=/One.cs&path=/*\"}}");
+
+        Assert.Empty(ignored.RejectedKeys);
+        Assert.True(ignored.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+        Assert.True(ignored.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+        Assert.NotEqual(one.Url, two.Url);
+
+        // The ASCII fold the host does perform is untouched, so the rule above is not a blanket
+        // return to ordinal comparison.
+        var ascii = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&PATH=/One.cs&path=/*\"}}");
+
+        Assert.Equal(["*"], ascii.RejectedKeys);
+    }
+
+    /// <summary>
+    /// The host's model binder reads <c>path[]</c> as <c>path</c>, so a bracketed selector is the
+    /// occurrence it serves — and the spellings it does <em>not</em> fold must keep working.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One trailing group was found by GPT-5.6-sol in the third review round, and the fourth
+    /// instance of one defect: spell a component so this reader and the host disagree about what
+    /// it says. Measuring the family in the fourth round showed the rule is wider than that — any
+    /// number of empty groups, on either side.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, using
+    /// the control that tells binding apart from being ignored — give the alias a missing file and
+    /// let a real <c>path</c> follow with a present one, so 404 means it bound <em>and</em> won:
+    /// </para>
+    /// <code>
+    /// path[]=/nope.txt&amp;path=/README.md      404   binds, and wins
+    /// path[][]  path[][][]  path[]%5B%5D     404   repeats
+    /// []path    [][]path    []path[]         404   and binds on the left as well
+    /// p[]ath  pa[]th  pat[]h  p[]a[]t[]h     404   and anywhere in between
+    /// %5B%5Dpath  path%5B%5D%5B%5D  p%5B%5Dath 404 after decoding
+    /// []PATH    []%70ath                     404   with the case and escape folds
+    /// p[[]]ath  pa[]]th  pa[[]th             200   one pass, so no rescan
+    /// path[0]  path[1]  path[a]  path[][0]   200   ignored
+    /// [0]path  [a]path  [].path  [0].path    200   ignored
+    /// x[]path  []pathx  path[]x  path]       200   ignored
+    /// path{}   path()   path%255B%255D       200   ignored
+    /// path.    path.x   pathX                200   ignored
+    /// path[                                  400   the host rejects it outright
+    /// </code>
+    /// <para>
+    /// Without the control this reads the wrong way round: <c>path[]=/README.md</c> alone returns
+    /// the file, which looks like binding but is equally consistent with the parameter being
+    /// dropped — except that no path at all returns the 425-byte root listing, not the file. Only
+    /// the inverted ordering settles it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void AnArraySuffixedContentSelector_BindsTheSameParameter()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        // Measured to bind and win, so a wildcard in the later pair is never read. Empty groups
+        // are deleted wherever they appear, so the fold cannot be an edges-only rule.
+        foreach (string alias in new[]
+        {
+            "path[]", "path[][]", "path[][][]", "path%5B%5D", "path%5B%5D%5B%5D", "path[]%5B%5D",
+            "PATH[]", "%70ath[]",
+            "[]path", "[][]path", "%5B%5Dpath", "[]path[]", "[]PATH", "[]%70ath",
+            "p[]ath", "pa[]th", "pat[]h", "p[][]ath", "p[]a[]t[]h", "p[]at[]h", "p%5B%5Dath",
+            "[]p[]ath[]",
+        })
+        {
+            var shadowed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + alias + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Equal(["*"], shadowed.RejectedKeys);
+            Assert.False(shadowed.TryResolve("A.cs", out _));
+        }
+
+        // Measured to be ignored by the host, so folding them would refuse a map that works. The
+        // nested spellings are the close negative for the deletion being a single pass: the host
+        // does not rescan what a deletion brings together.
+        foreach (string ignored in new[]
+        {
+            "path[0]", "path[1]", "path[a]", "path%5B0%5D", "path[][0]", "path[0][]",
+            "path[]x", "path[]0", "path]", "path{}", "path()", "path%255B%255D",
+            "[0]path", "[a]path", "[].path", "[0].path", "x[]path", "[]pathx",
+            "p[[]]ath", "pa[]]th", "pa[[]th", "p[[]]a[]th", "p[0]ath",
+            "path.", "path.x", "pathX",
+        })
+        {
+            var unrelated = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + ignored + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Empty(unrelated.RejectedKeys);
+            Assert.True(unrelated.TryResolve("A.cs", out SLF.SourceLinkResolution one));
+            Assert.True(unrelated.TryResolve("B.cs", out SLF.SourceLinkResolution two));
+            Assert.NotEqual(one.Url, two.Url);
+        }
+
+        // The suffix is not a licence to select nothing: it is still a working selector when the
+        // wildcard is the value it carries.
+        foreach (string spelling in new[] { "path[]", "[]path", "path[][]" })
+        {
+            var suffixed = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/*\"}}");
+
+            Assert.Empty(suffixed.RejectedKeys);
+            Assert.True(suffixed.TryResolve("A.cs", out _));
+        }
+
+        // The fold is a property of the name, not of 'path': a suffixed scopePath takes the same
+        // answer as scopePath does in the same position. That answer is 'accept' here -- a valued
+        // scopePath beside a valued path is measured to make Azure DevOps answer 400 for every
+        // document, which is a map that fetches nothing rather than the one-file substitution
+        // #3599 is about -- so this row also proves the fold does not silently widen refusal.
+        foreach (string spelling in new[] { "scopePath", "scopePath[]", "scopePath%5B%5D" })
+        {
+            var scoped = SLF.SourceLinkResolver.Parse(
+                "{\"documents\":{\"*\":\"" + Prefix + "&" + spelling + "=/fixed.cs&path=/*\"}}");
+
+            Assert.Empty(scoped.RejectedKeys);
+            Assert.True(scoped.TryResolve("A.cs", out SLF.SourceLinkResolution scopedOne));
+            Assert.True(scoped.TryResolve("B.cs", out SLF.SourceLinkResolution scopedTwo));
+            Assert.NotEqual(scopedOne.Url, scopedTwo.Url);
+        }
+    }
+
+    /// <summary>
+    /// A percent-encoded parameter name is the name it decodes to, because that is what the host
+    /// reads it as.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found in adversarial review. Comparing parameter names against the URL's raw text left
+    /// <c>%70ath=/fixed.cs</c> invisible to this reader while the host served it, so
+    /// <c>%70ath=/fixed.cs&amp;path=/*</c> presented a wildcard that appeared to select and never
+    /// could — one file for every document, which is #3599 again.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>:
+    /// <c>%70ath=/README.md</c> alone returns that file (200, 985 bytes), and
+    /// <c>%70ath=/README.md&amp;path=/nope.txt</c> returns it as well rather than 404. So the
+    /// host both decodes the name and serves the first occurrence, which is what makes the
+    /// encoded pair the served one.
+    /// </para>
+    /// <para>
+    /// The second half is the non-vacuity: the encoded spelling is not refused for being encoded.
+    /// A lone <c>%70ath=/*</c> is a working map, because the host reads the wildcard it carries.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void APercentEncodedParameterName_IsReadAsTheNameTheHostDecodesItTo()
+    {
+        const string Prefix =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items"
+            + "?api-version=1.0&versionType=commit&version=" + Sha;
+
+        var shadowed = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/fixed.cs&path=/*\"}}");
+
+        Assert.Equal(["*"], shadowed.RejectedKeys);
+        Assert.False(shadowed.TryResolve("A.cs", out _));
+
+        var encoded = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"*\":\"" + Prefix + "&%70ath=/*\"}}");
+
+        Assert.Empty(encoded.RejectedKeys);
+        Assert.True(encoded.TryResolve("A.cs", out SLF.SourceLinkResolution a));
+        Assert.True(encoded.TryResolve("B.cs", out SLF.SourceLinkResolution b));
+        Assert.NotEqual(a.Url, b.Url);
     }
 
     /// <summary>
@@ -1683,8 +2156,8 @@ public class SourceLinkProvenanceTests
             [
                 "DotnetInspector.Services/GitHubUrlResolver.cs",
                 "DotnetInspector.Services/LocalRepoSourceAcquisition.cs",
+                "DotnetInspector.Services/SourceLinkUrls.cs",
                 "SourceLinkFetch/SourceLinkProvenance.cs",
-                "dotnet-inspect/Services/SourceLinkUrls.cs",
             ],
             readers);
     }

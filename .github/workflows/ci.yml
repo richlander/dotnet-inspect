@@ -507,10 +507,8 @@ jobs:
       - name: Run CLI tests (fast)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release -- -trait- "Speed=Slow"
 
-      # #3887 tracks the lost conditional-corpus input. Keep the rest of the
-      # CSharpText suite gated while that non-vacuity failure remains visible.
       - name: Run CSharpText tests
-        run: dotnet run --project tests/CSharpText.Tests -c Release -- -method- "CSharpText.Tests.DeclarationIndexTests.InAConditionalFile_EveryDeclarationOutsideTheConditionals_IsStillVouchedFor"
+        run: dotnet run --project tests/CSharpText.Tests -c Release
 
       - name: Run instruction-substrate tests
         run: dotnet run --project src/ILInspector.Instructions.Tests -c Release
@@ -523,6 +521,9 @@ jobs:
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
+
+      - name: Run inspection workspace tests
+        run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
 
       # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
       # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
@@ -647,11 +648,9 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
-      # #3887 tracks the lost conditional-corpus input. Keep the rest of the
-      # CSharpText suite gated while that non-vacuity failure remains visible.
       - name: Run CSharpText tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/CSharpText.Tests -c Release -- -method- "CSharpText.Tests.DeclarationIndexTests.InAConditionalFile_EveryDeclarationOutsideTheConditionals_IsStillVouchedFor"
+        run: dotnet run --project tests/CSharpText.Tests -c Release
 
       # Covers #3496 and #3509. Both classes involved (StringSwitchRaisingTests,
       # CorpusSensorComparisonTests) are in the fast subset, so the slow gates
@@ -734,11 +733,10 @@ jobs:
   # intended to serve as the merge gate and be the one context the ruleset
   # requires.
   #
-  # The Fidelity-area class that remains ungated is excluded on cost:
-  # SkeletonEmitTests, the single most expensive class in the
-  # suite (~630s on CI, #3495). It wants the emit-bound residual addressed
-  # before it can be gated -- and note it deliberately asserts the *whole-module*
-  # skeleton compiles, so it cannot simply adopt a narrower build.
+  # SkeletonEmitTests remains a whole-module skeleton check, but #3872 made its
+  # eight cases tractable by selecting the asserted method before per-method
+  # import/render/recompile work. The skeleton itself is not narrowed; a
+  # duplicate-unrelated-type mutation pins that contract.
   #
   # Completeness is case-granular (#3837). Discovery uses pre-enumerated full
   # JSON, and the run's JSON reporter carries the same stable TestCaseUniqueID.
@@ -824,14 +822,16 @@ jobs:
       # or truncated report, and fails the job loudly. Do not raise this to the
       # job timeout.
       #
-      # Serializing the nine fidelity workload classes (#3827) removes the
+      # Serializing the ten fidelity workload classes (#3827, #3872) removes the
       # Roslyn reference-binding overlap but necessarily raises wall time. The
       # first PR run measured the former 45-test preset at 27m24s on this runner
       # (build 2m38s, discovery 1s, checker 4s, job total 30m37s), up from
-      # 21m30s in parallel. The four added theory-bearing classes contribute
-      # only 42 cases in 2.4s locally, so the 45-minute step still leaves ~64%
-      # headroom while staying 20 minutes under the job timeout, which is what
-      # keeps a hang loud.
+      # 21m30s in parallel. The four theory-bearing classes contribute only 42
+      # cases in 2.4s locally. SkeletonEmitTests adds eight cases, but method
+      # selection reduced that class from 374.25s to 13.31s locally while
+      # retaining whole-module emit. The resulting 94-case serialized preset
+      # completes in 729.56s locally. The 45-minute step therefore remains well
+      # below the 65-minute job timeout, which is what keeps a hang loud.
       #
       # Re-measure and re-tune both numbers together whenever the preset or its
       # collection topology changes.
