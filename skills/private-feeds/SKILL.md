@@ -98,9 +98,10 @@ coordinate only when `.nupkg.metadata.source` names an authorized producer.
 Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
-succeeds only from producer-authorized caches. Configured folder feeds are not
-consulted in offline mode; pass a local `.nupkg` path directly when the package
-is available as a file.
+succeeds only from producer-authorized caches. Configured non-HTTP sources,
+including folder feeds, are skipped in every mode; `--verbose` reports the
+skip. Pass a local `.nupkg` path directly when the package is available as a
+file.
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \

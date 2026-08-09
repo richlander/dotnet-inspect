@@ -49,13 +49,12 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-co
 dotnet run --project src/ILInspector.Analysis.Tests -c Release
 bash eng/restore-ilassembler.sh
 dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
-```
-
-Run the separate decompiler corpus gate when that evidence is required:
-
-```bash
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 ```
+
+The corpus command runs as a separate workflow job and can take hours. Omit it
+only when intentionally reproducing the non-corpus `test` job rather than the
+complete dispatched `test` lane.
 
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the

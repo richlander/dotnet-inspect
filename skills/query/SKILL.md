@@ -8,12 +8,12 @@ description: Output formats, -D/-S section discovery and selection, value projec
 
 The query system is like Go templates, without a DSL: inspection commands emit
 structured sections, with the broadest shared query surface on `type`, `member`,
-`package`, `project`, and `library`. `find` supports `-D` discovery and
-field/column projection but not `-S` selection. `diff` supports `-D` and `-S`
-but not field/column projection. `timeline` supports section selection and
-projection but not `-D` discovery. Relationship commands render fixed output
-without `-D` or `-S`. Discover the shape first where available, then select and
-project.
+`package`, and `library`. `project` supports `-D` and `-S` but not general
+field/column projection. `find` supports `-D` discovery and field/column
+projection but not `-S` selection. `diff` supports `-D` and `-S` but not
+field/column projection. `timeline` supports section selection and projection
+but not `-D` discovery. Relationship commands render fixed output without `-D`
+or `-S`. Discover the shape first where available, then select and project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
