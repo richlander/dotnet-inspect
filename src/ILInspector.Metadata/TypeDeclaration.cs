@@ -4,6 +4,11 @@ using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
+internal sealed record DefinitionKindDependency(
+    AssemblyReferenceIdentity Reference,
+    AssemblyResolutionScope Scope,
+    MetadataTypeDefinitionName Type);
+
 /// <summary>Definition kind needed by consumers that cannot inspect the defining image.</summary>
 public enum MetadataTypeDefinitionKind
 {
@@ -89,14 +94,17 @@ public abstract class TypeDeclarationCandidate
     {
         internal Definition(
             TypeDefinitionToken token,
-            MetadataTypeDefinitionKind kind)
+            MetadataTypeDefinitionKind kind,
+            DefinitionKindDependency? kindDependency = null)
         {
             Token = token;
             Kind = kind;
+            KindDependency = kindDependency;
         }
 
         public TypeDefinitionToken Token { get; }
         public MetadataTypeDefinitionKind Kind { get; }
+        internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;
         public bool IsValueType =>
@@ -144,16 +152,19 @@ public abstract class TypeDeclarationResult
         internal Defined(
             TypeDefinitionToken definition,
             MetadataTypeDefinitionKind kind,
-            bool declaringAssemblyDefinesCoreLibraryRoot)
+            bool declaringAssemblyDefinesCoreLibraryRoot,
+            DefinitionKindDependency? kindDependency = null)
         {
             Definition = definition;
             Kind = kind;
             DeclaringAssemblyDefinesCoreLibraryRoot =
                 declaringAssemblyDefinesCoreLibraryRoot;
+            KindDependency = kindDependency;
         }
 
         public TypeDefinitionToken Definition { get; }
         public MetadataTypeDefinitionKind Kind { get; }
+        internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;
         public bool IsValueType =>

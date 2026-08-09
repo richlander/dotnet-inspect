@@ -336,6 +336,15 @@ public abstract class TypeResolutionFailure
     }
 
     /// <summary>
+    /// Resolution exceeded the configured number of distinct type requests.
+    /// </summary>
+    public sealed class RequestBudgetExceeded : TypeResolutionFailure
+    {
+        internal RequestBudgetExceeded(int budget) => Budget = budget;
+        public int Budget { get; }
+    }
+
+    /// <summary>
     /// The declaration is exported from a module, for which the current engine
     /// has no acquisition policy.
     /// </summary>

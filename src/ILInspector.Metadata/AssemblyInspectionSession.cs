@@ -13,9 +13,19 @@ namespace ILInspector.Metadata;
 public sealed class AssemblyInspectionSession : IDisposable
 {
     readonly AssemblyImage _image;
+    readonly Lazy<MetadataTypeDeclarationProbe.Index>
+        _declarationIndex;
     MethodBodySource? _methodBodies;
 
-    AssemblyInspectionSession(AssemblyImage image) => _image = image;
+    AssemblyInspectionSession(AssemblyImage image)
+    {
+        _image = image;
+        _declarationIndex =
+            new Lazy<MetadataTypeDeclarationProbe.Index>(
+                () => MetadataTypeDeclarationProbe.CreateIndex(
+                    _image.GetMetadataReader()),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
     /// <summary>Opens a session from a file path.</summary>
     public static AssemblyInspectionSession Open(string path) => new(AssemblyImage.Open(path));
@@ -254,7 +264,7 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     internal TypeDeclarationResult ProbeDeclaration(
         MetadataTypeDefinitionName name) =>
-        MetadataTypeDeclarationProbe.Probe(_image.GetMetadataReader(), name);
+        _declarationIndex.Value.Probe(name);
 
     public void Dispose() => _image.Dispose();
 }

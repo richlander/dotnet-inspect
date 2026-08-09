@@ -56,7 +56,8 @@ public static class ApiSurfaceExtractor
         var constraintResolution =
             new TypeParameterConstraintResolution(
                 peReader.GetMetadataReader(),
-                source);
+                source,
+                catalog.MaxTypeResolutionRequests);
         ApiSurface surface = ExtractCore(
             peReader,
             includeAll,
@@ -2652,12 +2653,14 @@ public static class ApiSurfaceExtractor
 
         internal TypeParameterConstraintResolution(
             MetadataReader reader,
-            ResolvedAssemblyReference source)
+            ResolvedAssemblyReference source,
+            int maxTypeResolutionRequests)
         {
             _reader = reader;
             Plan = new TypeParameterKindClassifier.ResolutionPlan(
                 reader,
-                source);
+                source,
+                maxTypeResolutionRequests);
         }
 
         internal TypeParameterKindClassifier.ResolutionPlan Plan { get; }

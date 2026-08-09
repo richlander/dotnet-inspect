@@ -31,10 +31,11 @@ internal static class TypeParameterKindClassifier
     static readonly string[] s_classesThatProveNothing =
         ["System.Object", "System.ValueType", "System.Enum"];
 
-    internal sealed class ResolutionPlan(
-        MetadataReader reader,
-        ResolvedAssemblyReference source)
+    internal sealed class ResolutionPlan
     {
+        readonly MetadataReader reader;
+        readonly ResolvedAssemblyReference source;
+        readonly int _maxTypeResolutionRequests;
         readonly HashSet<TypeResolutionRequest> _requests =
             new(TypeResolutionRequestComparer.Instance);
         readonly Dictionary<
@@ -44,16 +45,35 @@ internal static class TypeParameterKindClassifier
             AssemblyReferenceHandle,
             AssemblyReferenceIdentity> _assemblyReferences = [];
         readonly AssemblyReferenceProjectionCache
-            _assemblyReferenceProjection =
-                new(reader);
+            _assemblyReferenceProjection;
         readonly Dictionary<
             TypeReferenceHandle,
             ConstraintClass> _resolvedClasses = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
+        bool _requestBudgetExhausted;
+
+        internal ResolutionPlan(
+            MetadataReader reader,
+            ResolvedAssemblyReference source,
+            int maxTypeResolutionRequests =
+                TypeResolutionContextOptions
+                    .DefaultMaxTypeResolutionRequests)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+                maxTypeResolutionRequests);
+            this.reader = reader;
+            this.source = source;
+            _assemblyReferenceProjection =
+                new AssemblyReferenceProjectionCache(reader);
+            _maxTypeResolutionRequests =
+                maxTypeResolutionRequests;
+        }
 
         internal IReadOnlyCollection<TypeResolutionRequest> Requests =>
             _requests;
+        internal int ProjectedReferenceCount =>
+            _projectedRequests.Count;
 
         internal int Checkpoint() => _requestOrder.Count;
 
@@ -72,6 +92,8 @@ internal static class TypeParameterKindClassifier
             _requestOrder.RemoveRange(
                 checkpoint,
                 _requestOrder.Count - checkpoint);
+            _requestBudgetExhausted =
+                _requests.Count >= _maxTypeResolutionRequests;
         }
 
         internal void Bind(TypeResolutionContext context)
@@ -88,6 +110,9 @@ internal static class TypeParameterKindClassifier
                     handle,
                     out TypeResolutionRequest? request))
             {
+                if (_requestBudgetExhausted)
+                    return ConstraintClass.Unreadable;
+
                 request = CreateRequest(reader, source, handle);
                 _projectedRequests.Add(handle, request);
             }
@@ -109,8 +134,17 @@ internal static class TypeParameterKindClassifier
 
             if (_context is null)
             {
-                if (_requests.Add(request))
+                if (_requests.Contains(request))
+                    return ConstraintClass.Unreadable;
+                if (_requests.Count < _maxTypeResolutionRequests
+                    && _requests.Add(request))
+                {
                     _requestOrder.Add(request);
+                }
+                else
+                {
+                    _requestBudgetExhausted = true;
+                }
                 return ConstraintClass.Unreadable;
             }
 
@@ -280,7 +314,9 @@ internal static class TypeParameterKindClassifier
         MetadataReader reader,
         GenericParameterHandle handle,
         ResolutionPlan? resolution,
-        SiblingParameterIndex siblingParameters)
+        SiblingParameterIndex siblingParameters,
+        Dictionary<TypeDefinitionHandle, ConstraintClass>
+            definitionClasses)
     {
         var node = new Node(handle);
         GenericParameter parameter;
@@ -325,7 +361,8 @@ internal static class TypeParameterKindClassifier
                 switch (ClassifyConstraintType(
                     reader,
                     constraint.Type,
-                    resolution))
+                    resolution,
+                    definitionClasses))
                 {
                     case ConstraintClass.ProvesReferenceType:
                         node.ProvesReference = true;
@@ -568,6 +605,8 @@ internal static class TypeParameterKindClassifier
     internal sealed class ChainState
     {
         readonly Dictionary<GenericParameterHandle, TypeParameterTypeKind> _answers = [];
+        readonly Dictionary<TypeDefinitionHandle, ConstraintClass>
+            _definitionClasses = [];
         readonly ResolutionPlan? _resolution;
         readonly SiblingParameterIndex _siblingParameters = new();
 
@@ -632,7 +671,8 @@ internal static class TypeParameterKindClassifier
                     reader,
                     handle,
                     _resolution,
-                    _siblingParameters);
+                    _siblingParameters,
+                    _definitionClasses);
                 nodes[handle] = node;
                 foreach (var target in node.Defers)
                 {
@@ -817,7 +857,9 @@ internal static class TypeParameterKindClassifier
     static ConstraintClass ClassifyConstraintType(
         MetadataReader reader,
         EntityHandle handle,
-        ResolutionPlan? resolution)
+        ResolutionPlan? resolution,
+        Dictionary<TypeDefinitionHandle, ConstraintClass>
+            definitionClasses)
     {
         if (handle.IsNil)
             return ConstraintClass.Unreadable;
@@ -825,7 +867,20 @@ internal static class TypeParameterKindClassifier
         switch (handle.Kind)
         {
             case HandleKind.TypeDefinition:
-                return ClassifyDefinition(reader, (TypeDefinitionHandle)handle);
+                TypeDefinitionHandle definitionHandle =
+                    (TypeDefinitionHandle)handle;
+                if (!definitionClasses.TryGetValue(
+                        definitionHandle,
+                        out ConstraintClass definitionClass))
+                {
+                    definitionClass =
+                        ClassifyDefinition(reader, definitionHandle);
+                    definitionClasses.Add(
+                        definitionHandle,
+                        definitionClass);
+                }
+
+                return definitionClass;
 
             // Another module owns the interface flag, and a name is not a substitute for
             // it: an unknown external type could be either. The three core types that
@@ -858,7 +913,8 @@ internal static class TypeParameterKindClassifier
                         ClassifyConstraintType(
                             reader,
                             root.Type,
-                            resolution),
+                            resolution,
+                            definitionClasses),
                     TypeSpecificationRootKind.GenericTypeParameter
                         or TypeSpecificationRootKind.GenericMethodParameter =>
                         ConstraintClass.DeferToTypeParameter,

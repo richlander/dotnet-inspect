@@ -543,6 +543,34 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Session_DistinctDeclarationRequestsDoNotRescanTypeTable()
+    {
+        const int TypeCount = 40_000;
+        byte[] image = BuildManyTypesAssembly(TypeCount);
+        MetadataTypeDefinitionName[] names =
+        [
+            .. Enumerable.Range(0, TypeCount)
+                .Select(index => Name("N", $"Type{index}")),
+        ];
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(image, writable: false));
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (MetadataTypeDefinitionName name in names)
+        {
+            Assert.IsType<TypeDeclarationResult.Defined>(
+                session.ProbeDeclaration(name));
+        }
+        stopwatch.Stop();
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+            $"Resolving {TypeCount} distinct declarations took "
+                + $"{stopwatch.Elapsed}.");
+    }
+
+    [Fact]
     public void Session_WhenSourceChangesAfterInventory_RejectsImage()
     {
         byte[] inventoried = BuildValidForwarderImage();
@@ -934,6 +962,46 @@ public class InspectionAcquisitionPlanTests
                 MetadataTokens.FieldDefinitionHandle(1),
             methodList:
                 MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildManyTypesAssembly(int typeCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString("ManyTypes.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ManyTypes"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle typeNamespace =
+            metadata.GetOrAddString("N");
+        for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                typeNamespace,
+                metadata.GetOrAddString($"Type{i}"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
         return Serialize(metadata);
     }
 

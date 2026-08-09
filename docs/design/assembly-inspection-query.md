@@ -293,7 +293,20 @@ constraint outside the selected image. Extraction records requests only for surf
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
 alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
-so a replaced path cannot mix image generations. Each inventory or retained-session open
+so a replaced path cannot mix image generations. Each retained session indexes declaration
+leaf names once, and same-module definition kinds are memoized across a parameter group;
+`Session_DistinctDeclarationRequestsDoNotRescanTypeTable` and
+`Classify_ReusesSameModuleDefinitionKindAcrossConstraints` gate those bounded-work
+properties. External constructed-base markers are not trusted: the catalog resolves the
+copied base identity and accepts `Class` only from the defining image.
+`Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
+`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles.
+A per-generation type-request budget bounds both discovery
+(`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
+(`TypeRequestBudget_RejectsExcessManifestRequests`). An extraction lease keeps retained
+sessions alive through the full API read
+while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
+lifetime. Each inventory or retained-session open
 first copies one image within its inventory or retained-image size bound, then hashes and
 parses only that immutable copy; `Session_ParsesTheBytesCopiedBeforeSourceMutation`,
 `Register_ImageBudgetRejectsBeforeReadingSource`, and

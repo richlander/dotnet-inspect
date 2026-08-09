@@ -12,6 +12,57 @@ public class TypeResolutionContextTests
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
     [Fact]
+    public async Task Dispose_WaitsForActiveApiExtraction()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] image = BuildAssembly(
+            "Definitions",
+            definesType: true);
+        using var openEntered = new ManualResetEventSlim();
+        using var releaseOpen = new ManualResetEventSlim();
+        ResolvedAssemblyReference source = Descriptor(
+            image,
+            () =>
+            {
+                openEntered.Set();
+                releaseOpen.Wait(cancellationToken);
+            });
+        var catalog = new TypeResolutionCatalog();
+        Task<ResolutionAwareApiSurfaceOutcome> extraction =
+            Task.Run(
+                () => catalog.ExtractApiSurface(
+                    source,
+                    new RecordingPolicy(
+                        _ => AssemblyBindingSelection.NotFound())),
+                cancellationToken);
+        openEntered.Wait(cancellationToken);
+
+        using var disposeStarted = new ManualResetEventSlim();
+        Task dispose = Task.Run(() =>
+        {
+            disposeStarted.Set();
+            catalog.Dispose();
+        }, cancellationToken);
+
+        disposeStarted.Wait(cancellationToken);
+        await Task.Delay(100, cancellationToken);
+        Assert.False(dispose.IsCompleted);
+
+        releaseOpen.Set();
+        Assert.IsType<ResolutionAwareApiSurfaceOutcome.Read>(
+            await extraction);
+        await dispose.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            cancellationToken);
+        Assert.Throws<ObjectDisposedException>(() =>
+            catalog.ExtractApiSurface(
+                source,
+                new RecordingPolicy(
+                    _ => AssemblyBindingSelection.NotFound())));
+    }
+
+    [Fact]
     public void DirectDefinition_ResolvesAndCachesFrozenOutcome()
     {
         byte[] image = BuildAssembly("Definitions", definesType: true);
@@ -1118,6 +1169,52 @@ public class TypeResolutionContextTests
             Assert.IsType<TypeResolutionOutcome.Rejected>(
                 second.Resolve(request)).Failure);
         Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void TypeRequestBudget_RejectsExcessManifestRequests()
+    {
+        byte[] image = BuildAssembly(
+            "Definitions",
+            definesType: true,
+            definesOtherType: true);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest first = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        TypeResolutionRequest second = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName("Other"));
+
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxTypeResolutionRequests = 1,
+            });
+        using TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(
+                _ => AssemblyBindingSelection.NotFound()),
+            [assembly],
+            [first, second]);
+
+        Assert.IsType<TypeResolutionOutcome.Resolved>(
+            context.Resolve(first));
+        Assert.Equal(
+            1,
+            Assert.IsType<TypeResolutionFailure.RequestBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    context.Resolve(second)).Failure).Budget);
+
+        using TypeResolutionContext next =
+            catalog.CreateContext(
+                new RecordingPolicy(
+                    _ => AssemblyBindingSelection.NotFound()),
+                [assembly],
+                [second]);
+        Assert.IsType<TypeResolutionOutcome.Resolved>(
+            next.Resolve(second));
     }
 
     [Fact]

@@ -16,21 +16,28 @@ public static class MetadataTypeDeclarationProbe
         var candidates = new List<PendingCandidate>();
         var forwarders =
             new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
+        bool declaresCoreLibraryRoot = false;
         bool canDeclareCoreLibraryRoot =
             reader.AssemblyReferences.Count == 0;
-        bool declaresCoreLibraryRoot = false;
 
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
-            TypeDefinition definition;
+            MetadataTypeDefinitionNameMatch match =
+                MetadataTypeDefinitionNameReader.Matches(
+                    reader,
+                    handle,
+                    name,
+                    out MetadataTypeNameFailure? failure);
+            if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                return new TypeDeclarationResult.Rejected(failure!);
+
             try
             {
-                definition = reader.GetTypeDefinition(handle);
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(handle);
                 declaresCoreLibraryRoot |=
                     canDeclareCoreLibraryRoot
-                    && IsCoreLibraryRoot(
-                        reader,
-                        definition);
+                    && IsCoreLibraryRoot(reader, definition);
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
@@ -41,15 +48,6 @@ public static class MetadataTypeDeclarationProbe
                         handle,
                         ex.Message));
             }
-
-            MetadataTypeDefinitionNameMatch match =
-                MetadataTypeDefinitionNameReader.Matches(
-                    reader,
-                    handle,
-                    name,
-                    out MetadataTypeNameFailure? failure);
-            if (match == MetadataTypeDefinitionNameMatch.Rejected)
-                return new TypeDeclarationResult.Rejected(failure!);
             if (match == MetadataTypeDefinitionNameMatch.Match)
             {
                 candidates.Add(
@@ -72,11 +70,10 @@ public static class MetadataTypeDeclarationProbe
             if (match == MetadataTypeDefinitionNameMatch.NoMatch)
                 continue;
 
-            TypeDeclarationCandidate? candidate;
             if (!TryReadExportedCandidate(
                     reader,
                     handle,
-                    out candidate,
+                    out TypeDeclarationCandidate? candidate,
                     out failure))
             {
                 return new TypeDeclarationResult.Rejected(failure!);
@@ -89,6 +86,175 @@ public static class MetadataTypeDeclarationProbe
             reader,
             candidates,
             declaresCoreLibraryRoot);
+    }
+
+    internal static Index CreateIndex(MetadataReader reader) =>
+        new(reader);
+
+    internal sealed class Index
+    {
+        readonly MetadataReader _reader;
+        readonly Dictionary<string, List<TypeDefinitionHandle>>
+            _definitionsByLeaf =
+                new(StringComparer.Ordinal);
+        readonly Dictionary<string, List<ExportedTypeHandle>>
+            _exportsByLeaf =
+                new(StringComparer.Ordinal);
+        readonly MetadataTypeNameFailure? _failure;
+        readonly bool _declaresCoreLibraryRoot;
+
+        internal Index(MetadataReader reader)
+        {
+            _reader = reader;
+            bool canDeclareCoreLibraryRoot =
+                reader.AssemblyReferences.Count == 0;
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                try
+                {
+                    TypeDefinition definition =
+                        reader.GetTypeDefinition(handle);
+                    _declaresCoreLibraryRoot |=
+                        canDeclareCoreLibraryRoot
+                        && IsCoreLibraryRoot(
+                            reader,
+                            definition);
+                    Add(
+                        _definitionsByLeaf,
+                        reader.GetString(definition.Name),
+                        handle);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    _failure =
+                        MetadataTypeNameFailure.Malformed(
+                            handle,
+                            ex.Message);
+                    return;
+                }
+            }
+
+            foreach (ExportedTypeHandle handle in reader.ExportedTypes)
+            {
+                try
+                {
+                    Add(
+                        _exportsByLeaf,
+                        reader.GetString(
+                            reader.GetExportedType(handle).Name),
+                        handle);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    _failure =
+                        MetadataTypeNameFailure.Malformed(
+                            handle,
+                            ex.Message);
+                    return;
+                }
+            }
+        }
+
+        internal TypeDeclarationResult Probe(
+            MetadataTypeDefinitionName name)
+        {
+            if (_failure is not null)
+                return new TypeDeclarationResult.Rejected(_failure);
+
+            var candidates = new List<PendingCandidate>();
+            var forwarders =
+                new Dictionary<AssemblyReferenceIdentity, PendingForwarder>();
+            string leaf = name.Segments[^1];
+            if (_definitionsByLeaf.TryGetValue(
+                    leaf,
+                    out List<TypeDefinitionHandle>? definitions))
+            {
+                foreach (TypeDefinitionHandle handle in definitions)
+                {
+                    MetadataTypeDefinitionNameMatch match =
+                        MetadataTypeDefinitionNameReader.Matches(
+                            _reader,
+                            handle,
+                            name,
+                            out MetadataTypeNameFailure? failure);
+                    if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                    {
+                        return new TypeDeclarationResult.Rejected(
+                            failure!);
+                    }
+
+                    if (match == MetadataTypeDefinitionNameMatch.Match)
+                    {
+                        candidates.Add(
+                            new PendingDefinition(
+                                handle,
+                                TypeDefinitionToken.FromHandle(
+                                    _reader,
+                                    handle)));
+                    }
+                }
+            }
+
+            if (_exportsByLeaf.TryGetValue(
+                    leaf,
+                    out List<ExportedTypeHandle>? exports))
+            {
+                foreach (ExportedTypeHandle handle in exports)
+                {
+                    MetadataTypeDefinitionNameMatch match =
+                        MetadataTypeDefinitionNameReader.Matches(
+                            _reader,
+                            handle,
+                            name,
+                            out MetadataTypeNameFailure? failure);
+                    if (match == MetadataTypeDefinitionNameMatch.Rejected)
+                    {
+                        return new TypeDeclarationResult.Rejected(
+                            failure!);
+                    }
+                    if (match == MetadataTypeDefinitionNameMatch.NoMatch)
+                        continue;
+
+                    if (!TryReadExportedCandidate(
+                            _reader,
+                            handle,
+                            out TypeDeclarationCandidate? candidate,
+                            out failure))
+                    {
+                        return new TypeDeclarationResult.Rejected(
+                            failure!);
+                    }
+
+                    AddCandidate(
+                        candidates,
+                        forwarders,
+                        candidate!);
+                }
+            }
+
+            return Complete(
+                _reader,
+                candidates,
+                _declaresCoreLibraryRoot);
+        }
+
+        static void Add<THandle>(
+            Dictionary<string, List<THandle>> index,
+            string leaf,
+            THandle handle)
+        {
+            if (!index.TryGetValue(leaf, out List<THandle>? handles))
+            {
+                handles = [];
+                index.Add(leaf, handles);
+            }
+
+            handles.Add(handle);
+        }
     }
 
     static bool IsCoreLibraryRoot(
@@ -252,7 +418,8 @@ public static class MetadataTypeDeclarationProbe
                 new TypeDeclarationResult.Defined(
                     definition.Token,
                     definition.Kind,
-                    declaringAssemblyDefinesCoreLibraryRoot),
+                    declaringAssemblyDefinesCoreLibraryRoot,
+                    definition.KindDependency),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
                     forwarder.Declarations,
@@ -287,13 +454,20 @@ public static class MetadataTypeDeclarationProbe
     {
         internal override TypeDeclarationCandidate Materialize(
             MetadataReader reader,
-            bool declaringAssemblyDefinesCoreLibraryRoot) =>
-            new TypeDeclarationCandidate.Definition(
-                token,
+            bool declaringAssemblyDefinesCoreLibraryRoot)
+        {
+            MetadataTypeDefinitionKind kind =
                 ClassifyDefinitionKind(
                     reader,
                     handle,
-                    declaringAssemblyDefinesCoreLibraryRoot));
+                    declaringAssemblyDefinesCoreLibraryRoot);
+            return new TypeDeclarationCandidate.Definition(
+                token,
+                kind,
+                kind == MetadataTypeDefinitionKind.Unknown
+                    ? ReadDefinitionKindDependency(reader, handle)
+                    : null);
+        }
     }
 
     sealed class PendingForwarder : PendingCandidate
@@ -474,27 +648,70 @@ public static class MetadataTypeDeclarationProbe
         if (root.Type.Kind != HandleKind.TypeReference)
             return MetadataTypeDefinitionKind.Unknown;
 
-        MetadataTypeDefinitionNameReadResult read =
-            MetadataTypeDefinitionNameReader.Read(
-                reader,
-                (TypeReferenceHandle)root.Type);
-        if (read
-            is not MetadataTypeDefinitionNameReadResult.Read named)
-        {
-            return MetadataTypeDefinitionKind.Unknown;
-        }
+        // The ELEMENT_TYPE_CLASS marker belongs to the referring image and is
+        // not evidence about an external definition. The resolution builder
+        // authenticates the copied dependency before accepting Class.
+        return MetadataTypeDefinitionKind.Unknown;
+    }
 
-        if (named.Name.ToMetadataFullName()
-                is "System.ValueType" or "System.Enum"
-            && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
-                reader,
-                reader.GetTypeReference(
+    static DefinitionKindDependency? ReadDefinitionKindDependency(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        try
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(handle);
+            if (definition.BaseType.Kind != HandleKind.TypeSpecification
+                || !TypeSpecificationRoot.TryRead(
+                    reader,
+                    (TypeSpecificationHandle)definition.BaseType,
+                    out TypeSpecificationRoot root)
+                || root.Kind != TypeSpecificationRootKind.NamedType
+                || root.RawTypeKind != (byte)SignatureTypeKind.Class
+                || root.Type.Kind != HandleKind.TypeReference
+                || MetadataTypeDefinitionNameReader.Read(
+                    reader,
                     (TypeReferenceHandle)root.Type)
-                    .ResolutionScope))
-        {
-            return MetadataTypeDefinitionKind.Unknown;
-        }
+                    is not MetadataTypeDefinitionNameReadResult.Read named)
+            {
+                return null;
+            }
 
-        return MetadataTypeDefinitionKind.Class;
+            Span<TypeReferenceHandle> rootToLeaf =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal
+                    .TryWalkTypeReferenceResolutionScope(
+                        reader,
+                        (TypeReferenceHandle)root.Type,
+                        rootToLeaf,
+                        out _,
+                        out EntityHandle terminal,
+                        out _)
+                || terminal.Kind != HandleKind.AssemblyReference)
+            {
+                return null;
+            }
+
+            AssemblyReferenceIdentity reference =
+                AssemblyReferenceIdentity.From(
+                    reader,
+                    (AssemblyReferenceHandle)terminal);
+            AssemblyResolutionScope scope =
+                PlatformKeys.IsPlatform(reference.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : AssemblyResolutionScope.Any;
+            return new DefinitionKindDependency(
+                reference,
+                scope,
+                named.Name);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or ArgumentException)
+        {
+            return null;
+        }
     }
 }

@@ -9,6 +9,56 @@ namespace ILInspector.Metadata.Tests;
 
 public class TypeParameterKindClassifierTests
 {
+    [Fact]
+    public void Classify_ReusesSameModuleDefinitionKindAcrossConstraints()
+    {
+        const int ChainLength = 128;
+        const int ConstraintCount = 4_096;
+        GenericParameterHandle parameter = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle baseType = default;
+            for (int i = 0; i < ChainLength; i++)
+            {
+                baseType = metadata.AddTypeDefinition(
+                    TypeAttributes.Public | TypeAttributes.Class,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString($"Base{i}"),
+                    baseType,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            }
+
+            TypeDefinitionHandle consumer =
+                AddTypeDefinition(metadata, "Consumer`1");
+            parameter = metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            for (int i = 0; i < ConstraintCount; i++)
+            {
+                metadata.AddGenericParameterConstraint(
+                    parameter,
+                    baseType);
+            }
+        });
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        TypeParameterTypeKind kind =
+            TypeParameterKindClassifier.Classify(
+                image.Reader,
+                parameter,
+                hasValueTypeConstraint: false,
+                hasReferenceTypeConstraint: false,
+                new TypeParameterKindClassifier.ChainState());
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(TypeParameterTypeKind.ReferenceType, kind);
+        Assert.InRange(allocated, 0, 64 * 1024);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -122,6 +172,55 @@ public class TypeParameterKindClassifierTests
 
         Assert.Single(plan.Requests);
         Assert.InRange(allocated, 0, 8 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void ResolutionPlan_BoundsCollectedTypeRequests()
+    {
+        var references = new List<TypeReferenceHandle>();
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle assembly =
+                AddAssemblyReference(metadata, "Dependency");
+            references.Add(
+                metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("First")));
+            references.Add(
+                metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Second")));
+            references.Add(
+                metadata.AddTypeReference(
+                    assembly,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Third")));
+        });
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeParameterKindClassifierTests)
+                    .Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionPlan_BoundsCollectedTypeRequests)));
+        var plan =
+            new TypeParameterKindClassifier.ResolutionPlan(
+                image.Reader,
+                source,
+                maxTypeResolutionRequests: 1);
+
+        Assert.All(
+            references,
+            reference => Assert.Equal(
+                TypeParameterKindClassifier.ConstraintClass.Unreadable,
+                plan.Classify(image.Reader, reference)));
+
+        Assert.Equal(
+            "N.First",
+            Assert.Single(plan.Requests).Type.ToMetadataFullName());
+        Assert.Equal(2, plan.ProjectedReferenceCount);
     }
 
     [Fact]
@@ -530,6 +629,12 @@ public class TypeParameterKindClassifierTests
                     AssemblyResolutionProvenance.Local(
                         nameof(
                             Extract_ClassifiesClassWithExternalConstructedBase)));
+            ResolvedAssemblyReference baseAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    basePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_ClassifiesClassWithExternalConstructedBase)));
             using var pe =
                 new PEReader(File.OpenRead(consumerPath));
             using var catalog = new TypeResolutionCatalog();
@@ -538,7 +643,7 @@ public class TypeParameterKindClassifierTests
                 pe,
                 source,
                 catalog,
-                new MappingPolicy(dependency));
+                new MappingPolicy(dependency, baseAssembly));
 
             ApiType type = Assert.Single(surface.Types);
             Assert.Equal(
@@ -550,6 +655,102 @@ public class TypeParameterKindClassifierTests
             File.Delete(consumerPath);
             File.Delete(dependencyPath);
             File.Delete(basePath);
+        }
+    }
+
+    [Fact]
+    public void Extract_RejectsForgedClassMarkerForExternalValueTypeBase()
+    {
+        var (consumerPath, dependencyPath, basePath) =
+            EmitForgedExternalValueTypeBaseSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_RejectsForgedClassMarkerForExternalValueTypeBase)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_RejectsForgedClassMarkerForExternalValueTypeBase)));
+            ResolvedAssemblyReference baseAssembly =
+                ResolvedAssemblyReference.CreateFromPath(
+                    basePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_RejectsForgedClassMarkerForExternalValueTypeBase)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new MappingPolicy(dependency, baseAssembly));
+
+            Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                    .TypeKind);
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+            File.Delete(basePath);
+        }
+    }
+
+    [Fact]
+    public void Extract_CyclicExternalConstructedBasesStayUndetermined()
+    {
+        var (consumerPath, firstPath, secondPath) =
+            EmitCyclicExternalConstructedBasesSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_CyclicExternalConstructedBasesStayUndetermined)));
+            ResolvedAssemblyReference first =
+                ResolvedAssemblyReference.CreateFromPath(
+                    firstPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_CyclicExternalConstructedBasesStayUndetermined)));
+            ResolvedAssemblyReference second =
+                ResolvedAssemblyReference.CreateFromPath(
+                    secondPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            Extract_CyclicExternalConstructedBasesStayUndetermined)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new MappingPolicy(first, second));
+
+            Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                    .TypeKind);
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(firstPath);
+            File.Delete(secondPath);
         }
     }
 
@@ -703,6 +904,250 @@ public class TypeParameterKindClassifierTests
             $"external-base-consumer-{Guid.NewGuid():N}.dll");
         consumerAssembly.Save(consumerPath);
         return (consumerPath, dependencyPath, basePath);
+    }
+
+    static (string ConsumerPath, string DependencyPath, string BasePath)
+        EmitForgedExternalValueTypeBaseSample()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string baseName = $"ForgedValueBase{suffix}";
+        string dependencyName = $"ForgedDerived{suffix}";
+        string consumerName = $"ForgedConsumer{suffix}";
+
+        MetadataBuilder baseMetadata = NewMetadata(baseName);
+        System.Reflection.AssemblyName coreIdentity =
+            typeof(object).Assembly.GetName();
+        byte[] coreToken =
+            coreIdentity.GetPublicKeyToken() ?? [];
+        AssemblyReferenceHandle coreLibrary =
+            baseMetadata.AddAssemblyReference(
+                baseMetadata.GetOrAddString(coreIdentity.Name!),
+                coreIdentity.Version ?? new Version(0, 0, 0, 0),
+                string.IsNullOrEmpty(coreIdentity.CultureName)
+                    ? default
+                    : baseMetadata.GetOrAddString(
+                        coreIdentity.CultureName),
+                baseMetadata.GetOrAddBlob(coreToken),
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle valueType =
+            baseMetadata.AddTypeReference(
+                coreLibrary,
+                baseMetadata.GetOrAddString("System"),
+                baseMetadata.GetOrAddString("ValueType"));
+        AddTypeDefinition(
+            baseMetadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle genericValue =
+            baseMetadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.SequentialLayout,
+                baseMetadata.GetOrAddString("N"),
+                baseMetadata.GetOrAddString("GenericValue`1"),
+                valueType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        baseMetadata.AddGenericParameter(
+            genericValue,
+            GenericParameterAttributes.None,
+            baseMetadata.GetOrAddString("T"),
+            index: 0);
+
+        MetadataBuilder dependencyMetadata =
+            NewMetadata(dependencyName);
+        AssemblyReferenceHandle baseReference =
+            AddAssemblyReference(dependencyMetadata, baseName);
+        TypeReferenceHandle externalValue =
+            dependencyMetadata.AddTypeReference(
+                baseReference,
+                dependencyMetadata.GetOrAddString("N"),
+                dependencyMetadata.GetOrAddString("GenericValue`1"));
+        var constructedBase = new BlobBuilder();
+        constructedBase.WriteByte(0x15); // GENERICINST
+        constructedBase.WriteByte(0x12); // forged CLASS marker
+        constructedBase.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(externalValue) << 2) | 1);
+        constructedBase.WriteCompressedInteger(1);
+        constructedBase.WriteByte(0x08); // I4
+        TypeSpecificationHandle baseSpecification =
+            dependencyMetadata.AddTypeSpecification(
+                dependencyMetadata.GetOrAddBlob(constructedBase));
+        AddTypeDefinition(
+            dependencyMetadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        dependencyMetadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            dependencyMetadata.GetOrAddString("N"),
+            dependencyMetadata.GetOrAddString("Derived"),
+            baseSpecification,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        MetadataBuilder consumerMetadata = NewMetadata(consumerName);
+        AssemblyReferenceHandle dependencyReference =
+            AddAssemblyReference(
+                consumerMetadata,
+                dependencyName);
+        TypeReferenceHandle derived =
+            consumerMetadata.AddTypeReference(
+                dependencyReference,
+                consumerMetadata.GetOrAddString("N"),
+                consumerMetadata.GetOrAddString("Derived"));
+        AddTypeDefinition(
+            consumerMetadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle consumer =
+            AddTypeDefinition(
+                consumerMetadata,
+                "Consumer`1");
+        GenericParameterHandle parameter =
+            consumerMetadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                consumerMetadata.GetOrAddString("T"),
+                index: 0);
+        consumerMetadata.AddGenericParameterConstraint(
+            parameter,
+            derived);
+
+        string basePath = Path.Combine(
+            Path.GetTempPath(),
+            $"{baseName}.dll");
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{dependencyName}.dll");
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{consumerName}.dll");
+        File.WriteAllBytes(basePath, SerializePe(baseMetadata));
+        File.WriteAllBytes(
+            dependencyPath,
+            SerializePe(dependencyMetadata));
+        File.WriteAllBytes(
+            consumerPath,
+            SerializePe(consumerMetadata));
+        return (consumerPath, dependencyPath, basePath);
+    }
+
+    static (string ConsumerPath, string FirstPath, string SecondPath)
+        EmitCyclicExternalConstructedBasesSample()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string firstName = $"CyclicFirst{suffix}";
+        string secondName = $"CyclicSecond{suffix}";
+        string consumerName = $"CyclicConsumer{suffix}";
+
+        byte[] firstImage = BuildConstructedBaseAssembly(
+            firstName,
+            "First`1",
+            secondName,
+            "Second`1");
+        byte[] secondImage = BuildConstructedBaseAssembly(
+            secondName,
+            "Second`1",
+            firstName,
+            "First`1");
+
+        MetadataBuilder consumerMetadata = NewMetadata(consumerName);
+        AssemblyReferenceHandle firstReference =
+            AddAssemblyReference(consumerMetadata, firstName);
+        TypeReferenceHandle firstType =
+            consumerMetadata.AddTypeReference(
+                firstReference,
+                consumerMetadata.GetOrAddString("N"),
+                consumerMetadata.GetOrAddString("First`1"));
+        TypeSpecificationHandle constraint =
+            AddConstructedClass(
+                consumerMetadata,
+                firstType);
+        AddTypeDefinition(
+            consumerMetadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle consumer =
+            AddTypeDefinition(
+                consumerMetadata,
+                "Consumer`1");
+        GenericParameterHandle parameter =
+            consumerMetadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                consumerMetadata.GetOrAddString("T"),
+                index: 0);
+        consumerMetadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+
+        string firstPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{firstName}.dll");
+        string secondPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{secondName}.dll");
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{consumerName}.dll");
+        File.WriteAllBytes(firstPath, firstImage);
+        File.WriteAllBytes(secondPath, secondImage);
+        File.WriteAllBytes(
+            consumerPath,
+            SerializePe(consumerMetadata));
+        return (consumerPath, firstPath, secondPath);
+    }
+
+    static byte[] BuildConstructedBaseAssembly(
+        string assemblyName,
+        string typeName,
+        string baseAssemblyName,
+        string baseTypeName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AssemblyReferenceHandle baseReference =
+            AddAssemblyReference(metadata, baseAssemblyName);
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                baseReference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(baseTypeName));
+        TypeSpecificationHandle constructedBase =
+            AddConstructedClass(metadata, baseType);
+        AddTypeDefinition(
+            metadata,
+            "<Module>",
+            TypeAttributes.NotPublic);
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                constructedBase,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddGenericParameter(
+            type,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        return SerializePe(metadata);
+    }
+
+    static TypeSpecificationHandle AddConstructedClass(
+        MetadataBuilder metadata,
+        TypeReferenceHandle type)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15); // GENERICINST
+        signature.WriteByte(0x12); // CLASS
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(type) << 2) | 1);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x08); // I4
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
     }
 
     static byte[] BuildDuplicateKeyConsumer(
