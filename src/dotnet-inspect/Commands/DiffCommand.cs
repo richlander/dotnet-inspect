@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -25,7 +26,8 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
-        var pipeline = DiffSections.CreatePipeline();
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
@@ -190,11 +192,27 @@ public class DiffCommand
 
             try
             {
+                HashSet<string>? querySections = options.IncludeSections;
+                if (querySections is null && options.AllocRegressionsOnly)
+                {
+                    querySections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.AnalysisDiff.Name,
+                    };
+                }
+
+                HashSet<InspectionQueryDefinition> requestedQueries =
+                    pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
+                InspectionQueryResults queryResults = catalog.QueryRegistry.Run(
+                    requestedQueries,
+                    new DiffQueryContext(inputs.FromSurface, inputs.ToSurface));
+
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
                     await WriteSelectedDocumentAsync(
                         inputs,
                         options,
+                        queryResults,
                         context.HttpClient,
                         logger);
                     return 0;
@@ -281,7 +299,11 @@ public class DiffCommand
                     return 0;
                 }
 
-                var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+                var diff = BuildApiDiff(
+                    queryResults.Get(ApiComparisonQuery.Definition),
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    options);
 
                 if (options.Tabular)
                 {
@@ -693,6 +715,7 @@ public class DiffCommand
     private static async Task WriteSelectedDocumentAsync(
         DiffInputs inputs,
         DiffOptions options,
+        InspectionQueryResults queryResults,
         HttpClient httpClient,
         VerboseLogger logger)
     {
@@ -707,7 +730,11 @@ public class DiffCommand
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
         {
-            var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+            var diff = BuildApiDiff(
+                queryResults.Get(ApiComparisonQuery.Definition),
+                inputs.FromSurface,
+                inputs.ToSurface,
+                options);
             changesView = DiffOutputFormatter.BuildDetailedChangesView(
                 inputs.Name,
                 ApplyFilters(diff, options),
@@ -1167,15 +1194,19 @@ public class DiffCommand
     }
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
+        => BuildApiDiff(
+            ApiComparisonQuery.Execute(fromSurface, toSurface),
+            fromSurface,
+            toSurface,
+            options);
+
+    private static ApiDiff BuildApiDiff(
+        ApiFindingComparison comparison,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        DiffOptions options)
     {
-        var diff = ResearchDiff.Compare(
-                ResearchDiffInput.FromApiSurface(fromSurface),
-                ResearchDiffInput.FromApiSurface(toSurface),
-                new ResearchDiffOptions(
-                    ResearchChangeMechanism.Api,
-                    IncludeAllApi: options.IncludeAll,
-                    ApiScope: ApiDiffScope.Signature)).ApiDiff
-            ?? new ApiDiff();
+        var diff = comparison.ApiDiff;
 
         if (options.MemberFilter.Count == 0)
             return diff;

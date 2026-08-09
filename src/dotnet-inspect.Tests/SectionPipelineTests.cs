@@ -1650,6 +1650,82 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffQueryRegistry_RegistrationMatchesDeclaration()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> closure =
+            catalog.QueryRegistry.ExpandRequired(catalog.Pipeline.DeclaredQueries);
+
+        Assert.Equal(
+            closure.OrderBy(query => query.Name, StringComparer.Ordinal),
+            catalog.QueryRegistry.RegisteredQueries.OrderBy(
+                query => query.Name,
+                StringComparer.Ordinal));
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.DeclaredQueries);
+    }
+
+    [Fact]
+    public void DiffChangesSection_DemandsOnlyApiComparisonQuery()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var changes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.Changes.Name,
+        };
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, changes));
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
+        Assert.Empty(
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
+        Assert.Equal(
+            SectionCost.NetworkFree,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.Changes.Name).Cost);
+    }
+
+    [Fact]
+    public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var context = new DiffQueryContext(new ApiSurface(), new ApiSurface());
+        List<InspectionQueryDefinition> executed = [];
+        var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.AnalysisDiff.Name,
+        };
+
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
+            context,
+            (query, _) => executed.Add(query));
+        Assert.Empty(executed);
+
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                }),
+            context,
+            (query, _) => executed.Add(query));
+
+        Assert.Equal([ApiComparisonQuery.Definition], executed);
+    }
+
+    [Fact]
     public void PackageIntegrityExitCode_FailsOnlyForMismatches()
     {
         var clean = new InspectionResult
