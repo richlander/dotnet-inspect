@@ -686,7 +686,7 @@ public class LibraryCommand
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
-                if (RejectEmptyExactSection(inspections[0], options, pipeline))
+                if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
                 WarnEmptySections(inspections[0], options, pipeline);
                 if (assemblyPaths.Count > 0)
@@ -2163,6 +2163,10 @@ public class LibraryCommand
     }
 
     private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline) =>
+        RejectEmptyExactSection([inspection], options, pipeline);
+
+    private static bool RejectEmptyExactSection(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count || options.IncludeSections is not { Count: 1 })
@@ -2172,12 +2176,21 @@ public class LibraryCommand
         if (options.ExactIncludeSections?.Contains(section) != true)
             return false;
 
-        var (empty, requested) = pipeline.GetEmptySections(
-            inspection, options.Verbosity, options.IncludeSections);
-        if (requested != 1 || empty.Count != 1)
+        string? emptySection = null;
+        foreach (var inspection in inspections)
+        {
+            var (empty, requested) = pipeline.GetEmptySections(
+                inspection, options.Verbosity, options.IncludeSections);
+            if (requested != 1 || empty.Count != 1)
+                return false;
+
+            emptySection ??= empty[0];
+        }
+        if (emptySection is null)
+        if (emptySection is null)
             return false;
 
-        CommandError.WriteLine($"This section ({empty[0]}) produced no output.");
+        CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;
     }
 

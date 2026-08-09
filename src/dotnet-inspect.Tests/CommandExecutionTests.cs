@@ -12450,6 +12450,63 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var emptyAssembly = FixtureCatalog.DiffPair.OldAssemblyPath();
+            var content = Path.Combine(tempDir, "content");
+            var net8Dir = Path.Combine(content, "lib", "net8.0");
+            var net10Dir = Path.Combine(content, "lib", "net10.0");
+            Directory.CreateDirectory(net8Dir);
+            Directory.CreateDirectory(net10Dir);
+            // --tfm all orders these paths ordinally, so net10 is inspected first.
+            File.Copy(TestAssemblyPath, Path.Combine(net8Dir, "Lib.dll"));
+            File.Copy(emptyAssembly, Path.Combine(net10Dir, "Lib.dll"));
+            var packagePath = Path.Combine(tempDir, "Section.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            File.Copy(emptyAssembly, Path.Combine(net8Dir, "Lib.dll"), overwrite: true);
+            var emptyPackagePath = Path.Combine(tempDir, "Section.AllEmpty.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, emptyPackagePath);
+            var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
+                "-S", "Async Methods", "--tsv", "--tips", "q");
+            Assert.Equal(1, emptyExit);
+            Assert.Empty(emptyOutput);
+            Assert.Equal(
+                "This section (Async Methods) produced no output.",
+                emptyError.Trim());
+
+            var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
+                "-S", "Async*", "--tsv", "--tips", "q");
+            Assert.Equal(0, wildcardExit);
+            Assert.Empty(wildcardOutput);
+            Assert.Equal(
+                "Note: 1 matched section has no data: Async Methods.",
+                wildcardError.Trim());
+
+            var (exit, output, error) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--tsv", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
+                output);
+            Assert.DoesNotContain(
+                "This section (Async Methods) produced no output.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_AggregatesIntegrationsWithLibraryProvenance()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
