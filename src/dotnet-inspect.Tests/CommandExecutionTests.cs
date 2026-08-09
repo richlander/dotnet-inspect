@@ -12515,6 +12515,18 @@ public partial class CommandExecutionTests
             + "(Resource lifecycle occurrence): fixture failure",
             error);
         Assert.Equal(2, error.Split("fixture failure", StringSplitOptions.None).Length - 1);
+
+        var (singleOutput, singleError) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedInspection("net8.0")],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(singleOutput);
+        Assert.Equal(
+            "Warning: Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            singleError.Trim());
     }
 
     [Fact]

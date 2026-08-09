@@ -2161,9 +2161,12 @@ public class LibraryCommand
             .ToList();
         foreach (var (inspection, failure) in relevantFailures)
         {
+            var prefix = inspections.Count > 1
+                ? LibraryViewText.DocumentTitle(inspection) + ": "
+                : string.Empty;
             CommandError.WriteWarning(
-                $"{LibraryViewText.DocumentTitle(inspection)}: "
-                + $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+                $"{prefix}{failure.Section} inspection failed "
+                + $"({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
