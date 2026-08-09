@@ -28,6 +28,7 @@ internal sealed record CSharpDeclarationOptions
     public IReadOnlyCollection<string> AdditionalRootShadowingNames = [];
     public IReadOnlyCollection<string> AdditionalUnresolvableRootNames = [];
     public IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames = [];
+    public IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames = [];
     public IReadOnlyCollection<string> AdditionalKnownNamespaces = [];
     public CSharpNamespaceMode NamespaceMode { get; init; } = CSharpNamespaceMode.Omit;
     public bool AbbreviateSignature { get; init; }
@@ -413,6 +414,14 @@ internal static class CSharpDeclarationWriter
             .Select(r => r!)
             .DistinctBy(r => r.FullName, StringComparer.Ordinal)
             .ToList();
+        var primaryAttributeTypeRefs = scopeList
+            .SelectMany(scope => scope.AdditionalParameters.SelectMany(parameter =>
+                CollectDeclaredAttributeTypeReferences(parameter.Attributes)))
+            .Select(TypeRef.TryCreate)
+            .Where(r => r is not null)
+            .Select(r => r!)
+            .DistinctBy(r => r.FullName, StringComparer.Ordinal)
+            .ToList();
 
         var knownNamespaces = typeRefs
             .Select(typeRef => typeRef.Namespace)
@@ -448,7 +457,53 @@ internal static class CSharpDeclarationWriter
         }
 
         var usings = new SortedSet<string>(StringComparer.Ordinal);
+        var potentiallyImportedNamespaces = typeRefs
+            .Select(typeRef => typeRef.Namespace)
+            .Concat(contextualNamespaces ?? [])
+            .Concat(scopeList
+                .Select(scope => scope.Type.Namespace)
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Select(ns => ns!))
+            .ToHashSet(StringComparer.Ordinal);
         var collidingSimpleNames = CollidingSimpleNames(typeRefs);
+        var unsafePrimaryAttributeNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var attributeTypeRef in attributeTypeRefs)
+        {
+            if (!potentiallyImportedNamespaces.Contains(attributeTypeRef.Namespace))
+                continue;
+
+            var collidingTypeNames = new HashSet<string>(StringComparer.Ordinal)
+            {
+                attributeTypeRef.SimpleName
+            };
+            if (!attributeTypeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                collidingTypeNames.Add($"{attributeTypeRef.SimpleName}Attribute");
+            bool collides = typeRefs.Any(typeRef =>
+                typeRef.FullName != attributeTypeRef.FullName
+                && collidingTypeNames.Contains(typeRef.SimpleName));
+            if (collides)
+            {
+                collidingSimpleNames.UnionWith(collidingTypeNames);
+                if (primaryAttributeTypeRefs.Any(primary =>
+                    primary.FullName == attributeTypeRef.FullName))
+                {
+                    unsafePrimaryAttributeNamespaces.Add(attributeTypeRef.Namespace);
+                }
+            }
+        }
+        foreach (var attributeTypeRef in primaryAttributeTypeRefs)
+        {
+            if (!potentiallyImportedNamespaces.Contains(attributeTypeRef.Namespace))
+                continue;
+
+            var lookupNames = AttributeLookupNames(attributeTypeRef);
+            bool collides = attributeTypeRefs.Any(other =>
+                other.FullName != attributeTypeRef.FullName
+                && potentiallyImportedNamespaces.Contains(other.Namespace)
+                && lookupNames.Overlaps(AttributeLookupNames(other)));
+            if (collides)
+                unsafePrimaryAttributeNamespaces.Add(attributeTypeRef.Namespace);
+        }
         var unsafeNamespaces = UnsafeNamespaces(
             typeRefs,
             shadowingNames,
@@ -457,6 +512,7 @@ internal static class CSharpDeclarationWriter
             declaredTypeNames,
             declaredTypeFullNames,
             typeRefs.Concat(attributeTypeRefs).ToList());
+        unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
 
         foreach (var group in typeRefs.GroupBy(r => r.SimpleName, StringComparer.Ordinal))
         {
@@ -479,6 +535,17 @@ internal static class CSharpDeclarationWriter
             .Distinct()
             .ToList();
         return (usings.ToList(), knownNamespaces, referencedTypeNames);
+
+        static HashSet<string> AttributeLookupNames(TypeRef typeRef)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal)
+            {
+                typeRef.SimpleName
+            };
+            if (!typeRef.SimpleName.EndsWith("Attribute", StringComparison.Ordinal))
+                names.Add($"{typeRef.SimpleName}Attribute");
+            return names;
+        }
     }
 
     static IEnumerable<string> CollectParameterTypeReferences(ApiParameter parameter)
@@ -2913,6 +2980,7 @@ internal static class CSharpDeclarationWriter
             {
                 string root = NamespaceRoot(typeRef.Namespace);
                 return options.AdditionalUnresolvableRootNames.Contains(root)
+                    && !options.AdditionalDeclaredTypeFullNames.Contains(typeRef.FullName)
                     && IsKnownNamespaceRoot(root)
                         ? $"Type name '{typeRef.FullName}' conflicts with global type '{root}'; emitted the only available global-qualified spelling."
                         : null;
@@ -2927,7 +2995,8 @@ internal static class CSharpDeclarationWriter
             void KeepAttributeValueQualified(TypeRef typeRef)
             {
                 string root = NamespaceRoot(typeRef.Namespace);
-                string qualified = options.AdditionalDeclaredTypeFullNames.Contains(typeRef.FullName)
+                string qualified = (options.AdditionalDeclaredTypeFullNames.Contains(typeRef.FullName)
+                        || options.AdditionalImportedDeclaredTypeFullNames.Contains(typeRef.FullName))
                     && !IsKnownNamespaceRoot(root)
                         ? EscapeNamespace(typeRef.FullName)
                         : ResolvableQualifiedName(typeRef);
@@ -3096,56 +3165,27 @@ internal static class CSharpDeclarationWriter
     }
 
     static bool IsStringLiteralStart(string text, int index)
-        => text[index] == '"'
-           || (text[index] == '@' && index + 1 < text.Length && text[index + 1] == '"')
-           || (text[index] == '$' && index + 1 < text.Length && text[index + 1] == '"')
-           || (text[index] == '$' && index + 2 < text.Length && text[index + 1] == '@' && text[index + 2] == '"')
-           || (text[index] == '@' && index + 2 < text.Length && text[index + 1] == '$' && text[index + 2] == '"');
+    {
+        if (text[index] == '"')
+            return true;
+        if (text[index] is not ('@' or '$'))
+            return false;
+        do
+        {
+            index++;
+        }
+        while (index < text.Length && text[index] is '@' or '$');
+        return index < text.Length && text[index] == '"';
+    }
 
     static int SkipStringLiteral(string text, int start)
     {
         var i = start;
-        var verbatim = false;
-        if (text[i] == '$')
-        {
+        while (i < text.Length && text[i] is '@' or '$')
             i++;
-            if (i < text.Length && text[i] == '@')
-            {
-                verbatim = true;
-                i++;
-            }
-        }
-        else if (text[i] == '@')
-        {
-            i++;
-            if (i < text.Length && text[i] == '$')
-                i++;
-            verbatim = true;
-        }
-
         if (i >= text.Length || text[i] != '"')
             return start + 1;
-
-        i++;
-        while (i < text.Length)
-        {
-            if (text[i] == '"' && verbatim && i + 1 < text.Length && text[i + 1] == '"')
-            {
-                i += 2;
-                continue;
-            }
-            if (text[i] == '"')
-                return i + 1;
-            if (text[i] == '\\' && !verbatim && i + 1 < text.Length)
-            {
-                i += 2;
-                continue;
-            }
-
-            i++;
-        }
-
-        return text.Length;
+        return Math.Min(SkipLiteral(text, i) + 1, text.Length);
     }
 
     static int SkipCharLiteral(string text, int start)

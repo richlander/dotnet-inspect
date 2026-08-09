@@ -37,6 +37,7 @@ public sealed record CSharpFormatOptions
     internal IReadOnlyCollection<string> AdditionalRootShadowingNames { get; init; } = [];
     internal IReadOnlyCollection<string> AdditionalUnresolvableRootNames { get; init; } = [];
     internal IReadOnlyCollection<string> AdditionalDeclaredTypeFullNames { get; init; } = [];
+    internal IReadOnlyCollection<string> AdditionalImportedDeclaredTypeFullNames { get; init; } = [];
     internal IReadOnlyCollection<string> AdditionalKnownNamespaces { get; init; } = [];
     public CSharpNamespacePolicy NamespacePolicy { get; init; } = CSharpNamespacePolicy.Omit;
     public bool AbbreviateSignature { get; init; }
@@ -500,6 +501,7 @@ public sealed class CSharpFormatter
             AdditionalRootShadowingNames = options.AdditionalRootShadowingNames,
             AdditionalUnresolvableRootNames = options.AdditionalUnresolvableRootNames,
             AdditionalDeclaredTypeFullNames = options.AdditionalDeclaredTypeFullNames,
+            AdditionalImportedDeclaredTypeFullNames = options.AdditionalImportedDeclaredTypeFullNames,
             AdditionalKnownNamespaces = options.AdditionalKnownNamespaces,
             NamespaceMode = options.NamespacePolicy switch
             {

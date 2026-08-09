@@ -62,6 +62,30 @@ public sealed class CSharpTypePrinter
                 .Concat(derivedUsings)
                 .ToImmutableHashSet(StringComparer.Ordinal)
             : ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+        var declaredTypeFullNamesByNamespace =
+            new Dictionary<string, ImmutableHashSet<string>>(StringComparer.Ordinal);
+        foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
+        {
+            var declaredTypeFullNames = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+            var pendingTypes = new Stack<(PreparedType Type, string? Parent)>(
+                group.Select(type => (type, (string?)null)));
+            while (pendingTypes.TryPop(out var pending))
+            {
+                string name = CSharpFormatter.StripArity(pending.Type.Type.Name);
+                string fullName = pending.Parent is null ? name : $"{pending.Parent}.{name}";
+                declaredTypeFullNames.Add(fullName);
+                foreach (var nested in pending.Type.NestedTypes)
+                    pendingTypes.Push((nested, fullName));
+            }
+            declaredTypeFullNamesByNamespace.Add(group.Key, declaredTypeFullNames.ToImmutable());
+        }
+        var importedDeclaredTypeFullNames = declaredTypeFullNamesByNamespace
+            .Where(entry => emittedUsings.Contains(entry.Key))
+            .SelectMany(entry => entry.Value.Select(path => (Namespace: entry.Key, Path: path)))
+            .GroupBy(entry => entry.Path, StringComparer.Ordinal)
+            .Where(group => group.Select(entry => entry.Namespace).Distinct(StringComparer.Ordinal).Count() == 1)
+            .Select(group => group.Key)
+            .ToImmutableHashSet(StringComparer.Ordinal);
         var importedDeclaredTypeNames = preparedTypes
             .Where(type => emittedUsings.Contains(type.Namespace))
             .Select(type => CSharpFormatter.StripArity(type.Type.Name))
@@ -108,18 +132,7 @@ public sealed class CSharpTypePrinter
         foreach (var group in preparedTypes.GroupBy(type => type.Namespace, StringComparer.Ordinal))
         {
             var groupedTypes = group.ToList();
-            var declaredTypeFullNames = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
-            var pendingTypes = new Stack<(PreparedType Type, string? Parent)>(
-                groupedTypes.Select(type => (type, (string?)null)));
-            while (pendingTypes.TryPop(out var pending))
-            {
-                string name = CSharpFormatter.StripArity(pending.Type.Type.Name);
-                string fullName = pending.Parent is null ? name : $"{pending.Parent}.{name}";
-                declaredTypeFullNames.Add(fullName);
-                foreach (var nested in pending.Type.NestedTypes)
-                    pendingTypes.Push((nested, fullName));
-            }
-            var declaredTypeFullNameSet = declaredTypeFullNames.ToImmutable();
+            var declaredTypeFullNameSet = declaredTypeFullNamesByNamespace[group.Key];
             var containingNamespace = group.Key.Length == 0 ? null : group.Key;
             var ancestorTypeNames = preparedTypes
                 .Where(candidate => IsAncestorNamespace(candidate.Namespace, group.Key))
@@ -146,6 +159,7 @@ public sealed class CSharpTypePrinter
                         .ToImmutableHashSet(StringComparer.Ordinal),
                     globalDeclaredTypeNames,
                     declaredTypeFullNameSet,
+                    importedDeclaredTypeFullNames,
                     typeNameContext.KnownNamespaces,
                     diagnostics)));
             if (containingNamespace is not null)
@@ -389,6 +403,7 @@ public sealed class CSharpTypePrinter
         IReadOnlySet<string> inheritedRootShadowingNames,
         IReadOnlySet<string> unresolvableRootNames,
         IReadOnlySet<string> declaredTypeFullNames,
+        IReadOnlySet<string> importedDeclaredTypeFullNames,
         IReadOnlyCollection<string> knownNamespaces,
         ImmutableArray<CSharpTypePrintDiagnostic>.Builder diagnostics)
     {
@@ -405,6 +420,7 @@ public sealed class CSharpTypePrinter
             inheritedRootShadowingNames,
             unresolvableRootNames,
             declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
             knownNamespaces);
         var diagnosticPass = DeclarationFormatter(
             prepared.Namespace,
@@ -414,6 +430,7 @@ public sealed class CSharpTypePrinter
             inheritedRootShadowingNames,
             unresolvableRootNames,
             declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
             knownNamespaces,
             terminateMemberDeclaration: true)
             .FormatTypeUnit(
@@ -433,6 +450,7 @@ public sealed class CSharpTypePrinter
             inheritedRootShadowingNames,
             unresolvableRootNames,
             declaredTypeFullNames,
+            importedDeclaredTypeFullNames,
             knownNamespaces,
             omitPropertyAccessors: true);
         string pad = new(' ', indent * 4);
@@ -468,6 +486,7 @@ public sealed class CSharpTypePrinter
                     nestedRootShadowingNames,
                     unresolvableRootNames,
                     declaredTypeFullNames,
+                    importedDeclaredTypeFullNames,
                     knownNamespaces,
                     diagnostics));
             }
@@ -704,6 +723,7 @@ public sealed class CSharpTypePrinter
         IReadOnlyCollection<string> additionalRootShadowingNames,
         IReadOnlyCollection<string> additionalUnresolvableRootNames,
         IReadOnlyCollection<string> additionalDeclaredTypeFullNames,
+        IReadOnlyCollection<string> additionalImportedDeclaredTypeFullNames,
         IReadOnlyCollection<string> additionalKnownNamespaces,
         bool omitPropertyAccessors = false,
         bool terminateMemberDeclaration = false)
@@ -718,6 +738,7 @@ public sealed class CSharpTypePrinter
             AdditionalRootShadowingNames = additionalRootShadowingNames,
             AdditionalUnresolvableRootNames = additionalUnresolvableRootNames,
             AdditionalDeclaredTypeFullNames = additionalDeclaredTypeFullNames,
+            AdditionalImportedDeclaredTypeFullNames = additionalImportedDeclaredTypeFullNames,
             AdditionalKnownNamespaces = additionalKnownNamespaces,
             NamespacePolicy = CSharpNamespacePolicy.Omit,
             IncludeCustomAttributes = options.IncludeCustomAttributes,
