@@ -180,10 +180,13 @@ and trace machinery still owns execution.
 The planner enables direct or tree collection from the candidate set instead
 of creating synonymous sections.
 
-Extension-method inspection is also typed query work. `Library Info` and
-`Extension Methods` bind to the same `ExtensionMethodsQuery`, so one immutable
-result supplies both the summary count and detailed rows without a string
-scanner key or duplicate metadata pass.
+Extension-method and custom-attribute inspection are also typed query work.
+`Library Info` binds both query definitions, while `Extension Methods` and
+`Custom Attributes` each bind the definition for their detailed rows. One
+immutable result per facet therefore supplies the summary count and detailed
+rows without string scanner keys or duplicate metadata passes. A section may
+bind multiple typed queries; its effective cost is the maximum over every
+query's prerequisite closure.
 
 ## Effectiveness
 
