@@ -10,7 +10,7 @@ using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class ProgressiveMemberCallGraphTests
+public sealed class MemberCallGraphSessionTests
 {
     static string CallerPath =>
         FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
@@ -46,7 +46,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             run);
@@ -60,7 +60,7 @@ public sealed class ProgressiveMemberCallGraphTests
         Assert.Equal(Analysis.CallTreeStatus.External, ping.Status);
         Assert.Empty(ping.Children);
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(1, 0, 0),
+            new MemberCallGraphBuildCounts(1, 0, 0),
             graph.BuildCounts);
         Assert.Equal(1, context.Sources[0].OpenCount);
         Assert.Equal(0, context.Sources[1].OpenCount);
@@ -72,7 +72,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -90,7 +90,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -104,7 +104,7 @@ public sealed class ProgressiveMemberCallGraphTests
             run.Children,
             child => child.Member.Name == "Ping");
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(0, 1, 1),
+            new MemberCallGraphBuildCounts(0, 1, 1),
             graph.BuildCounts);
         Assert.All(
             context.Sources,
@@ -117,7 +117,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -136,7 +136,7 @@ public sealed class ProgressiveMemberCallGraphTests
             first.Select(view => view.Tier),
             second.Select(view => view.Tier));
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(1, 1, 1),
+            new MemberCallGraphBuildCounts(1, 1, 1),
             graph.BuildCounts);
         Assert.All(
             context.Sources,
@@ -153,7 +153,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             run);
@@ -161,7 +161,7 @@ public sealed class ProgressiveMemberCallGraphTests
         _ = graph.CrossLibrary();
 
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(0, 1, 1),
+            new MemberCallGraphBuildCounts(0, 1, 1),
             graph.BuildCounts);
         Assert.All(
             context.Sources,
@@ -174,7 +174,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.CreateStreamOnly(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -198,7 +198,7 @@ public sealed class ProgressiveMemberCallGraphTests
                 CallerPath,
                 TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             run);
@@ -216,7 +216,7 @@ public sealed class ProgressiveMemberCallGraphTests
             Assert.Single(second.Failures));
         Assert.Equal(1, context.Sources[1].OpenCount);
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(0, 1, 0),
+            new MemberCallGraphBuildCounts(0, 1, 0),
             graph.BuildCounts);
     }
 
@@ -247,7 +247,7 @@ public sealed class ProgressiveMemberCallGraphTests
                         assembly,
                         MissingBindingPolicy.Instance),
                 ]);
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             group,
             assembly,
             MetadataTokens.GetToken(
@@ -268,7 +268,7 @@ public sealed class ProgressiveMemberCallGraphTests
             Assert.Single(second.Failures));
         Assert.Equal(1, openCount);
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(0, 1, 0),
+            new MemberCallGraphBuildCounts(0, 1, 0),
             graph.BuildCounts);
     }
 
@@ -283,10 +283,10 @@ public sealed class ProgressiveMemberCallGraphTests
                 new OverflowException(),
             },
             exception => Assert.True(
-                ProgressiveMemberCallGraph.IsInvalidImageException(
+                MemberCallGraphSession.IsInvalidImageException(
                     exception)));
         Assert.False(
-            ProgressiveMemberCallGraph.IsInvalidImageException(
+            MemberCallGraphSession.IsInvalidImageException(
                 new InvalidOperationException()));
     }
 
@@ -296,7 +296,7 @@ public sealed class ProgressiveMemberCallGraphTests
         GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
-        var graph = new ProgressiveMemberCallGraph(
+        var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             run);
@@ -321,7 +321,7 @@ public sealed class ProgressiveMemberCallGraphTests
         int run = MemberToken(CallerPath, "Entry", "Run");
 
         Assert.Throws<ArgumentException>(
-            () => new ProgressiveMemberCallGraph(
+            () => new MemberCallGraphSession(
                 context.Group,
                 context.Sources[0].Assembly,
                 run,
@@ -331,7 +331,7 @@ public sealed class ProgressiveMemberCallGraphTests
                         Analysis.LibraryBodyAnalysisFeatures.None,
                 }));
         Assert.Throws<ArgumentException>(
-            () => new ProgressiveMemberCallGraph(
+            () => new MemberCallGraphSession(
                 context.Group,
                 context.Sources[0].Assembly,
                 run,
@@ -341,7 +341,7 @@ public sealed class ProgressiveMemberCallGraphTests
                         Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
                 }));
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new ProgressiveMemberCallGraph(
+            () => new MemberCallGraphSession(
                 context.Group,
                 context.Sources[0].Assembly,
                 run,
@@ -360,7 +360,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(TargetV2Path, CallerPath);
         int ping = MemberToken(TargetV2Path, "Api", "Ping");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             ping);
@@ -380,12 +380,12 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int run = MemberToken(CallerPath, "Entry", "Run");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             run);
         MemberCallGraphView view = graph.CrossLibrary();
-        ProgressiveMemberCallGraphBuildCounts before = graph.BuildCounts;
+        MemberCallGraphBuildCounts before = graph.BuildCounts;
 
         CallGraphProjection first = CallGraphProjection.Create(
             view.CallerRoot,
@@ -411,7 +411,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -431,7 +431,7 @@ public sealed class ProgressiveMemberCallGraphTests
             layers);
         Assert.Equal(1, completed);
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(1, 1, 1),
+            new MemberCallGraphBuildCounts(1, 1, 1),
             graph.BuildCounts);
     }
 
@@ -441,7 +441,7 @@ public sealed class ProgressiveMemberCallGraphTests
         using GraphContext context =
             GraphContext.Create(CallerPath, TargetPath);
         int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
-        using var graph = new ProgressiveMemberCallGraph(
+        using var graph = new MemberCallGraphSession(
             context.Group,
             context.Sources[0].Assembly,
             runOuter);
@@ -459,7 +459,7 @@ public sealed class ProgressiveMemberCallGraphTests
             () => task.GetAwaiter().GetResult());
         Assert.Equal([CallGraphTier.Callees], layers);
         Assert.Equal(
-            new ProgressiveMemberCallGraphBuildCounts(1, 0, 0),
+            new MemberCallGraphBuildCounts(1, 0, 0),
             graph.BuildCounts);
     }
 
