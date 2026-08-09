@@ -163,12 +163,15 @@ safe for a given output grammar belongs to the renderer that knows the grammar
 
 The projection needs `CallTreeNode` roots; how a host *acquires* them is a
 separate concern (issue #3266). `DotnetInspector.Queries` owns a
-`ProgressiveMemberCallGraph` seam over one `AssemblyContextGroup`
-(`src/DotnetInspector.Queries/ProgressiveMemberCallGraph.cs`). It consumes
+`MemberCallGraphSession` seam over one `AssemblyContextGroup`
+(`src/DotnetInspector.Queries/MemberCallGraphSession.cs`). It consumes
 typed assembly descriptors and workspace-owned immutable snapshots rather than
 filesystem paths, and serves one member's graph in three cumulative layers,
 cheapest first, so a host can paint the outbound half immediately and fill in
 the expensive tiers as they land:
+
+`Session` names the stateful memoization and lifetime boundary. Progressive
+acquisition is a capability of that session, not a separate call-graph kind.
 
 1. **`Callees`** — a scoped single-body build that decodes only the selected
    member. The callee tree is bounded at depth 1 (immediate callees); there is
@@ -213,7 +216,7 @@ generation and catalog before releasing its retained snapshots; explicit graph
 disposal can release them earlier. A required participant failure raises
 `MemberCallGraphAcquisitionException` with typed acquisition failures rather
 than returning a success-shaped partial graph.
-`ProgressiveMemberCallGraphTests` asserts index build and source-open counts,
+`MemberCallGraphSessionTests` asserts index build and source-open counts,
 stream-only input, duplicate-image reuse, typed failures, projection reuse, and
 group-owned release, including disposal of the catalog scope.
 `CatalogCallGraphScopeTests` pins the single-generation,
