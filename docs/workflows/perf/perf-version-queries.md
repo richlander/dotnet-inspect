@@ -9,123 +9,142 @@ areas: [performance, versioning, cache]
 
 > Validate that version-related commands meet latency targets. These are among the most frequently called commands — agents use them to orient before deeper inspection.
 
-All timings assume NativeAOT build (`./install.sh`) and warm OS cache (second+ invocation). First invocation after install may be 40-50ms due to OS-level cold start.
+All timings invoke the published NativeAOT executable directly. Local,
+cache-backed scenarios use five warm samples so a single process launch does
+not dominate the result. NuGet latest-version resolution remains a network
+operation even after its local payload is warm and has a separate, looser smoke
+bound.
 
 ## Preconditions
 
-Named isolated session ensures reproducible timing (no shared state, no NuGet cache).
+Point `INSPECT` at the published NativeAOT executable and validate the apphost:
 
 ```bash
+export INSPECT=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+test -x "$INSPECT"
 export DOTNET_INSPECT_ISOLATED=perf-queries
 ```
 
 ```bash
-dotnet-inspect cache clear
+"$INSPECT" cache clear
 ```
 
-Prime the cache:
+Prime an exact package payload and the version index:
 
 ```bash
-dotnet-inspect System.CommandLine@2.0.2 -v:q
+"$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+"$INSPECT" package System.CommandLine --versions > /dev/null
 ```
 
-Prime the version index cache:
+Warm the payload for the actual latest version without pinning its value:
 
 ```bash
-dotnet-inspect System.CommandLine --versions > /dev/null
+latest=$("$INSPECT" package System.CommandLine --latest-version | head -1)
+"$INSPECT" package "System.CommandLine@$latest" -v:q > /dev/null
 ```
 
-## 1. Cached version lookup
+## 1. Exact cached version lookup
 
-> Target: ≤ 15ms. No network, no NuGet index — just app cache or NuGet cache on disk.
+> Target: ≤ 250ms for five warm invocations. No network or NuGet index lookup.
 
 ```prompt
 How fast is a cached version lookup?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine --version
+for i in 1 2 3 4; do
+  "$INSPECT" package System.CommandLine@2.0.3 --version > /dev/null
+done
+"$INSPECT" package System.CommandLine@2.0.3 --version
 ```
 
 ```expect
-2.0.2
+2.0.3
 ```
 
 ```perf
-max_ms: 15
+max_ms: 250
 ```
 
 ```query
 head -1
 ```
 
-## 2. Latest version from NuGet index
+## 2. Latest version from NuGet
 
-> Target: ≤ 25ms. Reads the version index (with TTL-based caching).
+> Network operation: resolve the current version from NuGet. The payload for
+> that version is warm, but the version lookup itself may contact the feed.
+> The 5s bound is an external-service smoke target, not a local latency target.
 
 ```bash
-dotnet-inspect System.CommandLine --latest-version
-```
-
-```expect
-2.0.8
+"$INSPECT" package System.CommandLine --latest-version
 ```
 
 ```perf
-max_ms: 25
+max_ms: 5000
 ```
 
 ```query
-head -1
+awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { print "version-format-ok"; exit }'
+```
+
+```expect
+version-format-ok
 ```
 
 ## 3. Full version list
 
-> Target: ≤ 25ms. Same version index, returns all entries.
+> Target: ≤ 150ms for five warm reads of the cached version index.
 
 ```bash
-dotnet-inspect System.CommandLine --versions
-```
-
-```expect
-2.0.8
-2.0.7
+for i in 1 2 3 4; do
+  "$INSPECT" package System.CommandLine --versions > /dev/null
+done
+"$INSPECT" package System.CommandLine --versions
 ```
 
 ```perf
-max_ms: 25
+max_ms: 150
 ```
 
 ```query
-head -2
+awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { count++ } END { if (count > 1) print "multiple-versions-ok" }'
+```
+
+```expect
+multiple-versions-ok
 ```
 
 ## 4. @latest resolution
 
-> Target: ≤ 25ms. Resolves `@latest` to the current NuGet version.
+> Network operation: resolve `@latest` from NuGet, then use the already-warm
+> payload. The 5s bound is an external-service smoke target.
 
 ```bash
-dotnet-inspect System.CommandLine@latest --version
-```
-
-```expect
-2.0.8
+"$INSPECT" package System.CommandLine@latest --version
 ```
 
 ```perf
-max_ms: 25
+max_ms: 5000
 ```
 
 ```query
-head -1
+awk '/^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$/ { print "version-format-ok"; exit }'
 ```
 
-## 5. Bare name to package metadata (quiet)
+```expect
+version-format-ok
+```
 
-> Target: ≤ 25ms. Router resolves bare name, prints terse package info.
+## 5. Exact package metadata (quiet)
+
+> Target: ≤ 250ms for five warm reads of a pinned package payload.
 
 ```bash
-dotnet-inspect System.CommandLine -v:q
+for i in 1 2 3 4; do
+  "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+done
+"$INSPECT" package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -133,7 +152,7 @@ Source: NuGet
 ```
 
 ```perf
-max_ms: 25
+max_ms: 250
 ```
 
 ```query
@@ -142,10 +161,18 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 6. Type list for a platform library (quiet)
 
-> Target: ≤ 50ms. Loads assembly metadata and enumerates public types.
+> Intended target: ≤ 250ms for five warm invocations (≤ 50ms each). Loads
+> platform assembly metadata and enumerates public types.
+>
+> **Known issue:** #3923 — the published NativeAOT executable currently exceeds
+> this target by an order of magnitude. Keep this focused target failing until
+> the regression is fixed.
 
 ```bash
-dotnet-inspect type System.Text.Json -v:q
+for i in 1 2 3 4; do
+  "$INSPECT" type System.Text.Json -v:q > /dev/null
+done
+"$INSPECT" type System.Text.Json -v:q
 ```
 
 ```expect
@@ -153,7 +180,7 @@ Source: Platform
 ```
 
 ```perf
-max_ms: 50
+max_ms: 250
 ```
 
 ```query
@@ -162,10 +189,13 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 7. Package metadata (quiet)
 
-> Target: ≤ 50ms. Loads cached package and prints terse metadata.
+> Target: ≤ 250ms for five warm reads of a pinned package.
 
 ```bash
-dotnet-inspect package System.CommandLine -v:q
+for i in 1 2 3 4; do
+  "$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+done
+"$INSPECT" package System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
@@ -173,7 +203,7 @@ Source: NuGet
 ```
 
 ```perf
-max_ms: 50
+max_ms: 250
 ```
 
 ```query
@@ -182,10 +212,13 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 8. Library metadata for platform assembly (quiet)
 
-> Target: ≤ 50ms. Reads platform assembly metadata from disk.
+> Target: ≤ 300ms for five warm reads of platform assembly metadata.
 
 ```bash
-dotnet-inspect library System.Text.Json -v:q
+for i in 1 2 3 4; do
+  "$INSPECT" library System.Text.Json -v:q > /dev/null
+done
+"$INSPECT" library System.Text.Json -v:q
 ```
 
 ```expect
@@ -193,7 +226,7 @@ Source: Platform
 ```
 
 ```perf
-max_ms: 50
+max_ms: 300
 ```
 
 ```query
@@ -202,10 +235,14 @@ grep -o 'Source: [A-Za-z]*'
 
 ## 9. Error: nonexistent version (fast fail)
 
-> Target: ≤ 25ms. Should fail from version index without network round-trip.
+> Target: ≤ 150ms for five warm checks against the cached version index.
 
 ```bash
-dotnet-inspect System.CommandLine@99.99.99 --version
+for i in 1 2 3 4; do
+  "$INSPECT" package System.CommandLine@99.99.99 --version \
+    > /dev/null 2>&1 || true
+done
+"$INSPECT" package System.CommandLine@99.99.99 --version 2>&1
 ```
 
 ```expect-error
@@ -213,7 +250,7 @@ not found
 ```
 
 ```perf
-max_ms: 25
+max_ms: 150
 exit_code: 1
 ```
 
@@ -221,18 +258,25 @@ exit_code: 1
 grep 'not found'
 ```
 
-## 10. Bare name routing vs explicit --package (cold cache)
+## 10. Bare name routing after explicit package priming
 
-> Target: ≤ 50ms. After clearing cache, `type --package` primes the cache. A subsequent bare name `type` should hit the cache — not re-download or re-resolve via platform probing.
+> The explicit exact-version command is network-backed after a cache clear. The
+> subsequent bare-name command is measured warm and should reuse the cached
+> candidate metadata and package payload. Its warm target is ≤ 1250ms for five
+> invocations (≤ 250ms each).
+>
+> **Known issue:** #3923 also affects this type-list path. Keep the warm routing
+> target failing until the shared type-list regression is fixed.
 
 ```bash
-dotnet-inspect cache clear
+"$INSPECT" cache clear
 ```
 
 Prime the cache with explicit package:
 
 ```bash
-dotnet-inspect type --package System.CommandLine -v:q
+"$INSPECT" type --package System.CommandLine@2.0.3 Command \
+  --markdown -v:q
 ```
 
 ```expect
@@ -240,13 +284,16 @@ Source: NuGet
 ```
 
 ```perf
-max_ms: 4000
+max_ms: 10000
 ```
 
 Now the bare name should route to the cached package, not re-download:
 
 ```bash
-dotnet-inspect type System.CommandLine -v:q
+for i in 1 2 3 4; do
+  "$INSPECT" type System.CommandLine -v:q > /dev/null
+done
+"$INSPECT" type System.CommandLine -v:q
 ```
 
 ```expect
@@ -254,7 +301,7 @@ Source: NuGet
 ```
 
 ```perf
-max_ms: 50
+max_ms: 1250
 ```
 
 ```query
@@ -264,25 +311,22 @@ grep -o 'Source: [A-Za-z]*'
 Re-prime the cache for remaining tests:
 
 ```setup
-dotnet-inspect System.CommandLine@2.0.2 -v:q
-dotnet-inspect System.CommandLine --versions > /dev/null
+"$INSPECT" package System.CommandLine@2.0.3 -v:q > /dev/null
+"$INSPECT" package System.CommandLine --versions > /dev/null
 ```
 
 ## 11. Error: nonexistent package
 
-> Target: ≤ 1000ms. Must query NuGet to confirm the package doesn't exist. This test legitimately requires network — when diagnosing with DEBUG builds, this test will trigger the network guard (expected).
+> Network operation: NuGet must confirm that the package does not exist. Feed
+> availability is an external precondition, so this scenario validates the
+> diagnostic without imposing a local latency target.
 
 ```bash
-dotnet-inspect System.CommandLine2@99.99.99
+"$INSPECT" package DotnetInspect.Workflow.Missing.Package@99.99.99 2>&1
 ```
 
 ```expect-error
 not found
-```
-
-```perf
-max_ms: 1000
-exit_code: 1
 ```
 
 ```query

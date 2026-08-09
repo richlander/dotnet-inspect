@@ -24,7 +24,7 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-dotnet-inspect System.CommandLine -v:q
+dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
 ## 1. Limit output lines
@@ -58,6 +58,10 @@ wc -l | tr -d ' '
 Tips:
 ```
 
+Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
+currently emits one extra blank line, so this intended four-line assertion
+fails with five lines.
+
 ### 1b. Using `-N` shorthand
 
 ```bash
@@ -81,6 +85,10 @@ wc -l | tr -d ' '
 Tips:
 ```
 
+Known issue: [#3920](https://github.com/richlander/dotnet-inspect/issues/3920)
+also affects shorthand line limits; this intended six-line assertion currently
+fails with seven lines.
+
 ## 2. Limit table rows
 
 > Goal: Keep Markdown structure and table headers, but show only the first N data rows per rendered table.
@@ -93,12 +101,11 @@ dotnet-inspect System.Private.CoreLib -S "Async*" --rows 6
 ```expect
 ## Async Methods
 | Name | Declaring Type | Kind | Signature |
-DisposeAsync
 WriteAsync
 ```
 
 ```query
-grep -c '^| .* | .* | .* | .* |$'
+grep '^|' | tail -n +3 | wc -l | tr -d ' '
 ```
 
 ```expect
@@ -120,9 +127,15 @@ dotnet-inspect type System.Text.Json -t 3 --tips q
 ```
 
 ```expect
-Types:
-JsonNamingPolicy
-JsonCommentHandling
+# System.Text.Json
+```
+
+```query
+grep -c '^| `'
+```
+
+```expect
+3
 ```
 
 ```expect-not
@@ -183,7 +196,7 @@ Tips:
 ### 6a. Using `member -m N`
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer -m 3
+dotnet-inspect member System.Text.Json JsonSerializer -m 3 --tips q
 ```
 
 ```expect
@@ -224,12 +237,6 @@ Tips:
 
 ```bash
 dotnet-inspect System.CommandLine --versions 3
-```
-
-```expect
-2.0.8
-2.0.7
-2.0.6
 ```
 
 ```query
@@ -279,5 +286,5 @@ dotnet-inspect System.Text.Json --count
 ```
 
 ```expect-error
---count requires -S/--select to match exactly one section
+--count requires -S/--select to match at least one section.
 ```

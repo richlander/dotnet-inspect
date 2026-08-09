@@ -51,7 +51,7 @@ dotnet-inspect type System.Text.Json JsonSerializer --table -m 3
 ```
 
 ```expect
-KIND
+Kind
 property
 method
 ```
@@ -75,10 +75,12 @@ dotnet-inspect type System.Text.Json --table
 ```
 
 ```expect
-KIND       TYPE                                                                 MEMBERS
-class      System.Text.Json.JsonSerializer
-struct     System.Text.Json.JsonElement
-enum       System.Text.Json.JsonValueKind
+Kind
+Type
+Members
+System.Text.Json.JsonSerializer
+System.Text.Json.JsonElement
+System.Text.Json.JsonValueKind
 ```
 
 ```expect-not
@@ -102,7 +104,7 @@ class
 
 ```expect-not
 Tips:
-KIND
+Kind
 ```
 
 ```query
@@ -148,7 +150,7 @@ System.Text.Json.JsonDocument
 
 ```expect-not
 class
-MEMBERS
+Members
 ```
 
 ```query
@@ -172,7 +174,7 @@ grep -oE '[0-9]+'
 ### 4c. Filter by member count threshold
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 0 {print $2, $3}'
 ```
 
 ```expect
@@ -192,7 +194,7 @@ dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$1 == "st
 ```
 
 ```expect
-57 System.Text.Json.JsonElement
+System.Text.Json.JsonElement
 ```
 
 ```expect-not

@@ -14,10 +14,15 @@ areas: [debugging, analysis, il-offset, workflow]
 
 ## Preconditions
 
-Build the CLI and test assembly used by the demo scenarios.
+Validate the published NativeAOT executable, then build the test assembly used
+by the demo scenarios.
 
 ```bash
-dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+export INSPECT=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+test -x "$INSPECT"
+export COORD_WORKFLOW="$PWD/artifacts/workflows/il-coordinate-artifacts"
+rm -rf "$COORD_WORKFLOW"
+mkdir -p "$COORD_WORKFLOW"
 dotnet build src/dotnet-inspect.Tests -c Release -p:PublishAot=false
 ```
 
@@ -31,8 +36,7 @@ Generate three coordinate artifact files from the test assembly:
   static analyzer or CI artifact might provide.
 
 ```bash
-mkdir -p /tmp/dotnet-inspect-coordinate-demo
-cat > /tmp/dotnet-inspect-coordinate-demo/create.cs <<EOF
+cat > "$COORD_WORKFLOW/create.cs" <<'EOF'
 using System.Reflection;
 
 var assemblyPath = Path.GetFullPath("artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll");
@@ -74,21 +78,21 @@ var unsafeCallOffset = FindOpcode(unsafeMethod, 0x28); // call
 
 string C(int token, int offset) => $"0x{token:X8}+0x{offset:X}";
 
-File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/debugger.coords",
+File.WriteAllLines("artifacts/workflows/il-coordinate-artifacts/debugger.coords",
 [
     "# debugger/dump-style normalized frames",
     $"caller-frame {C(memberCallsToken, interfaceCallOffset)}",
     $"return-address {C(memberCallsToken, interfaceReturnAddress)}",
 ]);
 
-File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/profiler.coords",
+File.WriteAllLines("artifacts/workflows/il-coordinate-artifacts/profiler.coords",
 [
     "# profiler/trace-style hot sparse samples",
     $"hot-virtual-call {C(semanticToken, virtualCallOffset)}",
     $"alloc-sample {C(semanticToken, allocationOffset)}",
 ]);
 
-File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/analyzer.coords",
+File.WriteAllLines("artifacts/workflows/il-coordinate-artifacts/analyzer.coords",
 [
     "# analyzer/CI-style suspicious coordinates",
     $"unsafe-call {C(unsafeToken, unsafeCallOffset)}",
@@ -96,7 +100,7 @@ File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/analyzer.coords",
     "unparsed analyzer line",
 ]);
 EOF
-dotnet run /tmp/dotnet-inspect-coordinate-demo/create.cs
+dotnet run "$COORD_WORKFLOW/create.cs"
 ```
 
 ## 1. Explain debugger or dump frames
@@ -109,9 +113,9 @@ Explain these debugger IL coordinates from my crash dump.
 ```
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- \
-  library artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
-  --il-offsets /tmp/dotnet-inspect-coordinate-demo/debugger.coords \
+"$INSPECT" library \
+  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  --il-offsets "$COORD_WORKFLOW/debugger.coords" \
   --markdown --tips q
 ```
 
@@ -122,6 +126,10 @@ callsite
 return-address
 return address
 ```
+
+> **Known issue:** #3922 — derived evidence currently labels the exact call IL
+> offset as `cost` instead of `callsite`. The intended callsite assertion above
+> remains in place.
 
 ## 2. Collect a crash dump, normalize frames, and explain them
 
@@ -141,8 +149,8 @@ I have a crash dump. Normalize the stack frame IL offsets and explain them with 
 Create a small app that throws after going through a callsite we can explain:
 
 ```bash
-mkdir -p /tmp/dotnet-inspect-coordinate-demo/CrashApp
-cat > /tmp/dotnet-inspect-coordinate-demo/CrashApp/CrashApp.csproj <<'EOF'
+mkdir -p "$COORD_WORKFLOW/CrashApp"
+cat > "$COORD_WORKFLOW/CrashApp/CrashApp.csproj" <<'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -150,7 +158,7 @@ cat > /tmp/dotnet-inspect-coordinate-demo/CrashApp/CrashApp.csproj <<'EOF'
   </PropertyGroup>
 </Project>
 EOF
-cat > /tmp/dotnet-inspect-coordinate-demo/CrashApp/Program.cs <<'EOF'
+cat > "$COORD_WORKFLOW/CrashApp/Program.cs" <<'EOF'
 using System;
 using System.IO;
 using System.Reflection;
@@ -196,7 +204,8 @@ class Program
         var returnAddress = callOffset + 5;
         var allocationOffset = FindOpcode(crashTarget, 0x8D); // newarr
 
-        File.WriteAllLines("/tmp/dotnet-inspect-coordinate-demo/crash.coords",
+        File.WriteAllLines(
+        "artifacts/workflows/il-coordinate-artifacts/crash.coords",
         [
             "# normalized from crash stack / dump frames",
             $"caller-callsite 0x{caller.MetadataToken:X8}+0x{callOffset:X}",
@@ -217,7 +226,7 @@ class Program
     }
 }
 EOF
-dotnet build /tmp/dotnet-inspect-coordinate-demo/CrashApp -c Release
+dotnet build "$COORD_WORKFLOW/CrashApp" -c Release
 ```
 
 Run the app and collect a dump. This uses `dotnet-dump` if available; the app
@@ -226,13 +235,13 @@ dump tooling in CI:
 
 ```bash
 set +e
-dotnet /tmp/dotnet-inspect-coordinate-demo/CrashApp/bin/Release/net10.0/CrashApp.dll
+dotnet "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll"
 app_exit=$?
 set -e
 test "$app_exit" -ne 0
 
 # Optional real collection step when a process is still alive or a dump is needed:
-# dotnet-dump collect --process-id <pid> --output /tmp/dotnet-inspect-coordinate-demo/crash.dmp
+# dotnet-dump collect --process-id <pid> --output crash.dmp
 ```
 
 In a real dump workflow, the agent would run a debugger/SOS command here and
@@ -251,9 +260,9 @@ normalize the frames:
 Then run `dotnet-inspect` on the normalized coordinate file:
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- \
-  library /tmp/dotnet-inspect-coordinate-demo/CrashApp/bin/Release/net10.0/CrashApp.dll \
-  --il-offsets /tmp/dotnet-inspect-coordinate-demo/crash.coords \
+"$INSPECT" library \
+  "$COORD_WORKFLOW/CrashApp/bin/Release/net10.0/CrashApp.dll" \
+  --il-offsets "$COORD_WORKFLOW/crash.coords" \
   --markdown --tips q
 ```
 
@@ -276,9 +285,9 @@ Explain these profiler sample coordinates without doing a full triage.
 ```
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- \
-  library artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
-  --il-offsets /tmp/dotnet-inspect-coordinate-demo/profiler.coords \
+"$INSPECT" library \
+  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  --il-offsets "$COORD_WORKFLOW/profiler.coords" \
   --markdown --tips q
 ```
 
@@ -293,6 +302,10 @@ allocation
 Performance Triage
 ```
 
+> **Known issue:** #3922 — the exact allocation offset is currently derived as
+> a return address for the preceding call. The intended `allocation` assertion
+> above remains in place.
+
 ## 4. Explain analyzer or CI artifact coordinates
 
 > Goal: Given a mixed artifact, preserve malformed rows as visible errors while
@@ -303,9 +316,9 @@ Explain this analyzer artifact and keep bad lines visible.
 ```
 
 ```bash
-dotnet run --project src/dotnet-inspect -c Release -- \
-  library artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
-  --il-offsets /tmp/dotnet-inspect-coordinate-demo/analyzer.coords \
+"$INSPECT" library \
+  artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll \
+  --il-offsets "$COORD_WORKFLOW/analyzer.coords" \
   --markdown --tips q
 ```
 

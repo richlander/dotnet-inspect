@@ -20,7 +20,7 @@ The network guard is automatically enabled in DEBUG builds and will throw if any
 Build the tool in DEBUG mode:
 
 ```bash
-dotnet build src/dotnet-inspect/dotnet-inspect.csproj
+dotnet build src/dotnet-inspect/dotnet-inspect.csproj -c Debug -p:PublishAot=false
 ```
 
 Use an isolated session to avoid cache interference:
@@ -32,7 +32,8 @@ export DOTNET_INSPECT_ISOLATED=networkguard
 Set the apphost path for convenience:
 
 ```bash
-INSPECT=artifacts/bin/dotnet-inspect/debug/dotnet-inspect
+export INSPECT="$PWD/artifacts/bin/dotnet-inspect/debug/dotnet-inspect"
+test -x "$INSPECT"
 ```
 
 ## 1. Quiet verbosity passes guard (apphost)

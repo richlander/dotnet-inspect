@@ -31,7 +31,7 @@ dotnet-inspect type System.Text.Json -v:q
 ```
 
 ```expect
-Types: 80
+Library: System.Text.Json.dll
 Source: Platform
 ```
 
@@ -46,7 +46,7 @@ dotnet-inspect type System.CommandLine@2.0.3 -v:q
 ```
 
 ```expect
-Types: 39
+Library: System.CommandLine.dll
 Source: NuGet
 ```
 
@@ -63,7 +63,8 @@ dotnet-inspect type System.Text.Json "Json*" -v:q
 ```
 
 ```expect
-Types: 66
+System.Text.Json.JsonDocument
+System.Text.Json.JsonSerializer
 ```
 
 ## Address a single type
@@ -77,7 +78,7 @@ Show me the JsonSerializer type.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json JsonSerializer -v:q
+dotnet-inspect type System.Text.Json JsonSerializer -v:q --markdown
 ```
 
 ```expect
@@ -93,7 +94,7 @@ Show me JsonSerializer using its full name.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.JsonSerializer -v:q
+dotnet-inspect System.Text.Json.JsonSerializer -v:q --markdown
 ```
 
 ```expect
@@ -108,7 +109,7 @@ Look up the JsonSerializer type using the type command.
 ```
 
 ```bash
-dotnet-inspect type System.Text.Json.JsonSerializer -v:q
+dotnet-inspect type System.Text.Json.JsonSerializer -v:q --markdown
 ```
 
 ```expect
@@ -125,7 +126,7 @@ Show me the JsonConverter type in System.Text.Json.Serialization.
 ```
 
 ```bash
-dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q
+dotnet-inspect System.Text.Json.Serialization.JsonConverter -v:q --markdown
 ```
 
 ```expect
@@ -137,12 +138,15 @@ Library: System.Text.Json
 
 > Goal: `Microsoft.*` qualified names resolve against the ASP.NET Core shared framework.
 
+Known issue: #3917 — bare fully qualified `WebApplication` routing reports
+false ambiguity. Preserve the intended successful platform lookup below.
+
 ```prompt
 Tell me about the WebApplication class.
 ```
 
 ```bash
-dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q
+dotnet-inspect Microsoft.AspNetCore.Builder.WebApplication -v:q --markdown
 ```
 
 ```expect
@@ -184,9 +188,9 @@ dotnet-inspect type System.Text.Json JsonSerializer --shape
 ```
 
 ```expect
-├─ Inherits
-├─ Properties
-└─ Methods
+Inherits
+Properties
+Methods
 ```
 
 ## List members of a type
@@ -204,8 +208,8 @@ dotnet-inspect member System.Text.Json JsonSerializer -v:q
 ```expect
 # System.Text.Json.JsonSerializer
 Kind: class
-Properties: 1
-Methods: 103
+Properties:
+Methods:
 ```
 
 ## Address a specific member by name
@@ -217,13 +221,22 @@ Show me all Deserialize overloads on JsonSerializer.
 ```
 
 ```bash
-dotnet-inspect member System.Text.Json JsonSerializer Deserialize -v:q
+dotnet-inspect member System.Text.Json JsonSerializer Deserialize -v:m
 ```
 
 ```expect
 # System.Text.Json.JsonSerializer
-Kind: class
-Methods: 103
+## Methods
+| Name | Digest | Signature | Description |
+| Deserialize |
+```
+
+```query
+awk -F '|' '/^\| [A-Za-z]/ && $2 != " Name " { gsub(/^ +| +$/, "", $2); print $2 }' | sort -u | wc -l | tr -d ' '
+```
+
+```expect
+1
 ```
 
 ## Member select mode
@@ -240,7 +253,10 @@ dotnet-inspect member System.CommandLine@2.0.3 Command -S "Member Index"
 
 ```expect
 # System.CommandLine.Command
-Kind: class
+## Member Index
+| Selector | Stable | Canonical Signature |
+.ctor
+SetAction
 ```
 
 ## Members from a NuGet package

@@ -44,7 +44,7 @@ What version of System.CommandLine do I have cached?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine --version
+dotnet-inspect System.CommandLine@2.0.2 --version
 ```
 
 ```expect
@@ -65,12 +65,12 @@ dotnet-inspect cache clear
 dotnet-inspect System.CommandLine --version
 ```
 
-```expect
-2.0.8
+```query
+grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
 ```
 
-```query
-head -1
+```expect
+semantic-version
 ```
 
 ## 2. Get the latest published version
@@ -87,12 +87,12 @@ What is the latest version of System.CommandLine on NuGet?
 dotnet-inspect System.CommandLine --latest-version
 ```
 
-```expect
-2.0.8
+```query
+grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
 ```
 
-```query
-head -1
+```expect
+semantic-version
 ```
 
 ### 2b. Using `@latest`
@@ -101,12 +101,12 @@ head -1
 dotnet-inspect System.CommandLine@latest --version
 ```
 
-```expect
-2.0.8
+```query
+grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
 ```
 
-```query
-head -1
+```expect
+semantic-version
 ```
 
 ### 2c. Using `@latest` with package command
@@ -123,16 +123,47 @@ Source: NuGet
 grep -oE 'Version: [0-9.]+'
 ```
 
-### 2d. Opting into latest prerelease
+### 2d. Query latest prerelease version
 
 By default, unpinned package resolution chooses the latest stable version. Add `--preview`
 or `--prerelease` to include prerelease versions when resolving latest.
 
 ```bash
 dotnet-inspect package Microsoft.CodeAnalysis.CSharp --latest-version --preview
-dotnet-inspect package Microsoft.CodeAnalysis.CSharp@latest --preview -v:q
-dotnet-inspect library Microsoft.CodeAnalysis.CSharp.dll --package Microsoft.CodeAnalysis.CSharp --preview -S Signals
 ```
+
+```query
+grep -Eq '^[0-9]+(\.[0-9]+){2}([-.][^ ]+)?$' && echo semantic-version
+```
+
+```expect
+semantic-version
+```
+
+### 2e. Resolve latest prerelease package
+
+```bash
+dotnet-inspect package Microsoft.CodeAnalysis.CSharp@latest --preview -v:q
+```
+
+```expect
+# Microsoft.CodeAnalysis.CSharp
+Source: NuGet
+```
+
+### 2f. Inspect an exact prerelease library
+
+```bash
+dotnet-inspect library System.Text.Json.dll \
+  --package System.Text.Json@11.0.0-preview.6.26359.118 -S Signals
+```
+
+```expect
+# System.Text.Json.dll
+## Signals
+```
+
+These variants require network access to the configured NuGet sources.
 
 ## 3. List all available versions
 
@@ -144,13 +175,12 @@ dotnet-inspect library Microsoft.CodeAnalysis.CSharp.dll --package Microsoft.Cod
 dotnet-inspect System.CommandLine --versions
 ```
 
-```expect
-2.0.8
-2.0.7
+```query
+awk 'NF { count++ } END { if (count >= 2) print "at-least-two" }'
 ```
 
-```query
-head -2
+```expect
+at-least-two
 ```
 
 ### 3b. Using `--versions-with-feed`
@@ -163,18 +193,17 @@ pair, so a version carried by two sources appears twice.
 dotnet-inspect package System.CommandLine --versions-with-feed 3 --tsv
 ```
 
-```expect
-version feed
-2.0.10 nuget.org
-2.0.9 nuget.org
+```query
+awk -F '\t' 'NR == 1 && $1 == "version" && $2 == "feed" { print "header-ok" } NR > 1 && NF == 2 { rows++ } END { if (rows >= 1) print "rows-ok" }'
 ```
 
-```query
-head -3
+```expect
+header-ok
+rows-ok
 ```
 
 The interesting case is more than one source. Here `Markout` is on nuget.org and
-on a private feed, and `0.32.0` is on both:
+on a private feed, with one version present on both:
 
 ```bash
 dotnet-inspect package Markout --versions-with-feed 4 \
@@ -183,16 +212,16 @@ dotnet-inspect package Markout --versions-with-feed 4 \
 ```
 
 ```text
-Version  Feed
-0.33.0   nuget.org
-0.32.99  pkgs.dev.azure.com
-0.32.0   nuget.org
-0.32.0   pkgs.dev.azure.com
-0.31.0   nuget.org
+Version      Feed
+<version-a>  nuget.org
+<version-b>  pkgs.dev.azure.com
+<version-c>  nuget.org
+<version-c>  pkgs.dev.azure.com
+<version-d>  nuget.org
 ```
 
 Two things to note. The limit counts **versions, not rows** — `4` asked for four
-versions and produced five rows, because `0.32.0` was served twice. And the feed
+versions and produced five rows, because one version was served twice. And the feed
 label is the source's configured name when it has a meaningful one, otherwise the
 host; sources passed as bare `--source` URLs all carry the same internal name, so
 the host is what distinguishes them.
@@ -209,10 +238,10 @@ dotnet-inspect package Markout --versions-with-feed 3 --include-unlisted \
 ```
 
 ```text
-Version  Feed                Listing
-10.0.2   nuget.org           unlisted
-0.33.0   nuget.org           listed
-0.32.99  pkgs.dev.azure.com  listed
+Version      Feed                Listing
+<version-a>  nuget.org           unlisted
+<version-b>  nuget.org           listed
+<version-c>  pkgs.dev.azure.com  listed
 ```
 
 The column is applied **per feed**, which is the one thing this view can express
@@ -235,11 +264,11 @@ dotnet-inspect System.CommandLine@99.99.99 --version
 ```
 
 ```expect-error
-Version '99.99.99' of package 'System.CommandLine' not found. Use --versions to see available versions.
+Version '99.99.99' of package 'system.commandline' not found. Use --versions to see available versions.
 ```
 
-```query
-grep 'not found'
+```expect-stderr
+Version '99.99.99' of package 'system.commandline' not found.
 ```
 
 ### 4b. Using bare name with bad version
@@ -252,8 +281,8 @@ dotnet-inspect System.CommandLine@99.99.99
 Version '99.99.99' of package 'system.commandline' not found. Use --versions to see available versions.
 ```
 
-```query
-grep 'not found'
+```expect-stderr
+Version '99.99.99' of package 'system.commandline' not found.
 ```
 
 ## 5. Handle a nonexistent package
@@ -272,8 +301,8 @@ dotnet-inspect System.CommandLine2@99.99.99
 Package 'system.commandline2' not found.
 ```
 
-```query
-grep 'not found'
+```expect-stderr
+Package 'system.commandline2' not found.
 ```
 
 ## 6. Wildcard version patterns
@@ -336,7 +365,8 @@ grep -oE 'Version: [^ |]+'
 ### 7b. Using nuget.config file
 
 ```setup
-cat > /tmp/dotnet-inspect-version-queries.nuget.config <<'EOF'
+mkdir -p .workflow-state
+cat > .workflow-state/version-queries.nuget.config <<'EOF'
 <configuration>
   <packageSources>
     <clear />
@@ -348,7 +378,7 @@ EOF
 
 ```bash
 dotnet-inspect package System.CommandLine \
-  --nugetconfig /tmp/dotnet-inspect-version-queries.nuget.config -v:q
+  --nugetconfig .workflow-state/version-queries.nuget.config -v:q
 ```
 
 ```expect

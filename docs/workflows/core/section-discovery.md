@@ -1,6 +1,17 @@
+---
+id: section-discovery
+description: Discover effective and structural sections and their fields
+commands: [-D, --schema, -S, --count]
+areas: [sections, discovery, schema, output]
+---
+
 # Section Discovery
 
-> The `-S` flag (with no argument) lists available sections for any asset. With a value, it selects sections by name or wildcard. The lowercase `-s` alias still works, but workflows use `-S` as the canonical spelling. Sections vary by source — platform assemblies expose different sections than NuGet packages. Section discovery must work consistently across all asset resolution paths: bare name, `--platform`, `--package`, `library`, and `package`.
+> `-D` discovers effective sections for the current target, omitting sections
+> known to be empty. Add `--schema` for the full structural catalog. `-S`
+> selects sections by name or wildcard. Sections vary by source and must remain
+> discoverable across bare-name, platform, package, `library`, and `package`
+> resolution paths.
 
 Ref: [PR #107](https://github.com/richlander/dotnet-inspect/pull/107) — fixed section discovery for the `--platform` path.
 
@@ -19,14 +30,18 @@ dotnet-inspect cache clear
 Prime the cache:
 
 ```bash
-dotnet-inspect System.CommandLine -v:q
+dotnet-inspect System.CommandLine@2.0.3 -v:q
 ```
 
-## Discover sections for a platform library
+```bash
+dotnet-inspect System.Collections@4.3.0 -v:q
+```
+
+## 1. Discover sections for a platform library
 
 > Goal: List sections for a platform assembly via both bare name and explicit `--platform`.
 
-### Using bare name
+### 1a. Using bare name
 
 ```prompt
 What sections are available when inspecting System.Collections?
@@ -42,7 +57,7 @@ Custom Attributes
 Type Forwarders
 ```
 
-### Using `library --platform`
+### 1b. Using `library --platform`
 
 ```bash
 dotnet-inspect library --platform System.Collections -D
@@ -54,18 +69,18 @@ Custom Attributes
 Type Forwarders
 ```
 
-## Discover sections for a NuGet package
+## 2. Discover sections for a NuGet package
 
 > Goal: List sections for a NuGet package via both bare name and explicit `package`.
 
-### Using bare name (NuGet)
+### 2a. Using bare name (NuGet)
 
 ```prompt
 What sections can I see for System.CommandLine?
 ```
 
 ```bash
-dotnet-inspect System.CommandLine -D
+dotnet-inspect System.CommandLine@2.0.3 -D
 ```
 
 ```expect
@@ -73,10 +88,10 @@ Package Info
 Dependencies
 ```
 
-### Using `package`
+### 2b. Using `package`
 
 ```bash
-dotnet-inspect package System.CommandLine -D
+dotnet-inspect package System.CommandLine@2.0.3 -D
 ```
 
 ```expect
@@ -84,40 +99,46 @@ Package Info
 Dependencies
 ```
 
-## Platform and package sections differ for the same name
+## 3. Compare effective and structural discovery
 
-> Goal: A library that exists in both platform and NuGet exposes different sections depending on the source.
+> Goal: Effective discovery omits empty sections while structural discovery
+> preserves every selectable route.
 
-### Platform path
-
-```bash
-dotnet-inspect library --platform System.Collections -D
-```
-
-```expect
-Library Info
-Resources
-Type Forwarders
-```
-
-### Package path
+### 3a. Effective package-library discovery
 
 ```bash
-dotnet-inspect library --package System.Collections -D
+dotnet-inspect library --package System.Collections@4.3.0 -D
 ```
 
 ```expect
 Library Info
 Custom Attributes
+References
+```
+
+```expect-not
 Resources
 Type Forwarders
 ```
 
-## Select a specific section
+### 3b. Structural package-library discovery
+
+```bash
+dotnet-inspect library --package System.Collections@4.3.0 -D --schema
+```
+
+```expect
+Library Info
+Resources
+Type Forwarders
+Unsafe Members
+```
+
+## 4. Select a specific section
 
 > Goal: `-S [name]` renders only that section's content, not the full output.
 
-### Platform section
+### 4a. Platform section
 
 ```bash
 dotnet-inspect library --platform System.Collections -S "Custom Attributes"
@@ -133,10 +154,10 @@ dotnet-inspect library --platform System.Collections -S "Custom Attributes"
 ## Type Forwarders
 ```
 
-### Package Info section
+### 4b. Library Info section
 
 ```bash
-dotnet-inspect library --package System.Collections -S "Library Info"
+dotnet-inspect library --package System.Collections@4.3.0 -S "Library Info"
 ```
 
 ```expect
@@ -148,7 +169,7 @@ dotnet-inspect library --package System.Collections -S "Library Info"
 ## Custom Attributes
 ```
 
-## Count a specific section
+## 5. Count a specific section
 
 > Goal: `--count` with one selected section returns only the number of table rows.
 
@@ -170,23 +191,18 @@ positive
 Tips:
 ```
 
-## Discover effective type/member schemas
+## 6. Discover a member-section schema
 
-> Goal: `-D` on type/member queries reports the effective queryable schema by default; `--schema` opts back into the static schema.
-
-```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -D Methods
-```
-
-```expect
-Name
-Signature
-```
+> Goal: `-D <section> --schema` reports the current queryable columns for that
+> section without rendering its rows.
 
 ```bash
 dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -D Methods --schema
 ```
 
 ```expect
-Obsolete
+Name
+Digest
+Signature
+Description
 ```

@@ -1,7 +1,7 @@
 ---
 id: lap-around
 description: The big walkthrough — all the major commands in one doc
-commands: [type, member, library, package, find, implements, depends, extensions, diff, source]
+commands: [type, member, library, package, find, implements, depends, extensions, diff]
 areas: [routing, resolution, output, discovery, inspection, source]
 ---
 
@@ -14,9 +14,9 @@ areas: [routing, resolution, output, discovery, inspection, source]
 ```bash
 export DOTNET_INSPECT_ISOLATED=lap-around
 dotnet-inspect cache clear
-dotnet-inspect Microsoft.Azure.SignalR -v:q
-dotnet-inspect Newtonsoft.Json -v:q
-dotnet-inspect Microsoft.Extensions.AI -v:q
+dotnet-inspect Microsoft.Azure.SignalR@1.33.1 -v:q
+dotnet-inspect Newtonsoft.Json@13.0.4 -v:q
+dotnet-inspect Microsoft.Extensions.AI@10.8.3 -v:q
 ```
 
 ## 1. Three sources
@@ -36,7 +36,7 @@ Source: Platform
 NuGet package (downloaded and cached from a feed):
 
 ```bash
-dotnet-inspect Microsoft.Extensions.AI -v:q
+dotnet-inspect Microsoft.Extensions.AI@10.8.3 -v:q
 ```
 
 ```expect
@@ -82,7 +82,7 @@ The platform copy is typically a ref assembly (smaller, public surface only). Th
 Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two libraries in a single package. The tool defaults to the primary library but lets you pick.
 
 ```bash
-dotnet-inspect package Microsoft.Azure.SignalR --files --tfm net8.0
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --path --tfm net8.0
 ```
 
 ```expect
@@ -91,7 +91,7 @@ Microsoft.Azure.SignalR.Common.dll
 ```
 
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR -v:q
+dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q
 ```
 
 ```expect
@@ -101,7 +101,7 @@ Microsoft.Azure.SignalR.dll
 Switch to the other library:
 
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR -v:q --library Microsoft.Azure.SignalR.Common.dll
+dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q --library Microsoft.Azure.SignalR.Common.dll
 ```
 
 ```expect
@@ -114,7 +114,10 @@ Microsoft.Azure.SignalR.dll |
 
 ## 3. Type forwarders
 
-In modern .NET, many types in System.Collections are actually defined in System.Private.CoreLib and *forwarded* from System.Collections. This matters because the `type` command lists types defined in the assembly, not forwarded ones. An earlier version of this doc tested `HashSet<T> --shape` against System.Collections and it failed — because HashSet is a forwarder.
+In modern .NET, many types in System.Collections are actually defined in
+System.Private.CoreLib and *forwarded* from System.Collections. The forwarding
+table identifies that implementation boundary, while the `type` command keeps
+the forwarded types in the library's searchable public surface.
 
 The library command exposes the forwarding table:
 
@@ -123,12 +126,13 @@ dotnet-inspect library System.Collections -v:d -S "Type Forwarders" -n 15
 ```
 
 ```expect
-HashSet`1
-Dictionary`2
-List`1
+HashSet
+Dictionary
+List
 ```
 
-HashSet, Dictionary, and List are all forwarders. The type command shows what's *defined* in the assembly. Dictionary is only a forwarder and won't appear:
+HashSet, Dictionary, and List are all forwarders. The type command still makes
+them addressable alongside types defined directly in the assembly:
 
 ```bash
 dotnet-inspect type System.Collections
@@ -138,42 +142,40 @@ dotnet-inspect type System.Collections
 SortedSet
 SortedDictionary
 OrderedDictionary
+System.Collections.Generic.Dictionary
 ```
 
-```expect-not
-Dictionary`2
-```
-
-SortedDictionary and OrderedDictionary are defined directly.
+The forwarding table is the authoritative place to distinguish those cases.
 
 ## 4. Drill-down: find → type → member → code
 
 Find a type you've heard of:
 
 ```bash
-dotnet-inspect find "MarkoutWriter" -v:q
+dotnet-inspect find "MarkoutWriter" --package Markout@0.33.0 -v:q
 ```
 
 ```expect
-Markout
+MarkoutWriter
+Markout@0.33.0
 ```
 
 See its members:
 
 ```bash
-dotnet-inspect member Markout MarkoutWriter -v:q
+dotnet-inspect member Markout@0.33.0 MarkoutWriter -v:q
 ```
 
 ```expect
 # Markout.MarkoutWriter
 Kind: class
-Methods: 36
+Source: NuGet
 ```
 
 For code, use `-S "Member Index"` to see the full addressing table (the durable `~digest` selector is also shown in the default member table's Digest column), then drill into a specific overload:
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory -S "Member Index"
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.10 OptionsFactory -S "Member Index"
 ```
 
 ```expect
@@ -183,7 +185,7 @@ Create
 ```
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory .ctor:1 -S "Decompiled Source"
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.10 OptionsFactory .ctor:1 -S "Decompiled Source"
 ```
 
 ```expect
@@ -245,7 +247,7 @@ dotnet-inspect library --platform System.Text.Json --il-offset 0x06000001+0x0 --
 ### TFMs, files, and layout
 
 ```bash
-dotnet-inspect package Microsoft.Azure.SignalR --tfms
+dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --tfms
 ```
 
 ```expect
@@ -255,7 +257,7 @@ net8.0
 The tool can inspect its own package:
 
 ```bash
-dotnet-inspect package dotnet-inspect --layout --tools
+dotnet-inspect package dotnet-inspect@0.16.0 --layout --tools
 ```
 
 ```expect
@@ -266,7 +268,7 @@ DotnetToolSettings.xml
 ### Dependencies vary by TFM
 
 ```bash
-dotnet-inspect package System.Text.Json --dependencies
+dotnet-inspect package System.Text.Json@10.0.2 --dependencies
 ```
 
 ```expect
@@ -274,7 +276,7 @@ No additional dependencies for net
 ```
 
 ```bash
-dotnet-inspect package System.Text.Json --tfm net9.0 --dependencies
+dotnet-inspect package System.Text.Json@10.0.2 --tfm net9.0 --dependencies
 ```
 
 ```expect
@@ -287,7 +289,7 @@ System.Text.Encodings.Web
 There are resources in some assemblies that can be extracted with `dotnet-inspect`:
 
 ```bash
-dotnet-inspect library --package System.Text.Json -S Resour*
+dotnet-inspect library --package System.Text.Json@10.0.2 -S Resour*
 ```
 
 ```expect
@@ -295,8 +297,12 @@ FxResources.System.Text.Json.SR.resources
 ILLink.Substitutions.xml
 ```
 
+```setup
+rm -rf artifacts/workflow/lap-resources
+```
+
 ```bash
-dotnet-inspect library --package System.Text.Json --extract-resources /tmp/lap-resources 2>&1
+dotnet-inspect library --package System.Text.Json@10.0.2 --extract-resources artifacts/workflow/lap-resources 2>&1
 ```
 
 ```expect
@@ -326,7 +332,8 @@ dotnet-inspect package System.Text.Json --version '11.0.0-preview*' --add-source
 ```
 
 ```expect
-11.0.0-preview
+preview
+Source: NuGet
 ```
 
 ```expect
@@ -346,7 +353,8 @@ dotnet-inspect find "Diction*" -v:q
 ```
 
 ```expect
-Dictionary`2
+Dictionary
+System.Collections.Generic
 ```
 
 Search across cached extension packages with `--extensions`:
@@ -397,9 +405,9 @@ Search for extensions targeting a type across multiple packages:
 
 ```bash
 dotnet-inspect extensions IDistributedApplicationBuilder \
-  --package Aspire.Hosting \
-  --package Aspire.Hosting.Redis \
-  --package Aspire.Hosting.PostgreSQL \
+  --package Aspire.Hosting@13.4.6 \
+  --package Aspire.Hosting.Redis@13.4.6 \
+  --package Aspire.Hosting.PostgreSQL@13.4.6 \
   --tfm net8.0 -v:q
 ```
 
@@ -439,7 +447,7 @@ across
 The `--json` flag turns any command into structured data for pipelines. This is the primary scripting surface.
 
 ```bash
-dotnet-inspect library Aspire.Hosting -S Ex* --json | python3 -c "
+dotnet-inspect library Aspire.Hosting@13.4.6 -S Ex* --json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 types = [e['extended_type'] for e in d.get('extension_methods', [])]
@@ -464,8 +472,11 @@ This is a real workflow — find the most popular extension points in a package,
 The tool can inspect its own package.
 
 ```bash
-dotnet-inspect package dotnet-inspect -v:q
+dotnet-inspect package dotnet-inspect@0.16.0 -v:q
 ```
+
+Known issue: #3919 — the Tool v2 package redirect loses tool classification.
+Preserve the intended package classification below.
 
 ```expect
 Type: Tool v2

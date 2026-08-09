@@ -72,7 +72,7 @@ Within each goal or variant, code fences define the executable scenario:
 - **`expect-error`** — Like `expect`, but command must exit nonzero.
 - **`expect-stderr`** — Substrings that must appear in stderr.
 - **`expect-not-stderr`** — Substrings that must NOT appear in stderr.
-- **`query`** — Shell pipeline to extract a specific value from stdout.
+- **`query`** — Shell pipelines that independently extract values from stdout.
 - **`perf`** — Latency and exit code constraints.
 
 This structure makes scenarios simultaneously:
@@ -178,6 +178,9 @@ dotnet-inspect cache clear
 
 The exact `dotnet-inspect` invocation. Run it as-is.
 
+A `bash` fence is one shell program. Commands may span physical lines with the
+usual trailing `\` line continuation.
+
 ````markdown
 ```bash
 dotnet-inspect System.Text.Json -v:q
@@ -239,13 +242,29 @@ Deprecated:
 
 ### `query` — extraction pipeline
 
-A shell pipeline applied to stdout. Used to isolate a specific value for comparison. Useful for building dashboards or feeding results into other tools.
+A shell pipeline applied to stdout. Used to isolate a specific value for
+comparison. Useful for building dashboards or feeding results into other tools.
 
 ````markdown
 ```query
 grep -o 'Source: [A-Za-z]*'
 ```
 ````
+
+Query evaluation is sequential and position-sensitive:
+
+1. Fold physical lines joined by a trailing `\` into one logical line.
+2. Apply each nonempty logical line in the `query` fence independently to the
+   original command stdout. A later query line does not consume an earlier
+   query line's output.
+3. Concatenate each query line's stdout, in source order, to form the derived
+   query output.
+4. `expect` and `expect-not` blocks before a `query` validate the original
+   command output. Those after a `query` validate the derived query output.
+
+This keeps multiline shell commands possible while making a multi-line query
+an explicit list of independent projections rather than an accidental shell
+script.
 
 ### `perf` — performance constraints
 

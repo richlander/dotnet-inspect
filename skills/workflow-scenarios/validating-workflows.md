@@ -13,14 +13,25 @@ The [format spec](../../docs/workflows/README.md) defines the code fence types a
 1. **Report tool version first**: Run `dotnet-inspect --version` and include the output in your report. This establishes which build was tested.
 2. Parse the `prompt` block as the input request (for eval systems, this is what the agent receives).
 3. If a `setup` block exists, run it first to establish scenario state.
-4. Run the `bash` block and capture stdout, stderr, and exit code.
-5. For each `expect` line, check that it appears as a substring in stdout.
-6. For each `expect-not` line, check that it does **not** appear in stdout or stderr.
-7. For each `expect-error` line, check that exit code ≠ 0 and the line appears in stdout+stderr.
-8. For each `expect-stderr` line, check that it appears as a substring in stderr.
-9. For each `expect-not-stderr` line, check that it does **not** appear in stderr.
-10. If a `query` block exists, pipe stdout through it and report the extracted value.
-11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit code against `exit_code`.
+4. Run the `bash` block as one shell program and capture stdout, stderr, and exit
+   code. A trailing `\` keeps multiline commands possible.
+5. Process assertion and query fences in document order. Before a `query`,
+   `expect` and `expect-not` validate the original command output.
+6. For a `query`, first fold trailing-`\` line continuations. Apply each
+   remaining nonempty logical line independently to the original command
+   stdout, then concatenate the results in source order. Query lines do not
+   pipe into one another.
+7. After a `query`, `expect` and `expect-not` validate that derived query
+   output. A later query replaces the derived output used by following
+   assertions.
+8. For each `expect-error` line, check that exit code ≠ 0 and the line appears
+   in stdout+stderr.
+9. For each `expect-stderr` line, check that it appears as a substring in
+   stderr.
+10. For each `expect-not-stderr` line, check that it does **not** appear in
+    stderr.
+11. If a `perf` block exists, compare wall-clock time against `max_ms` and exit
+    code against `exit_code`.
 
 Commands are expected to exit 0 unless `expect-error` is used.
 
@@ -42,8 +53,9 @@ Parse the code fences and execute them in order:
 
 1. Run the Preconditions section if present.
 2. For each numbered goal/variant, run `setup` blocks, then `bash` blocks.
-3. Check all `expect`, `expect-not`, `expect-error`, `expect-stderr`, `expect-not-stderr` assertions.
-4. If `perf` blocks exist, check wall-clock time against `max_ms`.
+3. Process assertions and queries in fence order, using original or derived
+   output according to the sequential rule above.
+4. Check `expect-error`, stderr assertions, and any `perf` constraints.
 5. Report pass/fail per scenario.
 
 ## Running all workflows

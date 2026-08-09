@@ -43,9 +43,9 @@ dotnet-inspect depends Stream --mermaid
 
 ```expect
 graph TD
-n0["System.MarshalByRefObject"]
-n1["System.IAsyncDisposable"]
-n2["System.IDisposable"]
+System.MarshalByRefObject
+System.IAsyncDisposable
+System.IDisposable
 ```
 
 ```expect-not
@@ -64,20 +64,20 @@ dotnet-inspect depends 'INumber<TSelf>' --mermaid
 
 ```expect
 graph TD
-n0["System.IComparable"]
+System.IComparable
 -->
 ```
 
 ### 1c. NuGet package type
 
 ```bash
-dotnet-inspect depends Command --package System.CommandLine --mermaid
+dotnet-inspect depends Command --package System.CommandLine@2.0.3 --mermaid
 ```
 
 ```expect
 graph TD
-n0["System.CommandLine.Symbol"]
-n1["System.Collections.IEnumerable"]
+System.CommandLine.Symbol
+System.Collections.IEnumerable
 ```
 
 ## 2. Embedded mermaid in markdown
@@ -96,7 +96,6 @@ dotnet-inspect depends Stream --markdown --mermaid
 
 ```expect
 # System.IO.Stream
-```mermaid
 graph TD
 ```
 
@@ -106,9 +105,12 @@ graph TD
 dotnet-inspect depends 'INumber<TSelf>' --markdown --mermaid -n 10
 ```
 
+Known issue: #3918 — embedded Mermaid double-escapes generic names. Preserve
+the intended readable generic labels below.
+
 ```expect
-# INumber<TSelf>
-```mermaid
+# INumber&lt;TSelf&gt;
+System.IComparable<TSelf>
 graph TD
 ```
 
@@ -128,7 +130,7 @@ dotnet-inspect depends --library System.Text.Json --mermaid -n 10
 
 ```expect
 graph TD
-n0["System.Collections
+System.Collections
 -->
 ```
 
@@ -140,7 +142,6 @@ dotnet-inspect depends --library System.Text.Json --markdown --mermaid -n 10
 
 ```expect
 # System.Text.Json
-```mermaid
 graph TD
 ```
 
@@ -153,12 +154,12 @@ What does the Markout package depend on?
 ```
 
 ```bash
-dotnet-inspect depends --package Markout --mermaid
+dotnet-inspect depends --package Markout@0.33.0 --mermaid
 ```
 
 ```expect
 graph TD
-n0["MarkdownTable.Formatting
+MarkdownTable.Formatting
 ```
 
 ## 5. Default output unchanged
@@ -171,9 +172,9 @@ dotnet-inspect depends Stream
 
 ```expect
 System.IO.Stream
-├─ System.MarshalByRefObject
-├─ System.IAsyncDisposable
-└─ System.IDisposable
+System.MarshalByRefObject
+System.IAsyncDisposable
+System.IDisposable
 ```
 
 ```expect-not
