@@ -27,4 +27,28 @@ public class LineLimitingTextWriterTests
 
         Assert.Equal("first\nsecond\n", output.ToString());
     }
+
+    [Fact]
+    public void TailFlush_CrlfInput_DoesNotDuplicateCarriageReturns()
+    {
+        var output = new StringWriter { NewLine = "\r\n" };
+        var writer = new TailLineLimitingTextWriter(output, maxLines: 2);
+
+        writer.Write("first\r\nsecond\r\nthird\r\n");
+        writer.FlushTail();
+
+        Assert.Equal("second\r\nthird\r\n", output.ToString());
+    }
+
+    [Fact]
+    public void TailFlush_UnterminatedTrailingCarriageReturn_PreservesContent()
+    {
+        var output = new StringWriter { NewLine = "\r\n" };
+        var writer = new TailLineLimitingTextWriter(output, maxLines: 1);
+
+        writer.Write("content\r");
+        writer.FlushTail();
+
+        Assert.Equal("content\r\r\n", output.ToString());
+    }
 }

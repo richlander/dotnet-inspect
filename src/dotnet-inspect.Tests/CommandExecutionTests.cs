@@ -12897,6 +12897,63 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_TailPreservesLineEndings()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tail-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            {
+                var dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+            }
+            var packagePath = Path.Combine(tempDir, "Tail.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var executable = Path.Combine(
+                AppContext.BaseDirectory,
+                OperatingSystem.IsWindows() ? "dotnet-inspect.exe" : "dotnet-inspect");
+            var startInfo = new System.Diagnostics.ProcessStartInfo(executable)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            foreach (var argument in new[]
+            {
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "--tsv", "-n", "3", "--tail", "--tips", "q",
+            })
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            using var process = System.Diagnostics.Process.Start(startInfo)!;
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            var output = await outputTask;
+            var error = await errorTask;
+
+            Assert.Equal(0, process.ExitCode);
+            Assert.Empty(error);
+            Assert.DoesNotContain("\r\r\n", output, StringComparison.Ordinal);
+            Assert.Equal(
+                3,
+                output.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Length);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"section-multitfm-{Guid.NewGuid():N}");
