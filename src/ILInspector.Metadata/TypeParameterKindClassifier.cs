@@ -279,7 +279,8 @@ internal static class TypeParameterKindClassifier
     static Node Describe(
         MetadataReader reader,
         GenericParameterHandle handle,
-        ResolutionPlan? resolution)
+        ResolutionPlan? resolution,
+        SiblingParameterIndex siblingParameters)
     {
         var node = new Node(handle);
         GenericParameter parameter;
@@ -337,7 +338,11 @@ internal static class TypeParameterKindClassifier
 
                     // `where T : U` -- T is exactly as known as U, so record the edge.
                     case ConstraintClass.DeferToTypeParameter:
-                        if (SiblingHandle(reader, parameter, constraint.Type) is { } target)
+                        if (SiblingHandle(
+                                reader,
+                                parameter,
+                                constraint.Type,
+                                siblingParameters) is { } target)
                             node.Defers.Add(target);
                         else
                             node.Unreadable = true;
@@ -368,7 +373,8 @@ internal static class TypeParameterKindClassifier
     static GenericParameterHandle? SiblingHandle(
         MetadataReader reader,
         GenericParameter parameter,
-        EntityHandle constraintType)
+        EntityHandle constraintType,
+        SiblingParameterIndex siblingParameters)
     {
         if (constraintType.Kind != HandleKind.TypeSpecification)
             return null;
@@ -387,38 +393,12 @@ internal static class TypeParameterKindClassifier
 
         try
         {
-            var siblings = SiblingParameters(
+            return siblingParameters.Resolve(
                 reader,
                 parameter,
                 root.Kind
-                    == TypeSpecificationRootKind.GenericMethodParameter);
-            if (siblings is not { } handles
-                || root.GenericParameterIndex < 0
-                || root.GenericParameterIndex >= handles.Count)
-            {
-                return null;
-            }
-
-            GenericParameterHandle? match = null;
-            var seen = new HashSet<int>();
-            foreach (GenericParameterHandle handle in handles)
-            {
-                int index =
-                    reader.GetGenericParameter(handle).Index;
-                if (index < 0
-                    || index >= handles.Count
-                    || !seen.Add(index))
-                {
-                    return null;
-                }
-
-                if (index == root.GenericParameterIndex)
-                    match = handle;
-            }
-
-            return seen.Count == handles.Count
-                ? match
-                : null;
+                    == TypeSpecificationRootKind.GenericMethodParameter,
+                root.GenericParameterIndex);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -426,6 +406,117 @@ internal static class TypeParameterKindClassifier
         {
             return null;
         }
+    }
+
+    sealed class SiblingParameterIndex
+    {
+        readonly Dictionary<EntityHandle, SiblingParameterMap> _maps = [];
+
+        internal GenericParameterHandle? Resolve(
+            MetadataReader reader,
+            GenericParameter parameter,
+            bool isMethodParameter,
+            int index)
+        {
+            if (!TryGetOwnerAndParameters(
+                    reader,
+                    parameter,
+                    isMethodParameter,
+                    out EntityHandle owner,
+                    out GenericParameterHandleCollection parameters))
+            {
+                return null;
+            }
+
+            if (!_maps.TryGetValue(owner, out SiblingParameterMap map))
+            {
+                map = Build(reader, parameters);
+                _maps.Add(owner, map);
+            }
+
+            return map.IsValid
+                    && index >= 0
+                    && index < map.Parameters.Length
+                ? map.Parameters[index]
+                : null;
+        }
+
+        static SiblingParameterMap Build(
+            MetadataReader reader,
+            GenericParameterHandleCollection parameters)
+        {
+            var byIndex =
+                new GenericParameterHandle[parameters.Count];
+            foreach (GenericParameterHandle handle in parameters)
+            {
+                int index =
+                    reader.GetGenericParameter(handle).Index;
+                if (index < 0
+                    || index >= byIndex.Length
+                    || !byIndex[index].IsNil)
+                {
+                    return default;
+                }
+
+                byIndex[index] = handle;
+            }
+
+            return byIndex.Any(static handle => handle.IsNil)
+                ? default
+                : new SiblingParameterMap(
+                    IsValid: true,
+                    [.. byIndex]);
+        }
+
+        static bool TryGetOwnerAndParameters(
+            MetadataReader reader,
+            GenericParameter parameter,
+            bool isMethodParameter,
+            out EntityHandle owner,
+            out GenericParameterHandleCollection parameters)
+        {
+            switch (parameter.Parent.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    var method =
+                        reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)parameter.Parent);
+                    if (isMethodParameter)
+                    {
+                        owner = parameter.Parent;
+                        parameters = method.GetGenericParameters();
+                    }
+                    else
+                    {
+                        TypeDefinitionHandle declaringType =
+                            method.GetDeclaringType();
+                        owner = declaringType;
+                        parameters =
+                            reader.GetTypeDefinition(declaringType)
+                                .GetGenericParameters();
+                    }
+
+                    return true;
+
+                case HandleKind.TypeDefinition
+                    when !isMethodParameter:
+                    owner = parameter.Parent;
+                    parameters =
+                        reader.GetTypeDefinition(
+                                (TypeDefinitionHandle)parameter.Parent)
+                            .GetGenericParameters();
+                    return true;
+
+                default:
+                    owner = default;
+                    parameters = default;
+                    return false;
+            }
+        }
+
+        readonly record struct SiblingParameterMap(
+            bool IsValid,
+            ImmutableArray<GenericParameterHandle> Parameters);
     }
 
     /// <summary>
@@ -450,34 +541,6 @@ internal static class TypeParameterKindClassifier
         /// closed to <see cref="TypeParameterTypeKind.Undetermined"/>.
         /// </summary>
         public bool Unreadable { get; set; }
-    }
-
-    /// <summary>
-    /// The generic parameters a sibling reference indexes into: the owning method's when
-    /// the reference is to a method type parameter, otherwise the declaring type's.
-    /// </summary>
-    static GenericParameterHandleCollection? SiblingParameters(
-        MetadataReader reader,
-        GenericParameter parameter,
-        bool isMethodParameter)
-    {
-        switch (parameter.Parent.Kind)
-        {
-            case HandleKind.MethodDefinition:
-                var method = reader.GetMethodDefinition((MethodDefinitionHandle)parameter.Parent);
-                return isMethodParameter
-                    ? method.GetGenericParameters()
-                    : reader.GetTypeDefinition(method.GetDeclaringType()).GetGenericParameters();
-
-            case HandleKind.TypeDefinition:
-                // A type's own parameter cannot name a method parameter.
-                return isMethodParameter
-                    ? null
-                    : reader.GetTypeDefinition((TypeDefinitionHandle)parameter.Parent).GetGenericParameters();
-
-            default:
-                return null;
-        }
     }
 
     /// <summary>
@@ -506,6 +569,7 @@ internal static class TypeParameterKindClassifier
     {
         readonly Dictionary<GenericParameterHandle, TypeParameterTypeKind> _answers = [];
         readonly ResolutionPlan? _resolution;
+        readonly SiblingParameterIndex _siblingParameters = new();
 
         internal ChainState(ResolutionPlan? resolution = null) =>
             _resolution = resolution;
@@ -564,7 +628,11 @@ internal static class TypeParameterKindClassifier
                 if (_answers.ContainsKey(handle) || nodes.ContainsKey(handle))
                     continue;
 
-                var node = Describe(reader, handle, _resolution);
+                var node = Describe(
+                    reader,
+                    handle,
+                    _resolution,
+                    _siblingParameters);
                 nodes[handle] = node;
                 foreach (var target in node.Defers)
                 {
