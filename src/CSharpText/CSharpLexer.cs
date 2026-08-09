@@ -32,20 +32,6 @@ internal static class CSharpLexer
         public int BracketDepth;
 
         /// <summary>
-        /// Set when a brace could not be placed — an unterminated single-line literal, a
-        /// delimiter run this scanner will not guess at, or any conditional directive. The depth
-        /// count is unusable from that point on, and callers treat it as "do not know" rather
-        /// than as a depth.
-        /// <para>
-        /// This is the blunt, sticky answer, and it is what the line-oriented recovery helpers on
-        /// this type read. <see cref="StructuralDepthKnown"/> is the sharper one: a conditional
-        /// group whose branches each balance leaves the depth after its <c>#endif</c> knowable,
-        /// which this flag cannot express because it never clears.
-        /// </para>
-        /// </summary>
-        public bool Untracked;
-
-        /// <summary>
         /// Conditional groups currently open, innermost last. Each records the brace depth at its
         /// <c>#if</c> and whether any branch has failed to return to it.
         /// </summary>
@@ -79,8 +65,8 @@ internal static class CSharpLexer
 
         /// <summary>
         /// Set when the depth was lost for a reason that has nothing to do with conditionals.
-        /// Tracked apart from <see cref="Untracked"/> so that a conditional directive does not
-        /// permanently mask the difference between the two causes.
+        /// Tracked separately so that a conditional directive does not permanently mask the
+        /// difference between the two causes.
         /// </summary>
         private bool literalDepthLost;
 
@@ -124,16 +110,11 @@ internal static class CSharpLexer
         }
 
         /// <summary>
-        /// Records that the depth was lost for a non-conditional reason. <c>Untracked</c> is read
-        /// only from <see cref="ExtractMethodBody"/> and the helpers it calls -- the token-emitting
-        /// path the declaration index consumes never reads it -- and is gated by
-        /// <c>ExtractMethodBodyTests.AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText</c>;
-        /// <c>literalDepthLost</c> is what the index reads.
+        /// Records that the depth was lost for a non-conditional reason.
         /// </summary>
         public void LoseDepth()
         {
             literalDepthLost = true;
-            Untracked = true;
         }
 
         /// <summary>Whether a conditional group is currently open.</summary>
@@ -149,7 +130,6 @@ internal static class CSharpLexer
         public void LoseConditionalDepth()
         {
             conditionalDepthLost = true;
-            Untracked = true;
         }
 
         /// <summary>
@@ -165,7 +145,6 @@ internal static class CSharpLexer
         {
             Section++;
             conditionals.Add(new Conditional(depth));
-            Untracked = true;
         }
 
         /// <summary>
@@ -183,7 +162,6 @@ internal static class CSharpLexer
         public int NextBranch(int depth)
         {
             Section++;
-            Untracked = true;
 
             if (conditionals.Count == 0)
             {
@@ -225,7 +203,6 @@ internal static class CSharpLexer
             // nesting should not have to know that the last branch and the text after it were
             // silently merged.
             Section++;
-            Untracked = true;
 
             if (conditionals.Count == 0)
             {
@@ -254,8 +231,6 @@ internal static class CSharpLexer
         {
             public readonly int BaseDepth = baseDepth;
             public bool Unbalanced;
-
-            public Conditional Copy() => new(BaseDepth) { Unbalanced = Unbalanced };
         }
 
         public bool InLiteral => frames.Count > 0;
@@ -267,31 +242,6 @@ internal static class CSharpLexer
         public void Pop() => frames.RemoveAt(frames.Count - 1);
 
         public void Replace(Frame frame) => frames[^1] = frame;
-
-        /// <summary>
-        /// A copy that can be advanced without disturbing the scan in progress. Used to ask
-        /// where a line's code resumes without consuming the line.
-        /// </summary>
-        public LexState Clone()
-        {
-            var copy = new LexState
-            {
-                InBlockComment = InBlockComment,
-                Untracked = Untracked,
-                BracketDepth = BracketDepth,
-                conditionalDepthLost = conditionalDepthLost,
-                literalDepthLost = literalDepthLost,
-            };
-            copy.frames.AddRange(frames);
-            // Ungated, and unverified as a property of any caller: neither of the two sites that
-            // clone a state consults structural knownness or emits tokens -- both are backward-scan
-            // probes reading Untracked, InLiteral, InBlockComment and BracketDepth -- so dropping
-            // this line changes no observable answer today. It is here because a clone that
-            // reported knownness the original does not have would be wrong the moment a probe did
-            // look, and a state that lies is a worse default than a line with no test.
-            copy.conditionals.AddRange(conditionals.Select(c => c.Copy()));
-            return copy;
-        }
 
         /// <summary>
         /// True when the state cannot survive a line break: an ordinary or single-quoted
@@ -420,26 +370,12 @@ internal static class CSharpLexer
     }
 
     /// <summary>
-    /// Scans one line of C# text, carrying <paramref name="state"/> across lines, and returns
-    /// the last significant character on it — the last non-whitespace character that is not
-    /// inside a comment. Braces adjust <paramref name="depth"/> only where they are structural:
-    /// in code that is not inside any literal. Braces inside an interpolation hole belong to
-    /// that hole, and braces in literal text or a comment are content.
-    /// </summary>
-    internal static char ScanLine(string line, LexState state, ref int depth)
-    {
-        Scan(line, state, ref depth, start: 0, untilLiteralCloses: false, out char significant);
-        return significant;
-    }
-
-    /// <summary>
     /// Scans <paramref name="lines"/> as one continuous stretch of C# and returns every token on
     /// them, in order.
     /// <para>
-    /// The scan is the same one the slicer's predicates run on; this entry point differs only in
-    /// keeping what that scan works out instead of discarding it at each line break. It exists so
-    /// the token stream can be pinned and checked directly, ahead of the predicates moving onto
-    /// it.
+    /// The declaration index and source slicer consume this token stream directly. Keeping it as
+    /// an artifact lets the lexical accounting and declaration-shape gates inspect the same facts
+    /// product callers use.
     /// </para>
     /// </summary>
     internal static List<ScanToken> ScanTokens(IReadOnlyList<string> lines)
@@ -449,39 +385,28 @@ internal static class CSharpLexer
         int depth = 0;
 
         for (int i = 0; i < lines.Count; i++)
-            Scan(lines[i], state, ref depth, start: 0, untilLiteralCloses: false, out _, tokens: tokens, lineIndex: i);
+            Scan(lines[i], state, ref depth, out _, tokens, i);
 
         return tokens;
     }
 
-    /// <summary>
-    /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
-    /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
-    /// literal it opened is closed, which is how a caller consumes a single literal.
-    /// </summary>
-    internal static int Scan(
+    private static int Scan(
         string line,
         LexState state,
         ref int depth,
-        int start,
-        bool untilLiteralCloses,
         out char significant,
-        bool untilCodeResumes = false,
-        bool untilBracketsClose = false,
-        List<ScanToken>? tokens = null,
-        int lineIndex = 0)
+        List<ScanToken> tokens,
+        int lineIndex)
     {
         bool knownOnEntry = state.StructuralDepthKnown;
-        int mark = tokens?.Count ?? 0;
+        int mark = tokens.Count;
 
-        int stopped = ScanCore(
-            line, state, ref depth, start, untilLiteralCloses, out significant,
-            untilCodeResumes, untilBracketsClose, tokens, lineIndex);
+        int stopped = ScanCore(line, state, ref depth, out significant, tokens, lineIndex);
 
         // Losing the place is discovered at the end of a line, after tokens on it were emitted.
         // Those tokens recorded a depth that has since become meaningless, so correct them rather
         // than leave a stale "known" that reads exactly like a real depth.
-        if (tokens is not null && knownOnEntry && !state.StructuralDepthKnown)
+        if (knownOnEntry && !state.StructuralDepthKnown)
         {
             for (int t = mark; t < tokens.Count; t++)
                 tokens[t] = tokens[t] with { DepthKnown = false };
@@ -494,25 +419,19 @@ internal static class CSharpLexer
         string line,
         LexState state,
         ref int depth,
-        int start,
-        bool untilLiteralCloses,
         out char significant,
-        bool untilCodeResumes,
-        bool untilBracketsClose,
-        List<ScanToken>? tokens,
+        List<ScanToken> tokens,
         int lineIndex)
     {
         significant = '\0';
-        int i = start;
-        bool opened = false;
-        bool bracketOpened = false;
+        int i = 0;
 
         void Emit(int atDepth, ScanTokenKind kind, int column, int length) =>
             EmitAt(atDepth, state.BracketDepth, kind, column, length);
 
         void EmitAt(int atDepth, int atBracketDepth, ScanTokenKind kind, int column, int length)
         {
-            if (tokens is null || length <= 0)
+            if (length <= 0)
                 return;
 
             // Literal text arrives in fragments — an escape, a quote run, a stretch of plain
@@ -604,15 +523,6 @@ internal static class CSharpLexer
 
         while (i < line.Length)
         {
-            if (untilLiteralCloses && opened && !state.InLiteral)
-                return i;
-
-            if (untilCodeResumes && !state.InBlockComment && !state.InLiteral && state.BracketDepth == 0)
-                return i;
-
-            if (untilBracketsClose && bracketOpened && state.BracketDepth == 0)
-                return i;
-
             char c = line[i];
 
             if (state.InBlockComment)
@@ -806,8 +716,6 @@ internal static class CSharpLexer
                     Emit(depth, ScanTokenKind.StringLiteral, i, open + 2 - i);
                     i = open + 2;
                     significant = '"';
-                    if (untilLiteralCloses)
-                        return i;
                     continue;
                 }
 
@@ -819,7 +727,6 @@ internal static class CSharpLexer
                     Raw = raw,
                 });
 
-                opened = true;
                 significant = '"';
                 int openerAt = i;
                 i = open + (raw ? quotes : 1);
@@ -861,10 +768,7 @@ internal static class CSharpLexer
             else if (c == '[')
             {
                 if (!inHole)
-                {
                     state.BracketDepth++;
-                    bracketOpened = true;
-                }
             }
             else if (c == ']')
             {

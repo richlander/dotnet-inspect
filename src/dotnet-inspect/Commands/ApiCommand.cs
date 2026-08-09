@@ -920,7 +920,7 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0, bool isDestructor = false)
+        bool publicOnly = true, int metadataToken = 0)
     {
         try
         {
@@ -990,8 +990,7 @@ public class ApiCommand
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             var sourceCode = BodySlicer.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
-                isDestructor ? typeName : null);
+                content, methodInfo.StartLine, methodInfo.EndLine, methodName);
 
             // No authored declaration of its own (positional record accessor, primary
             // constructor, field-initializer constructor): report no source rather than the

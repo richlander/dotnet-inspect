@@ -1,9 +1,8 @@
 namespace DotnetInspector.CSharpBodySlicer.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="BodySlicer.ExtractMethodBody"/>, the
-/// signature-boundary reconstruction heuristic moved out of the CLI. These lock in the
-/// existing behavior (line numbers are 1-based sequence-point ranges).
+/// Characterization tests for <see cref="BodySlicer.ExtractMethodBody"/>, which selects a
+/// declaration-index row from a 1-based sequence-point range and returns that row's source span.
 /// </summary>
 public class ExtractMethodBodyTests
 {
@@ -29,7 +28,7 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
-    public void MultiLineSignature_WalksBackwardToSignatureStart()
+    public void MultiLineSignature_IncludesTheEntireDeclarationSignature()
     {
         var source = Lines(
             "class C",                              // 1
@@ -93,14 +92,11 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
-    public void Destructor_StopsAtTildeSignature_NotPrecedingMember()
+    public void Destructor_SlicesItsOwnDeclaration_NotThePrecedingMember()
     {
-        // Regression guard (adversarial review): a finalizer's metadata name is
-        // "Finalize", but its C# source line is "~Type()". With the destructor
-        // identity supplied by the caller, the backward scan must stop at the "~"
-        // declaration line; otherwise it walks past into the preceding member
-        // (e.g. an accessibility-prefixed field), leaking unrelated declarations
-        // into Original Source / Source Diff.
+        // A finalizer's metadata name is "Finalize", but its source declaration is "~Type()".
+        // Selection by source position must return that declaration without relying on a metadata
+        // spelling match or leaking the preceding member.
         var source = Lines(
             "class C",                              // 1
             "{",                                    // 2
@@ -113,21 +109,17 @@ public class ExtractMethodBodyTests
             "    }",                                // 9
             "}");                                   // 10
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize");
 
         Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
     }
 
     [Fact]
-    public void OnesComplementOperator_SplitSignature_NotTruncatedByTildeStop()
+    public void OnesComplementOperator_SplitSignature_IsSelectedAsADeclaration()
     {
-        // Regression guard (adversarial review): the "~" stop is keyed on the
-        // caller-supplied destructor identity, not the source text. A user-defined
-        // unary complement operator (isDestructor: false) whose signature is split
-        // so a line begins with "~" (e.g. "public static C operator" /
-        // "~(C value)") must still capture the full signature; the "~" line must
-        // not be mistaken for a signature start.
+        // A user-defined unary complement operator whose signature is split so a line begins with
+        // "~" is one declaration, not a destructor-shaped boundary.
         var source = Lines(
             "class C",                              // 1
             "{",                                    // 2
@@ -138,7 +130,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 7
             "}");                                   // 8
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement", isDestructor: false);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement");
 
         Assert.Contains("public static C operator", body, System.StringComparison.Ordinal);
         Assert.Contains("~(C value)", body, System.StringComparison.Ordinal);
@@ -147,11 +139,8 @@ public class ExtractMethodBodyTests
     [Fact]
     public void NonDestructor_MultilineDefaultParameterWithComplement_NotTruncated()
     {
-        // Regression guard (adversarial review): an ordinary method whose split
-        // signature places a bitwise-complement default on its own line
-        // ("int x =" / "~DefaultMask") must NOT be treated as a destructor start.
-        // Because the caller reports isDestructor: false, the "~" line is not a
-        // stop, so the method declaration line is preserved.
+        // An ordinary method whose split signature places a bitwise-complement default on its own
+        // line remains one declaration; the tilde is expression text, not a boundary.
         var source = Lines(
             "class C",                              // 1
             "{",                                    // 2
@@ -163,7 +152,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Build", isDestructor: false);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Build");
 
         Assert.Contains("public int Build(int x =", body, System.StringComparison.Ordinal);
         Assert.Contains("~Cap)", body, System.StringComparison.Ordinal);
@@ -188,7 +177,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -216,7 +205,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith(destructorLine, body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -225,11 +214,9 @@ public class ExtractMethodBodyTests
     [Fact]
     public void Destructor_FirstSequencePointInsideBody_DoesNotStopAtBodyComplement()
     {
-        // Regression guard (adversarial review): "#line hidden" can push the first
-        // visible sequence point past the signature and initial statements, so the
-        // backward scan begins inside the body. A body complement expression such as
-        // "int x = ~0;" must NOT be mistaken for the destructor signature; the scan
-        // must walk up to the real "~C()" line and never leak the preceding member.
+        // "#line hidden" can push the first visible sequence point past the signature and initial
+        // statements. Position-based selection must still return the enclosing destructor rather
+        // than mistake a body complement for a declaration boundary.
         var source = Lines(
             "class C",                          // 1
             "{",                                // 2
@@ -242,7 +229,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 9
             "}");                               // 10
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
@@ -255,14 +242,9 @@ public class ExtractMethodBodyTests
     [InlineData("~Compute(x);")]    // bitwise complement of an invocation (argument-bearing)
     public void Destructor_HiddenBodyTildeComplement_DoesNotStopAtNonEmptyParenOrBareComplement(string bodyComplementLine)
     {
-        // Regression guard (adversarial review): "#line hidden" can push the first
-        // visible sequence point past the signature, so the backward scan begins
-        // inside the body. A tilde-identifier body statement that is NOT the
-        // parameterless "~Type()" signature — a bare complement ("~mask;"), a
-        // complemented field ("~Mask;"), or a complemented invocation
-        // ("~Compute(x);") — must NOT be mistaken for the destructor signature.
-        // The scan must walk up to the real "~C()" line and never leak the
-        // preceding member.
+        // "#line hidden" can push the first visible sequence point past the signature. A bare
+        // complement, complemented field, or complemented invocation remains body text inside the
+        // enclosing destructor row; none can become a declaration boundary.
         var source = Lines(
             "class C",                          // 1
             "{",                                // 2
@@ -276,7 +258,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 10
             "}");                               // 11
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
@@ -300,7 +282,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -328,7 +310,7 @@ public class ExtractMethodBodyTests
             "}");                                   // 11
 
         var body = BodySlicer.ExtractMethodBody(
-            source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "Sample");
+            source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("unsafe ~ Sample", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
@@ -355,7 +337,7 @@ public class ExtractMethodBodyTests
             "}");                               // 11
 
         var body = BodySlicer.ExtractMethodBody(
-            source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
+            source, startLine: 9, endLine: 9, methodName: "Finalize");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
@@ -379,22 +361,10 @@ public class ExtractMethodBodyTests
             "}");                                   // 9
 
         var body = BodySlicer.ExtractMethodBody(
-            source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
+            source, startLine: 6, endLine: 7, methodName: "Finalize");
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("C", "C")]
-    [InlineData("NS.C", "C")]
-    [InlineData("NS.Outer+Inner", "Inner")]
-    [InlineData("NS.C`1", "C")]
-    [InlineData("NS.Outer`1+Inner", "Inner")]
-    [InlineData("NS.Outer+Inner`2", "Inner")]
-    public void SimpleTypeName_StripsNamespaceNestingAndArity(string fullName, string expected)
-    {
-        Assert.Equal(expected, BodySlicer.SimpleTypeName(fullName));
     }
 
     [Fact]
@@ -430,12 +400,21 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
-    /// A block-bodied property's accessor has no declaration of its own to walk back to, so the
-    /// slice starts at the property. It stops before the sibling accessor: accessors resolve
-    /// separately, so the getter's source must not take in the setter's body.
+    /// A block-bodied property's accessor has no declaration of its own, so its sequence points
+    /// select the property — and the whole property is what gets sliced.
+    /// <para>
+    /// The backward scan used to stop before the sibling accessor, on the reasoning that accessors
+    /// resolve separately and the getter's source must not take in the setter's body. That produced
+    /// <c>"public string? Tfm\n{\n    get =&gt; _override ?? Compute();"</c>: a property with an
+    /// unclosed brace and a missing setter, which is not a declaration at all. Splitting a property
+    /// at an accessor boundary cannot yield valid C#, so the choice is between a fragment and the
+    /// enclosing declaration, and only one of those is something a reader can be shown. This is one
+    /// of the 17 under-captures the parse-validity gate measured, all of which are now gone; see
+    /// <see cref="AuthoredSourceValidityTests"/>.
+    /// </para>
     /// </summary>
     [Fact]
-    public void BlockBodiedPropertyAccessor_WalksBackwardToPropertyDeclaration()
+    public void BlockBodiedPropertyAccessor_SlicesTheWholeProperty()
     {
         var source = Lines(
             "class C",                                      // 1
@@ -444,14 +423,18 @@ public class ExtractMethodBodyTests
             "    {",                                        // 4
             "        get => _override ?? Compute();",        // 5  <- StartLine/EndLine
             "        set => _override = value;",             // 6
-            "    }",                                        // 7
+            "    }",                                         // 7
             "}");                                           // 8
 
         var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
 
         Assert.Equal(
-            "public string? Tfm\n{\n    get => _override ?? Compute();",
+            "public string? Tfm\n{\n    get => _override ?? Compute();\n    set => _override = value;\n}",
             body);
+
+        // The setter selects the same declaration: one property, one slice, whichever accessor
+        // the PDB happened to report.
+        Assert.Equal(body, BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: "set_Tfm"));
     }
 
     [Fact]
@@ -1056,8 +1039,14 @@ public class ExtractMethodBodyTests
         Assert.Equal("public int Target() => 0;", body);
     }
 
+    /// <summary>
+    /// The sequence-point range may extend past the declaration onto a trailing comment. The slice
+    /// is the declaration's own span, so the comment is not part of it — a comment below a member
+    /// is the file's, or the next member's leading trivia, never a tail of the member above.
+    /// The backward-scanning slicer returned the range it was handed and included the comment.
+    /// </summary>
     [Fact]
-    public void CommentOnlyLineBelowDeclaration_DoesNotEraseTheTerminator()
+    public void CommentOnlyLineBelowDeclaration_IsNotPartOfTheMember()
     {
         var source = Lines(
             "class C",                                      // 1
@@ -1068,23 +1057,13 @@ public class ExtractMethodBodyTests
 
         var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
-        Assert.Equal("public int Target() => 0;\n// trailing note", body);
+        Assert.Equal("public int Target() => 0;", body);
     }
 
     /// <summary>
-    /// Gates the scanner rule that the <c>}</c> closing an interpolation hole is part of the
-    /// enclosing literal and therefore must not become the line's last significant character.
-    /// <see cref="BodySlicer.ExtractMethodBody(string, int, int, string?)"/> asks
-    /// <c>EndsDeclaration</c> whether the range already terminates; a hole closer that counted
-    /// as a terminator would answer yes here and stop the slice on line 3, dropping the raw
-    /// literal's closing delimiter and the method's own <c>}</c>.
-    ///
-    /// The range must be a single line for this to be observable: over a multi-line range
-    /// <c>EndsDeclaration</c> and <c>IndexPastClosingBrace</c> compute brace depth over the
-    /// same span, so whenever the misclassification would flip the former to <c>true</c> the
-    /// latter would have declined to extend anyway. This is the gate for that rule — the
-    /// corpus contains no interpolation hole closing on the last significant column of a
-    /// single-line member, so removing this test leaves the rule unverified.
+    /// A <c>}</c> closing an interpolation hole is literal structure, not the declaration's
+    /// closing brace. The declaration index must therefore keep scanning through the literal's
+    /// closing delimiter and the method's own <c>}</c>.
     /// </summary>
     [Fact]
     public void HoleClosingBraceOnASingleLineRange_DoesNotTerminateTheDeclaration()
@@ -1104,13 +1083,19 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
-    /// A line that closes a literal carried in from above and then declares a sibling accessor
-    /// is a declaration from the point the literal ends. Asking only whether the line *began*
-    /// inside a literal suppressed the question on exactly the line that answers it, and the
-    /// getter's slice then swallowed the setter (adversarial review, GPT).
+    /// A line that closes a verbatim literal carried in from above and then declares a sibling
+    /// accessor is a declaration from the point the literal ends. Asking only whether the line
+    /// <i>began</i> inside a literal suppressed the question on exactly the line that answers it,
+    /// and the getter's slice then ran on past the property (adversarial review, GPT).
+    /// <para>
+    /// The slice is now the whole property, so "swallowing the sibling accessor" is no longer a
+    /// failure mode — a property's accessors are inside it by definition. The lexical question the
+    /// fixture was built for survives, and is what is gated here: the carried literal must not hide
+    /// the brace that closes the property, or the slice runs on into the enclosing type.
+    /// </para>
     /// </summary>
     [Fact]
-    public void AccessorClosingACarriedLiteral_DoesNotSwallowTheSiblingAccessor()
+    public void AccessorClosingACarriedLiteral_StillEndsAtThePropertysBrace()
     {
         var source = string.Join('\n',
             "class C",
@@ -1128,17 +1113,26 @@ public class ExtractMethodBodyTests
         var body = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
         Assert.NotNull(body);
-        Assert.DoesNotContain("set {", body);
+        Assert.StartsWith("    public string P", body);
+
+        // Not dedented, and correctly so: the literal's continuation line starts at column 0, so
+        // the common indent is 0 and removing four columns would corrupt the string's contents.
+        Assert.Contains("\n\" set { _v = value; }\n", body);
+
+        // Ends at the property's own closing brace: the enclosing type is not in the slice.
+        Assert.DoesNotContain("class C", body);
+        Assert.EndsWith("}", body);
+        Assert.Equal(8, body.Split('\n').Length);
     }
 
 
     /// <summary>
-    /// The backward signature scan reads trivia off each line above the slice. A line that ends
-    /// in a lone "/" has no character after it to classify, and reading one throws rather than
-    /// deciding the line is not a comment (adversarial review, Gemini).
+    /// A malformed header ending in a lone <c>/</c> has no next character to classify. Building
+    /// the declaration index may decline the row, but it must not read past the line and throw
+    /// (adversarial review, Gemini).
     /// </summary>
     [Fact]
-    public void SignatureScanOverALineEndingInASlash_DoesNotReadPastIt()
+    public void MalformedHeaderEndingInASlash_DoesNotReadPastTheLine()
     {
         var source = string.Join('\n',
             "class C",
@@ -1197,21 +1191,24 @@ public class ExtractMethodBodyTests
             "}") + "\n";
 
         var thrown = Record.Exception(
-            () => BodySlicer.ExtractMethodBody(source, 5, 6, "Finalize", isDestructor: true, destructorTypeName: "C"));
+            () => BodySlicer.ExtractMethodBody(source, 5, 6, "Finalize"));
 
         Assert.Null(thrown);
     }
 
     /// <summary>
-    /// A body whose braces never close runs the forward brace-recovery scan to the end of the
-    /// file. The scan's limit is clamped to the file length rather than to the scan budget,
-    /// because a member that begins within the budget of the last line makes the unclamped
-    /// limit larger than the file. Without the clamp the loop reads past the last line and
-    /// throws, which no other test reaches: every unbalanced fixture elsewhere either closes
-    /// its braces or sits far enough from EOF (adversarial review, Gemini).
+    /// A body whose braces never close leaves every open row's span a guess, so the index withholds
+    /// it and there is nothing to slice.
+    /// <para>
+    /// The backward-scanning slicer returned <c>"void M()\n{\n    if (x)\n    {"</c> here — a
+    /// truncated fragment that does not parse, presented as the member's source. Absent source is
+    /// the correct answer for a file the scan could not measure: a truncated file must not be
+    /// mistaken for a measured span. The clamp the old scan needed (its forward limit could exceed
+    /// the file length and read past the last line) has no counterpart here, because no scan runs.
+    /// </para>
     /// </summary>
     [Fact]
-    public void UnbalancedBodyAtEndOfFile_StopsAtTheLastLineRatherThanReadingPastIt()
+    public void UnbalancedBodyAtEndOfFile_ReportsAbsentRatherThanATruncatedFragment()
     {
         var source = string.Join('\n',
             "class C",
@@ -1221,25 +1218,32 @@ public class ExtractMethodBodyTests
             "        if (x)",
             "        {") + "\n";
 
-        var body = BodySlicer.ExtractMethodBody(source, 5, 6, "M");
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
 
-        Assert.Equal("void M()\n{\n    if (x)\n    {", body);
+        // The same member in a file that closes its braces does slice, so absence is caused by the
+        // unbalanced file and not by the fixture's shape.
+        var closed = string.Join('\n',
+            "class C",
+            "{",
+            "    void M()",
+            "    {",
+            "        if (x)",
+            "        {",
+            "        }",
+            "    }",
+            "}") + "\n";
+
+        Assert.Equal(
+            "void M()\n{\n    if (x)\n    {\n    }\n}",
+            BodySlicer.ExtractMethodBody(closed, 5, 6, "M"));
     }
 
     /// <summary>
-    /// <c>LexState.LoseDepth</c> sets both <c>literalDepthLost</c>, which the declaration index
-    /// reads, and <c>Untracked</c>, which only this legacy backward scan reads. The second
-    /// assignment is not redundant: a constructor spelled as a bare <c>C()</c> is not recognized
-    /// as a declaration on sight, so recovery scans backward past an unterminated line-bound
-    /// literal, and it is <c>Untracked</c> that tells that scan its brace depth is meaningless.
-    /// Disabling the assignment returns null here instead of the captured text.
-    ///
-    /// This test is that gate. It exists because the assignment survived a mutation battery
-    /// otherwise, so nothing distinguished it from a dead store (adversarial review, GPT-5.6 Sol,
-    /// which supplied this reproduction).
+    /// An unterminated literal costs the index its structural position. The declaration is
+    /// withheld rather than recovering a plausible fragment across text the lexer cannot place.
     /// </summary>
     [Fact]
-    public void AConstructorRecoveredPastAnUnterminatedLiteral_StillCapturesItsText()
+    public void AConstructorPastAnUnterminatedLiteral_ReportsAbsent()
     {
         var source = string.Join('\n',
             "class C",
@@ -1250,8 +1254,6 @@ public class ExtractMethodBodyTests
             "    }",
             "}");
 
-        var body = BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor");
-
-        Assert.Equal("class C\n{\n    string s = \"\n    C()\n    {\n    }", body);
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor"));
     }
 }

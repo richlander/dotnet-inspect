@@ -271,8 +271,14 @@ public class DeclarationIndexTests
         Assert.True(offenders.Count == 0, string.Join("\n", offenders.Take(20)));
     }
 
+    /// <summary>
+    /// Containment runs from the signature, not the body, so a line selects the declaration a
+    /// reader would say it belongs to. Line 8 is <c>Deep</c>'s signature: it is inside
+    /// <c>Inner</c>'s body but not inside <c>Deep</c>'s, so body-only containment answered
+    /// <c>Inner</c> — the enclosing type — for a line that plainly declares a method.
+    /// </summary>
     [Fact]
-    public void FindByBodyLine_ReturnsTheInnermostDeclarationCoveringThatLine()
+    public void FindByLine_ReturnsTheInnermostDeclarationCoveringThatLine()
     {
         var index = DeclarationIndex.Build("""
             namespace N;
@@ -290,15 +296,70 @@ public class DeclarationIndexTests
             }
             """);
 
-        var deep = index.FindByBodyLine(9);
-        Assert.NotNull(deep);
-        Assert.Equal(DeclarationKind.Method, deep.Kind);
-        Assert.Equal("Deep", deep.Name);
+        // Inside the body.
+        var body = index.FindByLine(10);
+        Assert.NotNull(body);
+        Assert.Equal(DeclarationKind.Method, body.Kind);
+        Assert.Equal("Deep", body.Name);
 
-        var inner = index.FindByBodyLine(8);
+        // On the signature. Body-only containment answered "Inner" here.
+        var signature = index.FindByLine(8);
+        Assert.NotNull(signature);
+        Assert.Equal(DeclarationKind.Method, signature.Kind);
+        Assert.Equal("Deep", signature.Name);
+
+        // A line belonging to no member still resolves to the innermost type that owns it, so
+        // widening containment did not make every line answer with a member.
+        var inner = index.FindByLine(7);
         Assert.NotNull(inner);
         Assert.Equal(DeclarationKind.Class, inner.Kind);
         Assert.Equal("Inner", inner.Name);
+
+        var before = index.FindByLine(4);
+        Assert.NotNull(before);
+        Assert.Equal("Before", before.Name);
+    }
+
+    /// <summary>
+    /// The reason containment starts at the signature. A constructor's first sequence point can
+    /// land on its declaration line rather than inside its body — the compiler attributes
+    /// parameter capture and a base initializer there — so body-only containment falls through to
+    /// the enclosing type and names the type header as the constructor's source.
+    /// <para>
+    /// Both halves matter. The constructor's own signature line must select the constructor, and
+    /// the type's header line must still select the type — a selector that simply preferred the
+    /// deepest row overlapping anything would satisfy the first and break the second.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AConstructorsSignatureLine_SelectsTheConstructorNotTheType()
+    {
+        var index = DeclarationIndex.Build("""
+            public class C
+            {
+                private readonly int _x;
+
+                private C(
+                    int x,
+                    int y)
+                {
+                    _x = x + y;
+                }
+            }
+            """);
+
+        var ctor = Assert.Single(index.Declarations, d => d.Kind == DeclarationKind.Constructor);
+        Assert.Equal(5, ctor.SignatureStartLine);
+        Assert.Equal(8, ctor.BodyStartLine);
+
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(5)?.Kind);
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(6)?.Kind);
+        Assert.Equal(DeclarationKind.Constructor, index.FindByLine(9)?.Kind);
+        Assert.Equal(DeclarationKind.Class, index.FindByLine(1)?.Kind);
+
+        // A field's line selects the field, which is what a static constructor synthesized from
+        // field initializers reports its sequence point against.
+        Assert.Equal(DeclarationKind.Field, index.FindByLine(3)?.Kind);
     }
 
     /// <summary>
@@ -959,7 +1020,7 @@ public class DeclarationIndexTests
         var conditional = Assert.Single(index.Declarations, s => s.Name == "Debug");
         Assert.False(conditional.SpanKnown, "a row inside a branch is not known to compile");
 
-        Assert.Equal("Always", index.FindByBodyLine(6)?.Name);
+        Assert.Equal("Always", index.FindByLine(6)?.Name);
 
         // The same declarations without the directive resolve identically, so the group now costs
         // nothing outside itself.
@@ -976,7 +1037,61 @@ public class DeclarationIndexTests
             """);
 
         Assert.All(plain.Declarations, s => Assert.True(s.SpanKnown));
-        Assert.Equal("Always", plain.FindByBodyLine(3)?.Name);
+        Assert.Equal("Always", plain.FindByLine(3)?.Name);
+    }
+
+    /// <summary>
+    /// A branch-local attribute makes the branch-local declaration unknown, but that declaration
+    /// consumes the attribute in every build where either exists. Its unknownness must not leak
+    /// past a balanced <c>#endif</c> and withhold the next unconditional declaration. Serilog
+    /// 4.2.0's <c>Logger.Write(LogEvent)</c> has this exact shape immediately after a
+    /// FEATURE_SPAN-only attributed overload.
+    /// </summary>
+    [Fact]
+    public void ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+                void Conditional() { }
+            #endif
+                void Always() { }
+            }
+            """);
+
+        var conditional = Assert.Single(index.Declarations, row => row.Name == "Conditional");
+        Assert.False(conditional.SpanKnown);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.True(always.SpanKnown);
+        Assert.Equal(always, index.FindByLine(7));
+    }
+
+    /// <summary>
+    /// The positive case above is safe only when the attribute and declaration are consumed
+    /// together. If another branch consumes the attribute, one build still carries it to the
+    /// declaration after <c>#endif</c>, so that declaration must remain unknown.
+    /// </summary>
+    [Fact]
+    public void AnAttributeConsumedOnlyInAnotherBranch_StillPoisonsTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+            #else
+                void Conditional() { }
+            #endif
+                void Always() { }
+            }
+            """);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.False(always.SpanKnown);
+        Assert.Equal(DeclarationKind.Class, index.FindByLine(8)?.Kind);
     }
 
     /// <summary>
@@ -2043,7 +2158,7 @@ public class DeclarationIndexTests
         // balance, so its end does not depend on which branch compiles. Brace balance is what
         // makes a *following* span knowable; it says nothing about a span whose terminator is
         // inside a branch, which is why P stays lost while C does not.
-        Assert.Equal("C", index.FindByBodyLine(3)?.Name);
+        Assert.Equal("C", index.FindByLine(3)?.Name);
 
         // Without the conditional the same shape resolves, so the directive is the whole cause and
         // the trailing-initializer path still extends the span it belongs to.

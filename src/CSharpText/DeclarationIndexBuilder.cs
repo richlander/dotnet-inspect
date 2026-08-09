@@ -97,14 +97,19 @@ internal static class DeclarationIndexBuilder
         // (adversarial review round 4, GPT-5.6 Terra).
         bool attributeKnown = true;
 
-        // Whether everything ELSE carried toward the next declaration is the same in every build:
-        // attribute lists that will bind to it, modifiers gathered for it, and headers a
-        // branch-dependent terminator threw away. Kept apart from triviaKnown because the
-        // unit-attribute path may discharge a trivia poison and must not discharge one of these --
-        // an unconsumed conditional list still binds to whatever follows, and a header eaten in
-        // one branch is still live in the other. Folding both into one flag is what let the
-        // seventh and eighth ways through (adversarial review round 6).
+        // Whether a header discarded in one branch may still be live in another. Kept apart from
+        // the current declaration's attribute knownness: a branch-local attribute belongs to the
+        // branch-local declaration that consumes it, so it makes that row unknown but must not
+        // poison the first declaration after #endif. A header crossing between branches is
+        // different; consuming it in the branch being scanned does not consume it in another
+        // build, so that poison remains until a declaration outside the group spends it.
         bool headerKnown = true;
+
+        // Whether every attribute list currently attached to the pending declaration exists in
+        // every build. This contributes to that row's SpanKnown, then resets when the declaration
+        // ends. Keeping it separate from headerKnown is gated by
+        // ABranchLocalAttributedDeclaration_DoesNotPoisonTheFollowingRow.
+        bool attachedAttributesKnown = true;
         int lastClosed = -1;
         int lastClosedSection = 0;
         bool inAttribute = false;
@@ -218,6 +223,7 @@ internal static class DeclarationIndexBuilder
             else
                 headerKnown &= !crossesABranch;
 
+            attachedAttributesKnown = true;
             triviaStart = -1;
             attributeLists.Clear();
         }
@@ -246,7 +252,8 @@ internal static class DeclarationIndexBuilder
                 EndLine = terminator.Line + 1,
                 ParentIndex = EnclosingIndex(),
                 AttributeLists = [.. attributeLists],
-                SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
+                SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown
+                    && attachedAttributesKnown && pending.All(t => t.DepthKnown),
             });
         }
 
@@ -514,7 +521,8 @@ internal static class DeclarationIndexBuilder
                         // bracket sits at -- above, the list is outside the group entirely and the
                         // vouch was still wrong.
                         triviaKnown = true;
-                        headerKnown &= attributeKnown;
+                        headerKnown &= attachedAttributesKnown && attributeKnown;
+                        attachedAttributesKnown = true;
 
                         lastTerminatorLine = tok.Line + 1;
                     }
@@ -528,7 +536,7 @@ internal static class DeclarationIndexBuilder
                         // a line inside the row's range -- it is a claim about what is applied to
                         // the declaration. A row whose lists depend on the build is not vouched
                         // for (adversarial review round 3, Gemini 3.1 Pro).
-                        headerKnown &= attributeKnown;
+                        attachedAttributesKnown &= attributeKnown;
                         if (triviaStart < 0)
                         {
                             triviaStart = attributeStart;
@@ -626,7 +634,8 @@ internal static class DeclarationIndexBuilder
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
                         AttributeLists = [.. attributeLists],
-                        SpanKnown = tok.DepthKnown && triviaKnown && headerKnown && pending.All(t => t.DepthKnown),
+                        SpanKnown = tok.DepthKnown && triviaKnown && headerKnown
+                            && attachedAttributesKnown && pending.All(t => t.DepthKnown),
                     });
                     scopes.Add((rows.Count - 1, true, true));
                 }

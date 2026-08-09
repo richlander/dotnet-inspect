@@ -10,11 +10,10 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 /// Parse-validity gate for the authored-source slicer
 /// (<see cref="BodySlicer.ExtractMethodBody"/>).
 /// <para>
-/// The slicer reconstructs a member's authored text from a sequence-point line range, so it
-/// has two independent boundaries: a backward scan that recovers the signature and a forward
-/// scan that recovers the closing brace. Neither boundary is observable from the extracted
-/// text's *signature*, which is why a member-identity round trip cannot see an end-boundary
-/// defect: swallowing the enclosing type's "}" leaves the signature line untouched.
+/// The slicer selects one declaration-index row from a sequence-point line and emits that row's
+/// source span. Parse validity checks both boundaries at once; a member-identity round trip alone
+/// cannot see an end-boundary defect because swallowing the enclosing type's closing brace leaves
+/// the member signature untouched.
 /// </para>
 /// <para>
 /// Roslyn is the independent oracle here. The claim is deliberately narrow — the extracted
@@ -61,7 +60,7 @@ public class AuthoredSourceValidityTests
         /// </summary>
         NotSliceable,
 
-        /// <summary>Anything else, including a backward scan that started mid-body.</summary>
+        /// <summary>Anything else, including a slice that starts or ends mid-declaration.</summary>
         Malformed,
     }
 
@@ -84,8 +83,11 @@ public class AuthoredSourceValidityTests
         return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
-    private static SliceOutcome Classify(string text)
+    private static SliceOutcome Classify(string? text)
     {
+        if (text is null)
+            return SliceOutcome.NotSliceable;
+
         if (ParsesAsMember(text))
             return SliceOutcome.WellFormed;
 
@@ -182,9 +184,7 @@ public class AuthoredSourceValidityTests
                         sourceText,
                         member.StartLine,
                         member.EndLine,
-                        member.Anchor.MemberName,
-                        member.IsFinalizer,
-                        member.IsFinalizer ? member.Anchor.TypeFullName : null);
+                        member.Anchor.MemberName);
 
                     slices.Add(new Slice(
                         member.Anchor.MemberName,
@@ -244,7 +244,7 @@ public class AuthoredSourceValidityTests
 
         Assert.True(
             slices.Count >= 1000,
-            $"the corpus fell to {slices.Count} slices; the rate ceilings above are measured over it");
+            $"the corpus fell to {slices.Count} slices; the outcome gates above are measured over it");
 
         var generic = slices.Where(s => s.Member.Contains('<') || s.Member.Contains('`')).ToList();
         Assert.True(
@@ -305,30 +305,37 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Characterizes the defect populations that remain so they stay visible and cannot grow
-    /// silently. These are not passing behavior — an under-captured property getter still
-    /// renders a partial accessor under an "Original Source" heading. The ceilings are
-    /// deliberately loose, because the corpus is this repository's own assemblies and exact
-    /// counts move with unrelated edits, but they fail if a change makes either category
-    /// materially worse.
+    /// Both boundary defect populations are gone, so this asserts their absence rather than a
+    /// ceiling over them. A ceiling above a zero rate gates nothing: the previous form allowed
+    /// 3.0% under-capture and 1.5% malformed against measured rates of 0.42% and 0.10%, so the
+    /// whole population could return before it failed.
+    /// <para>
+    /// Locating declarations over the index rather than recovering each boundary from the capture
+    /// is what emptied them. The non-empty not-sliceable population below is the control: the
+    /// defects cannot be traded away by refusing every slice.
+    /// </para>
+    /// <para>
+    /// Not-sliceable is asserted non-empty by
+    /// <see cref="MembersWithNoAuthoredDeclaration_ReportAbsentSource_NotATruncatedTypeHeader"/>,
+    /// so this test
+    /// cannot pass by slicing nothing.
+    /// </para>
     /// </summary>
     [Fact]
-    public void RemainingBoundaryDefects_StayWithinTheirCharacterizedCeilings()
+    public void TheBoundaryDefectPopulations_AreEmpty()
     {
         var slices = SliceCorpus();
         Assert.NotEmpty(slices);
 
         var counts = slices.GroupBy(s => s.Outcome).ToDictionary(g => g.Key, g => g.Count());
         int Count(SliceOutcome outcome) => counts.GetValueOrDefault(outcome);
-        double Rate(SliceOutcome outcome) => 100.0 * Count(outcome) / slices.Count;
 
         var summary = string.Join(
             "\n",
             counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
 
-        // Measured at 1.67% and 0.30% over this corpus.
-        Assert.True(Rate(SliceOutcome.UnderCapture) < 3.0, $"under-capture grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
-        Assert.True(Rate(SliceOutcome.Malformed) < 1.5, $"malformed slices grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
+        Assert.True(Count(SliceOutcome.UnderCapture) == 0, $"under-capture returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
+        Assert.True(Count(SliceOutcome.Malformed) == 0, $"malformed slices returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
     }
 
     /// <summary>
@@ -646,7 +653,7 @@ public class AuthoredSourceValidityTests
     /// not parse when a block comment closed on the name's line (adversarial review, GPT).
     /// </summary>
     [Theory]
-    [InlineData("public class C\n{\n    /* lead\n    */ C()\n    {\n    }\n}", 5, 6, "/* lead\n*/ C()\n{\n}")]
+    [InlineData("public class C\n{\n    /* lead\n    */ C()\n    {\n    }\n}", 5, 6, "C()\n{\n}")]
     [InlineData("public class C\n{\n    public\n    C()\n    {\n    }\n}", 5, 6, "public\nC()\n{\n}")]
     [InlineData("public class C\n{\n    public C(\n        int x)\n    {\n    }\n}", 5, 6, "public C(\n    int x)\n{\n}")]
     public void ConstructorRecovery_StartsAtTheDeclaration_NotAtTheName(string source, int startLine, int endLine, string expected)
@@ -710,31 +717,6 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// A type declaration is recognized only at the head of a line, so a second declaration
-    /// sharing the target's line is never entered and never retired. Whichever one was seen
-    /// first holds the innermost slot, and a constructor belonging to the other is reported
-    /// absent. Found by GPT (a second type) and Gemini (a bodiless type ahead of the
-    /// constructor). Pin today's wrong answer so the gap cannot widen unnoticed and closing it
-    /// is a visible test change.
-    /// <para>
-    /// Neither is a regression from the bodiless-type retirement: both are <c>null</c> at
-    /// fa1af2b6 as well. Retirement cannot simply be applied on the target's own line, because
-    /// that is exactly what would retire <c>C</c> in <c>class C { C() { } }</c> and reopen the
-    /// round-4 defect; telling the two apart needs intra-line declaration positions, which
-    /// this scanner does not track. Real source declares one type per line, and the one-line
-    /// form that does occur is covered by
-    /// <see cref="ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine"/>.
-    /// </para>
-    /// </summary>
-    [Theory]
-    [InlineData("class A { } class B { B() { } }", 1, 1)]
-    [InlineData("public class C {\n    public record R(int X); C() { }\n}", 2, 2)]
-    public void ASecondDeclarationOnTheTargetLine_IsNotRecognized_KnownGap(string source, int startLine, int endLine)
-    {
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
-    }
-
-    /// <summary>
     /// A type whose body closes on the constructor's own line is not retired, so the enclosing
     /// type is never reached and the constructor is reported absent (adversarial review,
     /// MAI-Code). Pinned rather than fixed, because retiring it is not the improvement it
@@ -762,15 +744,15 @@ public class AuthoredSourceValidityTests
     /// pinned here is a type-parameter attribute, which compiles.
     /// </para>
     /// <para>
-    /// The real defect is that braces inside brackets move the block-depth counter at all.
-    /// The scanner already knows better in the analogous case — a brace inside an interpolation
-    /// hole is counted against the hole, not the block — and extending that to brackets is the
-    /// fix. It is deliberately not made here: block depth feeds every consumer in this file,
-    /// and the same change is subsumed by locating declarations over a token stream.
+    /// The remaining defect is that braces inside brackets move the lexer's block-depth counter.
+    /// The lexer already knows better in the analogous case — a brace inside an interpolation
+    /// hole is counted against the hole, not the block. Extending that distinction to brackets is
+    /// deliberately separate from replacing the slicer's boundary recovery with the declaration
+    /// index: the index consumes the same lexical depth and conservatively withholds this row.
     /// </para>
     /// </summary>
     [Fact]
-    public void ABraceInAMultiLineAttributeInitializer_RetiresTheDeclaringType_KnownGap()
+    public void ABraceInAMultiLineAttributeInitializer_ReportsAbsentRatherThanTheDeclaringType()
     {
         var source = string.Join('\n',
         [
@@ -788,7 +770,11 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
 
-        Assert.Equal("{\n    public\n    C()\n    {\n    }\n}", slice);
+        // The brace inside the attribute still costs the scan its place, but the index reports
+        // that as an unknown span and the row is withheld, so the answer is absence rather than
+        // the declaring type. Losing a member is the failure this design accepts; naming the
+        // wrong one is the failure it does not.
+        Assert.Null(slice);
     }
 
     /// <summary>
@@ -800,7 +786,7 @@ public class AuthoredSourceValidityTests
     /// had to learn in round 6, in the retirement rule round 8 added.
     /// </summary>
     [Fact]
-    public void ABraceInsideATypeParameterAttribute_DoesNotEndTheDeclaration()
+    public void ABraceInsideATypeParameterAttribute_ReportsAbsent_KnownGap()
     {
         var source = string.Join('\n',
         [
@@ -817,7 +803,11 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
 
-        Assert.Equal("public\nC()\n{\n}", slice);
+        // Known gap, and a deliberate trade. The brace inside the type parameter's attribute
+        // moves the index's block depth, so every row in the file reports an unknown span and
+        // is withheld. The backward scan answered this one correctly; it answered the two
+        // shapes below it incorrectly. Absence is recoverable by a caller, a wrong span is not.
+        Assert.Null(slice);
     }
 
     [Fact]
@@ -842,7 +832,7 @@ public class AuthoredSourceValidityTests
     /// </para>
     /// </summary>
     [Fact]
-    public void ACallNamedForTheTypeInsideALambda_IsTakenForTheDeclaration_KnownGap()
+    public void ACallNamedForTheTypeInsideALambda_IsNotTakenForTheDeclaration()
     {
         var source = string.Join('\n',
         [
@@ -855,7 +845,9 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        Assert.Equal("    C();\n\nC() { }", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
+        // Fixed by locating declarations structurally: there is no backward scan to be fooled
+        // by a call spelled like the type name, so the constructor is returned on its own.
+        Assert.Equal("C() { }", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -865,11 +857,12 @@ public class AuthoredSourceValidityTests
     /// *inside* the parameter list is the shape that occurs in practice, and it works.
     /// </summary>
     [Fact]
-    public void ConstructorNameSplitFromItsParameterList_IsNotRecognized_KnownGap()
+    public void ConstructorNameSplitFromItsParameterList_IsRecognized()
     {
         var source = "public class C\n{\n    C\n    (\n    )\n    {\n    }\n}";
 
-        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+        // Fixed. The index carries a declaration across lines, so the split costs nothing.
+        Assert.Equal("C\n(\n)\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -878,12 +871,32 @@ public class AuthoredSourceValidityTests
     /// and neither is a constructor declared at this type's member level.
     /// </summary>
     [Theory]
-    [InlineData("public class C { static C I = new C(); }")]
-    [InlineData("public class C { class D { D() { } } }")]
     [InlineData("public record R(string s = \"{ R()\") ;")]
     public void ConstructorRecovery_IgnoresNamesThatAreNotMemberLevelDeclarations(string source)
     {
         Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Characterization, and a limit of the design rather than a defect in it. Spans are
+    /// line-granular, matching the PDB sequence points that drive selection, so when a type and
+    /// every member it declares share one line there is no span that distinguishes them and the
+    /// slice is that line. The selector also does not consult the requested member name: the
+    /// name is available and could reject here, but a rejection rule strong enough to help is
+    /// also strong enough to lose the shapes metadata spells differently from source — a field
+    /// initializer's sequence points really are attributed to ".ctor", and an accessor really is
+    /// requested as "get_P" against a row named "P". Pinned rather than suppressed, because a
+    /// narrow name check is exactly the kind of patch this file's history records unwinding.
+    /// Real source does not write these shapes; the corpus differential over 4,088 slices moved
+    /// no member into an invalid outcome.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C { static C I = new C(); }")]
+    [InlineData("public class C { class D { D() { } } }")]
+    [InlineData("class A { } class B { B() { } }")]
+    public void EverythingOnOneLine_SlicesThatLine(string source)
+    {
+        Assert.Equal(source, BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -937,14 +950,14 @@ public class AuthoredSourceValidityTests
     /// discriminator. The assertion records today's wrong answer so that fixing it is visible.
     /// </summary>
     [Fact]
-    public void DeclarationOnAMultiLineAttributesClosingLine_IsNotRecognized_KnownGap()
+    public void DeclarationOnAMultiLineAttributesClosingLine_ReportsAbsent()
     {
         var source = "[System.Obsolete( // comment with ]\n    \"why\")] public record R(int X);";
 
         var slice = BodySlicer.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
 
-        // The right answer is null. Pin the wrong one so the gap cannot widen unnoticed.
-        Assert.Equal("\"why\")] public record R(int X);", slice);
+        // Fixed: the right answer is null, and it is now the answer.
+        Assert.Null(slice);
     }
 
     /// <summary>
@@ -1021,8 +1034,8 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        // The range ends on the statement, as a sequence-point range does; the member's own
-        // closing brace is recovered by the forward scan.
+        // The range ends on the statement, as a sequence-point range does; the declaration row
+        // still owns the member's complete span.
         var body = BodySlicer.ExtractMethodBody(
             string.Join("\n", lines), startLine: 5, endLine: 5, methodName: "M");
 
@@ -1033,11 +1046,9 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// The forward scan yields to a sibling accessor, and only to one. Asking whether any line
-    /// "opens a declaration" read a <c>static</c> local function — and any other statement
-    /// leading with a declaration modifier — as a sibling, and truncated the enclosing method
-    /// at it (adversarial review, Gemini). Only a property or event block can hold a sibling
-    /// accessor, so the question is asked only when the member being sliced is an accessor.
+    /// Local declarations and declaration-shaped statements inside a body do not create index
+    /// rows, so they cannot truncate the enclosing member. This preserves the regression fixtures
+    /// that previously exercised the forward scan's sibling discriminator.
     /// </summary>
     [Theory]
     [InlineData("static void L() { }")]
@@ -1095,7 +1106,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
-        Assert.Equal("public int P\n{\n    get => 1;", slice);
+        // The slice is the whole property: the sibling accessor is inside it by definition,
+        // so what this fixture now gates is that the shape below does not stop the slice
+        // short of the property's closing brace or push it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => 1;", slice);
+        Assert.EndsWith("}", slice);
     }
 
     /// <summary>
@@ -1189,7 +1205,7 @@ public class AuthoredSourceValidityTests
     /// GPT). The slice must fall back to the range rather than reach past it on a bad count.
     /// </summary>
     [Fact]
-    public void ConditionalDirective_SuppressesDepthBasedRecovery()
+    public void ConditionalDirective_ReportsAbsentRatherThanAGuessedSpan()
     {
         string[] lines =
         [
@@ -1207,9 +1223,10 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
 
-        Assert.NotNull(slice);
-        Assert.DoesNotContain("class C", slice);
-        Assert.EndsWith("System.Console.WriteLine();", slice.TrimEnd());
+        // The index cannot vouch for a span once a conditional directive has been seen, so the
+        // row is withheld and the member reports absent. That is the #3668 behavior reaching the
+        // slicer: conservative rather than wrong, and it replaces a recovery that was guessing.
+        Assert.Null(slice);
     }
 
     /// <summary>
@@ -1328,7 +1345,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
-        Assert.Equal("public int P\n{\n    get => 1;", slice);
+        // The slice is the whole property: the sibling accessor is inside it by definition,
+        // so what this fixture now gates is that the shape below does not stop the slice
+        // short of the property's closing brace or push it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => 1;", slice);
+        Assert.EndsWith("}", slice);
     }
 
     /// <summary>
@@ -1432,7 +1454,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
 
-        Assert.Equal("public int Prop\n{\n    get\n    {\n        var s = 1;\n        return 1;\n    }", slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int Prop\n{\n    get\n    {\n        var s = 1;\n        return 1;\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1466,9 +1493,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
 
-        Assert.Equal(
-            "public int P\n{\n    get => (\n        () =>\n        {\n            return 1;\n        })()\n        + 1;",
-            slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => (\n        () =>\n        {\n            return 1;\n        })()\n        + 1;", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1497,9 +1527,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
 
-        Assert.NotNull(slice);
-        Assert.EndsWith("2;", slice, StringComparison.Ordinal);
-        Assert.DoesNotContain("set", slice, StringComparison.Ordinal);
+        // The tail after the nested block is still kept -- that is what this fixture gates --
+        // and the slice now runs on to the property's closing brace rather than stopping at the
+        // sibling accessor.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains("2;", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1534,7 +1567,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
-        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get\n    {\n        return 1;\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1563,7 +1601,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, 5, 5, "get_Tfm");
 
-        Assert.Equal("public int[] Tfm\n{\n    get =>\n" + expectedTail, slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int[] Tfm\n{\n    get =>\n" + expectedTail, slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1596,7 +1639,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, 6, 8, "get_Prop");
 
-        Assert.Equal("public int Prop\n{\n    get\n    {\n        return 1;\n    }", slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int Prop\n{\n    get\n    {\n        return 1;\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1637,10 +1685,19 @@ public class AuthoredSourceValidityTests
         // returning a truncated type header. The other two rows are unchanged, because their
         // captures begin at the property, not the type.
         null)]
-    public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_TruncatesTheSlice_KnownGap(
+    public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_NoLongerTruncatesTheSlice(
         string source, int startLine, int endLine, string methodName, string? truncated)
     {
-        Assert.Equal(truncated, BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName));
+        _ = truncated;
+
+        var slice = BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName);
+
+        // Each of these shapes made the sibling question end the slice somewhere that is not a
+        // member boundary, and every answer was a fragment. There is no sibling question now, so
+        // the claim is the one the fragments violated: the answer is either the whole member or
+        // absence, and never a piece of one.
+        if (slice is not null)
+            Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
     }
 
     /// <summary>
@@ -1650,8 +1707,8 @@ public class AuthoredSourceValidityTests
     /// </summary>
     [Theory]
     [InlineData("        #region Preview")]
-    [InlineData("#if DEBUG")]
     [InlineData("        #pragma warning disable CS0618")]
+    [InlineData("        #nullable enable")]
     public void ADirectiveAheadOfTheSibling_IsTrivia_NotTheMembersCode(string directive)
     {
         var source = string.Join('\n',
@@ -1672,7 +1729,52 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, 5, 8, "get_P");
 
-        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+        // The slice is the whole property, so the directive is inside it rather than ahead of
+        // it. This fixture's source never closes the directive it opens -- there is no #endregion
+        // or #endif anywhere in it -- so the slice cannot be directive-balanced and Roslyn reports
+        // it malformed for that reason alone. What is gated here is the extent: the directive
+        // neither stops the slice short of the property's closing brace nor carries it past one.
+        // A directive that opens inside a member and closes outside it is unsliceable by any
+        // line-granular extraction, which is why no parse-validity claim is made for this shape.
+        // A directive spelled at column 0 pins the common indent to zero, so the slice keeps its
+        // original indentation; assert the extent rather than the exact spelling.
+        Assert.Contains("public int P", slice, StringComparison.Ordinal);
+        Assert.Contains("return 1;", slice, StringComparison.Ordinal);
+        Assert.Contains(directive.Trim(), slice, StringComparison.Ordinal);
+        Assert.Contains("set { }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A *conditional* directive is the one kind that costs the member its slice. The index
+    /// cannot vouch for a span once it has seen one, because the branches it cannot evaluate may
+    /// each balance differently, so the row is withheld and the member reports absent (#3668).
+    /// This is the same behavior <see cref="ConditionalDirective_ReportsAbsentRatherThanAGuessedSpan"/>
+    /// gates from the other side, asserted here on the shape that used to be answered.
+    /// </summary>
+    [Theory]
+    [InlineData("#if DEBUG")]
+    [InlineData("        #if DEBUG")]
+    [InlineData("        #else")]
+    public void AConditionalDirectiveAheadOfTheSibling_ReportsAbsent(string directive)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            directive,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 8, "get_P"));
     }
 
     /// <summary>
@@ -1702,9 +1804,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
-        Assert.Equal(
-            "public string P\n{\n    get\n    {\n        return \"\"\"\n            set\n            \"\"\";\n    }",
-            slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public string P\n{\n    get\n    {\n        return \"\"\"\n            set\n            \"\"\";\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1734,7 +1839,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
 
-        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get\n    {\n        return 1;\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1765,9 +1875,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
 
-        Assert.Equal(
-            "public int Prop\n{\n    get\n    {\n        if (true)\n        {\n            return 1;\n        }\n        return 2;\n    }",
-            slice);
+        // The slice is the whole property. The sibling accessor is inside it by definition,
+        // so what this fixture gates is that the shape below neither stops the slice short of
+        // the property's closing brace nor carries it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int Prop\n{\n    get\n    {\n        if (true)\n        {\n            return 1;\n        }\n        return 2;\n    }", slice, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1795,7 +1908,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
 
-        Assert.Equal("public int P\n{\n    get => 1;", slice);
+        // The slice is the whole property: the sibling accessor is inside it by definition,
+        // so what this fixture now gates is that the shape below does not stop the slice
+        // short of the property's closing brace or push it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => 1;", slice);
+        Assert.EndsWith("}", slice);
     }
 
     /// <summary>
@@ -1832,7 +1950,7 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// The attribute list is now measured by the shared scanner rather than by a second,
+    /// The attribute list is now measured by the shared lexer rather than by a second,
     /// simpler one that started reading a literal at its quote. That copy took <c>@"x""</c>
     /// for a closed string and then read a <c>]</c> in its text as the list's terminator,
     /// hiding the sibling that followed (adversarial review, GPT).
@@ -1859,7 +1977,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
-        Assert.Equal("public int P\n{\n    get => 1;", slice);
+        // The slice is the whole property: the sibling accessor is inside it by definition,
+        // so what this fixture now gates is that the shape below does not stop the slice
+        // short of the property's closing brace or push it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => 1;", slice);
+        Assert.EndsWith("}", slice);
     }
 
     /// <summary>
@@ -1890,7 +2013,12 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
-        Assert.Equal("public int P\n{\n    get => 1;", slice);
+        // The slice is the whole property: the sibling accessor is inside it by definition,
+        // so what this fixture now gates is that the shape below does not stop the slice
+        // short of the property's closing brace or push it past one.
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.StartsWith("public int P\n{\n    get => 1;", slice);
+        Assert.EndsWith("}", slice);
     }
 
     /// <summary>
@@ -1929,13 +2057,12 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// The boundary the scan above must not cross: a member that terminates its own declaration
-    /// owns no brace below it, so the next one closes the enclosing type (issue #3278).
+    /// The boundary the row selection above must not cross: a member that terminates its own
+    /// declaration owns no brace below it, so the next one closes the enclosing type (issue #3278).
     /// </summary>
     [Theory]
     [InlineData("public string P => \"{\";", "get_P")]
     [InlineData("public int P { get; set; }", "get_P")]
-    [InlineData("public string R() => \"\"\";\";", "R")]
     public void MemberThatClosesItsOwnDeclaration_DoesNotTakeTheTypeBrace(string member, string name)
     {
         var text = string.Join("\n", ["public class C", "{", "    " + member, "}"]);
@@ -1946,10 +2073,24 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// Known gap. A member whose expression body is a raw string literal spelling a quote and a
+    /// semicolon costs the scan its place, so the row's span is unknown and the member reports
+    /// absent. The backward scan returned it. Absence is the trade this design makes; the
+    /// whole-corpus validity gate ensures it does not become malformed output.
+    /// </summary>
+    [Fact]
+    public void AMemberWhoseBodyIsARawStringSpellingItsOwnTerminator_ReportsAbsent_KnownGap()
+    {
+        var source = string.Join('\n', ["public class C", "{", "    public string R() => \"\"\";\";", "}"]);
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "R"));
+    }
+
+    /// <summary>
     /// A constructor recovered from below the type header must be recovered at the type's
-    /// member level, and an attribute list that never closes leaves the scanner unable to say
+    /// member level, and an attribute list that never closes leaves the index unable to say
     /// where member level is. The line below such a list reads exactly like a constructor
-    /// declaration -- and the scanner would accept it, presenting a fragment of an attribute
+    /// declaration -- and a recovery heuristic could accept it, presenting a fragment of an attribute
     /// argument as authored source -- so the bracket depth is part of the member-level test,
     /// not just the brace depth (adversarial review, Gemini).
     /// </summary>
