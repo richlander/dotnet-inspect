@@ -15,13 +15,37 @@ public class PdbContextDescriptorTests
         string informationalPath = typeof(PdbContext).Assembly.Location;
         byte[] authoritativeImage = File.ReadAllBytes(authoritativePath);
         AssemblyReferenceIdentity identity = ReadIdentity(authoritativeImage);
+        DateTime authoritativeTimestamp = new(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var descriptor = ResolvedAssemblyReference.Create(
+            identity,
+            informationalPath,
+            () => new MemoryStream(authoritativeImage, writable: false),
+            AssemblyResolutionProvenance.Local("test"),
+            authoritativeTimestamp);
+
+        using var context = PdbContext.Open(descriptor);
+
+        Assert.Equal(identity.Name, context.ExtractAssemblyInfo().AssemblyName);
+        Assert.Equal(informationalPath, context.AssemblyPathOrNull);
+        Assert.Equal(
+            authoritativeTimestamp,
+            context.LastWriteTimeUtc);
+    }
+
+    [Fact]
+    public void OpenPrefetchedDescriptor_UsesAuthoritativeStreamInsteadOfPath()
+    {
+        string authoritativePath = typeof(PdbContextDescriptorTests).Assembly.Location;
+        string informationalPath = typeof(PdbContext).Assembly.Location;
+        byte[] authoritativeImage = File.ReadAllBytes(authoritativePath);
+        AssemblyReferenceIdentity identity = ReadIdentity(authoritativeImage);
         var descriptor = ResolvedAssemblyReference.Create(
             identity,
             informationalPath,
             () => new MemoryStream(authoritativeImage, writable: false),
             AssemblyResolutionProvenance.Local("test"));
 
-        using var context = PdbContext.Open(descriptor);
+        using var context = PdbContext.OpenPrefetched(descriptor);
 
         Assert.Equal(identity.Name, context.ExtractAssemblyInfo().AssemblyName);
         Assert.Equal(informationalPath, context.AssemblyPathOrNull);

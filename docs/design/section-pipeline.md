@@ -70,12 +70,10 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    "ExtensionMethods",
+    "Resources",
     SectionCost.NetworkFree,
-    ctx => LibraryMetadataService.ScanExtensionMethods(
-        ctx.AssemblyPath,
-        ctx.Model,
-        ctx.Logger));
+    ctx => ctx.Model.ResourceInspection =
+        LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger));
 ```
 
 `AddBundle` registers prerequisite closure without adding work or declaring a
@@ -181,6 +179,14 @@ and trace machinery still owns execution.
 
 The planner enables direct or tree collection from the candidate set instead
 of creating synonymous sections.
+
+Extension-method and custom-attribute inspection are also typed query work.
+`Library Info` binds both query definitions, while `Extension Methods` and
+`Custom Attributes` each bind the definition for their detailed rows. One
+immutable result per facet therefore supplies the summary count and detailed
+rows without string scanner keys or duplicate metadata passes. A section may
+bind multiple typed queries; its effective cost is the maximum over every
+query's prerequisite closure.
 
 ## Effectiveness
 
