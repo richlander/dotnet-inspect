@@ -49,8 +49,10 @@ public class TerminalReturnPrinterTests
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
     }
 
-    [Fact]
-    public void LabeledTerminalReturnBeforeLocalFunction_IsPreserved()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LabeledTerminalReturnBeforeLocalFunction_IsPreserved(bool targetStatementOffset)
     {
         var localBody = new BlockContainer();
         localBody.Add(new Block());
@@ -67,8 +69,11 @@ public class TerminalReturnPrinterTests
 
         var entry = new Block();
         entry.Add(new Branch(0x10));
-        var target = new Block(0x10);
-        target.Add(new Return(null));
+        var target = new Block(targetStatementOffset ? 0x08 : 0x10);
+        var terminalReturn = new Return(null);
+        if (targetStatementOffset)
+            terminalReturn.SetSourceOffset(0x10);
+        target.Add(terminalReturn);
         target.Add(localFunction);
         var body = new BlockContainer();
         body.Add(entry);

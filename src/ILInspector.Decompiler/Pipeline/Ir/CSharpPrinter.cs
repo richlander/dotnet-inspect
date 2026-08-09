@@ -702,7 +702,10 @@ public sealed partial class CSharpPrinter
                 if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
                     continue;   // lifted to the signature initializer / field declarations
                 bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
-                if (isLastStatement && !labeledReturnOnly && statement is Return { Value: null })
+                bool statementOwnsLabel = statement.SourceOffset >= 0
+                    && _labelTargets.Contains(statement.SourceOffset);
+                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
+                    && statement is Return { Value: null })
                     continue;
                 emit.Add(statement);
             }
