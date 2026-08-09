@@ -276,6 +276,8 @@ returned span.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+`InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
+derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
 all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
@@ -313,6 +315,8 @@ failures remain visible as `MemberCallGraphAcquisitionException`.
 `ProgressiveMemberCallGraphTests` gates build and source-open counts,
 stream-only operation, duplicate-image reuse, typed failures, projection reuse,
 and group-owned disposal.
+`ProgressiveMemberCallGraphTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
+also gates disposal of the graph's catalog scope.
 `ProgressiveMemberCallGraphTests.MalformedMetadata_IsTypedAndCached` gates
 malformed-image failure caching, and
 `ProgressiveMemberCallGraphTests.InvalidImageClassification_CoversMetadataDecoderExceptions`

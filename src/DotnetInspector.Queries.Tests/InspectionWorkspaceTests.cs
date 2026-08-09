@@ -579,6 +579,25 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void OwnedResources_AreDisposedBeforeSnapshots()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        var resource = new RetainedImageAssertingResource(group);
+        group.RegisterOwnedResource(resource);
+
+        workspace.Dispose();
+
+        Assert.True(resource.IsDisposed);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public void WorkspaceDisposal_ContinuesAfterAGroupFails()
     {
         TestAssembly first = TestAssembly.Create();
@@ -731,5 +750,18 @@ public sealed class InspectionWorkspaceTests
         public void Dispose() =>
             throw new InvalidOperationException(
                 "Synthetic owned-resource disposal failure.");
+    }
+
+    sealed class RetainedImageAssertingResource(
+        AssemblyContextGroup group)
+        : IDisposable
+    {
+        internal bool IsDisposed { get; private set; }
+
+        public void Dispose()
+        {
+            Assert.True(group.RetainedImageBytes > 0);
+            IsDisposed = true;
+        }
     }
 }

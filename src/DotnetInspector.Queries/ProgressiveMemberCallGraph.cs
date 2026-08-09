@@ -88,6 +88,8 @@ public sealed record ProgressiveMemberCallGraphOptions
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(Depth, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(MaxNodes, 1);
+        if ((Features & ~Analysis.LibraryBodyAnalysisFeatures.All) != 0)
+            throw new ArgumentOutOfRangeException(nameof(Features));
         if (Features == Analysis.LibraryBodyAnalysisFeatures.None)
         {
             throw new ArgumentException(
@@ -519,6 +521,9 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
             _scopedTargetIndexBuilds,
             _fullTargetIndexBuilds,
             _crossLibraryIndexBuilds);
+
+    internal Analysis.CatalogCallGraphScope? CatalogScope =>
+        _catalogScope;
 
     public void Dispose()
     {

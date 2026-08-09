@@ -301,12 +301,16 @@ public sealed class ProgressiveMemberCallGraphTests
             context.Sources[0].Assembly,
             run);
         _ = graph.CrossLibrary();
+        Analysis.CatalogCallGraphScope catalogScope =
+            Assert.IsType<Analysis.CatalogCallGraphScope>(
+                graph.CatalogScope);
         Assert.True(context.Group.RetainedImageBytes > 0);
 
         context.Workspace.Dispose();
 
         Assert.Equal(0, context.Group.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(graph.Callees);
+        Assert.Throws<ObjectDisposedException>(catalogScope.ReleaseGraph);
         graph.Dispose();
     }
 
@@ -336,6 +340,18 @@ public sealed class ProgressiveMemberCallGraphTests
                     Features =
                         Analysis.LibraryBodyAnalysisFeatures.LeakTriage,
                 }));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ProgressiveMemberCallGraph(
+                context.Group,
+                context.Sources[0].Assembly,
+                run,
+                new()
+                {
+                    Features =
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence
+                        | (Analysis.LibraryBodyAnalysisFeatures)(1 << 20),
+                }));
+        Assert.Equal(0, context.Sources[0].OpenCount);
     }
 
     [Fact]

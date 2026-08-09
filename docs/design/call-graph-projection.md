@@ -215,7 +215,8 @@ disposal can release them earlier. A required participant failure raises
 than returning a success-shaped partial graph.
 `ProgressiveMemberCallGraphTests` asserts index build and source-open counts,
 stream-only input, duplicate-image reuse, typed failures, projection reuse, and
-group-owned release. `CatalogCallGraphScopeTests` pins the single-generation,
+group-owned release, including disposal of the catalog scope.
+`CatalogCallGraphScopeTests` pins the single-generation,
 single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
 

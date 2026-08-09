@@ -140,7 +140,7 @@ public readonly ref struct AssemblyImageSpanResult
 /// <c>DisposalInsideCallback_DoesNotRevokeActiveView</c>, and
 /// <c>GroupRejectsMixedBindingPolicySnapshots</c>. Derived-resource ordering
 /// is gated by
-/// <c>WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots</c>.
+/// <c>OwnedResources_AreDisposedBeforeSnapshots</c>.
 /// </remarks>
 public sealed class AssemblyContextGroup : IDisposable
 {
