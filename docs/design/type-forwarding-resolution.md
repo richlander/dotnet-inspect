@@ -2635,10 +2635,16 @@ generation-scoped definition currency as graph correspondence. Only
 catalog-issued complete projections can join; incomplete projections do not
 fabricate callers. Indeterminate duplicate-artifact projections remain valid
 catalog-scoped currency and join only when their complete keys agree, matching
-the graph contract. The focused gates in `CatalogDirectCallerQueryTests` and
-the real framework gates in `ForwardedCallerEdgeTests` cover forwarded
-non-core-library parameters, close overloads, constructed generic calls, and
-unavailable correspondence, closing
+the graph contract. If either side cannot bind a signature type, direct caller
+correspondence preserves the exact metadata contract for that component:
+assembly-reference identity or intrinsic-core-library scope plus structured
+type name. This retains callers when dependencies are unavailable without
+collapsing different references or names; resolved definitions still require
+catalog correspondence. The focused gates in
+`CatalogDirectCallerQueryTests` and the real framework gates in
+`ForwardedCallerEdgeTests` cover forwarded non-core-library parameters, close
+overloads, constructed generic calls, matching unresolved contracts, and
+unavailable declaring-type correspondence, closing
 [#3513](https://github.com/richlander/dotnet-inspect/issues/3513).
 
 ### Slice 6: graph correspondence and cleanup

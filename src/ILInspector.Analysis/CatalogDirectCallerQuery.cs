@@ -91,7 +91,10 @@ public static class CatalogDirectCallerQuery
         {
             if (candidate.Plan.Project(context)
                     is CatalogMemberJoinProjection.Issued projection
-                && projection.Key.Equals(targetProjection.Key))
+                && targetPlan.CorrespondsTo(
+                    candidate.Plan,
+                    targetProjection,
+                    projection))
             {
                 matches.Add(
                     new CatalogDirectCaller(

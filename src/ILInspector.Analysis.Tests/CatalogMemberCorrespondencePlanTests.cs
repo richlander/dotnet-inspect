@@ -354,6 +354,46 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void KindMismatchRequiresUnresolvedContractEvidence()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        CatalogMemberCorrespondencePlan plan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            plan.Requests);
+        var exact = Assert.IsType<CatalogMemberJoinProjection.Issued>(
+            plan.Project(context));
+        Assert.Equal(
+            CatalogMemberCorrespondenceKind.Exact,
+            exact.Key.Kind);
+        var changedKind = new CatalogMemberJoinProjection.Issued(
+            new CatalogMemberJoinKey(
+                exact.Key.Catalog,
+                exact.Key.Generation,
+                CatalogMemberCorrespondenceKind.Indeterminate,
+                exact.Key.DeclaringType,
+                exact.Key.Name,
+                exact.Key.MemberKind,
+                exact.Key.GenericArity,
+                exact.Key.HasThis,
+                exact.Key.SignatureHeader,
+                exact.Key.RequiredParameterCount,
+                exact.Key.ParameterTypes,
+                exact.Key.ReturnType),
+            []);
+
+        Assert.False(
+            plan.CorrespondsTo(plan, exact, changedKind));
+    }
+
+    [Fact]
     public void GenericMemberWithoutOpenSignature_IsIncomplete()
     {
         byte[] image = BuildAssembly("Owner", ["Owner", "Arg"]);

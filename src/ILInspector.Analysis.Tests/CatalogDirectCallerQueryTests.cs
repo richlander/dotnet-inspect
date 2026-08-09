@@ -98,6 +98,62 @@ public class CatalogDirectCallerQueryTests
             caller => caller.Call.Caller.Name == "Run");
     }
 
+    [Fact]
+    public void MatchingUnresolvedParameterContractsRetainCaller()
+    {
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        LibraryBodyIndex source = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        MethodIdentity ping = StringPing(target);
+
+        ImmutableArray<CatalogDirectCaller> callers = Find(
+            target,
+            ping.MetadataToken,
+            source,
+            SourceRelativePolicy(
+                target,
+                UnavailablePolicy.Instance,
+                source,
+                UnavailablePolicy.Instance));
+
+        Assert.Contains(
+            callers,
+            caller => caller.Call.Caller.Name == "RunString");
+        Assert.DoesNotContain(
+            callers,
+            caller => caller.Call.Caller.Name == "RunInt");
+    }
+
+    [Fact]
+    public void ResolvedAndUnresolvedMatchingParameterContractsRetainCaller()
+    {
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        LibraryBodyIndex source = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        MethodIdentity ping = StringPing(target);
+        var sourcePolicy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(source.Path));
+
+        ImmutableArray<CatalogDirectCaller> callers = Find(
+            target,
+            ping.MetadataToken,
+            source,
+            SourceRelativePolicy(
+                target,
+                UnavailablePolicy.Instance,
+                source,
+                sourcePolicy));
+
+        Assert.Contains(
+            callers,
+            caller => caller.Call.Caller.Name == "RunString");
+        Assert.DoesNotContain(
+            callers,
+            caller => caller.Call.Caller.Name == "RunInt");
+    }
+
     static ImmutableArray<CatalogDirectCaller> FindFrameworkCallers(
         string targetPath,
         params string[] parameterTypes)
@@ -138,21 +194,34 @@ public class CatalogDirectCallerQueryTests
     static IAssemblyBindingPolicy GroupPolicy(
         LibraryBodyIndex target,
         LibraryBodyIndex source)
+        => SourceRelativePolicy(
+            target,
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(target.Path)),
+            source,
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(source.Path)));
+
+    static IAssemblyBindingPolicy SourceRelativePolicy(
+        LibraryBodyIndex target,
+        IAssemblyBindingPolicy targetPolicy,
+        LibraryBodyIndex source,
+        IAssemblyBindingPolicy sourcePolicy)
     {
         ResolvedAssemblyReference targetAssembly = Descriptor(target);
         ResolvedAssemblyReference sourceAssembly = Descriptor(source);
         return new SourceRelativeAssemblyGroupBindingPolicy(
             [
-                (
-                    targetAssembly,
-                    (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
-                        new AssemblyDependencyResolutionOptions(target.Path))),
-                (
-                    sourceAssembly,
-                    (IAssemblyBindingPolicy)new AssemblyDependencyResolver(
-                        new AssemblyDependencyResolutionOptions(source.Path))),
+                (targetAssembly, targetPolicy),
+                (sourceAssembly, sourcePolicy),
             ]);
     }
+
+    static MethodIdentity StringPing(LibraryBodyIndex target) =>
+        target.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Api"
+            && method.Name == "Ping"
+            && method.ParameterTypes is [{ Name: "String" }]);
 
     static ResolvedAssemblyReference Descriptor(LibraryBodyIndex index) =>
         ResolvedAssemblyReference.CreateFromPath(
