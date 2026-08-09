@@ -592,7 +592,7 @@ public static class OutputFormatter
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var title = GetLibraryDocumentTitle(auditView);
+                var title = GetLibraryDocumentTitle(inspection);
                 var body = RemovePlainTextDocumentTitle(
                     SerializeLibraryPlainText(
                         auditView, inspection, WriterOptions(inspection)),
@@ -605,20 +605,21 @@ public static class OutputFormatter
         {
             var documents = new List<string>
             {
-                "# " + (LibraryViewText.Contain(
+                RenderMarkdownHeading(1, LibraryViewText.Contain(
                     Path.GetFileNameWithoutExtension(inspections[0].FileName)) ?? string.Empty),
-                "## Libraries"
+                RenderMarkdownHeading(2, "Libraries")
             };
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var title = GetLibraryDocumentTitle(auditView);
+                var title = GetLibraryDocumentTitle(inspection);
                 var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
                     auditView, inspection, WriterOptions(inspection), pipeline));
                 body = ShiftMarkdownHeadingLevels(body, 2);
+                var heading = RenderMarkdownHeading(3, title);
                 return body.Length == 0
-                    ? "### " + title
-                    : "### " + title + "\n\n" + body;
+                    ? heading
+                    : heading + "\n\n" + body;
             }));
             var markdown = string.Join("\n\n", documents);
             WriteLfLine(
@@ -637,10 +638,22 @@ public static class OutputFormatter
         }
     }
 
-    private static string GetLibraryDocumentTitle(LibraryInspectionView auditView) =>
-        auditView.Tfm is { Length: > 0 } tfm
-            ? $"{auditView.FileName} ({tfm})"
-            : auditView.FileName;
+    private static string GetLibraryDocumentTitle(LibraryInspection inspection)
+    {
+        var fileName = LibraryViewText.Contain(inspection.FileName) ?? string.Empty;
+        return LibraryViewText.Contain(inspection.Tfm) is { Length: > 0 } tfm
+            ? $"{fileName} ({tfm})"
+            : fileName;
+    }
+
+    private static string RenderMarkdownHeading(int level, string title)
+    {
+        var output = new StringWriter { NewLine = "\n" };
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
+        writer.WriteHeading(level, title);
+        writer.Flush();
+        return output.ToString().TrimEnd();
+    }
 
     private static string RemoveMarkdownDocumentTitle(string markdown)
     {

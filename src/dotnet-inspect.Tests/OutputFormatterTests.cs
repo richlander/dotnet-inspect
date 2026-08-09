@@ -1792,7 +1792,8 @@ public class OutputFormatterTests
         {
             IncludeSections = ["Library Info"],
             Columns = null,
-            Fields = ["Name"]
+            Fields = ["Name"],
+            Verbosity = Verbosity.Quiet
         };
         var (fields, fieldsError) = await ConsoleCapture.RunAsync(
             () => OutputFormatter.WriteLibraryResults(inspections, fieldOptions, pipeline));
@@ -1871,7 +1872,7 @@ public class OutputFormatterTests
     public async Task MultiAssemblyReport_ContainsTheManualOuterTitle()
     {
         var inspections = CreateTestAudits("net9.0", "net8.0");
-        inspections[0].FileName = "Test\n## FORGED.dll";
+        inspections[0].FileName = "Test<tag>&\n## FORGED.dll";
         var options = new LibraryOptions
         {
             IncludeSections = ["Signals"],
@@ -1884,6 +1885,8 @@ public class OutputFormatterTests
 
         Assert.Empty(error);
         Assert.DoesNotContain("\n## FORGED", output);
+        Assert.StartsWith("# Test&lt;tag&gt;&amp; ## FORGED\n", output);
+        Assert.Contains("### Test&lt;tag&gt;&amp; ## FORGED.dll (net9.0)", output);
         Assert.Single(
             output.ReplaceLineEndings("\n").Split('\n'),
             line => line.StartsWith("# ", StringComparison.Ordinal));
