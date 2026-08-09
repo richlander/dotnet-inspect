@@ -209,6 +209,13 @@ public sealed class ResolvedAssemblyReference
     public AssemblyAcquisitionRegistration Registration { get; }
     public AssemblyReferenceIdentity Identity { get; }
     public string? Path { get; }
+    /// <summary>
+    /// Opens a fresh readable stream for this descriptor.
+    /// </summary>
+    /// <remarks>
+    /// The acquisition callback opens content only. It must not perform
+    /// inspection or reenter a consumer of this descriptor.
+    /// </remarks>
     public Func<Stream> OpenRead { get; }
     public AssemblyResolutionProvenance Provenance { get; }
 }

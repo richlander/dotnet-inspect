@@ -1121,7 +1121,7 @@ function render() {
             ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${item}</option>`).join("")}
           </select>
         </label>
-        <div class="asset-path">compile / lib/${escapeHtml(state.package.activeFramework)} / ${escapeHtml(state.package.assembly)}</div>
+        <div class="asset-path">${escapeHtml(state.package.assemblyAsset)}</div>
         <div class="scope-stats">
           <span><strong>${state.package.totalTypes}</strong> types</span>
           <span><strong>${state.package.totalMembers.toLocaleString()}</strong> members</span>
@@ -1382,7 +1382,7 @@ function renderPackageView() {
 
 function packageDependenciesSignature() {
   const pkg = state.package;
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
 function renderPackageDependencies() {
@@ -1400,8 +1400,9 @@ function renderPackageDependencies() {
   }
 
   const groups = data.dependencyGroups || [];
+  const assemblyReferences = assemblyReferencesSectionHtml(data);
   if (!groups.length) {
-    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>`;
+    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
   }
 
   const selectedTfm = resolveDependenciesFramework(groups);
@@ -1415,7 +1416,6 @@ function renderPackageDependencies() {
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
-  const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
   const depList = dependencyListSectionHtml(groups, selectedTfm);
 
   const graphSection = `
@@ -1424,7 +1424,28 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${selector}${graphSection}${depList}`;
+  return `${selector}${graphSection}${depList}${assemblyReferences}`;
+}
+
+function assemblyReferencesSectionHtml(data) {
+  const references = data.assemblyReferences || [];
+  const assembly = data.assembly || "selected assembly";
+  if (data.assemblyReferenceError) {
+    return `
+      <section class="document-section">
+        <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)}</span></div>
+        <div class="empty-list">Inspection failed: ${escapeHtml(data.assemblyReferenceError)}</div>
+      </section>`;
+  }
+
+  return `
+    <section class="document-section">
+      <div class="section-title"><h2>Assembly references</h2><span>${escapeHtml(assembly)} · ${references.length} direct reference${references.length === 1 ? "" : "s"}</span></div>
+      ${references.length
+        ? `<ul class="dep-list">${references.map(reference =>
+            `<li><span class="dep-name">${escapeHtml(reference.name)}</span><code class="dep-version">${escapeHtml(reference.version)}</code></li>`).join("")}</ul>`
+        : `<div class="empty-list">This assembly declares no direct AssemblyRef rows.</div>`}
+    </section>`;
 }
 
 // The NuGet dependency list for the selected TFM. Extracted so a framework switch can
@@ -1531,7 +1552,7 @@ async function loadPackageDependencies() {
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
-      assembly: state.package.assembly
+      assemblyId: state.package.assemblyId
     });
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
     if (result?.dependencyGroups) {
@@ -1575,7 +1596,7 @@ async function ensureWorkspaceDependencies() {
         packageId: item.id,
         version: item.version,
         framework: item.activeFramework,
-        assembly: item.assembly
+        assemblyId: item.assemblyId
       });
       state.workspaceDependencies[key] = result?.dependencyGroups || [];
     } catch {
@@ -7012,12 +7033,19 @@ async function loadPackage(packageId, version, framework, options = {}) {
       ...type,
       api: type.api ?? []
     }));
+    const defaultAssembly = (result.assemblies ?? [])
+      .find(assembly => assembly.id === result.defaultAssemblyId);
+    if (!defaultAssembly) {
+      throw new Error("The package query did not return its selected assembly descriptor.");
+    }
     const packageModel = {
       id: result.package,
       version: result.version,
       frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
       activeFramework: result.activeFramework,
-      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assembly: defaultAssembly.name,
+      assemblyId: defaultAssembly.id,
+      assemblyAsset: defaultAssembly.asset,
       assemblies: result.assemblies ?? [],
       types,
       totalTypes: types.filter(type => accessBucket(type.accessibility) === "public").length,
@@ -7186,12 +7214,19 @@ async function loadRuntimePack(framework) {
     const result = await inspectLoadRuntimePack(framework || "");
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
+    const defaultAssembly = (result.assemblies ?? [])
+      .find(assembly => assembly.id === result.defaultAssemblyId);
+    if (!defaultAssembly) {
+      throw new Error("The platform query did not return its selected assembly descriptor.");
+    }
     const packageModel = {
       id: result.package,
       version: result.version,
       frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
       activeFramework: result.activeFramework,
-      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assembly: defaultAssembly.name,
+      assemblyId: defaultAssembly.id,
+      assemblyAsset: defaultAssembly.asset,
       assemblies: result.assemblies ?? [],
       types,
       totalTypes: types.length,
@@ -7235,7 +7270,6 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
       const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
       for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
-      existing.assembly = (existing.assemblies || []).map(item => item.name).join(", ");
       existing.totalTypes = existing.types.length;
       existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
       state.runtimePackLoading = false;
@@ -7246,7 +7280,9 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       version: result.version,
       frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
       activeFramework: result.activeFramework,
-      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assembly: result.assemblies[0].name,
+      assemblyId: result.defaultAssemblyId,
+      assemblyAsset: result.assemblies[0].asset,
       assemblies: result.assemblies ?? [],
       types: newTypes,
       totalTypes: newTypes.length,

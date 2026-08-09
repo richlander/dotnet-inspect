@@ -195,9 +195,13 @@ public static class SearchCommandDefinitions
                     "implements Stream --platform --extensions  # combine scopes");
             }
 
+            var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+                parseResult.GetValue(packageOption) ?? [],
+                packagePrefix,
+                parseResult.GetValue(opts.Verbose),
+                sourceOptions);
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
 
@@ -239,7 +243,7 @@ public static class SearchCommandDefinitions
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = opts.ParseTree(parseResult),
                 PackagePrefix = packagePrefix,
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                SourceOptions = sourceOptions
             };
 
             return await ImplementsCommand.ExecuteAsync(options);
@@ -334,9 +338,13 @@ public static class SearchCommandDefinitions
                     "extensions HttpClient --platform --extensions  # combine scopes");
             }
 
+            var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
-                parseResult.GetValue(packageOption) ?? [], packagePrefix, parseResult.GetValue(opts.Verbose));
+                parseResult.GetValue(packageOption) ?? [],
+                packagePrefix,
+                parseResult.GetValue(opts.Verbose),
+                sourceOptions);
             var assemblies = parseResult.GetValue(assemblyOption) ?? [];
             var projects = parseResult.GetValue(projectOption) ?? [];
 
@@ -379,7 +387,7 @@ public static class SearchCommandDefinitions
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 PackagePrefix = packagePrefix,
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
+                SourceOptions = sourceOptions
             };
 
             return await ExtensionsCommand.ExecuteAsync(options);

@@ -28,7 +28,7 @@ if (Directory.Exists(destination))
     Directory.Delete(destination, recursive: true);
 Directory.CreateDirectory(destination);
 
-HttpClientFactory.Initialize();
+HttpClientFactory.Initialize(new HttpClientFactoryOptions());
 NuGetCache.Initialize("dotnet-inspect");
 
 var assemblies = new List<string>(packages.Length);

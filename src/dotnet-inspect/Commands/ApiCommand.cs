@@ -411,9 +411,10 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
-        // --readable-names is orthogonal to the style axes the config/--taste cover
-        // (it names V_index locals, not a byte-divergent lens), so it applies on top
-        // of whatever those resolved and never has to be re-checked against them.
+        // Readable local names are the user-facing CLI default. Library, harness,
+        // fidelity, and corpus paths keep PrinterOptions.Default (V_index), while
+        // an explicit config value of false restores slot names for CLI rendering.
+        // --readable-names is the one-run override for that configuration.
         if (options.RequestReadableLocalNames)
             renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
@@ -1262,10 +1263,18 @@ public class ApiCommand
         }
 
         if (options.Print)
-            return await PrintApiProjectionAsync(view, options);
+        {
+            int result = await PrintApiProjectionAsync(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Value || options.Urls || options.Paths)
-            return WriteApiShapeProjection(view, options);
+        {
+            int result = WriteApiShapeProjection(view, options);
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return result;
+        }
 
         if (options.Count)
         {
@@ -1277,6 +1286,7 @@ public class ApiCommand
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
             CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1291,6 +1301,7 @@ public class ApiCommand
             // The payload is decompiled source, IL, or an overlay — LF on every platform. Terminate
             // it with LF too so --bare stays byte-stable for machine consumers.
             OutputFormatter.WriteLfLine(sink, raw.TrimEnd());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
 
@@ -1354,6 +1365,7 @@ public class ApiCommand
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
+        ApiOutputFormatter.WriteCallGraphWarning(view);
         return 0;
     }
 

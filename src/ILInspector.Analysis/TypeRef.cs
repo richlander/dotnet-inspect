@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection.Metadata;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;

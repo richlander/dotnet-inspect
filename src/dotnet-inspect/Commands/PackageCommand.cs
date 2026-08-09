@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -37,9 +38,6 @@ public class PackageCommand
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
         // can never fan out to unbounded @Hidden members as a group.
-        if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
-            return 1;
-
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
@@ -301,7 +299,7 @@ public class PackageCommand
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
-                    Console.WriteLine(versionQueryPinned);
+                    WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -329,7 +327,7 @@ public class PackageCommand
                     if (options.IncludeUnlisted)
                         OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
                     else
-                        Console.WriteLine(versionQueryPinned);
+                        WriteSingleVersion(versionQueryPinned, options);
                     return 0;
                 }
 
@@ -338,25 +336,6 @@ public class PackageCommand
                 else
                     CommandError.Write($"Version '{versionQueryPinned}' of package '{normalizedName}' not found. Use --versions to see available versions.");
                 return 1;
-            }
-
-            // Cache-first for bare --version (Limit==1 && !ForceLatest):
-            // check local caches before hitting NuGet, matching router behavior.
-            // Skipped under --include-unlisted: that flag requires the listing-aware path below
-            // (a locally-cached single version carries no listed/unlisted status column).
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
-                && !options.IncludeUnlisted)
-            {
-                var cachedVersion = NuGetCache.TryGetLatestCachedVersion(
-                    normalizedName,
-                    NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
-                if (cachedVersion != null)
-                {
-                    if (LensProjection.TryProject(options, "--versions", 1, out var cachedLatestExit))
-                        return cachedLatestExit;
-                    Console.WriteLine(cachedVersion);
-                    return 0;
-                }
             }
 
             if (options.Limit == 1 && options.ForceLatest)
@@ -388,7 +367,45 @@ public class PackageCommand
                     return 0;
                 }
 
-                Console.WriteLine(latest);
+                WriteSingleVersion(latest, options);
+                return 0;
+            }
+
+            if (versionQueryPinned is null
+                && options.Limit == 1
+                && !options.IncludeUnlisted
+                && !options.ListVersionsWithFeed)
+            {
+                List<string>? singleVersions =
+                    await PackageExtractor.GetSingleVersionListingAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    options.IncludePrerelease,
+                    logger.Log,
+                    options.SourceOptions);
+                if (singleVersions is null)
+                {
+                    CommandError.Write(
+                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                if (LensProjection.TryProject(
+                        options,
+                        "--versions",
+                        singleVersions.Count,
+                        out var cachedLatestExit))
+                {
+                    return cachedLatestExit;
+                }
+
+                OutputFormatter.WriteStringList(
+                    singleVersions,
+                    "Version",
+                    "Version",
+                    options.Tsv,
+                    options.Jsonl,
+                    Console.Out);
                 return 0;
             }
 
@@ -612,8 +629,9 @@ public class PackageCommand
             // different payload than the one -D displays.
             if (options.Count && !effectiveDiscovery)
             {
-                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
-                Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
+                CountOutput.WriteCountResult(
+                    OutputFormatter.FormatResult(result, options, pipeline),
+                    options.OutputPath);
                 return 0;
             }
 
@@ -753,6 +771,13 @@ public class PackageCommand
             CommandError.WriteLine($"Failed to download package: {ex.Message}");
             return 1;
         }
+        catch (InvalidOperationException ex) when (
+            options.Columns is { Length: > 0 }
+            && ex.Message.StartsWith("No columns matched projection:", StringComparison.Ordinal))
+        {
+            CommandError.Write(ex.Message);
+            return 1;
+        }
         finally
         {
             // Only clean up temp directory if we created one (not using cache)
@@ -769,6 +794,17 @@ public class PackageCommand
             }
         }
     }
+
+    private static void WriteSingleVersion(
+        string version,
+        InspectionOptions options)
+        => OutputFormatter.WriteStringList(
+            [version],
+            "Version",
+            "Version",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out);
 
     private static async Task<int> ExecuteMultiPackageAsync(
         string[] packageArgs,
@@ -818,7 +854,9 @@ public class PackageCommand
 
         if (options.Count)
         {
-            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
             return 0;
         }
 
@@ -2188,8 +2226,10 @@ public class PackageCommand
                 ? $"{packageName}@{version}"
                 : packageName;
 
-        var pipeline = LibrarySections.CreatePipeline();
-        var scannerRegistry = LibrarySections.CreateScannerRegistry();
+        var catalog = LibrarySections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+        var scannerRegistry = catalog.ScannerRegistry;
+        var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -2207,6 +2247,15 @@ public class PackageCommand
             libraryOptions = libraryOptions with { Verbosity = requiredVerbosity };
 
         var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        if (libraryOptions.CollectReferenceTree)
+            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (scanners.Contains(LibrarySections.ScannerAuditSignals))
+            commandQueryDemand.Add(("Signals scanner", AssemblyReferencesQuery.Definition));
+        var queries = pipeline.GetRequiredQueries(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         List<LibraryInspection> inspections = [];
@@ -2220,7 +2269,9 @@ public class PackageCommand
                 version,
                 context.HttpClient,
                 scanners: scanners,
-                scannerRegistry: scannerRegistry);
+                scannerRegistry: scannerRegistry,
+                queries: queries,
+                queryRegistry: queryRegistry);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
@@ -2253,7 +2304,7 @@ public class PackageCommand
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
-                CountOutput.WriteCount(0);
+                CountOutput.WriteCount(0, options.OutputPath);
             return 0;
         }
 
@@ -2266,7 +2317,7 @@ public class PackageCommand
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown);
+            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
             Console.WriteLine(markdown);
         return 0;
@@ -2304,6 +2355,12 @@ public class PackageCommand
             Fields = options.Fields,
             Schema = options.Schema,
             Count = options.Count,
+            OutputPath = options.OutputPath,
+            Value = options.Value,
+            Urls = options.Urls,
+            Paths = options.Paths,
+            JsonArray = options.JsonArray,
+            ProjectionRow = options.PrintRow,
             Rows = options.Rows,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
@@ -2981,7 +3038,12 @@ public class PackageCommand
         // Resolve transitive dependencies
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client, group.Dependencies, tfm, globalSeen, logger.Log);
+            client,
+            group.Dependencies,
+            tfm,
+            globalSeen,
+            logger.Log,
+            options.SourceOptions);
 
         var view = new PackageDependenciesView
         {

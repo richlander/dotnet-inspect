@@ -23,16 +23,20 @@ public sealed class LayeringTests
     [Fact]
     public void Metadata_FriendsOnlyTestAssemblies()
     {
-        var friends = typeof(AssemblyInspectionSession).Assembly
+        string[] friends = typeof(AssemblyInspectionSession).Assembly
             .GetCustomAttributes(typeof(InternalsVisibleToAttribute), inherit: false)
             .Cast<InternalsVisibleToAttribute>()
             .Select(attribute => attribute.AssemblyName.Split(',')[0])
-            .ToList();
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] expected =
+        [
+            "DotnetInspector.MetadataRendering.Tests",
+            "ILInspector.Metadata.Tests",
+            "dotnet-inspect.Tests",
+        ];
 
-        Assert.DoesNotContain("dotnet-inspect", friends);
-        Assert.DoesNotContain("ILInspector.Research", friends);
-        Assert.Contains("dotnet-inspect.Tests", friends);
-        Assert.Contains("ILInspector.Metadata.Tests", friends);
+        Assert.Equal(expected, friends);
     }
 
     [Fact]
@@ -52,5 +56,122 @@ public sealed class LayeringTests
         Assert.DoesNotContain(
             "System.Reflection.Metadata.MetadataReader",
             referencedTypes);
+    }
+
+    [Fact]
+    public void BrowserDependencies_UsesProductQueriesAndCompileAssetSelection()
+    {
+        string engineSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "prototypes",
+            "inspect-web",
+            "engine",
+            "Program.cs"));
+        string browserSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "prototypes",
+            "inspect-web",
+            "src",
+            "app.js"));
+
+        Assert.Contains(
+            ".Add(AssemblyReferencesQuery.Definition, AssemblyReferencesQuery.Execute)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[AssemblyReferencesQuery.Definition]",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "queryResults.Get(\n                                AssemblyReferencesQuery.Definition)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ".AssemblyReferences",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            4,
+            CountOccurrences(
+                engineSource,
+                "PackageCompileAssetSelector.Select("));
+        Assert.Contains(
+            "selection.FindAsset(assemblyId)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ParseCompileAsset(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "FrameworkPriority(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ".FullName.StartsWith(prefix",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ".FullName.StartsWith($\"lib/",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return parts.Length == 3",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            5,
+            CountOccurrences(
+                engineSource,
+                "GetDirectPackageAssemblyEntries("));
+        Assert.Equal(
+            5,
+            CountOccurrences(
+                engineSource,
+                "ReadSelectedPackageAssemblies("));
+        Assert.Equal(
+            3,
+            CountOccurrences(
+                engineSource,
+                "ReadSelectedPackageAssembly("));
+        Assert.Contains(
+            "assemblyId: item.assemblyId",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "assembly: item.assembly",
+            browserSource,
+            StringComparison.Ordinal);
+    }
+
+    static int CountOccurrences(string value, string search)
+    {
+        int count = 0;
+        for (int index = 0;
+            (index = value.IndexOf(search, index, StringComparison.Ordinal)) >= 0;
+            index += search.Length)
+        {
+            count++;
+        }
+
+        return count;
+    }
+
+    static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(
+                directory.FullName,
+                "dotnet-inspect.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not find repository root containing dotnet-inspect.slnx.");
     }
 }

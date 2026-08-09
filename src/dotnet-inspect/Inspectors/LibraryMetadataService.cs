@@ -8,6 +8,7 @@ using ILInspector.Research;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Findings;
@@ -36,6 +37,8 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         HashSet<string>? scanners = null,
         ScannerRegistry? scannerRegistry = null,
+        HashSet<InspectionQueryDefinition>? queries = null,
+        InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
@@ -50,11 +53,17 @@ internal static class LibraryMetadataService
                 : scanners;
             if (requiredScanners is not null)
                 trace?.RecordClosure(requiredScanners);
+            var requiredQueries = queryRegistry is not null && queries is not null
+                ? queryRegistry.ExpandRequired(queries)
+                : queries;
+            if (requiredQueries is not null)
+                trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
-            using var service = bodyAnalysisFeatures
-                == Analysis.LibraryBodyAnalysisFeatures.None
+            using var service = discoveryOnly
+                ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(path, logger.Log)
                     : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
@@ -74,10 +83,32 @@ internal static class LibraryMetadataService
                 nativeAudit.HasReproducibleFlag = pdbContext.HasReproducibleFlag;
                 nativeAudit.IsDeterministic = pdbContext.HasReproducibleFlag;
 
+                if (queryRegistry is not null && requiredQueries is not null)
+                {
+                    using var queryContext = new Sections.ScannerContext
+                    {
+                        AssemblyPath = path,
+                        Model = nativeAudit,
+                        Logger = logger,
+                        MetadataContext = pdbContext,
+                        BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
+                        Trace = trace,
+                    };
+                    RunTypedQueries(
+                        path,
+                        nativeAudit,
+                        logger,
+                        queryRegistry,
+                        requiredQueries,
+                        queryContext,
+                        trace);
+                }
+
                 return nativeAudit;
             }
 
-            var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+            var needsAuditSignals =
+                requiredScanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
 
             AssemblySurfaceClassificationOutcome? surfaceClassification =
                 isPlatformAssembly
@@ -98,17 +129,10 @@ internal static class LibraryMetadataService
                     : MetadataFindings.InspectAssemblySurface(
                         surfaceClassification,
                         FindingSubjectFor(path)),
-                UseDependenciesView = options.IncludeDependencies,
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
-            if (inspection.AssemblyInfo?.References is { } references)
-            {
-                inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
-                    references,
-                    FindingSubjectFor(path));
-            }
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
 
             // Populate cheap presence flags for fast -s discovery
             var presenceFlags = pdbContext.ScanPresenceFlags();
@@ -152,23 +176,23 @@ internal static class LibraryMetadataService
             inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
-            // Build transitive reference tree if requested
-            if (options.IncludeDependencies && inspection.AssemblyInfo?.References != null)
+            // Run legacy scanners and typed queries against one shared assembly context.
+            var collectReferenceTree = options.CollectReferenceTree;
+            var referencesWillRun =
+                queryRegistry is not null
+                && requiredQueries?.Contains(AssemblyReferencesQuery.Definition) == true;
+            if ((collectReferenceTree || needsAuditSignals) && !referencesWillRun)
             {
-                var sourceDir = Path.GetDirectoryName(path);
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(inspection.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
-
-                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    inspection.AssemblyInfo.References,
-                    sourceDir,
-                    visited,
+                using var session = AssemblyInspectionSession.Borrow(pdbContext);
+                ApplyAssemblyReferencesResult(
+                    path,
+                    inspection,
                     logger,
-                    deduplicate: options.IncludeDependencies);
+                    AssemblyReferencesQuery.Execute(session));
             }
 
-            // Run registered scanners for the requested sections
-            if (scannerRegistry != null && requiredScanners != null)
+            if ((scannerRegistry is not null && requiredScanners is not null)
+                || (queryRegistry is not null && requiredQueries is not null))
             {
                 using var scannerContext = new Sections.ScannerContext
                 {
@@ -179,7 +203,20 @@ internal static class LibraryMetadataService
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     Trace = trace,
                 };
-                scannerRegistry.RunScanners(requiredScanners, scannerContext);
+
+                if (queryRegistry is not null && requiredQueries is not null)
+                {
+                    RunTypedQueries(
+                        path,
+                        inspection,
+                        logger,
+                        queryRegistry,
+                        requiredQueries,
+                        scannerContext,
+                        trace);
+                }
+
+                scannerRegistry?.RunScanners(requiredScanners ?? [], scannerContext);
             }
             else if (options.Verbosity == Options.Verbosity.Detailed)
             {
@@ -222,23 +259,42 @@ internal static class LibraryMetadataService
                 }
             }
 
+            // The query produces the flat direct-reference currency. Tree traversal remains a
+            // path-owning CLI projection over that result.
+            if (collectReferenceTree && inspection.AssemblyInfo?.References is { } references)
+            {
+                var sourceDir = Path.GetDirectoryName(path);
+                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                visited.Add(
+                    inspection.AssemblyInfo.AssemblyName
+                    ?? Path.GetFileNameWithoutExtension(path));
+
+                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
+                    references,
+                    sourceDir,
+                    visited,
+                    logger,
+                    deduplicate: true,
+                    maxDepth: options.ReferenceTreeDepth);
+            }
+
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            // Effective-section discovery (-D) must be network-free regardless of
-            // verbosity or -S filters. The SourceLink family is listed from the
-            // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
-            // runs no network-capable source stage: no PDB download, no source-URL
-            // HEAD audit, no integrity GET, and no source-file collection. (For an
-            // embedded/adjacent PDB the local audit stages would otherwise fire.)
-            // This keeps -D listings verbosity-independent and keeps the effective
-            // cache token (probe-driven) consistent with what the inspection records
-            // for HasSourceLink.
-            var sourcePlan = discoveryOnly
-                ? default
-                : LibrarySourcePlans.For(
-                    options.UserVerbosity,
-                    options.IncludeSections);
+            // Cheap discovery needs local applicability facts, not the source-analysis model.
+            // Preserve the PDB facts that drive section gates, then avoid source findings,
+            // compilation records, builder inference, and every network-capable stage.
+            if (discoveryOnly)
+            {
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
+                inspection.WindowsPdbDetected = pdbContext.WindowsPdbDetected;
+                return inspection;
+            }
+
+            var sourcePlan = LibrarySourcePlans.For(options);
 
             await AuditAsync(
                 service,
@@ -299,6 +355,18 @@ internal static class LibraryMetadataService
             }
 
             return inspection;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InspectionQueryException)
+        {
+            throw;
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -518,7 +586,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
+        Dictionary<string, int>? globalSeen = null,
+        int? maxDepth = null)
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -588,10 +657,19 @@ internal static class LibraryMetadataService
                 {
                     var (childRefs, company) = AssemblyInspector.ExtractReferencesAndCompany(resolvedPath);
                     node.Company = company;
-                    if (childRefs.Count > 0)
+                    if (childRefs.Count > 0
+                        && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
+                        var childNodes = BuildTransitiveReferences(
+                            childRefs,
+                            Path.GetDirectoryName(resolvedPath),
+                            branchVisited,
+                            logger,
+                            depth + 1,
+                            deduplicate,
+                            globalSeen,
+                            maxDepth);
                         nodes.AddRange(childNodes);
                     }
                 }
@@ -771,6 +849,10 @@ internal static class LibraryMetadataService
 
             return rows.Count > 0 ? rows : null;
         }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning unsafe members in {path}: {ex.Message}");
@@ -853,6 +935,10 @@ internal static class LibraryMetadataService
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning($"Error scanning leverage in {path}: {ex.Message}");
@@ -881,10 +967,7 @@ internal static class LibraryMetadataService
             if (!context.HasMetadata)
                 return map;
 
-            // All-members first (covers non-public, numbered as `--all` drilling resolves them).
             AddSurface(context.ExtractApiSurface(includeAll: true), map);
-            // Default surface overwrites public members with their public-only Name:N, which is
-            // what `member Name:N` resolves without `--all`.
             AddSurface(context.ExtractApiSurface(includeAll: false), map);
         }
         catch (Exception ex)
@@ -894,7 +977,9 @@ internal static class LibraryMetadataService
         }
         return map;
 
-        static void AddSurface(ILInspector.Metadata.ApiSurface surface, Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
+        static void AddSurface(
+            ApiSurface surface,
+            Dictionary<int, (string? Stable, string Visibility, string Selector)> target)
         {
             foreach (var type in surface.Types)
             {
@@ -956,6 +1041,10 @@ internal static class LibraryMetadataService
                 })
                 .ToList();
             return rows.Count > 0 ? rows : null;
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1745,32 +1834,108 @@ internal static class LibraryMetadataService
         }
     }
 
-    /// <summary>
-    /// Scans the image-level metadata facts backing the <c>@Metadata</c> lens: metadata version,
-    /// heap sizes, and per-table physical row counts.
-    ///
-    /// This is the cheap half of the lens deliberately. It reads table row counts, never rows, so
-    /// selecting one metadata section does not pay to project every table; the per-table sections
-    /// consult these counts to decide whether they have anything to render, and the row projection
-    /// happens at render time for the selected tables only.
-    /// </summary>
-    internal static void ScanMetadataImage(string path, LibraryInspection inspection, VerboseLogger logger)
+    private static void ApplyQueryResults(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        InspectionQueryResults results)
     {
-        // Recorded even when the describe below fails, so the render path can tell "the scanner
-        // never ran" (path is null) from "the scanner ran and found no metadata" (path is set,
-        // overview is null) and report the second rather than rendering empty sections.
-        inspection.MetadataAssemblyPath = path;
+        if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
+        {
+            // The path remains presentation-layer state for the legacy on-demand row projector. The
+            // query itself consumes an already-open session and returns no filesystem location.
+            inspection.MetadataAssemblyPath = path;
+            inspection.MetadataImageResult = metadata;
+            if (metadata is MetadataImageResult.Failed failed)
+            {
+                logger.LogWarning(
+                    $"Error reading metadata image of {path}: {failed.Error.Message}");
+            }
+        }
 
+        if (results.TryGet(
+                AssemblyReferencesQuery.Definition,
+                out AssemblyReferencesResult? references))
+        {
+            ApplyAssemblyReferencesResult(path, inspection, logger, references);
+        }
+    }
+
+    private static void ApplyAssemblyReferencesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AssemblyReferencesResult result)
+    {
+        switch (result)
+        {
+            case AssemblyReferencesResult.Available available:
+                if (inspection.AssemblyInfo is not null)
+                {
+                    inspection.AssemblyInfo.References = available.References.IsEmpty
+                        ? null
+                        : [.. available.References];
+                }
+                inspection.AssemblyReferenceInspection =
+                    MetadataFindings.InspectAssemblyReferences(
+                        available.References,
+                        FindingSubjectFor(path));
+                break;
+
+            case AssemblyReferencesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error reading assembly references of {path}: {failed.Error.Message}");
+                inspection.AssemblyReferenceInspection =
+                    FailedInspection<AssemblyReference>(
+                        path,
+                        MetadataFindings.AssemblyReferenceDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly-reference result '{result.GetType().Name}'.");
+        }
+    }
+
+    private static void RunTypedQueries(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        InspectionQueryRegistry<ScannerContext> queryRegistry,
+        HashSet<InspectionQueryDefinition> requiredQueries,
+        ScannerContext scannerContext,
+        Sections.InspectionTrace? trace)
+    {
+        Action<InspectionQueryDefinition, TimeSpan>? recordQuery = trace is null
+            ? null
+            : trace.RecordQueryExecution;
+        InspectionQueryResults results;
         try
         {
-            using var session = AssemblyInspectionSession.Open(path);
-            inspection.MetadataOverview = session.MetadataImage();
+            results = queryRegistry.Run(
+                requiredQueries,
+                scannerContext,
+                recordQuery);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (InspectionQueryException)
+        {
+            throw;
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Error reading metadata image of {path}: {ex.Message}");
-            inspection.MetadataOverview = null;
+            throw new InspectionQueryException("Typed query execution failed.", ex);
         }
+
+        ApplyQueryResults(path, inspection, logger, results);
     }
 
     static FindingInspection<T> FailedInspection<T>(

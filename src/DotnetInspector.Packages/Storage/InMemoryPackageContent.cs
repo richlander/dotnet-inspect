@@ -14,11 +14,16 @@ public sealed class InMemoryPackageContent : IPackageContent
 {
     private readonly byte[] _nupkgBytes;
 
-    public InMemoryPackageContent(byte[] nupkgBytes, bool fromCache)
+    public InMemoryPackageContent(
+        byte[] nupkgBytes,
+        bool fromCache,
+        string producerKey)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);
+        ArgumentException.ThrowIfNullOrEmpty(producerKey);
         _nupkgBytes = nupkgBytes;
         FromCache = fromCache;
+        ProducerKey = producerKey;
     }
 
     /// <summary>The raw nupkg bytes backing this content.</summary>
@@ -32,6 +37,9 @@ public sealed class InMemoryPackageContent : IPackageContent
 
     /// <inheritdoc />
     public bool FromCache { get; }
+
+    /// <inheritdoc />
+    public string ProducerKey { get; }
 
     /// <inheritdoc />
     public bool TryOpenEntry(string relativePath, [NotNullWhen(true)] out Stream? stream)

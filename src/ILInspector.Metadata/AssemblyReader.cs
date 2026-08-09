@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using CSharpText;
 
 namespace ILInspector.Metadata;
 
@@ -87,7 +88,7 @@ public static class AssemblyReader
 
     private static string? FindUniquePublicType(MetadataReader reader, string typeName)
     {
-        var normalized = TypeMatcher.Normalize(typeName);
+        var normalized = FqnParser.NormalizeTypeName(typeName);
 
         List<string> publicTypes = [];
         foreach (var handle in reader.TypeDefinitions)

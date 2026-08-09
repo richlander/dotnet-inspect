@@ -14,11 +14,20 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace or typed query plan
-today. Existing foundations include shared image and inspection session
-ownership, catalog generations, `CoreCache`, typed provenance and resolution
-currencies, and `InertString`; the workspace and query-plan model describes how
-those pieces will be composed.
+govern its migration. No command runs through a workspace today. Library
+metadata and direct-reference inspection are the first typed-query canaries:
+the section catalog plans typed demand and executes it through a
+prerequisite-aware registry, while the command still owns orchestration.
+`DotnetInspector.Queries` also contains the first workspace foundation: an
+ephemeral workspace can own binding-consistent assembly context groups, and a
+group retains lazily acquired immutable assembly snapshots behind
+callback-scoped and stack-only access. The first group-scoped query scans
+Integrations evidence across every participant sequentially while preserving
+per-assembly identity, provenance, and failures. Existing commands have not
+migrated to that workspace owner yet. Other foundations include shared image
+and inspection session ownership, catalog generations, `CoreCache`, typed
+provenance and resolution currencies, and `InertString`; the remaining
+workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -250,6 +259,47 @@ Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
 
+The first implemented group contract owns typed
+`ResolvedAssemblyReference` participants paired with their binding-policy
+snapshots. Every participant in a group must carry the same binding-policy
+version identity. The group acquires each selected image lazily, validates it
+against its descriptor, and retains one immutable, non-pooled byte snapshot
+under a cumulative group budget reserved before snapshot allocation. Metadata
+exposes that bounded immutable snapshot acquisition as a narrow public
+capability; raw PE and metadata readers remain private, and Queries receives no
+friend access to Metadata. Callback access receives a scoped stack-only image
+view; direct access returns a stack-only read-only span result. Disposing the
+group prevents new access and releases its retained references after active
+callbacks complete, but it never attempts to revoke or recycle an already
+returned span.
+`InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
+isolation, callback and span lifetimes, concurrent disposal, bounded retention,
+per-participant single-flight acquisition, and typed acquisition failures.
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
+production Metadata friends.
+
+`AssemblyContextIntegrationsQuery` is the first query over a complete group. It
+visits participants in their immutable input order, borrows a narrow
+`AssemblyInspectionSession` over each retained snapshot without reopening the
+source, and returns the ecosystem and OpenTelemetry evidence owned by Metadata.
+Each entry carries an opaque participant registration, assembly identity,
+resolution provenance, and either materialized evidence or a typed failure.
+Partial inspection is therefore explicit and meaningful. The query is
+`Unbounded`: the group byte budget bounds retained content, but participant
+count and metadata scanning work still require explicit demand. The baseline
+executor remains sequential; cancellation-aware and concurrent group executors
+are later policy work. Late malformed-metadata mapping is implemented but not
+yet independently gated.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
+and
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
+gate participant ordering, snapshot reuse, and general partial acquisition.
+`AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
+gates the budget-limited case.
+
+Catalogs, query authorization, integration-opportunity composition, concurrent
+execution, and command migration remain later slices.
+
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
 the group itself remains alive. Each generation is scoped to the resolution and
@@ -375,11 +425,19 @@ query declares:
 CLI sections and Wasm views lower their selections into this plan. They do not
 own acquisition cost or producer dependencies.
 
-The existing `ScannerRegistry` is an assembly-local predecessor: its explicit
-prerequisites, once-per-run resources, deterministic ordering, and tracing are
-useful foundations. String keys, mutable CLI models, path-shaped inputs, and
-library-command ownership are migration boundaries rather than workspace
+The existing `ScannerRegistry` remains an assembly-local predecessor: its
+explicit prerequisites, once-per-run resources, deterministic ordering, and
+tracing are useful foundations. `DotnetInspector.Queries` now owns the first
+typed sequential plan. Both the CLI `References` section and the browser package
+Dependencies lens lower direct-reference demand into
+`AssemblyReferencesQuery`; each host keeps its own acquisition and presentation
+adapter. String keys, mutable CLI models, path-shaped residual inputs, and
+library-command ownership remain migration boundaries rather than workspace
 contracts.
+
+The initial registry contains only network-free metadata queries. It passes each
+query's maximum transitive cost into the host execution scope; capability
+lowering for network or source-content queries remains part of their migration.
 
 ### Executor
 

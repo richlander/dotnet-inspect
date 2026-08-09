@@ -33,6 +33,8 @@ internal sealed class ApiMemberAnalysisInspection
     bool _callerScopesResolved;
     List<MethodBodyInspectionSession>? _graphScopes;
     bool _graphScopesResolved;
+    Analysis.CatalogCallGraphDiagnostics _callGraphDiagnostics =
+        Analysis.CatalogCallGraphDiagnostics.Empty;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -101,12 +103,20 @@ internal sealed class ApiMemberAnalysisInspection
     internal Analysis.CallTreeNode BuildCallTree(int methodToken) =>
         BodyIndex.BuildCallTree(methodToken);
 
-    internal Analysis.CallTreeNode BuildCallerTree(int methodToken) =>
-        Session.CallerTree(
+    internal Analysis.CallTreeNode BuildCallerTree(int methodToken)
+    {
+        Analysis.CallTreeNode tree = Session.CallerTree(
             methodToken,
             CallerScopes(
                 includeAllocations: _includeAllocations,
-                methodToken));
+                methodToken),
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+        _callGraphDiagnostics = diagnostics;
+        return tree;
+    }
+
+    internal Analysis.CatalogCallGraphDiagnostics CallGraphDiagnostics =>
+        _callGraphDiagnostics;
 
     MethodBodyInspectionSession Session =>
         _session ??= MethodBodyInspectionSession.Open(

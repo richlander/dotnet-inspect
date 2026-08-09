@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
@@ -5161,10 +5162,10 @@ public sealed partial class CSharpPrinter
                 }
             }
 
-            // Opt-in readable names: a local with no usable source name gets a
-            // synthesized name from IR evidence (its type, loop-counter role),
-            // collision-resolved against names already taken. Off by default, so
-            // the shipped V_index output is untouched.
+            // When enabled, a local with no usable source name gets a synthesized
+            // name from IR evidence (its type, loop-counter role), collision-
+            // resolved against names already taken. The library default remains
+            // off; the CLI enables this for user-facing source.
             if (_options.ReadableLocalNames)
             {
                 var counters = LoopCounterLocals();
@@ -5234,7 +5235,7 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
     /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
-    /// opt-in readable-names mode. Evidence from the structured tree, not a guess.
+    /// readable-names mode. Evidence from the structured tree, not a guess.
     /// </summary>
     HashSet<int> LoopCounterLocals()
     {

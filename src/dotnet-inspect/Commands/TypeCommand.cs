@@ -557,12 +557,18 @@ public static class TypeCommand
     private static string ToFindPrefixPattern(string query)
         => query.EndsWith('*') ? query : $"{query}*";
 
-    private static async Task<bool> PackageExistsAsync(string packageName, TypeOptions options, CommandContext context)
+    internal static async Task<bool> PackageExistsAsync(
+        string packageName,
+        TypeOptions options,
+        CommandContext context)
     {
-        if (NuGetCache.TryGetLatestCachedVersion(
+        if (PackageExtractor.HasCachedCandidateVersion(
                 packageName,
-                NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                NuGetSourceResolver.ResolveSourceKeys(
+                    options.SourceOptions)))
+        {
             return true;
+        }
 
         try
         {
@@ -710,7 +716,7 @@ public static class TypeCommand
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
     {
-        var normalized = TypeMatcher.Normalize(query.Trim());
+        var normalized = FqnParser.NormalizeTypeName(query.Trim());
         return types
             .Where(type => IsPrefixMatch(type.FullName, normalized) || IsPrefixMatch(type.Name, normalized))
             .ToList();
