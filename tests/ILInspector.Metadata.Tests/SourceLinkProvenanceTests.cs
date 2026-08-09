@@ -1683,8 +1683,8 @@ public class SourceLinkProvenanceTests
             [
                 "DotnetInspector.Services/GitHubUrlResolver.cs",
                 "DotnetInspector.Services/LocalRepoSourceAcquisition.cs",
+                "DotnetInspector.Services/SourceLinkUrls.cs",
                 "SourceLinkFetch/SourceLinkProvenance.cs",
-                "dotnet-inspect/Services/SourceLinkUrls.cs",
             ],
             readers);
     }

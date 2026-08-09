@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 internal sealed record InspectionAcquisitionPlanOptions
 {
     internal const int DefaultMaxCandidates = 4_096;
-    internal const long DefaultMaxRetainedImageBytes = 512L * 1024 * 1024;
+    internal const long DefaultMaxRetainedImageBytes =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
     internal const int DefaultMaxConcurrentSourceOpens = 8;
 
     internal int MaxCandidates { get; init; } = DefaultMaxCandidates;
@@ -205,8 +206,11 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         _sourceOpenGate.Enter();
         try
         {
-            using Stream stream = OpenSource(entry.Candidate.Assembly);
-            long imageSize = ReadRemainingLength(stream);
+            using Stream stream =
+                AssemblyImageSnapshot.OpenSource(
+                    entry.Candidate.Assembly);
+            long imageSize =
+                AssemblyImageSnapshot.ReadRemainingLength(stream);
             using var peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata);
@@ -216,7 +220,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             MetadataReader reader = peReader.GetMetadataReader();
             AssemblyReferenceIdentity actual =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!IdentityMatches(entry.Candidate.Assembly.Identity, actual))
+            if (!AssemblyImageSnapshot.IdentityMatches(
+                    entry.Candidate.Assembly.Identity,
+                    actual))
             {
                 return RejectInvalid(
                     entry,
@@ -345,13 +351,17 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         _sourceOpenGate.Enter();
         long reservedBytes = 0;
+        bool retainReservation = false;
         try
         {
-            Stream? stream = OpenSource(entry.Candidate.Assembly);
+            Stream? stream =
+                AssemblyImageSnapshot.OpenSource(
+                    entry.Candidate.Assembly);
             AssemblyInspectionSession? session = null;
             try
             {
-                long imageSize = ReadRemainingLength(stream);
+                long imageSize =
+                    AssemblyImageSnapshot.ReadRemainingLength(stream);
                 if (!TryReserveImage(imageSize))
                 {
                     return new CandidateSessionResult.Rejected(
@@ -366,13 +376,12 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 var inventory =
                     (CandidateRegistrationResult.Ready)entry.Inventory.Value;
                 if (!session.HasMetadata
-                    || !IdentityMatches(
+                    || !AssemblyImageSnapshot.IdentityMatches(
                         entry.Candidate.Assembly.Identity,
                         session.AssemblyIdentity())
                     || session.ModuleVersionId()
                         != inventory.Inventory.ModuleVersionId)
                 {
-                    ReleaseImage(reservedBytes);
                     return new CandidateSessionResult.Rejected(
                         new CandidateOpenFailure(
                             CandidateOpenFailureKind.InvalidImage,
@@ -381,6 +390,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
                 var ready = new CandidateSessionResult.Ready(session);
                 session = null;
+                retainReservation = true;
                 return ready;
             }
             finally
@@ -395,7 +405,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 or NotSupportedException
                 or ObjectDisposedException)
         {
-            ReleaseImage(reservedBytes);
             return new CandidateSessionResult.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.Unreadable,
@@ -405,7 +414,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             ex is BadImageFormatException
                 or ArgumentOutOfRangeException)
         {
-            ReleaseImage(reservedBytes);
             return new CandidateSessionResult.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.InvalidImage,
@@ -413,32 +421,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
+            if (!retainReservation)
+                ReleaseImage(reservedBytes);
             _sourceOpenGate.Exit();
         }
-    }
-
-    static Stream OpenSource(ResolvedAssemblyReference assembly)
-    {
-        Stream? stream = assembly.OpenRead();
-        if (stream is null || !stream.CanRead)
-        {
-            stream?.Dispose();
-            throw new IOException("The assembly opener did not return a readable stream.");
-        }
-
-        return stream;
-    }
-
-    static long ReadRemainingLength(Stream stream)
-    {
-        if (!stream.CanSeek)
-            throw new NotSupportedException(
-                "Assembly streams must support seeking for bounded inspection.");
-
-        long length = checked(stream.Length - stream.Position);
-        if (length <= 0)
-            throw new BadImageFormatException("The selected image is empty.");
-        return length;
     }
 
     bool TryReserveImage(long imageSize)
@@ -468,28 +454,6 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             if (_activeOperations == 0)
                 Monitor.PulseAll(_gate);
         }
-    }
-
-    static bool IdentityMatches(
-        AssemblyReferenceIdentity expected,
-        AssemblyReferenceIdentity actual) =>
-        StringComparer.OrdinalIgnoreCase.Equals(expected.Name, actual.Name)
-        && expected.Version == actual.Version
-        && CultureMatches(expected.Culture, actual.Culture)
-        && StringComparer.OrdinalIgnoreCase.Equals(
-            expected.PublicKeyToken ?? "",
-            actual.PublicKeyToken ?? "");
-
-    static bool CultureMatches(string? left, string? right)
-    {
-        static string Normalize(string? value) =>
-            string.IsNullOrEmpty(value)
-                || value.Equals("neutral", StringComparison.OrdinalIgnoreCase)
-                    ? ""
-                    : value;
-        return StringComparer.OrdinalIgnoreCase.Equals(
-            Normalize(left),
-            Normalize(right));
     }
 
     static CandidateRegistrationResult.Rejected RejectInvalid(
