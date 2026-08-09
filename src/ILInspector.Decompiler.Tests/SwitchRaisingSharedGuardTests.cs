@@ -395,6 +395,91 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    public void WrappedEnumIndirectLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            indirect,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedEnumIndirectLoadWithMatchingStorageOpcode_RestoresEnumSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "Byte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            indirect,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([128, 129, 130, 131], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void WrappedEnumArrayLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteArrayAlgorithm");
+        var arrayElement = new LoadElement(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+            new Constant(0, s_int));
+        var wrapped = new Binary(
+            BinaryKind.Or,
+            isChecked: false,
+            isUnsigned: false,
+            arrayElement,
+            new Constant(0, enumType));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 128, switchValue: wrapped);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.IsType<Binary>(node.Value);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
     public void ExternalEnumArrayLabelsRemainEnumTyped()
     {
         var enumType = TypeRef.Definition("External", "Synthetic", "UnknownAlgorithm");

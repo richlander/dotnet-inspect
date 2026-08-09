@@ -69,7 +69,22 @@ internal static class SwitchTypeFacts
     /// True when a storage-typed load preserves the enum backing's width and
     /// signedness. Direct enum values carry no separate storage opcode.
     /// </summary>
-    public static bool StorageMatchesBacking(IrExpression value, TypeRef enumType, TypeRef underlying)
+    public static bool StorageMatchesBacking(
+        IrFunction function,
+        IrExpression value,
+        TypeRef enumType,
+        TypeRef underlying)
+    {
+        if (!StorageNodeMatches(value, enumType, underlying))
+            return false;
+        return !value.Descendants
+            .OfType<IrExpression>()
+            .Where(node => node is LoadElement or LoadIndirect)
+            .Where(node => EnumType(function, node)?.Equals(enumType) == true)
+            .Any(node => !StorageNodeMatches(node, enumType, underlying));
+    }
+
+    static bool StorageNodeMatches(IrExpression value, TypeRef enumType, TypeRef underlying)
     {
         var storageType = value switch
         {
