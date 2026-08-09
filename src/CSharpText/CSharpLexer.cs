@@ -475,10 +475,7 @@ internal static class CSharpLexer
             }
 
             if (tokens.Count >= maxTokenCount)
-            {
-                throw new InvalidOperationException(
-                    $"C# source exceeds the lexical complexity limit of {maxTokenCount:N0} tokens.");
-            }
+                throw new CSharpTextComplexityException(maxTokenCount);
 
             tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown, state.Section));
         }

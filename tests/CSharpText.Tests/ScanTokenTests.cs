@@ -55,9 +55,10 @@ public class ScanTokenTests
     [Fact]
     public void TokenLimit_StopsTokenDenseInputDuringEmission()
     {
-        var error = Assert.Throws<InvalidOperationException>(
+        var error = Assert.Throws<CSharpTextComplexityException>(
             () => CSharpLexer.ScanTokens(["; ; ; ;"], maxTokenCount: 3));
 
+        Assert.Equal(3, error.MaxTokenCount);
         Assert.Contains("3 tokens", error.Message, StringComparison.Ordinal);
     }
 

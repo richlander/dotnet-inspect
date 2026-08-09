@@ -287,6 +287,11 @@ public record MemberOptions : ApiOptions
     public bool MemberHasNoAuthoredDeclaration { get; init; }
 
     /// <summary>
+    /// True when authored source was verified but exceeded the bounded lexical-complexity limit.
+    /// </summary>
+    public bool MemberSourceTooComplex { get; init; }
+
+    /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
     /// selected member, in addition to the member's own assembly. Empty = own assembly only.
     /// </summary>

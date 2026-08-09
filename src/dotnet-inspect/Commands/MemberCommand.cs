@@ -321,6 +321,7 @@ public static class MemberCommand
                     MethodSource = resolved.Source,
                     MemberHasNoBody = resolved.MemberHasNoBody,
                     MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
+                    MemberSourceTooComplex = resolved.MemberSourceTooComplex,
                     PdbPath = resolved.PdbPath
                 };
             }

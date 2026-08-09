@@ -911,11 +911,15 @@ public class ApiCommand
     /// True when the member has a body but its source range does not identify one vouched
     /// authored declaration to isolate.
     /// </param>
+    /// <param name="MemberSourceTooComplex">
+    /// True when verified source exceeded the bounded lexical-complexity limit.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
-        bool MemberHasNoAuthoredDeclaration = false);
+        bool MemberHasNoAuthoredDeclaration = false,
+        bool MemberSourceTooComplex = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -989,21 +993,54 @@ public class ApiCommand
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
-            var sourceCode = BodySlicer.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName);
-
-            // The range does not identify one authored declaration: report no source rather than
-            // a type header, initializer, or structurally unknown span.
-            if (sourceCode is null)
-                return new ResolvedMethodSource(null, pdbPath, MemberHasNoAuthoredDeclaration: true);
-
-            return new ResolvedMethodSource(
-                new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
+            return SliceResolvedMethodSource(
+                content,
+                methodInfo.StartLine,
+                methodInfo.EndLine,
+                methodName,
+                methodInfo.SourceUrl ?? methodInfo.FilePath,
+                pdbPath);
         }
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
             return new ResolvedMethodSource(null, null);
+        }
+    }
+
+    internal static ResolvedMethodSource SliceResolvedMethodSource(
+        string content,
+        int startLine,
+        int endLine,
+        string methodName,
+        string sourceLocation,
+        string? pdbPath)
+    {
+        try
+        {
+            string? sourceCode = BodySlicer.ExtractMethodBody(
+                content,
+                startLine,
+                endLine,
+                methodName);
+
+            // The range does not identify one authored declaration: report no source rather than
+            // a type header, initializer, or structurally unknown span.
+            return sourceCode is null
+                ? new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    MemberHasNoAuthoredDeclaration: true)
+                : new ResolvedMethodSource(
+                    new MethodSourceContext(sourceCode, sourceLocation),
+                    pdbPath);
+        }
+        catch (CSharpTextComplexityException)
+        {
+            return new ResolvedMethodSource(
+                null,
+                pdbPath,
+                MemberSourceTooComplex: true);
         }
     }
 
@@ -1216,16 +1253,10 @@ public class ApiCommand
                     view.MemberCode ??= new MemberCodeView();
                     view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                 }
-                else if (mo5.MemberHasNoBody)
+                else if (OriginalSourceUnavailableNote(mo5) is { } note)
                 {
                     view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
-                    view.MemberCode.OriginalSourceUnavailable = true;
-                }
-                else if (mo5.MemberHasNoAuthoredDeclaration)
-                {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
                     view.MemberCode.OriginalSourceUnavailable = true;
                 }
             }
@@ -1930,16 +1961,10 @@ public class ApiCommand
                         view.MemberCode ??= new MemberCodeView();
                         view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
                     }
-                    else if (memberOptions.MemberHasNoBody)
+                    else if (OriginalSourceUnavailableNote(memberOptions) is { } note)
                     {
                         view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
-                        view.MemberCode.OriginalSourceUnavailable = true;
-                    }
-                    else if (memberOptions.MemberHasNoAuthoredDeclaration)
-                    {
-                        view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", note);
                         view.MemberCode.OriginalSourceUnavailable = true;
                     }
                 }
@@ -2051,6 +2076,18 @@ public class ApiCommand
     internal const string NoAuthoredDeclarationNote =
         "// This member's source range does not identify one authored declaration that can be shown.\n"
         + "// Generated members and ambiguous or structurally unknown source ranges can have this shape.";
+
+    internal const string SourceTooComplexNote =
+        "// Authored source extraction stopped because the source exceeds the lexical complexity limit.";
+
+    internal static string? OriginalSourceUnavailableNote(MemberOptions options) =>
+        options.MemberHasNoBody
+            ? BodylessMemberNote
+            : options.MemberSourceTooComplex
+                ? SourceTooComplexNote
+                : options.MemberHasNoAuthoredDeclaration
+                    ? NoAuthoredDeclarationNote
+                    : null;
 
     private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
     {

@@ -646,7 +646,9 @@ Limit exhaustion is a visible extraction failure, not an absent declaration.
 `ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
 emission boundary, and
 `AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
-gates the product-facing result.
+gates the Findings-facing result, while
+`CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`
+gates the member-command result.
 `DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
 

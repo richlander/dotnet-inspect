@@ -4737,6 +4737,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void OriginalSource_TokenDenseInputCarriesAVisibleFailureState()
+    {
+        string source = "class C { void M() { "
+            + new string(';', 500_001)
+            + " } }";
+
+        var resolved = ApiCommand.SliceResolvedMethodSource(
+            source,
+            startLine: 1,
+            endLine: 1,
+            methodName: "M",
+            sourceLocation: "fixture.cs",
+            pdbPath: null);
+
+        Assert.True(resolved.MemberSourceTooComplex);
+        Assert.Null(resolved.Source);
+        Assert.Contains(
+            "lexical complexity limit",
+            ApiCommand.OriginalSourceUnavailableNote(
+                new MemberOptions { MemberSourceTooComplex = true }),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
     {
         // An abstract method has no IL body, so it has no authored source to resolve. That is a
