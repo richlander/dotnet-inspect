@@ -78,6 +78,7 @@ public class HttpClientFactoryTests : IDisposable
     public async Task CreateClient_CapturesOneOptionsSnapshot()
     {
         const string ClosedPort = "http://127.0.0.1:1/";
+        var observeCreation = new AsyncLocal<bool>();
         using var decoratorEntered = new ManualResetEventSlim();
         using var continueCreation = new ManualResetEventSlim();
 
@@ -88,6 +89,9 @@ public class HttpClientFactoryTests : IDisposable
         });
         DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(handler =>
         {
+            if (!observeCreation.Value)
+                return handler;
+
             decoratorEntered.Set();
             if (!continueCreation.Wait(
                 TimeSpan.FromSeconds(10),
@@ -96,8 +100,17 @@ public class HttpClientFactoryTests : IDisposable
             return handler;
         });
 
-        Task<HttpClient> creation = Task.Run(
+        using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
+            TestContext.Current.CancellationToken);
+        Assert.False(decoratorEntered.IsSet);
+
+        Task<HttpClient> creation = Task.Run(
+            () =>
+            {
+                observeCreation.Value = true;
+                return DotnetInspector.Core.HttpClientFactory.CreateClient();
+            },
             TestContext.Current.CancellationToken);
         try
         {
