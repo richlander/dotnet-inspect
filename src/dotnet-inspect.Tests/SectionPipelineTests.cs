@@ -2025,6 +2025,29 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void SetSectionCosts_DoesNotUnderstateTypedQueryCost()
+    {
+        var query = new InspectionQuery<int>("query", InspectionCost.Moderated);
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseQueryCosts(definition => definition.Cost)
+            .Add<QueryBackedSection>(query)
+            .SetSectionCosts(SectionCost.NetworkFree, QueryBackedSection.Name);
+
+        Assert.Equal(SectionCost.Moderated, Assert.Single(pipeline.SectionCosts).Cost);
+    }
+
+    [Fact]
+    public void SetSectionCosts_DoesNotUnderstateScannerCost()
+    {
+        var pipeline = new SectionPipeline<TestModel>()
+            .UseScannerCosts(_ => SectionCost.Moderated)
+            .Add<NormalSection>()
+            .SetSectionCosts(SectionCost.NetworkFree, NormalSection.Name);
+
+        Assert.Equal(SectionCost.Moderated, Assert.Single(pipeline.SectionCosts).Cost);
+    }
+
+    [Fact]
     public void QueryBackedSection_MultipleQueries_InheritsMaximumCostAndDemandsEach()
     {
         var networkFree = new InspectionQuery<int>(
@@ -4800,6 +4823,22 @@ public class SectionPipelineTests
                 SectionCategoryNames.Surface,
             }.OrderBy(name => name, StringComparer.Ordinal),
             categories.Keys.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TypePipeline_SizeAndCostOverrides_DoNotChangeLegacyMemberPipeline()
+    {
+        var typePipeline = ApiMemberSectionPipelines.Create(new TypeOptions());
+        var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
+        var decompiledSource = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.DecompiledSource
+        };
+
+        Assert.Contains(SectionNames.Baseclass, typePipeline.FixedOverviewSectionNames);
+        Assert.Equal([SectionNames.TypeInfo], memberPipeline.FixedOverviewSectionNames);
+        Assert.Equal(Verbosity.Detailed, typePipeline.GetRequiredVerbosity(decompiledSource));
+        Assert.Equal(Verbosity.Quiet, memberPipeline.GetRequiredVerbosity(decompiledSource));
     }
 
     [Fact]

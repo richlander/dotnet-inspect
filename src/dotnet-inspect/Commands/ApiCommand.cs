@@ -85,7 +85,7 @@ public class ApiCommand
     internal static TypeOptions? ReresolveSectionsForListing(TypeOptions options)
     {
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var bareSelectSections = typePipeline.FixedOverviewSectionNames;
+        var bareSelectSections = typePipeline.InfoSectionNames;
 
         if (HasNoBareSelectOverview(options, bareSelectSections))
         {
@@ -167,7 +167,7 @@ public class ApiCommand
         => SelectResolver.ResolveSelectAsSections(
             options.Select,
             typePipeline.SelectableSectionNames,
-            typePipeline.FixedOverviewSectionNames,
+            typePipeline.InfoSectionNames,
             typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
 
@@ -191,7 +191,7 @@ public class ApiCommand
         var result = SelectResolver.ResolveSelectAsSections(
             options.Select,
             memberPipeline.SelectableSectionNames,
-            memberPipeline.FixedOverviewSectionNames,
+            memberPipeline.InfoSectionNames,
             memberPipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
         SelectOutput.WriteUnresolved(result);
@@ -258,26 +258,19 @@ public class ApiCommand
         // nothing at all -- it prints a migration notice and returns -- so it has no bare -S to
         // convert. See #3547.
         //
-        // Type listing joins here as of this slice. It previously had no Fixed section to offer --
-        // every section it published was a per-kind member table that grows with the assembly -- so
-        // its bare -S resolved to an empty set and fell through to the verbosity ladder, printing
-        // all five growing tables. #3648 gave it the bounded API Info section, so bare -S can now
-        // mean the same thing here that it means everywhere else.
-        var usesFixedOverview = options is TypeOptions;
-        var bareSelectSections = usesFixedOverview
-            ? singleTypeMode
-                ? memberPipeline.FixedOverviewSectionNames
-                : typePipeline.FixedOverviewSectionNames
-            : singleTypeMode
-                ? memberPipeline.InfoSectionNames
-                : typePipeline.InfoSectionNames;
+        // Type publishes focused API Info and Type Info presets for bare -S. These stay bounded even
+        // when other structurally fixed sections are added to a command context.
+        var usesTypeInfoPreset = options is TypeOptions;
+        var bareSelectSections = singleTypeMode
+            ? memberPipeline.InfoSectionNames
+            : typePipeline.InfoSectionNames;
 
-        // A fixed-overview bare -S that resolves to no sections has to fail loudly. SelectResolver
+        // A focused bare -S that resolves to no sections has to fail loudly. SelectResolver
         // hands back an empty-but-non-null set, and IsRequested's `include is { Count: > 0 }` reads
         // that as "no filter at all" and falls through to the verbosity ladder -- turning a request
         // for a bounded overview into the widest output the command has, with the scanner
         // backpressure -S exists to apply switched off.
-        if (usesFixedOverview && HasNoBareSelectOverview(options, bareSelectSections))
+        if (usesTypeInfoPreset && HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",

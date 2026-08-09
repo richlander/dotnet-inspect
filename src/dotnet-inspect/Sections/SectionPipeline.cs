@@ -311,6 +311,84 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Overrides size metadata for one command context when descriptors are shared with legacy
+    /// pipelines that must retain their existing positional behavior.
+    /// </summary>
+    public SectionPipeline<TModel> SetSectionSizes(
+        SectionSizeClass sizeClass,
+        params string[] sections)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+        var requested = sections.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var known = _entries.Select(entry => entry.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = requested.Where(section => !known.Contains(section)).ToArray();
+        if (unknown.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Size override lists unregistered section(s): {string.Join(", ", unknown)}.");
+        }
+
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (requested.Contains(_entries[i].Name))
+                _entries[i] = _entries[i] with { SizeClass = sizeClass };
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// Overrides cost metadata for one command context when descriptors are shared with legacy
+    /// pipelines that must retain their existing positional behavior. Scanner and typed-query
+    /// costs remain lower bounds.
+    /// </summary>
+    public SectionPipeline<TModel> SetSectionCosts(
+        SectionCost cost,
+        params string[] sections)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+        var requested = sections.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var known = _entries.Select(entry => entry.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = requested.Where(section => !known.Contains(section)).ToArray();
+        if (unknown.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Cost override lists unregistered section(s): {string.Join(", ", unknown)}.");
+        }
+
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            SectionEntry<TModel> entry = _entries[i];
+            if (!requested.Contains(entry.Name))
+                continue;
+
+            SectionCost effectiveCost = cost;
+            if (_scannerCost is { } scannerCostOf && entry.ScannerKey is { } scannerKey)
+            {
+                SectionCost scannerCost = scannerCostOf(scannerKey);
+                if (scannerCost > effectiveCost)
+                    effectiveCost = scannerCost;
+            }
+
+            if (_queryCost is { } queryCostOf)
+            {
+                foreach (InspectionQueryDefinition query in entry.Queries)
+                {
+                    SectionCost queryCost = queryCostOf(query).ToSectionCost(query);
+                    if (queryCost > effectiveCost)
+                        effectiveCost = queryCost;
+                }
+            }
+
+            _entries[i] = entry with { Cost = effectiveCost };
+        }
+
+        return this;
+    }
+
+    /// <summary>
     /// Declares a topical category door over already-registered sections. Members are validated
     /// against the registered section names, so a rename that misses a membership list fails at
     /// construction instead of silently dropping the section out of its category.

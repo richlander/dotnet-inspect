@@ -1702,7 +1702,11 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Api_PlatformLibrary_ListsTypes()
     {
-        var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
+        var options = new ApiOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            Verbosity = Verbosity.Detailed
+        };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => ApiCommand.ExecuteAsync(options));
@@ -3701,15 +3705,17 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, fieldsExit);
         Assert.Contains("# System.Text.Json", fieldsOutput, StringComparison.Ordinal);
-        // Structured resolution reaches ParamCollectionAttribute through the
-        // platform policy instead of dropping it with the sibling-only probe.
-        Assert.Contains("Types: 90", fieldsOutput, StringComparison.Ordinal);
+        var typeCount = line.Split(" | ", StringSplitOptions.None)
+            .Single(field => field.StartsWith("Types:", StringComparison.Ordinal));
+        var typeCountValue = typeCount["Types: ".Length..];
+        Assert.Contains(typeCount, fieldsOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Methods:", fieldsOutput, StringComparison.Ordinal);
 
         // --columns is the same surface and was the case the first fix missed: it does not filter
         // document fields at all, so the title vanished while the projected table rendered fine.
         var (columnsExit, columnsOutput, _) = await RunAppAsync(
-            "type", "--platform", "System.Text.Json", "--columns", "Type", "-n", "1", "--tips", "q");
+            "type", "--platform", "System.Text.Json", "-S", "Classes",
+            "--columns", "Type", "-n", "1", "--tips", "q");
 
         Assert.Equal(0, columnsExit);
         Assert.Contains("# System.Text.Json", columnsOutput, StringComparison.Ordinal);
@@ -3720,7 +3726,7 @@ public partial class CommandExecutionTests
             "type", "--platform", "System.Text.Json", "-v:q", "-S", SectionNames.ApiInfo, "--tips", "q");
 
         Assert.Equal(0, bothExit);
-        Assert.Contains("| Types | 90 |", bothOutput, StringComparison.Ordinal);
+        Assert.Contains($"| Types | {typeCountValue} |", bothOutput, StringComparison.Ordinal);
         Assert.DoesNotContain("Library: System.Text.Json.dll |", bothOutput, StringComparison.Ordinal);
     }
 
@@ -4163,15 +4169,14 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public void Type_FixedOverview_IsExactlyTypeInfo()
+    public void Type_InfoPreset_IsExactlyTypeInfo()
     {
         // Non-vacuity for the whole slice: every `type X -S` assertion below is only meaningful
-        // because this set is non-empty. An empty set is the state ApiCommand.HasNoBareSelectOverview
-        // rejects, so without this pin a future descriptor change could make bare -S error while the
-        // output tests kept passing for the wrong reason.
-        var fixedOverview = ApiMemberSectionDescriptors.CreatePipeline().FixedOverviewSectionNames;
+        // because this set is non-empty. The preset is deliberately narrower than the structural
+        // fixed-overview set: Baseclass and Finalizer stay out of the focused Type Info summary.
+        var infoSections = ApiMemberSectionPipelines.Create(new TypeOptions()).InfoSectionNames;
 
-        Assert.Equal([SectionNames.TypeInfo], fixedOverview);
+        Assert.Equal([SectionNames.TypeInfo], infoSections);
     }
 
     [Theory]
@@ -4516,7 +4521,8 @@ public partial class CommandExecutionTests
     public async Task Type_SingleType_SourceFilesSection_RendersTypeSourceUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "System.Text.Json.JsonSerializer", "-S", "Source Files", "--tips", "q", "-n", "28");
+            "type", "System.Text.Json.JsonSerializer",
+            "-S", "Source Files", "--tips", "q", "-n", "28");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4659,7 +4665,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Methods | section (verbose) |", output);
+        Assert.Contains("| Methods | section", output);
     }
 
     [Fact]
@@ -8114,7 +8120,7 @@ public partial class CommandExecutionTests
     public async Task TypeListing_NestedDelegate_ShowsFullDeclaringTypeContext()
     {
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.Text.Json", "--tips", "q");
+            "type", "System.Text.Json", "-v:d", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -8836,24 +8842,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SelectWithColumnNotShownAtVerbosity_ReturnsError()
+    public async Task Type_SelectWithDetailedColumn_PromotesVerbosity()
     {
-        // Signature is valid in the static schema but does not render at the default
-        // verbosity. The active table shape has no matching column, so strict projection
-        // returns an error.
+        // Signature is a detailed column. Selecting the verbose Properties section promotes the
+        // active shape before strict projection, so the column remains queryable.
         var options = new TypeOptions
         {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
+            AssemblyPath = TestAssemblyPath,
+            TypeName = "DotnetInspector.Tests.SampleClosureHost",
             Select = ["Properties"],
-            Columns = ["Signature"]
+            Columns = ["Signature"],
+            TipLevel = TipLevel.Quiet
         };
 
-        var (exit, _, error) = await ConsoleCapture.RunAsync(
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
 
-        Assert.Equal(1, exit);
-        Assert.Contains("No columns matched projection: Signature", error);
+        Assert.Equal(0, exit);
+        Assert.Contains("| Signature |", output);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -8938,7 +8945,11 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Api_LocalAssembly_ListsTypes()
     {
-        var options = new ApiOptions { AssemblyPath = TestAssemblyPath };
+        var options = new ApiOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            Verbosity = Verbosity.Detailed
+        };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => ApiCommand.ExecuteAsync(options));

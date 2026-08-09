@@ -191,6 +191,55 @@ public static class ApiMemberSectionDescriptors
 
         return pipeline
             .SetInfoSections(SectionNames.TypeInfo)
+            .SetSectionSizes(SectionSizeClass.Fixed,
+                SectionNames.Baseclass,
+                SectionNames.Finalizer)
+            .SetSectionSizes(SectionSizeClass.Informative,
+                SectionNames.TypeParameters,
+                SectionNames.TypeInterfaces)
+            .SetSectionSizes(SectionSizeClass.Verbose,
+                SectionNames.Values,
+                SectionNames.Constructors,
+                SectionNames.Fields,
+                SectionNames.Properties,
+                SectionNames.MethodGroups,
+                SectionNames.Methods,
+                SectionNames.MemberIndex,
+                SectionNames.Operators,
+                SectionNames.ExplicitInterfaceImplementations,
+                SectionNames.ExtensionMethods,
+                SectionNames.Events,
+                SectionNames.CustomAttributes,
+                SectionNames.UnsafeMembers,
+                SectionNames.ExceptionRegions,
+                SectionNames.CalledTypes,
+                SectionNames.AllocationFacts,
+                SectionNames.SafetyFacts,
+                SectionNames.CostFacts,
+                SectionNames.TopLeverage,
+                SectionNames.PerformanceTriage,
+                SectionNames.SourceFiles,
+                SectionNames.DecompiledSource,
+                SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
+                SectionNames.IL,
+                SectionNames.Facts)
+            .SetSectionCosts(SectionCost.Moderated,
+                SectionNames.SourceFiles)
+            .SetSectionCosts(SectionCost.Unbounded,
+                SectionNames.UnsafeMembers,
+                SectionNames.ExceptionRegions,
+                SectionNames.CalledTypes,
+                SectionNames.AllocationFacts,
+                SectionNames.SafetyFacts,
+                SectionNames.CostFacts,
+                SectionNames.TopLeverage,
+                SectionNames.PerformanceTriage,
+                SectionNames.DecompiledSource,
+                SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
+                SectionNames.IL,
+                SectionNames.Facts)
             .AddBaseCategory(SectionCategoryNames.Surface,
                 SectionNames.TypeInfo,
                 SectionNames.Values,
@@ -255,13 +304,12 @@ public static class ApiMemberSectionDescriptors
     /// Type identity fact table.
     /// </summary>
     /// <remarks>
-    /// The only section on this pipeline whose size does not grow with the type under inspection,
-    /// which is why it declares <see cref="SectionSizeClass.Fixed"/>. Every other section here
-    /// enumerates members, interfaces, type parameters, or IL, so all of them scale with the
-    /// target. <c>CanRender</c> is unconditional because the view always populates the section for
-    /// this pipeline; the member-detail and overload-inventory views use different pipelines that
-    /// do not register it. The curated type catalog promotes it to the minimal preset; quiet
-    /// output retains the compact identity line.
+    /// Declares <see cref="SectionSizeClass.Fixed"/> because its identity row does not grow with the
+    /// type under inspection. <c>CanRender</c> is unconditional because the view always populates
+    /// the section for this pipeline; the member-detail and overload-inventory views use different
+    /// pipelines that do not register it. The curated type catalog promotes only this section to
+    /// the focused minimal preset, gated by
+    /// <c>Type_InfoPreset_IsExactlyTypeInfo</c>; quiet output retains the compact identity line.
     /// </remarks>
     public sealed class TypeInfo : ISectionDescriptor<ApiType>
     {
@@ -278,7 +326,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Values";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Kind == "enum"
@@ -289,7 +336,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Type Parameters";
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.TypeParameters.Count > 0;
@@ -299,7 +345,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Interfaces";
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Interfaces.Count > 0;
@@ -309,7 +354,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Baseclass";
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => !string.IsNullOrEmpty(model.BaseType)
@@ -325,7 +369,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Constructors";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
@@ -336,7 +379,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.Finalizer;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "finalizer");
@@ -347,7 +389,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Fields";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "field" && !m.EnumValue.HasValue);
@@ -358,7 +399,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Properties";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "property");
@@ -368,7 +408,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.Methods;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasMethods(model);
@@ -379,7 +418,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.MemberIndex;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => !MemberFilters.IsCompilerGenerated(m.Name));
@@ -390,7 +428,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.MethodGroups;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasMethods(model);
@@ -401,7 +438,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => "Events";
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "event");
@@ -412,7 +448,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.Operators;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasOperators(model);
@@ -423,7 +458,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.ExplicitInterfaceImplementations;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasExplicitInterfaceImplementations(model);
@@ -434,7 +468,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.ExtensionMethods;
         public static bool IsExpensive => false;
         public static bool Info => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => HasExtensionMethods(model);
@@ -444,7 +477,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -479,8 +511,6 @@ public static class ApiMemberSectionDescriptors
         public static string Name => SectionNames.UnsafeMembers;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -492,8 +522,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -505,8 +533,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -518,8 +544,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
@@ -530,8 +554,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
@@ -542,8 +564,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
@@ -556,8 +576,6 @@ public static class ApiMemberSectionDescriptors
         // Backed by the whole-assembly body index; list structurally during -D rather
         // than opening the index to probe, mirroring OptimizationOpportunities.
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked);
@@ -571,8 +589,6 @@ public static class ApiMemberSectionDescriptors
         // Backed by the whole-assembly body index; list structurally during -D rather
         // than opening the index to probe, mirroring SourceLocations/UnsafeOperations.
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsBodyBacked);
@@ -596,8 +612,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Moderated;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -611,9 +625,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.DecompiledSource;
-        public static bool IsExpensive => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             // Enums have no method bodies but the whole-type listing renders
@@ -624,9 +636,7 @@ public static class ApiMemberSectionDescriptors
     public sealed class ILBody : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.IL;
-        public static bool IsExpensive => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(IsMethodLike);
@@ -638,8 +648,6 @@ public static class ApiMemberSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
@@ -650,8 +658,6 @@ public static class ApiMemberSectionDescriptors
     {
         public static string Name => SectionNames.OriginalSource;
         public static bool IsExpensive => true;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
@@ -957,7 +963,6 @@ public static class ApiMemberDetailSectionDescriptors
         public static string Name => SectionNames.SourceDiff;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
-        public static SectionCost Cost => SectionCost.Unbounded;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
