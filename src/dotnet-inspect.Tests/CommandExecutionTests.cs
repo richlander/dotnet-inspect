@@ -12546,6 +12546,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json", "--package", missingPackagePath,
+            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_SinglePackageInspectionRetainsDocumentFraming()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");

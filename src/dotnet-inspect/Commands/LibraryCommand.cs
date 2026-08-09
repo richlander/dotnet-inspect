@@ -1431,7 +1431,8 @@ public class LibraryCommand
     }
 
     private static bool IsAllTfmPackageSelection(LibraryOptions options)
-        => !string.IsNullOrEmpty(options.PackagePath)
+        => string.IsNullOrEmpty(options.PlatformAssembly)
+            && !string.IsNullOrEmpty(options.PackagePath)
             && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
