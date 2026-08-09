@@ -202,6 +202,17 @@ public record LibraryOptions : IProjectionOptions
         => UserIncludeSectionsOverride ?? IncludeSections;
 
     /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories, globs, or a preset. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
     /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
     /// </summary>
     public string[]? Discover { get; init; }

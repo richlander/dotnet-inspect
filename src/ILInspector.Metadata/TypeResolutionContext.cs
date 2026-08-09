@@ -40,6 +40,9 @@ public sealed record TypeResolutionContextOptions
     /// <summary>Default maximum distinct requests evaluated per generation.</summary>
     public const int DefaultMaxTypeResolutionRequests = 65_536;
 
+    /// <summary>Default bound for forwarded type resolution.</summary>
+    public const int DefaultMaxForwarderHops = 8;
+
     /// <summary>Maximum acquisition registrations retained by the catalog.</summary>
     public int MaxCandidates { get; init; } =
         InspectionAcquisitionPlanOptions.DefaultMaxCandidates;
@@ -57,7 +60,7 @@ public sealed record TypeResolutionContextOptions
     /// <see cref="TypeResolutionFailure.HopBudgetExceeded"/>.
     /// </summary>
     public int MaxForwarderHops { get; init; } =
-        TypeForwardResolver.DefaultMaxHops;
+        DefaultMaxForwarderHops;
 
     /// <summary>
     /// Maximum distinct type-resolution requests evaluated in one generation.

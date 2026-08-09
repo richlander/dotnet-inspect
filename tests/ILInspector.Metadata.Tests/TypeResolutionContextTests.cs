@@ -932,6 +932,56 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void NestedForwarder_ResolvesFullDeclarationChain()
+    {
+        ImmutableArray<string> segments = ["Outer", "Inner"];
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true,
+            typeSegments: segments);
+        byte[] facadeImage = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: ReadIdentity(targetImage),
+            typeSegments: segments);
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", segments))
+            .Name;
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            facade,
+            AssemblyResolutionScope.Any,
+            nestedName);
+
+        using TypeResolutionContext context = TypeResolutionContext.Create(
+            new RecordingPolicy(
+                _ => AssemblyBindingSelection.Found(target)),
+            [facade],
+            [request]);
+        var resolved = Assert.IsType<TypeResolutionOutcome.Resolved>(
+            context.Resolve(request));
+
+        TypeForwardingHop hop = Assert.Single(resolved.Hops);
+        Assert.Equal(2, hop.Declarations.Length);
+        Assert.Equal(nestedName, resolved.Definition.Type);
+        Assert.Same(target, resolved.Definition.Assembly.Assembly);
+        using var stream = new MemoryStream(targetImage, writable: false);
+        using var peReader = new PEReader(stream);
+        Assert.True(
+            resolved.Definition.Address.TryResolve(
+                peReader.GetMetadataReader(),
+                out TypeDefinitionHandle definition));
+        Assert.Equal(
+            "Inner",
+            peReader.GetMetadataReader().GetString(
+                peReader.GetMetadataReader()
+                    .GetTypeDefinition(definition)
+                    .Name));
+    }
+
+    [Fact]
     public void MissingForwarderTarget_IsUnboundBinding()
     {
         byte[] facadeImage = BuildAssembly(
@@ -2384,8 +2434,12 @@ public class TypeResolutionContextTests
         AssemblyReferenceIdentity? forwardTarget = null,
         int forwarderCount = 1,
         bool definesOtherType = false,
-        Guid? moduleVersionId = null)
+        Guid? moduleVersionId = null,
+        ImmutableArray<string> typeSegments = default)
     {
+        ImmutableArray<string> segments = typeSegments.IsDefault
+            ? ["Type"]
+            : typeSegments;
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
@@ -2410,13 +2464,25 @@ public class TypeResolutionContextTests
 
         if (definesType)
         {
-            metadata.AddTypeDefinition(
-                TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
-                baseType: default,
-                fieldList: MetadataTokens.FieldDefinitionHandle(1),
-                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle enclosing = default;
+            for (int i = 0; i < segments.Length; i++)
+            {
+                TypeDefinitionHandle definition =
+                    metadata.AddTypeDefinition(
+                        i == 0
+                            ? TypeAttributes.Public
+                            : TypeAttributes.NestedPublic,
+                        i == 0
+                            ? metadata.GetOrAddString("N")
+                            : default,
+                        metadata.GetOrAddString(segments[i]),
+                        baseType: default,
+                        fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                        methodList: MetadataTokens.MethodDefinitionHandle(1));
+                if (!enclosing.IsNil)
+                    metadata.AddNestedType(definition, enclosing);
+                enclosing = definition;
+            }
         }
         if (definesOtherType)
         {
@@ -2445,12 +2511,22 @@ public class TypeResolutionContextTests
                     hashValue: default);
             for (int i = 0; i < forwarderCount; i++)
             {
-                metadata.AddExportedType(
-                    TypeAttributes.Public | Forwarder,
-                    metadata.GetOrAddString("N"),
-                    metadata.GetOrAddString("Type"),
-                    target,
-                    typeDefinitionId: 0);
+                EntityHandle implementation = target;
+                for (int segment = 0;
+                    segment < segments.Length;
+                    segment++)
+                {
+                    implementation = metadata.AddExportedType(
+                        segment == 0
+                            ? TypeAttributes.Public | Forwarder
+                            : TypeAttributes.NestedPublic,
+                        segment == 0
+                            ? metadata.GetOrAddString("N")
+                            : default,
+                        metadata.GetOrAddString(segments[segment]),
+                        implementation,
+                        typeDefinitionId: 0);
+                }
             }
         }
 

@@ -63,6 +63,9 @@ public class InspectionAcquisitionPlanTests
 
         Assert.Equal(ReadIdentity(SelfBytes()), descriptor.Identity);
         Assert.Equal(Path.GetFullPath(SelfPath), descriptor.Path);
+        Assert.Equal(
+            File.GetLastWriteTimeUtc(SelfPath),
+            descriptor.LastWriteTimeUtc);
     }
 
     [Fact]
@@ -82,6 +85,23 @@ public class InspectionAcquisitionPlanTests
                 invalid,
                 AssemblyResolutionProvenance.Local("test"),
                 out _));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
+    public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
+    {
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    invalid,
+                    AssemblyResolutionProvenance.Local("test")));
         }
         finally
         {
