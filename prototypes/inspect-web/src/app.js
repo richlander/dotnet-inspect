@@ -1406,7 +1406,7 @@ function renderPackageDependencies() {
   }
 
   const selectedTfm = resolveDependenciesFramework(groups);
-  const orderedGroups = [...groups].sort((a, b) => compareFrameworks(a.framework, b.framework));
+  const orderedGroups = groups;
   const selectorChips = orderedGroups
     .map(group => `<button class="type-chip ${group.framework === selectedTfm ? "active" : ""}" data-dep-framework="${escapeHtml(group.framework)}">${escapeHtml(group.framework)}</button>`)
     .join("");
@@ -1494,46 +1494,13 @@ function bindDependencyListHandlers() {
   });
 }
 
-// Orders target-framework monikers: modern .NET (net with a dotted version) first,
-// then .NET Framework (net without a dot), then netstandard, each descending by version,
-// with anything else sorted alphabetically last.
-function frameworkTier(moniker) {
-  const m = String(moniker).toLowerCase();
-  if (m.startsWith("netstandard")) return 2;
-  if (m.startsWith("net")) return m.slice(3).includes(".") ? 0 : 1;
-  return 3;
-}
-
-function frameworkVersionParts(moniker) {
-  const match = String(moniker).toLowerCase().match(/(\d+(?:\.\d+)*)$/);
-  const version = match ? match[1] : "";
-  if (!version) return [];
-  return version.includes(".") ? version.split(".").map(Number) : version.split("").map(Number);
-}
-
-function compareFrameworks(a, b) {
-  const tierA = frameworkTier(a);
-  const tierB = frameworkTier(b);
-  if (tierA !== tierB) return tierA - tierB;
-  if (tierA === 3) return String(a).localeCompare(String(b));
-  const versionA = frameworkVersionParts(a);
-  const versionB = frameworkVersionParts(b);
-  const length = Math.max(versionA.length, versionB.length);
-  for (let i = 0; i < length; i++) {
-    const partA = versionA[i] ?? 0;
-    const partB = versionB[i] ?? 0;
-    if (partA !== partB) return partB - partA;
-  }
-  return String(a).localeCompare(String(b));
-}
-
 function resolveDependenciesFramework(groups) {
   const available = groups.map(group => group.framework);
   if (state.dependenciesFramework && available.includes(state.dependenciesFramework)) {
     return state.dependenciesFramework;
   }
   const active = groups.find(group => group.isActive);
-  return active ? active.framework : [...available].sort(compareFrameworks)[0];
+  return active ? active.framework : available[0];
 }
 
 async function loadPackageDependencies() {
@@ -3054,6 +3021,9 @@ function renderMember(type, member) {
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
     const scope = active?.scope;
+    const otherWorkspaceLibraries = Math.max(
+      0,
+      state.packages.filter(packageItem => !packageItem.isRuntimePack).length - 1);
     const breadcrumb = drilled
       ? `<div class="graph-breadcrumb">
           <button type="button" data-graph-back title="Back one level">‹ Back</button>
@@ -3080,7 +3050,10 @@ function renderMember(type, member) {
               ? `<div class="graph-drill-error">${escapeHtml(state.platformDrillError)}</div>`
               : ""}
             ${state.memberCallGraphExpanding
-              ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${state.packages.length - 1} other librar${state.packages.length - 1 === 1 ? "y" : "ies"} for callers…</div>`
+              ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${otherWorkspaceLibraries} other librar${otherWorkspaceLibraries === 1 ? "y" : "ies"} for callers…</div>`
+              : ""}
+            ${state.memberCallGraphError
+              ? `<div class="graph-drill-error">${escapeHtml(state.memberCallGraphError)}</div>`
               : ""}
             ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
@@ -5479,7 +5452,7 @@ async function loadSelectedMemberSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: type.queryId ?? type.id,
       member: overload.name,
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
@@ -5515,7 +5488,7 @@ async function loadSelectedMemberAnnotatedSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: type.queryId ?? type.id,
       member: overload.name,
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
@@ -5550,7 +5523,7 @@ async function loadSelectedTypeSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: type.queryId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (state.typeSourceKey === signature) state.typeSource = result;
@@ -5584,7 +5557,7 @@ async function loadSelectedTypeMetadata() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id
+      type: type.queryId ?? type.id
     });
     if (state.typeMetadataKey === signature) state.typeMetadata = result;
   } catch (error) {
@@ -5990,11 +5963,14 @@ async function loadSelectedMemberCallGraph() {
     version: state.package.version,
     framework: state.package.activeFramework,
     assembly: type.assembly,
-    type: type.id,
+    type: type.queryId ?? type.id,
     member: overload.name,
     signature: overload.signature
   };
-  const hasOtherLibraries = state.packages.length > 1;
+  const workspacePackages =
+    state.packages.filter(packageItem => !packageItem.isRuntimePack);
+  const hasOtherLibraries =
+    workspacePackages.some(packageItem => packageItem !== state.package);
 
   state.memberCallGraphLoading = true;
   state.memberCallGraphExpanding = false;
@@ -6016,7 +5992,7 @@ async function loadSelectedMemberCallGraph() {
       if (seq !== state.memberCallGraphSeq) return;
       const full = await inspectMemberCallGraph({
         ...base,
-        workspace: state.packages.map(packageItem => ({
+        workspace: workspacePackages.map(packageItem => ({
           package: packageItem.id,
           version: packageItem.version,
           framework: packageItem.activeFramework
@@ -6034,9 +6010,10 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     if (state.memberCallGraph) {
-      // Stage 1 already produced a graph; drop the banner in place rather than
-      // clobbering the page with an error or a full re-render.
-      patchCallGraphSection(state.memberCallGraph.mermaid);
+      state.memberCallGraphError =
+        `Workspace expansion was incomplete: ${String(error?.message || error)}`;
+      render();
+      await renderMermaidCallGraph();
     } else {
       state.memberCallGraphError = String(error?.message || error);
       render();
@@ -6062,7 +6039,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: type.queryId ?? type.id,
       member: overload.name,
       paramSig
     });
@@ -6137,7 +6114,7 @@ async function renderMermaidCallGraph() {
         + '</div>';
       const viewport = container.querySelector(".graph-viewport");
       viewport.innerHTML = svg;
-      attachGraphPanZoom(container, viewport, true);
+      attachGraphPanZoom(container, viewport, true, active);
     }
   } catch (error) {
     if (document.querySelector("#call-graph-diagram") === container) {
@@ -6146,7 +6123,11 @@ async function renderMermaidCallGraph() {
   }
 }
 
-function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
+function attachGraphPanZoom(
+  container,
+  viewport,
+  bindCallGraphNodes = false,
+  callGraph = null) {
   const svg = viewport.querySelector("svg");
   if (!svg) return;
 
@@ -6268,33 +6249,41 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
     // callees descend the same way from the start.
     const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
     svg.querySelectorAll("g.node").forEach(node => {
-      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+      const target = graphTargetForSvgNode(callGraph, node);
+      if (!target) return;
       if (drilled) {
-        const deeper = resolvePlatformNode(label, { requireExternal: false });
-        if (!deeper) return;
+        if (target.id === "n0" || !target.assembly || !target.typeFullName)
+          return;
         node.classList.add("nav-node", "platform-node");
         node.style.cursor = "pointer";
         node.addEventListener("click", () => {
           if (moved) return;
-          navigateOrDrillPlatform(deeper);
+          navigateOrDrillPlatform(target);
         });
         return;
       }
-      const target = resolveNodeLabel(label);
-      const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
-      // A node with no workspace target and no source is a platform (BCL / cross-library)
-      // callee: resolvable identity lives on the active graph's tree, so we can descend
-      // into its implementation IL by range-fetching the owning assembly on demand.
-      const platform = (target || source) ? null : resolvePlatformNode(label);
-      if (!target && !source && !platform) return;
+      const loaded = resolveLoadedGraphTarget(target);
+      const platform = !loaded
+        && target.kind === "External"
+        && target.assembly
+        && target.typeFullName;
+      if (!loaded && !platform) return;
       node.classList.add("nav-node");
       if (platform) node.classList.add("platform-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
         if (moved) return;
-        if (target) navigateToMember(target.pkg, target.type, target.group);
-        else if (source) openGraphSource(source.request, source.title);
-        else navigateOrDrillPlatform(platform);
+        if (loaded?.group) {
+          navigateToMember(
+            loaded.pkg,
+            loaded.type,
+            loaded.group,
+            loaded.overloadIndex);
+        } else if (loaded) {
+          openGraphSource(loaded.request, loaded.title);
+        } else if (platform) {
+          navigateOrDrillPlatform(target);
+        }
       });
     });
   }
@@ -6315,45 +6304,64 @@ function platformCrumbTrail() {
   return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
 }
 
-// Walk the active graph's caller + callee trees into a flat node list so a clicked
-// SVG node (matched by its compact "Type.Member" label) can recover the structured
-// identity the engine attached (assembly, typeFullName, memberName, paramSig).
-function flattenGraphNodes(graph) {
-  const out = [];
-  const visit = node => {
-    if (!node) return;
-    out.push(node);
-    (node.children ?? []).forEach(visit);
-  };
-  visit(graph?.callers);
-  visit(graph?.callees);
-  return out;
+function graphTargetForSvgNode(graph, node) {
+  const dataId = node.getAttribute("data-id");
+  const idMatch = node.id.match(/(?:^|flowchart-)(n\d+)(?:-|$)/);
+  const nodeId = dataId || idMatch?.[1];
+  return nodeId
+    ? graph.targets?.find(target => target.id === nodeId) ?? null
+    : null;
 }
 
-function resolvePlatformNode(label, { requireExternal = true } = {}) {
-  const dot = label.lastIndexOf(".");
-  if (dot < 0) return null;
-  let typeName = label.slice(0, dot);
-  const memberName = label.slice(dot + 1);
-  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
-  if (!typeName || !memberName) return null;
-  const wantType = stripArity(typeName);
-  const graph = currentCallGraph();
-  // When descending inside an already-platform graph, skip the graph's own root nodes so
-  // clicking a callee moves deeper rather than re-pushing the current member.
-  const roots = new Set([graph?.callers, graph?.callees]);
-  for (const node of flattenGraphNodes(graph)) {
-    if (requireExternal) {
-      if (node.status !== "External") continue;
-    } else if (roots.has(node)) {
-      continue;
-    }
-    if (!node.typeFullName || !node.assembly) continue;
-    if (node.memberName !== memberName) continue;
-    const simple = stripArity(node.typeFullName.split(".").pop() ?? "");
-    if (simple === wantType) return node;
+function resolveLoadedGraphTarget(target) {
+  const packages = [state.package, ...state.packages.filter(item => item !== state.package)];
+  for (const pkg of packages) {
+    if (!pkg || pkg.isRuntimePack) continue;
+    const type = pkg.types?.find(item =>
+      libraryKey(item).toLowerCase() === target.assembly.toLowerCase()
+      && (item.queryId ?? item.id) === target.typeFullName);
+    if (!type) continue;
+
+    const selection = findGraphMemberSelection(type, target);
+    if (selection) return { pkg, type, ...selection };
+    return {
+      pkg,
+      type,
+      group: null,
+      overloadIndex: null,
+      title: `${stripArity(type.name)}.${target.memberName}`,
+      request: {
+        packageId: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        assembly: type.assembly,
+        type: target.typeFullName,
+        member: target.memberName
+      }
+    };
   }
   return null;
+}
+
+function findGraphMemberSelection(type, target) {
+  const group = findMemberGroup(memberGroups(type), target.memberName);
+  if (!group) return null;
+  const wantedParameters = paramNamesFromSig(target.paramSig);
+  let arityMatch = null;
+  for (let index = 0; index < group.overloads.length; index++) {
+    const parameters = group.overloads[index].parameters ?? [];
+    if (parameters.length !== wantedParameters.length) continue;
+    arityMatch ??= index;
+    if (parameters.every(
+      (parameter, parameterIndex) =>
+        simpleTypeName(parameter.type) === wantedParameters[parameterIndex])) {
+      return { group, overloadIndex: index };
+    }
+  }
+  return {
+    group,
+    overloadIndex: arityMatch ?? (group.overloads.length === 1 ? 0 : null)
+  };
 }
 
 async function drillPlatformNode(node) {
@@ -6509,40 +6517,6 @@ function stripArity(name) {
   return tick < 0 ? name : name.slice(0, tick);
 }
 
-// The compact call-graph label strips generic arity ("JsonTypeInfo" for JsonTypeInfo`1),
-// which also collides with a same-named non-generic type. Match on exact and
-// arity-stripped forms of both the simple name and the full id so a generic node can
-// still find its declaring type.
-function typeMatchesName(type, typeName) {
-  return type.name === typeName
-    || type.id === typeName
-    || type.id.endsWith("." + typeName)
-    || stripArity(type.name) === typeName
-    || stripArity(type.id) === typeName
-    || stripArity(type.id).endsWith("." + typeName);
-}
-
-function resolveNodeLabel(label) {
-  const dot = label.lastIndexOf(".");
-  if (dot < 0) return null;
-  let typeName = label.slice(0, dot);
-  const memberName = label.slice(dot + 1);
-  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
-  if (!typeName) return null;
-  const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
-  // Prefer the candidate type that actually declares the member: an arity-stripped name
-  // can match both a generic type and a same-named non-generic type, and only one owns
-  // the member.
-  for (const pkg of candidates) {
-    if (!pkg?.types) continue;
-    for (const type of pkg.types.filter(item => typeMatchesName(item, typeName))) {
-      const group = findMemberGroup(memberGroups(type), memberName);
-      if (group) return { pkg, type, group };
-    }
-  }
-  return null;
-}
-
 function findMemberGroup(groups, memberName) {
   let group = groups.find(item => item.name === memberName);
   if (group) return group;
@@ -6563,62 +6537,6 @@ function findMemberGroup(groups, memberName) {
   if (memberName === "ctor" || memberName === ".ctor" || memberName === "#ctor") {
     group = groups.find(item => item.kind === "constructor");
     if (group) return group;
-  }
-  return null;
-}
-
-function resolveNodeForSource(label, external = false) {
-  const dot = label.lastIndexOf(".");
-  if (dot < 0) return null;
-  let typeName = label.slice(0, dot);
-  const memberName = label.slice(dot + 1);
-  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
-  if (!typeName || !memberName) return null;
-  // Accessors and public members already navigate through resolveNodeLabel; compiler
-  // generated helpers (e.g. <DeepEquals>g__...) are not on the metadata surface. The
-  // decompile fallback targets ordinary non-public methods of loaded assemblies.
-  if (/^(get|set|add|remove)_/.test(memberName)) return null;
-  if (memberName.includes("<") || memberName.includes(">")) return null;
-
-  // A declaring type that is a public loaded type routes to its own package/assembly.
-  // The engine resolves the exact declaring type (disambiguating generic arity
-  // collisions by which type declares the member), so pass the arity-stripped simple
-  // name it can match on.
-  const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
-  for (const pkg of candidates) {
-    if (!pkg?.types) continue;
-    const type = pkg.types.find(item => typeMatchesName(item, typeName));
-    if (!type) continue;
-    return {
-      title: `${stripArity(type.name)}.${memberName}`,
-      request: {
-        packageId: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
-        assembly: type.assembly,
-        type: stripArity(typeName),
-        member: memberName
-      }
-    };
-  }
-
-  // A non-public declaring type is absent from the public type list; assume the graph
-  // target's package and assembly, where internal implementation types resolve. Nodes the
-  // graph marks as belonging to a different assembly (BCL/runtime) are not in the loaded
-  // workspace, so leave them inert rather than offering a click that cannot resolve.
-  const current = selectedType();
-  if (!external && current && state.package) {
-    return {
-      title: `${typeName}.${memberName}`,
-      request: {
-        packageId: state.package.id,
-        version: state.package.version,
-        framework: state.package.activeFramework,
-        assembly: current.assembly,
-        type: typeName,
-        member: memberName
-      }
-    };
   }
   return null;
 }
@@ -6946,12 +6864,12 @@ function renderGraphSource() {
     </div>`;
 }
 
-function navigateToMember(pkg, type, group) {
+function navigateToMember(pkg, type, group, overloadIndex = null) {
   state.package = pkg;
   state.lens = "api";
   state.selectedTypeId = type.id;
   state.selectedMemberKey = group.key;
-  state.selectedOverloadIndex = null;
+  state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
@@ -6989,7 +6907,7 @@ async function loadSelectedMemberFacts() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id,
+      type: type.queryId ?? type.id,
       member: overload.name,
       signature: overload.signature
     });
@@ -7041,7 +6959,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     const packageModel = {
       id: result.package,
       version: result.version,
-      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
+      frameworks: result.frameworks ?? [],
       activeFramework: result.activeFramework,
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
@@ -7222,7 +7140,7 @@ async function loadRuntimePack(framework) {
     const packageModel = {
       id: result.package,
       version: result.version,
-      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
+      frameworks: result.frameworks ?? [],
       activeFramework: result.activeFramework,
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
@@ -7278,7 +7196,7 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
     const packageModel = {
       id: result.package,
       version: result.version,
-      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
+      frameworks: result.frameworks ?? [],
       activeFramework: result.activeFramework,
       assembly: result.assemblies[0].name,
       assemblyId: result.defaultAssemblyId,

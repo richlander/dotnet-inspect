@@ -142,6 +142,63 @@ public sealed class LayeringTests
             "assembly: item.assembly",
             browserSource,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "string QueryId",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "type.queryId ?? type.id",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "compareFrameworks",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "frameworkTier",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TfmSelector.GetTfmPriority(group.Framework)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "graphTargetForSvgNode(callGraph, node)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "target.kind === \"External\"",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "libraryKey(item).toLowerCase() === target.assembly.toLowerCase()",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "target.id === \"n0\"",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "resolveNodeLabel",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "No direct lib/{targetFramework} implementation assemblies",
+            engineSource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserDeployment_OnlyRunsFromMainPush()
+    {
+        string workflow = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            ".github",
+            "workflows",
+            "deploy-inspect-web.yml"));
+
+        Assert.Contains("push:\n    branches:\n      - main", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("workflow_dispatch", workflow, StringComparison.Ordinal);
     }
 
     static int CountOccurrences(string value, string search)

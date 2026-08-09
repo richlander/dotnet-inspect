@@ -40,42 +40,73 @@ public static class CallGraphMermaid
         CallTreeNode? callerRoot,
         CallTreeNode? calleeRoot,
         Options? options = null)
+        => Render(
+            CallGraphProjection.Create(callerRoot, calleeRoot),
+            options);
+
+    /// <summary>
+    /// Renders an existing typed projection without reconstructing node identity from
+    /// labels or trees. Mermaid node ids are <c>n{CallGraphNode.Id}</c>, allowing hosts
+    /// to bind interactions back to <see cref="CallGraphNode.Member"/>.
+    /// </summary>
+    public static string Render(
+        CallGraphProjection projection,
+        Options? options = null)
     {
-        if (callerRoot is null && calleeRoot is null)
-            throw new ArgumentException($"At least one of {nameof(callerRoot)} or {nameof(calleeRoot)} must be provided.");
+        ArgumentNullException.ThrowIfNull(projection);
+        options ??= new Options();
+        MemberRef target = projection.Focus.Member;
+        var sb = new StringBuilder();
+        sb.Append("flowchart LR\n");
 
-        // Both roots are the selected overload, but the Analysis builders can resolve a
-        // bodiless target (abstract / interface / extern) differently: BuildCallerTree
-        // recovers the real member from an inbound call operand, while BuildCallTree has
-        // no body to resolve and yields an Unsupported placeholder. Treat an Unsupported
-        // placeholder as "unknown identity" so it never contradicts a resolved member, and
-        // prefer the resolved member as the single centered target node.
-        bool callerResolved = callerRoot is { Member.Kind: not MemberKind.Unsupported };
-        bool calleeResolved = calleeRoot is { Member.Kind: not MemberKind.Unsupported };
-        // Compare identities whenever both sides carry one: two resolved roots must name
-        // the same member, and two Unsupported placeholders must at least name the same
-        // token. Only a resolved / placeholder pair may differ — the placeholder is
-        // unknown identity, not a contradiction (a bodiless target the builders resolve
-        // asymmetrically).
-        if (callerRoot is not null && calleeRoot is not null
-            && callerResolved == calleeResolved
-            && IdentityKey(callerRoot.Member) != IdentityKey(calleeRoot.Member))
-            throw new ArgumentException($"{nameof(callerRoot)} and {nameof(calleeRoot)} must describe the same selected member.");
+        foreach (CallGraphNode node in projection.Nodes)
+        {
+            sb.Append("    ")
+                .Append(NodeId(node.Id))
+                .Append("[\"")
+                .Append(Escape(Label(node.Member, options)))
+                .Append("\"]");
+            if (!options.RelationshipColors && ClassName(node.Kind) is { } className)
+                sb.Append(":::").Append(className);
+            sb.Append('\n');
+        }
 
-        var target = calleeResolved ? calleeRoot!.Member
-            : callerResolved ? callerRoot!.Member
-            : (calleeRoot ?? callerRoot)!.Member;
+        foreach (CallGraphEdge edge in projection.Edges)
+        {
+            sb.Append("    ").Append(NodeId(edge.From));
+            if (edge.LoopLabel is { } loop)
+                sb.Append(" -->|").Append(Escape(loop, edgeLabel: true)).Append("| ");
+            else
+                sb.Append(" --> ");
+            sb.Append(NodeId(edge.To)).Append('\n');
+        }
 
-        var builder = new GraphBuilder(options ?? new Options(), target);
-        // The selected overload is the single centered node shared by both trees; each
-        // tree's root *is* that target, so map both roots to the centered id. This keeps a
-        // bodiless placeholder root from becoming a second, stray "?" node.
-        int targetId = builder.RegisterTarget(target);
-        if (callerRoot is not null)
-            builder.WalkCallers(callerRoot, targetId);
-        if (calleeRoot is not null)
-            builder.WalkCallees(calleeRoot, targetId);
-        return builder.Render();
+        if (options.RelationshipColors)
+        {
+            foreach (CallGraphNode node in projection.Nodes)
+            {
+                sb.Append("    class ")
+                    .Append(NodeId(node.Id))
+                    .Append(' ')
+                    .Append(RelationshipClass(node.Member, target))
+                    .Append(";\n");
+            }
+            sb.Append("    classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),stroke-width:3px,color:var(--graph-target-text);\n");
+            sb.Append("    classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),stroke-width:2px,color:var(--graph-same-type-text);\n");
+            sb.Append("    classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),stroke-width:2px,color:var(--graph-different-type-text);\n");
+            sb.Append("    classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),stroke-width:2px,color:var(--graph-different-assembly-text);\n");
+        }
+        else
+        {
+            if (projection.Nodes.Any(node => node.Kind == CallGraphNodeKind.Focus))
+                sb.Append("    classDef target fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;\n");
+            if (projection.Nodes.Any(node => node.Kind == CallGraphNodeKind.External))
+                sb.Append("    classDef external fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#666666;\n");
+            if (projection.Nodes.Any(node => node.Kind == CallGraphNodeKind.Truncated))
+                sb.Append("    classDef truncated fill:#fff2cc,stroke:#d6b656,stroke-dasharray:2 2;\n");
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>Renders the inbound (caller) half only, centered on the selected overload.</summary>
@@ -90,192 +121,6 @@ public static class CallGraphMermaid
     {
         ArgumentNullException.ThrowIfNull(calleeRoot);
         return Render(null, calleeRoot);
-    }
-
-    /// <summary>
-    /// How a graph node is styled. Higher values win when a member is seen more than
-    /// once: a member expanded somewhere (<see cref="Normal"/>) is not a boundary even
-    /// if depth-limited elsewhere, and the selected <see cref="Target"/> is sticky.
-    /// </summary>
-    enum NodeClass
-    {
-        Truncated = 0,
-        External = 1,
-        Normal = 2,
-        Target = 3,
-    }
-
-    sealed class NodeInfo(int id, string label, NodeClass nodeClass, string relationshipClass)
-    {
-        public int Id { get; } = id;
-        public string Label { get; } = label;
-        public NodeClass Class { get; set; } = nodeClass;
-        public string RelationshipClass { get; } = relationshipClass;
-    }
-
-    readonly record struct Edge(int From, int To, string? LoopLabel);
-
-    sealed class GraphBuilder
-    {
-        readonly Options _options;
-        readonly MemberRef _target;
-        readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
-        readonly List<NodeInfo> _nodes = [];
-        readonly Dictionary<(int From, int To), int> _edgeIndex = [];
-        readonly List<Edge> _edges = [];
-
-        public GraphBuilder(Options options, MemberRef target)
-        {
-            _options = options;
-            _target = target;
-        }
-
-        public int RegisterTarget(MemberRef member) => GetOrAdd(member, NodeClass.Target);
-
-        /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
-        public void WalkCallers(CallTreeNode node, int nodeId)
-        {
-            foreach (var child in node.Children)
-            {
-                int childId = GetOrAdd(child.Member, ClassFor(child.Status));
-                AddEdge(childId, nodeId, LoopLabel(child.Perf));
-                WalkCallers(child, childId);
-            }
-        }
-
-        /// <summary>Walk an outbound (callee) tree: each parent calls its children, so edges point parent → child.</summary>
-        public void WalkCallees(CallTreeNode node, int nodeId)
-        {
-            foreach (var child in node.Children)
-            {
-                int childId = GetOrAdd(child.Member, ClassFor(child.Status));
-                AddEdge(nodeId, childId, LoopLabel(child.Perf));
-                WalkCallees(child, childId);
-            }
-        }
-
-        int GetOrAdd(MemberRef member, NodeClass candidate)
-        {
-            var key = IdentityKey(member);
-            if (!_ids.TryGetValue(key, out var id))
-            {
-                id = _nodes.Count;
-                _ids[key] = id;
-                _nodes.Add(new NodeInfo(id, Label(member), candidate, RelationshipClass(member)));
-                return id;
-            }
-
-            // A member seen more than once keeps its strongest classification: the
-            // selected target is sticky, an expanded/leaf occurrence outranks a boundary,
-            // so a shared node is not mislabelled a dead end.
-            var info = _nodes[id];
-            if (candidate > info.Class)
-                info.Class = candidate;
-            return id;
-        }
-
-        void AddEdge(int from, int to, string? loopLabel)
-        {
-            if (_edgeIndex.TryGetValue((from, to), out var index))
-            {
-                // A shared edge that is a loop call from any site keeps its loop annotation.
-                if (loopLabel is not null && _edges[index].LoopLabel is null)
-                    _edges[index] = _edges[index] with { LoopLabel = loopLabel };
-                return;
-            }
-
-            _edgeIndex[(from, to)] = _edges.Count;
-            _edges.Add(new Edge(from, to, loopLabel));
-        }
-
-        public string Render()
-        {
-            var sb = new StringBuilder();
-            sb.Append("flowchart LR\n");
-
-            // Nodes in stable id order (target first, then caller DFS, then callee DFS).
-            foreach (var node in _nodes)
-            {
-                sb.Append("    ").Append(NodeId(node.Id)).Append("[\"").Append(Escape(node.Label)).Append("\"]");
-                if (!_options.RelationshipColors && ClassName(node.Class) is { } className)
-                    sb.Append(":::").Append(className);
-                sb.Append('\n');
-            }
-
-            // Edges in stable first-seen order.
-            foreach (var edge in _edges)
-            {
-                sb.Append("    ").Append(NodeId(edge.From));
-                if (edge.LoopLabel is { } loop)
-                    sb.Append(" -->|").Append(Escape(loop, edgeLabel: true)).Append("| ");
-                else
-                    sb.Append(" --> ");
-                sb.Append(NodeId(edge.To)).Append('\n');
-            }
-
-            if (_options.RelationshipColors)
-            {
-                foreach (var node in _nodes)
-                    sb.Append("    class ").Append(NodeId(node.Id)).Append(' ').Append(node.RelationshipClass).Append(";\n");
-                // Keep the semantic palette in CSS variables so the host can switch
-                // between light and dark presentation without regenerating the graph.
-                sb.Append("    classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),stroke-width:3px,color:var(--graph-target-text);\n");
-                sb.Append("    classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),stroke-width:2px,color:var(--graph-same-type-text);\n");
-                sb.Append("    classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),stroke-width:2px,color:var(--graph-different-type-text);\n");
-                sb.Append("    classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),stroke-width:2px,color:var(--graph-different-assembly-text);\n");
-                return sb.ToString();
-            }
-
-            // Emit a classDef only when the class is used, in a fixed order.
-            if (_nodes.Exists(n => n.Class == NodeClass.Target))
-                sb.Append("    classDef target fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;\n");
-            if (_nodes.Exists(n => n.Class == NodeClass.External))
-                sb.Append("    classDef external fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#666666;\n");
-            if (_nodes.Exists(n => n.Class == NodeClass.Truncated))
-                sb.Append("    classDef truncated fill:#fff2cc,stroke:#d6b656,stroke-dasharray:2 2;\n");
-
-            return sb.ToString();
-        }
-
-        /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>
-        string Label(MemberRef member)
-        {
-            if (member.Kind == MemberKind.Unsupported)
-                return member.DeclaringType.ToDisplayString();
-
-            if (_options.CompactLabels)
-                return $"{member.DeclaringType.SimpleName}.{member.Name}";
-
-            var name = member.Name;
-            if (!member.TypeArguments.IsDefaultOrEmpty)
-                name += "<" + string.Join(", ", member.TypeArguments.Select(t => t.ToDisplayString())) + ">";
-            var parameters = string.Join(", ", member.ParameterTypes.Select(p => p.ToDisplayString()));
-            return $"{member.DeclaringType.ToDisplayString()}.{name}({parameters})";
-        }
-
-        string RelationshipClass(MemberRef member)
-        {
-            if (!_options.RelationshipColors)
-                return "normal";
-            if (IdentityKey(member) == IdentityKey(_target))
-                return "target";
-
-            var targetType = GenericMemberIdentity.KeyFragment(
-                GenericMemberIdentity.OpenDeclaringType(_target.DeclaringType));
-            var memberType = GenericMemberIdentity.KeyFragment(
-                GenericMemberIdentity.OpenDeclaringType(member.DeclaringType));
-            if (string.Equals(targetType, memberType, StringComparison.Ordinal))
-                return "sameType";
-            // A constructed generic declaring type (GenericInstance) carries no Assembly of
-            // its own, so compare on the open definition where the assembly identity lives;
-            // otherwise a same-assembly generic callee (e.g. JsonTypeInfo<T>) mis-colors as a
-            // different assembly.
-            var memberAssembly = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType).Assembly;
-            var targetAssembly = GenericMemberIdentity.OpenDeclaringType(_target.DeclaringType).Assembly;
-            if (string.Equals(memberAssembly, targetAssembly, StringComparison.Ordinal))
-                return "differentType";
-            return "differentAssembly";
-        }
     }
 
     /// <summary>
@@ -305,28 +150,51 @@ public static class CallGraphMermaid
         return $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{member.Name}|{member.ParameterTypes.Length}|{shape}|{GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
     }
 
-    static NodeClass ClassFor(CallTreeStatus status) => status switch
+    static string Label(MemberRef member, Options options)
     {
-        CallTreeStatus.External => NodeClass.External,
-        CallTreeStatus.DepthLimited or CallTreeStatus.Truncated => NodeClass.Truncated,
-        _ => NodeClass.Normal,
-    };
+        if (member.Kind == MemberKind.Unsupported)
+            return member.DeclaringType.ToDisplayString();
 
-    static string? ClassName(NodeClass nodeClass) => nodeClass switch
+        if (options.CompactLabels)
+            return $"{member.DeclaringType.SimpleName}.{member.Name}";
+
+        var name = member.Name;
+        if (!member.TypeArguments.IsDefaultOrEmpty)
+            name += "<" + string.Join(", ", member.TypeArguments.Select(type => type.ToDisplayString())) + ">";
+        var parameters = string.Join(
+            ", ",
+            member.ParameterTypes.Select(type => type.ToDisplayString()));
+        return $"{member.DeclaringType.ToDisplayString()}.{name}({parameters})";
+    }
+
+    static string RelationshipClass(MemberRef member, MemberRef target)
     {
-        NodeClass.Target => "target",
-        NodeClass.External => "external",
-        NodeClass.Truncated => "truncated",
+        if (IdentityKey(member) == IdentityKey(target))
+            return "target";
+
+        var targetType = GenericMemberIdentity.KeyFragment(
+            GenericMemberIdentity.OpenDeclaringType(target.DeclaringType));
+        var memberType = GenericMemberIdentity.KeyFragment(
+            GenericMemberIdentity.OpenDeclaringType(member.DeclaringType));
+        if (string.Equals(targetType, memberType, StringComparison.Ordinal))
+            return "sameType";
+
+        var memberAssembly =
+            GenericMemberIdentity.OpenDeclaringType(member.DeclaringType).Assembly;
+        var targetAssembly =
+            GenericMemberIdentity.OpenDeclaringType(target.DeclaringType).Assembly;
+        return string.Equals(memberAssembly, targetAssembly, StringComparison.Ordinal)
+            ? "differentType"
+            : "differentAssembly";
+    }
+
+    static string? ClassName(CallGraphNodeKind nodeKind) => nodeKind switch
+    {
+        CallGraphNodeKind.Focus => "target",
+        CallGraphNodeKind.External => "external",
+        CallGraphNodeKind.Truncated => "truncated",
         _ => null,
     };
-
-    // The loop flag lives on the deeper (child) node and describes the parent↔child
-    // call edge: for a callee tree the parent calls the child in a loop; for a caller
-    // tree the child (caller) calls the parent in a loop.
-    static string? LoopLabel(CallTreePerf? perf)
-        => perf is { InLoop: true } p
-            ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
-            : null;
 
     static string NodeId(int id) => "n" + id.ToString(CultureInfo.InvariantCulture);
 

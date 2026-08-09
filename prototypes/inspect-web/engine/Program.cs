@@ -60,6 +60,7 @@ public sealed record BrowserPackageDocumentContent(
 
 public sealed record BrowserTypeSurface(
     string Id,
+    string QueryId,
     string Name,
     string DisplayName,
     string Namespace,
@@ -114,7 +115,16 @@ public sealed record BrowserCallGraph(
     BrowserCallGraphNode Callers,
     BrowserCallGraphNode Callees,
     BrowserCallGraphScope Scope,
+    BrowserCallGraphTarget[] Targets,
     bool NoBody = false);
+
+public sealed record BrowserCallGraphTarget(
+    string Id,
+    string Assembly,
+    string TypeFullName,
+    string MemberName,
+    string ParamSig,
+    string Kind);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -1328,7 +1338,14 @@ public static partial class BrowserInspectionEngine
             packageVersion,
             targetFramework,
             selectedAssembly?.AssemblyName ?? assemblyId,
-            [.. groups],
+            [
+                .. groups
+                    .OrderByDescending(group =>
+                        TfmSelector.GetTfmPriority(group.Framework))
+                    .ThenBy(
+                        group => group.Framework,
+                        StringComparer.OrdinalIgnoreCase),
+            ],
             assemblyReferences,
             assemblyReferenceError);
 
@@ -1652,6 +1669,12 @@ public static partial class BrowserInspectionEngine
                 GetDirectPackageAssemblyEntries(
                     archive,
                     targetFramework);
+            if (implementationEntries.Length == 0)
+            {
+                failures.Add(
+                    $"No direct lib/{targetFramework} implementation assemblies; "
+                    + "the selected compile set is ref-only.");
+            }
             foreach (ZipArchiveEntry entry in implementationEntries)
             {
                 string assemblyPath = Path.Combine(
@@ -2313,10 +2336,16 @@ public static partial class BrowserInspectionEngine
         var prefix = family switch
         {
             ".NETStandard" => "netstandard",
-            ".NETCoreApp" => "net",
             ".NETFramework" => "net",
             _ => null
         };
+        if (family == ".NETCoreApp")
+        {
+            var majorText = version.Split('.', 2)[0];
+            prefix = int.TryParse(majorText, out var major) && major >= 5
+                ? "net"
+                : "netcoreapp";
+        }
         if (prefix is null)
             return moniker;
 
@@ -2590,6 +2619,7 @@ public static partial class BrowserInspectionEngine
                         emptyNode,
                         emptyNode,
                         new BrowserCallGraphScope(workspace.Length, workspaceAssemblies.Count, 1, assemblyName),
+                        [],
                         NoBody: true),
                     BrowserJsonContext.Default.BrowserCallGraph);
             }
@@ -2661,10 +2691,10 @@ public static partial class BrowserInspectionEngine
                     maxNodes: 30);
             }
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
+            CallGraphProjection graph = CallGraphProjection.Create(callers, callees);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
-                    callers,
-                    callees,
+                    graph,
                     new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 ToBrowserCallNode(callers),
                 ToBrowserCallNode(callees),
@@ -2672,7 +2702,8 @@ public static partial class BrowserInspectionEngine
                     workspace.Length,
                     workspaceAssemblies.Count,
                     callGraphEntries.Length,
-                    assemblyName));
+                    assemblyName),
+                [.. graph.Nodes.Select(ToBrowserCallTarget)]);
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
@@ -2851,6 +2882,23 @@ public static partial class BrowserInspectionEngine
             typeFullName,
             node.Member.Name,
             string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+    }
+
+    static BrowserCallGraphTarget ToBrowserCallTarget(CallGraphNode node)
+    {
+        var definition = RootDefinition(node.Member.DeclaringType);
+        var typeFullName = definition.Namespace.Length == 0
+            ? definition.Name
+            : $"{definition.Namespace}.{definition.Name}";
+        return new(
+            $"n{node.Id}",
+            definition.Assembly,
+            typeFullName,
+            node.Member.Name,
+            string.Join(
+                ", ",
+                node.Member.ParameterTypes.Select(type => type.ToDisplayString())),
+            node.Kind.ToString());
     }
 
     // The declaring type of a callee may be a constructed generic instance or an array/
@@ -3514,14 +3562,15 @@ public static partial class BrowserInspectionEngine
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
             var callees = index.BuildCallTree(methodToken, maxDepth: 2, maxNodes: 30);
             var calleeNode = ToBrowserCallNode(callees);
+            CallGraphProjection graph = CallGraphProjection.FromCallees(callees);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
-                    null,
-                    callees,
+                    graph,
                     new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 calleeNode with { Children = [] },
                 calleeNode,
-                new BrowserCallGraphScope(0, 1, 0, acquired.FileName));
+                new BrowserCallGraphScope(0, 1, 0, acquired.FileName),
+                [.. graph.Nodes.Select(ToBrowserCallTarget)]);
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
@@ -3872,6 +3921,7 @@ public static partial class BrowserInspectionEngine
         }).ToArray();
 
         return new BrowserTypeSurface(
+            type.FullName,
             type.FullName,
             type.Name,
             displayName,
