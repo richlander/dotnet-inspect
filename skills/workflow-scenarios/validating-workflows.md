@@ -54,11 +54,20 @@ General preconditions for all workflows:
   workflows, and the recorded version all identify that same NativeAOT apphost:
 
   ```bash
+  set -e -o pipefail
+  : "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
+  : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+  test -x "$DOTNET_INSPECT_WORKFLOW_BINARY"
   export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
   test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
   test "$(dotnet-inspect --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
   dotnet-inspect --flavor | grep -q '^NativeAOT;'
   ```
+
+  A workflow may explicitly build an alternate apphost when that runtime or
+  configuration is the behavior under test. It must verify the same
+  `DOTNET_INSPECT_WORKFLOW_VERSION` and its required flavor. The DEBUG-only
+  network-guard workflow is the current exception.
 
 - **Warm cache**: Timing targets assume second+ invocation (OS and app caches warm).
 - **Network**: Some commands require network access (e.g., `--latest-version`). Others are fully offline (e.g., `--version` with cached data).

@@ -85,7 +85,9 @@ Before evaluation, publish the exact revision under test, set
 `DOTNET_INSPECT_WORKFLOW_BINARY` to that apphost and
 `DOTNET_INSPECT_WORKFLOW_VERSION` to its `--version` output, and prepend the
 apphost directory to `PATH`. Bare `dotnet-inspect` commands and workflows that
-use `$INSPECT` must therefore resolve to the same executable.
+use `$INSPECT` must therefore resolve to the same executable unless a workflow
+explicitly builds an alternate apphost required by its goal. Such an exception
+must verify the same version and its required runtime flavor.
 
 ## Example
 

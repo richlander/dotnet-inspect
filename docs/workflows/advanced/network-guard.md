@@ -32,8 +32,12 @@ export DOTNET_INSPECT_ISOLATED=networkguard
 Set the apphost path for convenience:
 
 ```bash
+set -e -o pipefail
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
 export INSPECT="$PWD/artifacts/bin/dotnet-inspect/debug/dotnet-inspect"
 test -x "$INSPECT"
+test "$("$INSPECT" --version)" = "$DOTNET_INSPECT_WORKFLOW_VERSION"
+"$INSPECT" --flavor | grep -q '^CoreCLR;'
 ```
 
 ## 1. Quiet verbosity passes guard (apphost)

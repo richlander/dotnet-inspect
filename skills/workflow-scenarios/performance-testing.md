@@ -24,10 +24,14 @@ export PATH="$(dirname "$DOTNET_INSPECT_WORKFLOW_BINARY"):$PATH"
 Verify the install:
 
 ```bash
+set -e -o pipefail
+: "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
+: "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
+test -x "$DOTNET_INSPECT_WORKFLOW_BINARY"
 test "$("$DOTNET_INSPECT_WORKFLOW_BINARY" --version)" = \
   "$DOTNET_INSPECT_WORKFLOW_VERSION"
 test "$(command -v dotnet-inspect)" = "$DOTNET_INSPECT_WORKFLOW_BINARY"
-"$DOTNET_INSPECT_WORKFLOW_BINARY" --flavor
+"$DOTNET_INSPECT_WORKFLOW_BINARY" --flavor | grep -q '^NativeAOT;'
 ```
 
 Expected flavor: `NativeAOT`.

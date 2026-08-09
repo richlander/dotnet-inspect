@@ -117,7 +117,9 @@ Not every scenario needs a prompt — only add them where there's a clear natura
 ## Conventions
 
 - One workflow file per logical area (don't mix package inspection with member lookup).
-- Use `dotnet-inspect` (not `$INSPECT` or aliases) unless testing the DEBUG apphost specifically.
+- Use `dotnet-inspect` (not `$INSPECT` or aliases) unless testing an explicitly
+  built alternate apphost such as the DEBUG network guard. Verify that
+  apphost's version and required runtime flavor.
 - Use version pins (`@2.0.2`) for NuGet packages to ensure reproducible results.
 - Keep expect blocks minimal — assert structure, not decoration.
 - Use blockquote (`> Goal:`) descriptions on every H2 to explain why the goal matters.

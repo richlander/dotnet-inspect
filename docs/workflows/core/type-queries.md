@@ -517,6 +517,10 @@ Deserialize
 DeserializeAsync
 ```
 
+```expect-not
+Serialize (
+```
+
 ```query
 grep -E 'Deserialize(Async)? \([0-9]+ overloads\)'
 ```
@@ -587,6 +591,11 @@ dotnet-inspect type System.Runtime --unsafe -t 5 --table --no-headers
 
 ```expect
 class
+System.ArgIterator
+```
+
+```expect-not
+SafeHandle
 ```
 
 ```query
