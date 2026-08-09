@@ -637,14 +637,19 @@ checksum is not equivalent to verified source.
 
 The source byte limit is not by itself a memory bound. A punctuation-dense file
 can produce nearly one retained lexical token per byte, and each token costs
-more memory than its source spelling. `CSharpLexer` therefore stops emission at
-500,000 tokens. `DeclarationIndex` carries the declaration's starting column so
+more memory than its source spelling. A newline-dense file can likewise
+materialize one retained line entry per byte before tokenization begins.
+`CSharpLexer` therefore stops emission at 500,000 tokens, and
+`DeclarationIndex` refuses more than 500,000 physical lines before splitting
+the source. `DeclarationIndex` carries the declaration's starting column so
 `BodySlicer` consumes that bounded token stream once rather than tokenizing the
 same untrusted file again.
 
 Limit exhaustion is a visible extraction failure, not an absent declaration.
 `ScanTokenTests.TokenLimit_StopsTokenDenseInputDuringEmission` gates the
-emission boundary, and
+token emission boundary, while
+`DeclarationIndexTests.LineLimit_StopsLineDenseInputBeforeSplitting` gates the
+pre-allocation line boundary, and
 `AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
 `CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`

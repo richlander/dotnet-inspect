@@ -58,7 +58,8 @@ public class ScanTokenTests
         var error = Assert.Throws<CSharpTextComplexityException>(
             () => CSharpLexer.ScanTokens(["; ; ; ;"], maxTokenCount: 3));
 
-        Assert.Equal(3, error.MaxTokenCount);
+        Assert.Equal(3, error.Limit);
+        Assert.Equal("tokens", error.Unit);
         Assert.Contains("3 tokens", error.Message, StringComparison.Ordinal);
     }
 

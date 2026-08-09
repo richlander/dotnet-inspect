@@ -1603,6 +1603,39 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ExtensionBlockHeaderSharingThePreviousMembersBoundary_ReportsAbsent()
+    {
+        var source = Lines(
+            "static class C",                   // 1
+            "{",                                // 2
+            "    public static void P()",       // 3
+            "    { } extension(int value)",     // 4
+            "    {",                            // 5
+            "        public void M() { }",      // 6
+            "    }",                            // 7
+            "}");                               // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 4, 4, "P"));
+    }
+
+    [Fact]
+    public void ExtensionBlockCloseSharingTheNextMembersBoundary_ReportsAbsent()
+    {
+        var source = Lines(
+            "static class C",                   // 1
+            "{",                                // 2
+            "    extension(int value)",         // 3
+            "    {",                            // 4
+            "        public void M() { }",      // 5
+            "    } public static void Q()",     // 6
+            "    {",                            // 7
+            "    }",                            // 8
+            "}");                               // 9
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 7, 8, "Q"));
+    }
+
+    [Fact]
     public void CommentBeforeSameLineAttribute_IsRemovedWithoutRemovingTheAttribute()
     {
         var source = Lines(
@@ -1614,6 +1647,37 @@ public class ExtractMethodBodyTests
         Assert.Equal(
             "[Obsolete] public void M() { }",
             BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+    }
+
+    [Fact]
+    public void MultiLineAttributeClosingOnTheSignatureLine_IsExcludedCompletely()
+    {
+        var source = Lines(
+            "using System;",                            // 1
+            "class C",                                 // 2
+            "{",                                       // 3
+            "    [Obsolete(",                          // 4
+            "        \"reason\")] public void M() { }", // 5
+            "}");                                      // 6
+
+        Assert.Equal(
+            "public void M() { }",
+            BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+    }
+
+    [Fact]
+    public void PrimaryConstructorBaseArgumentLambda_DoesNotHideTheFollowingMember()
+    {
+        var source = Lines(
+            "class B { public B(Func<int> value) { } }", // 1
+            "class C() : B(() => { return 1; })",        // 2
+            "{",                                         // 3
+            "    void M() { }",                          // 4
+            "}");                                        // 5
+
+        Assert.Equal(
+            "void M() { }",
+            BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
     }
 
 }

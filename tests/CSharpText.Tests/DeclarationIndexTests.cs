@@ -22,6 +22,24 @@ namespace CSharpText.Tests;
 public class DeclarationIndexTests
 {
     [Fact]
+    public void LineLimit_StopsLineDenseInputBeforeSplitting()
+    {
+        var source = new string('\n', 500_000);
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var error = Assert.Throws<CSharpTextComplexityException>(
+            () => DeclarationIndex.Build(source));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(500_000, error.Limit);
+        Assert.Equal("lines", error.Unit);
+        Assert.True(
+            allocated < 256 * 1024,
+            $"line-limit failure allocated {allocated:N0} bytes before refusing the source");
+    }
+
+    [Fact]
     public void TheBodySlicerCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
@@ -721,8 +739,27 @@ public class DeclarationIndexTests
             d => Assert.Equal(owner, index.ParentOf(d)));
 
         Assert.Equal(
-            ["5-7", "10-13"],
+            ["4-7", "9-13"],
             index.TransparentScopes.Select(scope => scope.ToString()));
+    }
+
+    [Theory]
+    [InlineData("() => { return 1; }")]
+    [InlineData("new Holder { Value = 1 }")]
+    [InlineData("value is { }")]
+    public void PrimaryConstructorBaseArgumentBraces_DoNotBecomeTheTypeBody(string argument)
+    {
+        var index = DeclarationIndex.Build($$"""
+            class C(object value) : B({{argument}})
+            {
+                void M() { }
+            }
+            """);
+
+        var type = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        Assert.Equal(4, type.EndLine);
+        Assert.Equal(type, index.ParentOf(method));
     }
 
     /// <summary>

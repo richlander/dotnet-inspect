@@ -475,7 +475,7 @@ internal static class CSharpLexer
             }
 
             if (tokens.Count >= maxTokenCount)
-                throw new CSharpTextComplexityException(maxTokenCount);
+                throw new CSharpTextComplexityException(maxTokenCount, "tokens");
 
             tokens.Add(new ScanToken(kind, lineIndex, column, length, atDepth, atBracketDepth, state.StructuralDepthKnown, state.Section));
         }

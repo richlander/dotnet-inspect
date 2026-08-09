@@ -319,6 +319,8 @@ public sealed record DeclarationSpan(
 /// </summary>
 public sealed class DeclarationIndex
 {
+    private const int MaxLineCount = 500_000;
+
     private DeclarationIndex(
         ImmutableArray<DeclarationSpan> declarations,
         ImmutableArray<LineRange> transparentScopes)
@@ -345,14 +347,29 @@ public sealed class DeclarationIndex
 
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
-        Build(sourceText.Split('\n'));
+        Build(SplitLines(sourceText));
 
     /// <summary>Builds the index for a file already split into lines.</summary>
     public static DeclarationIndex Build(IReadOnlyList<string> lines)
     {
+        if (lines.Count > MaxLineCount)
+            throw new CSharpTextComplexityException(MaxLineCount, "lines");
+
         ImmutableArray<DeclarationSpan> declarations =
             DeclarationIndexBuilder.Build(lines, out ImmutableArray<LineRange> transparentScopes);
         return new DeclarationIndex(declarations, transparentScopes);
+    }
+
+    private static string[] SplitLines(string sourceText)
+    {
+        int lineCount = 1;
+        foreach (char c in sourceText)
+        {
+            if (c == '\n' && ++lineCount > MaxLineCount)
+                throw new CSharpTextComplexityException(MaxLineCount, "lines");
+        }
+
+        return sourceText.Split('\n');
     }
 
     /// <summary>

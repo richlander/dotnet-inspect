@@ -624,13 +624,13 @@ internal static class DeclarationIndexBuilder
             if (text == "{")
             {
                 // "= new(...) { ... }" is an initializer, not a member body. Neither is a brace
-                // nested inside a constructor's ": base(...)" or ": this(...)" argument list:
-                // object/array initializers, lambda blocks, and property patterns all occur there.
-                // Keep the header until the initializer closes so the next top-level brace can
-                // open the declaration body.
+                // nested inside an open header delimiter: object/array initializers, lambda blocks,
+                // and property patterns can occur in explicit constructor initializers and in a
+                // primary constructor's base arguments. Keep the header until the nested construct
+                // closes so the next top-level brace can open the declaration body.
                 if (initializerDepth > 0
                     || Truncate(pending, Text).CutAtEquals
-                    || IsInsideConstructorInitializerArguments(pending, Text))
+                    || IsInsideConstructorArguments(pending, Text))
                 {
                     initializerDepth++;
                     scopes.Add((-1, false, true));
@@ -644,7 +644,7 @@ internal static class DeclarationIndexBuilder
                 // inside a parent that has no metadata counterpart.
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
-                    transparentScopeStarts[scopes.Count] = tok.Line + 1;
+                    transparentScopeStarts[scopes.Count] = pending[0].Line + 1;
                     scopes.Add((EnclosingIndex(), false, true));
                     EndDeclaration(tok);
                     lastClosed = -1;
@@ -1161,27 +1161,39 @@ internal static class DeclarationIndexBuilder
         })];
     }
 
-    private static bool IsInsideConstructorInitializerArguments(
+    private static bool IsInsideConstructorArguments(
         IReadOnlyList<ScanToken> pending,
         Func<ScanToken, string> text)
     {
         int depth = 0;
-        bool initializer = false;
+        bool explicitInitializer = false;
+        bool typeHeader = false;
+        bool primaryParameters = false;
+        bool primaryBaseList = false;
         for (int i = 0; i < pending.Count; i++)
         {
             var token = pending[i];
+            string value = text(token);
+            if (token.Kind == ScanTokenKind.Word && depth == 0 && TypeKeywords.Contains(value))
+            {
+                typeHeader = true;
+                continue;
+            }
+
             if (token.Kind != ScanTokenKind.Punctuator)
                 continue;
 
-            string value = text(token);
-            if (value == ":" && depth == 0 && i + 1 < pending.Count
-                && (IsKeyword(pending, i + 1, "this", text)
-                    || IsKeyword(pending, i + 1, "base", text)))
+            if (value == ":" && depth == 0)
             {
-                initializer = true;
+                explicitInitializer = i + 1 < pending.Count
+                    && (IsKeyword(pending, i + 1, "this", text)
+                        || IsKeyword(pending, i + 1, "base", text));
+                primaryBaseList = typeHeader && primaryParameters;
             }
             else if (value is "(" or "[" or "{")
             {
+                if (value == "(" && depth == 0 && typeHeader && !primaryBaseList)
+                    primaryParameters = true;
                 depth++;
             }
             else if (value is ")" or "]" or "}")
@@ -1190,7 +1202,7 @@ internal static class DeclarationIndexBuilder
             }
         }
 
-        return initializer && depth > 0;
+        return depth > 0 && (explicitInitializer || primaryBaseList);
     }
 
     private static bool HasTopLevelKeyword(
