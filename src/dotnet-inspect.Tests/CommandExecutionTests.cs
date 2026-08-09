@@ -10834,6 +10834,40 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections pool rows across libraries and pick their
+    /// columns from the pooled data, so they are declared as a runtime-column
+    /// <c>MarkoutTable</c> rather than appended as Markdown text. This is the gate for that
+    /// routing on the real command path: <c>--rows</c> must window the aggregate table even
+    /// though nothing post-processes the rendered document any more.
+    ///
+    /// The separator assertion is the observable signature of the routing. markout sizes a
+    /// separator to its header text; the hand-built table this replaced always emitted a fixed
+    /// <c>---</c>, so a revert to string building would restore <c>| --- | --- | --- |</c> and
+    /// fail here.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_WindowsRowsAtTheWriterSeam()
+    {
+        var (exit, all, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+        var (windowedExit, windowed, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, windowedExit);
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
+        Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+
+        static int DataRows(string output) =>
+            output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
+            - 2; // header and separator
+
+        Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
+        Assert.Equal(2, DataRows(windowed));
+    }
+
     [Fact]
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
