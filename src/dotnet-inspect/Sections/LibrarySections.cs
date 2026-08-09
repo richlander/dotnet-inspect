@@ -21,7 +21,6 @@ public static class LibrarySections
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
-    public const string ScannerResources = "Resources";
     public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
@@ -76,7 +75,11 @@ public static class LibrarySections
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<LibraryInfo>(
-                [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition])
+                [
+                    CustomAttributesQuery.Definition,
+                    ExtensionMethodsQuery.Definition,
+                    ResourcesQuery.Definition,
+                ])
             .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
@@ -131,7 +134,7 @@ public static class LibrarySections
             .Add<ArrayPoolEscapes>(HasMethodBodies)
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
-            .Add<Resources>()
+            .Add<Resources>(ResourcesQuery.Definition)
             .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>()
             .Add<TypeForwarders>()
@@ -186,10 +189,6 @@ public static class LibrarySections
                 ctx.Model.Apply(ctx.Scan(
                     session => LibraryMetadataService.ScanClassifiedMethods(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanClassifiedMethods(ctx.AssemblyPath, ctx.Logger))))
-            .Add(ScannerResources, SectionCost.NetworkFree, ctx =>
-                ctx.Model.ResourceInspection = ctx.Scan(
-                    session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
@@ -199,7 +198,6 @@ public static class LibrarySections
             .AddBundle(
                 ScannerInfoCounts,
                 ScannerClassifiedMethods,
-                ScannerResources,
                 ScannerTypeForwarders)
             .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
@@ -300,6 +298,22 @@ public static class LibrarySections
                         catch (Exception ex)
                         {
                             return new ExtensionMethodsResult.Failed(ex);
+                        }
+                    }))
+            .Add(ResourcesQuery.Definition, ctx =>
+                ctx.Scan(
+                    ResourcesQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return ResourcesQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new ResourcesResult.Failed(ex);
                         }
                     }))
             .AddSourceLinkQueries(RequireSourceLinkContext);
@@ -813,7 +827,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Resources;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerResources;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceInspection.CanRenderWithPresence(model.HasManifestResources);
     }

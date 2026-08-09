@@ -263,8 +263,12 @@ internal static class LibraryMetadataService
                         inspection,
                         logger,
                         CustomAttributesQuery.Execute(session));
+                    ApplyResourcesResult(
+                        path,
+                        inspection,
+                        logger,
+                        ResourcesQuery.Execute(session));
                     inspection.Apply(ScanClassifiedMethods(session, path, logger));
-                    inspection.ResourceInspection = ScanResources(session, path, logger);
                     inspection.UnionTypeInspection = ScanUnionTypes(session, path, logger);
                     inspection.TypeForwarderInspection = ScanTypeForwarders(session, path, logger);
                 }
@@ -1536,45 +1540,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    /// <summary>
-    /// Scans an assembly for manifest resources.
-    /// </summary>
-    internal static FindingInspection<MetadataResource> ScanResources(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanResources(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
-            return FailedInspection<MetadataResource>(
-                path, MetadataFindings.ResourceDescriptor, ex);
-        }
-    }
-
-    internal static FindingInspection<MetadataResource> ScanResources(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectResources(
-                session.Resources(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning resources in {path}: {ex.Message}");
-            return FailedInspection<MetadataResource>(
-                path, MetadataFindings.ResourceDescriptor, ex);
-        }
-    }
-
     internal static FindingInspection<SwitchInfo> ScanSwitches(
         string path,
         VerboseLogger logger)
@@ -1732,6 +1697,13 @@ internal static class LibraryMetadataService
                 out CustomAttributesResult? customAttributes))
         {
             ApplyCustomAttributesResult(path, inspection, logger, customAttributes);
+        }
+
+        if (results.TryGet(
+                ResourcesQuery.Definition,
+                out ResourcesResult? resources))
+        {
+            ApplyResourcesResult(path, inspection, logger, resources);
         }
 
         if (results.TryGet(
@@ -1925,6 +1897,37 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown custom-attributes result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyResourcesResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        ResourcesResult result)
+    {
+        switch (result)
+        {
+            case ResourcesResult.Available available:
+                inspection.ResourceInspection =
+                    MetadataFindings.InspectResources(
+                        available.Resources,
+                        FindingSubjectFor(path));
+                break;
+
+            case ResourcesResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning resources in {path}: {failed.Error.Message}");
+                inspection.ResourceInspection =
+                    FailedInspection<MetadataResource>(
+                        path,
+                        MetadataFindings.ResourceDescriptor,
+                        failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown resources result '{result.GetType().Name}'.");
         }
     }
 
