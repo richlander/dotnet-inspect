@@ -5206,10 +5206,14 @@ static class FidelityCheck
             string targetPath,
             IAssemblyReferenceResolver resolver)
     {
+        MetadataReader reader = target.GetMetadataReader();
+        if (!reader.IsAssembly)
+            return (TargetApiIndex(target), [], false);
+
         string fullPath = Path.GetFullPath(targetPath);
         var source = ResolvedAssemblyReference.Create(
             AssemblyReferenceIdentity.FromAssemblyDefinition(
-                target.GetMetadataReader()),
+                reader),
             fullPath,
             () => File.OpenRead(fullPath),
             AssemblyResolutionProvenance.Local(

@@ -3291,10 +3291,15 @@ public static class ApiSurfaceExtractor
             foreach (var (type, request, _) in _baseTypes)
             {
                 if (context.Resolve(request)
-                    is TypeResolutionOutcome.Resolved resolved)
+                    is TypeResolutionOutcome.Resolved
+                    {
+                        Definition:
+                        {
+                            Kind: MetadataTypeDefinitionKind.Class,
+                            GenericParameterCount: 0
+                        } definition
+                    })
                 {
-                    ResolvedTypeDefinition definition =
-                        resolved.Definition;
                     type.BaseTypeResolution =
                         new ApiBaseTypeResolution(
                             definition.Assembly.Assembly.Identity,

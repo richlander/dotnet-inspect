@@ -1614,6 +1614,36 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    public void Evaluate_FallsBackForNetModule()
+    {
+        var assemblyPath = CompileFixture(
+            """
+            namespace NetModuleFixture;
+
+            public static class Arithmetic
+            {
+                public static int Add(int left, int right)
+                    => left + right;
+            }
+            """,
+            OutputKind.NetModule);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                result => result.Type == "NetModuleFixture.Arithmetic"
+                    && result.Method == "Add");
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_RetainsSatisfiedInterfaceBaseClause()
     {
         var assemblyPath = CompileFixture("""
@@ -1906,7 +1936,10 @@ public class FidelityCheckGeneratedFilterTests
             result.Detail);
     }
 
-    static string CompileFixture(string source, bool allowUnsafe = false)
+    static string CompileFixture(
+        string source,
+        OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary,
+        bool allowUnsafe = false)
     {
         var directory = Path.Combine(Path.GetTempPath(), $"fidelity-generated-filter-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -1917,7 +1950,7 @@ public class FidelityCheckGeneratedFilterTests
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
             references,
             new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
+                outputKind,
                 allowUnsafe: allowUnsafe,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Disable));

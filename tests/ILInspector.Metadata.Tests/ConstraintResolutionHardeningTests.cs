@@ -1588,6 +1588,30 @@ public class ConstraintResolutionHardeningTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase()
+    {
+        byte[] definitionImage = BuildGenericBaseDefinition();
+        byte[] consumerImage = BuildDirectBaseConsumer();
+        ResolvedAssemblyReference definition =
+            Descriptor(definitionImage);
+        ResolvedAssemblyReference consumer =
+            Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            new MappingPolicy(definition),
+            includeAll: true,
+            resolveBaseTypes: true);
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+            Assert.Single(surface.Types).BaseTypeResolution);
+    }
+
     static byte[] BuildChain(
         string assemblyName,
         string prefix,
@@ -2588,6 +2612,48 @@ public class ConstraintResolutionHardeningTests
                 constraint);
         }
 
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericBaseDefinition()
+    {
+        MetadataBuilder metadata = NewMetadata("GenericBase");
+        AddModule(metadata);
+        TypeDefinitionHandle definition =
+            AddType(metadata, "Base`1");
+        AddGenericParameter(metadata, definition);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDirectBaseConsumer()
+    {
+        MetadataBuilder metadata = NewMetadata("DirectBaseConsumer");
+        AssemblyReferenceHandle definition =
+            AddReference(metadata, "GenericBase");
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                definition,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        AddType(metadata, "Derived", baseType);
         return Serialize(metadata);
     }
 
