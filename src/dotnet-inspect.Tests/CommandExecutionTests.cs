@@ -305,6 +305,26 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalIntegrationOpportunityPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            typeof(Npgsql.NpgsqlConnection).Assembly.Location,
+            Path.Combine(libDir, "IntegrationOpportunityFixture.dll"));
+
+        var packagePath = Path.Combine(
+            tempDir,
+            "Test.IntegrationOpportunity.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -10950,6 +10970,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LocalFile_IntegrationOpportunities_UsesGroupQueryResult()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(Npgsql.NpgsqlConnection).Assembly.Location,
+            "-S",
+            "Integration: Opportunities",
+            "--rows",
+            "20");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Integration: Opportunities", output);
+        Assert.Contains(
+            "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
+            output);
+        Assert.Contains(
+            "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
+            output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IntegrationOpportunities_TraceShowsIntegrationsPrerequisite()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -12644,6 +12686,38 @@ public partial class CommandExecutionTests
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_IntegrationOpportunities_UsesGroupQueryResult()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "20");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains(
+                "| Aspire | `Npgsql.NpgsqlConnection` | AppHost resource builder |",
+                output);
+            Assert.Contains(
+                "| Health Checks | `Npgsql.NpgsqlConnection` | IHealthChecksBuilder registration |",
+                output);
             Assert.DoesNotContain("Tip:", error);
         }
         finally
