@@ -1844,7 +1844,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SingleType_MarkdownMinimal_IncludesLibraryContext()
+    public async Task Type_SingleType_MarkdownMinimal_UsesTypeInfoPreset()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "System.Collections.FrozenDictionary", "--markdown", "--tips", "q");
@@ -1852,9 +1852,10 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
-        Assert.Contains("Source: Platform", output);
-        Assert.Contains("## Method Groups", output);
+        Assert.Contains("## Type Info", output);
+        Assert.Contains("| Library | System.Collections.Immutable |", output);
+        Assert.Contains("| Source | Platform |", output);
+        Assert.DoesNotContain("## Method Groups", output);
     }
 
     [Fact]
@@ -1938,7 +1939,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        Assert.Contains("| Library | System.Text.RegularExpressions |", output);
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -1950,7 +1951,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        Assert.Contains("| Library | System.Text.RegularExpressions |", output);
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -1962,7 +1963,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
-        Assert.Contains("Library: System.Collections", output);
+        Assert.Contains("| Library | System.Collections |", output);
         Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
     }
 
@@ -2319,7 +2320,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
-        Assert.Contains("Library: System.Text.Json", output);
+        Assert.Contains("| Library | System.Text.Json |", output);
         Assert.DoesNotContain("Package 'JsonSerializer'", error);
         Assert.Contains("Note: Type 'JsonSerializer' resolved via platform find", error);
     }
@@ -2332,8 +2333,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
-        Assert.Contains("## Method Groups", output);
+        Assert.Contains("| Library | System.Collections.Immutable |", output);
+        Assert.Contains("## Type Info", output);
         Assert.DoesNotContain("## Type Parameters", output);
         Assert.Contains("Note: Type 'FrozenDictionary' resolved via platform find", error);
     }
@@ -3168,12 +3169,11 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The section is <c>ExplicitOnly</c>, so it must not join the default markdown view, where
-    /// the same facts already render as the inline identity line. This is the gate for the
-    /// "new sections do not enter the default -v:m view" rule for this section.
+    /// The curated type pipeline uses <c>Type Info</c> as its one minimal section. The compact
+    /// inline identity row belongs to quiet output only, so minimal must not render both.
     /// </summary>
     [Fact]
-    public async Task Type_TypeInfoSection_DoesNotEnterTheDefaultMarkdownView()
+    public async Task Type_TypeInfoSection_IsTheDefaultMarkdownView()
     {
         var options = new TypeOptions
         {
@@ -3186,9 +3186,9 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.DoesNotContain("## Type Info", output);
-        // The identity facts are present, just inline rather than as a section.
-        Assert.Contains("Kind: class", output);
+        Assert.Contains("## Type Info", output);
+        Assert.DoesNotContain("Kind: class", output);
+        Assert.DoesNotContain("## Properties", output);
     }
 
     /// <summary>
@@ -3961,20 +3961,21 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("System.Private.CoreLib")]
     [InlineData("System.Text.Json")]
-    public async Task Type_Listing_ApiInfo_IsExplicitOnlyAndStaysOffEveryDefaultView(string library)
+    public async Task Type_Listing_ApiInfo_IsTheCuratedMinimalAndNormalPreset(string library)
     {
-        // The section is a promotion of the inline identity line into a selectable section, not a
-        // second copy of it in the default view. ExplicitOnly is what keeps it off the ladder; this
-        // pins that across the whole ladder rather than at one verbosity, because this pipeline is
-        // not a curated catalog and its ladder selects by POSITION -- and the descriptor sits in
-        // first position, which is exactly where a missing ExplicitOnly would surface.
-        foreach (var verbosity in new[] { "-v:q", "-v:m", "-v:n", "-v:d" })
+        foreach (var (verbosity, expected) in new[]
+                 {
+                     ("-v:q", false),
+                     ("-v:m", true),
+                     ("-v:n", true),
+                     ("-v:d", true),
+                 })
         {
             var (exit, output, _) = await RunAppAsync(
                 "type", "--platform", library, verbosity, "--tips", "q");
 
             Assert.Equal(0, exit);
-            Assert.DoesNotContain(SectionNames.ApiInfo, SectionHeadings(output));
+            Assert.Equal(expected, SectionHeadings(output).Contains(SectionNames.ApiInfo));
         }
     }
 
@@ -4398,6 +4399,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| @Analysis | category |", output);
+        Assert.Contains("| @Source | category |", output);
     }
 
     [Fact]
@@ -4419,6 +4422,28 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Custom Attributes | section |", output);
         Assert.Contains("| Fields | section |", output);
+        Assert.DoesNotContain("| @All | category |", output);
+        Assert.DoesNotContain("| @Hidden | category |", output);
+    }
+
+    [Fact]
+    public async Task Type_Listing_DiscoverSchema_UsesOnlyTheAuthoredCatalog()
+    {
+        var options = new TypeOptions
+        {
+            Discover = [],
+            Schema = true
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| API Info | section |", output);
+        Assert.Contains("| Classes | section |", output);
+        Assert.Contains("| @Surface | category |", output);
+        Assert.DoesNotContain("| Inspection Failures | section |", output);
+        Assert.DoesNotContain("| Type Forwarders | section |", output);
     }
 
     [Fact]
@@ -4436,13 +4461,14 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Methods | section (verbose) |", output);
-        Assert.Contains("| Source Files | section |", output);
+        Assert.Contains("| Methods | section |", output);
+        Assert.Contains("| @SourceLink | category |", output);
+        Assert.DoesNotContain("| Source Files | section |", output);
         Assert.DoesNotContain("| Fields | section |", output);
     }
 
     [Fact]
-    public async Task Type_SingleType_DiscoverEffective_IncludesSelectableCodeSections()
+    public async Task Type_SingleType_DiscoverEffective_HidesDomainMembersBehindCategoryDoors()
     {
         var options = new TypeOptions
         {
@@ -4455,12 +4481,35 @@ public partial class CommandExecutionTests
             () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Properties | section |", output);
-        Assert.Contains("| Method Groups | section |", output);
-        Assert.Contains("| Decompiled Source | section |", output);
-        Assert.Contains("| Original Source | section |", output);
-        Assert.Contains("| IL | section |", output);
+        Assert.Contains("| @Analysis | category |", output);
+        Assert.Contains("| @Audit | category |", output);
+        Assert.Contains("| @Performance | category |", output);
+        Assert.Contains("| @Source | category |", output);
+        Assert.Contains("| @SourceLink | category |", output);
+        Assert.DoesNotContain("| Decompiled Source | section |", output);
+        Assert.DoesNotContain("| Original Source | section |", output);
+        Assert.DoesNotContain("| IL | section |", output);
+        Assert.DoesNotContain("| Unsafe Members | section |", output);
         Assert.DoesNotContain("| Facts | section", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_DiscoverAnalysisCategory_ListsOwnedSections()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Discover = [SectionCategoryNames.Analysis]
+        };
+
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Contains("| Called Types | section |", output);
+        Assert.Contains("| IL | section", output);
+        Assert.DoesNotContain("| Decompiled Source | section |", output);
     }
 
     [Fact]

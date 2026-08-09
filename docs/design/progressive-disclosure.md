@@ -30,6 +30,9 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
+For `type`, minimal Markdown is `API Info` for a listing and `Type Info` for a
+single type. Member inventories do not enter either minimal preset.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
@@ -51,6 +54,7 @@ dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Async*"
 dotnet-inspect library System.Text.Json -S @Performance
 dotnet-inspect library System.Text.Json -S References --tree --depth 2
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S @Analysis
 ```
 
 Selection controls both rendering and data collection. Only producers needed
@@ -80,6 +84,9 @@ removes that section.
 Other command contexts may use an equivalent focused preset while they migrate
 to authored base categories. See [Bare `-S` default view](info-view.md).
 
+The type command uses `API Info` as the listing overview and `Type Info` as the
+single-type overview.
+
 ## Discovery
 
 The library command is the reference discovery model:
@@ -104,6 +111,11 @@ performance, metadata, SourceLink, and other domains together.
 
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
+
+Type discovery follows the same catalog shape: plain `-D` lists applicable
+`@Surface` members plus authored domain doors, while `-D @Category` drills into
+that domain. Its API-surface acquisition is a typed query planned from command
+and section demand.
 
 ## Network and source capabilities
 
@@ -163,6 +175,7 @@ Select those sections or their authored category explicitly:
 ```bash
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S @Source
 ```
 
 ## Maintenance guidance

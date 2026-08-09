@@ -4720,10 +4720,12 @@ public class SectionPipelineTests
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var model = new ApiSurface { Types = [new ApiType { Name = "Foo", Kind = "class" }] };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var minimal = pipeline.GetEffectiveSections(model, Verbosity.Minimal);
+        var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
-        Assert.Contains("Classes", effective);
-        Assert.DoesNotContain("Structs", effective);
+        Assert.Equal([SectionNames.ApiInfo], minimal);
+        Assert.Contains("Classes", detailed);
+        Assert.DoesNotContain("Structs", detailed);
     }
 
     [Fact]
@@ -4734,7 +4736,7 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
-        Assert.Empty(effective);
+        Assert.Equal([SectionNames.ApiInfo], effective);
     }
 
     [Fact]
@@ -4753,9 +4755,101 @@ public class SectionPipelineTests
             ]
         };
 
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Normal);
+        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
 
-        Assert.Equal(5, effective.Count);
+        Assert.Equal(6, effective.Count);
+    }
+
+    [Fact]
+    public void ApiTypeCatalog_BindsSurfaceQueryAndUsesAuthoredSurfaceCategory()
+    {
+        var catalog = ApiTypeSectionDescriptors.CreateCatalog();
+        var pipeline = catalog.Pipeline;
+
+        Assert.Equal(
+            catalog.QueryRegistry.RegisteredQueries.ToHashSet(),
+            pipeline.DeclaredQueries);
+        Assert.Equal(
+            pipeline.SelectableSectionNames,
+            pipeline.GetCategoryMap()[SectionCategoryNames.Surface]);
+        Assert.DoesNotContain(SectionPipeline<ApiSurface>.AllCategory, pipeline.GetCategoryMap());
+        Assert.DoesNotContain(SectionPipeline<ApiSurface>.HiddenCategory, pipeline.GetCategoryMap());
+    }
+
+    [Fact]
+    public void TypePipeline_AuthoredCategoriesOwnEverySection()
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(new TypeOptions());
+        var categories = pipeline.GetCategoryMap();
+        var owned = categories.Values
+            .SelectMany(sections => sections)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal([SectionNames.TypeInfo], pipeline.InfoSectionNames);
+        Assert.Equal(
+            pipeline.SelectableSectionNames.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            owned);
+        Assert.Equal(
+            new[]
+            {
+                SectionCategoryNames.Analysis,
+                SectionCategoryNames.Audit,
+                SectionCategoryNames.Performance,
+                SectionCategoryNames.Source,
+                SectionCategoryNames.SourceLink,
+                SectionCategoryNames.Surface,
+            }.OrderBy(name => name, StringComparer.Ordinal),
+            categories.Keys.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void TypePipeline_DomainSectionsStayOutsideAutomaticVerbosity()
+    {
+        var pipeline = ApiMemberSectionPipelines.Create(new TypeOptions());
+        var model = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Run", Kind = "method" }],
+        };
+
+        var detailed = pipeline.GetCandidateSections(Verbosity.Detailed);
+
+        Assert.Contains(SectionNames.TypeInfo, detailed);
+        Assert.Contains(SectionNames.Methods, detailed);
+        Assert.DoesNotContain(SectionNames.DecompiledSource, detailed);
+        Assert.DoesNotContain(SectionNames.UnsafeMembers, detailed);
+        Assert.DoesNotContain(SectionNames.TopLeverage, detailed);
+    }
+
+    [Fact]
+    public void TypePipeline_BodyAndSourceProducersDeclareTruthfulCosts()
+    {
+        var costs = ApiMemberSectionPipelines.Create(new TypeOptions())
+            .SectionCosts
+            .ToDictionary(entry => entry.Name, entry => entry.Cost);
+
+        foreach (var section in new[]
+                 {
+                     SectionNames.UnsafeMembers,
+                     SectionNames.ExceptionRegions,
+                     SectionNames.CalledTypes,
+                     SectionNames.AllocationFacts,
+                     SectionNames.SafetyFacts,
+                     SectionNames.CostFacts,
+                     SectionNames.TopLeverage,
+                     SectionNames.PerformanceTriage,
+                     SectionNames.DecompiledSource,
+                     SectionNames.OriginalSource,
+                     SectionNames.SourceDiff,
+                     SectionNames.IL,
+                     SectionNames.Facts,
+                 })
+        {
+            Assert.Equal(SectionCost.Unbounded, costs[section]);
+        }
+
+        Assert.Equal(SectionCost.Moderated, costs[SectionNames.SourceFiles]);
     }
 
     // ===== API member pipeline tests =====

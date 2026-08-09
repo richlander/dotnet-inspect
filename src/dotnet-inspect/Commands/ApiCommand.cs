@@ -9,6 +9,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
 using DotnetInspector.Services;
@@ -200,12 +201,16 @@ public class ApiCommand
     internal record PreambleResult(
         ApiOptions Options,
         SectionPipeline<ApiSurface> TypePipeline,
-        SectionPipeline<ApiType> MemberPipeline);
+        SectionPipeline<ApiType> MemberPipeline,
+        InspectionQueryRegistry<ApiSurfaceQueryContext> TypeQueryRegistry);
 
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
-        var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var memberPipeline = ApiMemberSectionPipelines.Create(options);
+        var typeCatalog = ApiTypeSectionDescriptors.CreateCatalog();
+        var typePipeline = typeCatalog.Pipeline;
+        var memberPipeline = ApiMemberSectionPipelines.Create(
+            options,
+            typeCatalog.QueryRegistry.CostOf);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
@@ -228,12 +233,12 @@ public class ApiCommand
                 ? GetTypeDocumentSchema(options)
                 : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
 
-            // Restrict plain discovery to columns/sections queryable under the active options.
+            // The shared render models expose sections owned by adjacent API contexts. Static
+            // discovery must stay within the active catalog even though it deliberately shows
+            // every section in that catalog rather than applying effective-discovery hiding.
+            schema = RestrictSchemaToSections(schema, knownSections);
             if (singleTypeMode)
-            {
-                schema = RestrictSchemaToSections(schema, knownSections);
                 schema = ToQueryableSchema(schema, options);
-            }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
@@ -276,7 +281,7 @@ public class ApiCommand
         {
             CommandError.Write(
                 "this view publishes no bare -S overview sections.",
-                "Use -S <Section> to select one, -D to discover what is available, or -S @All for everything.");
+                "Use -S <Section> to select one or -D to discover authored categories.");
             return (null!, 1);
         }
 
@@ -425,7 +430,11 @@ public class ApiCommand
                 : null,
         };
 
-        return (new PreambleResult(options, typePipeline, memberPipeline), null);
+        return (new PreambleResult(
+            options,
+            typePipeline,
+            memberPipeline,
+            typeCatalog.QueryRegistry), null);
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -1758,6 +1767,8 @@ public class ApiCommand
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
             sectionCategories: memberPipeline.GetCategoryMap(),
+            catalogHiddenSections: memberPipeline.GetCatalogHiddenSections(),
+            listedCategoryDoors: memberPipeline.GetListedCategoryDoors(),
             projection: options);
     }
 

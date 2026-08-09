@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -29,9 +30,16 @@ internal static class ApiServices
         string? apiVersion,
         string? selectedTfm,
         VerboseLogger logger,
-        bool includeAll)
+        bool includeAll,
+        InspectionQueryRegistry<ApiSurfaceQueryContext>? queryRegistry = null,
+        IReadOnlySet<InspectionQueryDefinition>? requestedQueries = null)
     {
-        var (api, apiDllPath) = ExtractFullApi(searchPath, logger, includeAll);
+        var (api, apiDllPath) = ExtractFullApi(
+            searchPath,
+            logger,
+            includeAll,
+            queryRegistry,
+            requestedQueries);
         if (api == null || apiDllPath == null)
             return null;
 
@@ -99,7 +107,12 @@ internal static class ApiServices
 
     // ===== Full API Extraction =====
 
-    internal static (ApiSurface? api, string? dllPath) ExtractFullApi(string searchPath, VerboseLogger logger, bool includeAll)
+    internal static (ApiSurface? api, string? dllPath) ExtractFullApi(
+        string searchPath,
+        VerboseLogger logger,
+        bool includeAll,
+        InspectionQueryRegistry<ApiSurfaceQueryContext>? queryRegistry = null,
+        IReadOnlySet<InspectionQueryDefinition>? requestedQueries = null)
     {
         string? dllFile;
         if (File.Exists(searchPath) && searchPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -149,8 +162,43 @@ internal static class ApiServices
 
         logger.Log($"Extracting API from: {Path.GetFileName(dllFile)}");
 
-        var api = AssemblyReader.ExtractApiSurface(dllFile, includeAll);
+        var api = queryRegistry is null
+            ? AssemblyReader.ExtractApiSurface(dllFile, includeAll)
+            : ExtractApiSurface(
+                dllFile,
+                includeAll,
+                queryRegistry,
+                requestedQueries
+                    ?? throw new InspectionQueryException(
+                        "Typed API extraction requires an explicit query plan."),
+                logger);
         return (api, api != null ? dllFile : null);
+    }
+
+    internal static ApiSurface? ExtractApiSurface(
+        string assemblyPath,
+        bool includeAll,
+        InspectionQueryRegistry<ApiSurfaceQueryContext> queryRegistry,
+        IReadOnlySet<InspectionQueryDefinition> requestedQueries,
+        VerboseLogger logger)
+    {
+        using var session = AssemblyInspectionSession.Open(assemblyPath);
+        var context = new ApiSurfaceQueryContext(session, includeAll);
+        var results = queryRegistry.Run(requestedQueries, context);
+        return results.Get(ApiSurfaceQuery.Definition) switch
+        {
+            ApiSurfaceResult.Available available => available.Surface,
+            ApiSurfaceResult.Failed failed => LogFailure(failed.Error),
+            _ => throw new InspectionQueryException(
+                "API surface query returned an unknown result."),
+        };
+
+        ApiSurface? LogFailure(Exception error)
+        {
+            logger.LogWarning(
+                $"Could not extract API from '{Path.GetFileName(assemblyPath)}': {error.Message}");
+            return null;
+        }
     }
 
     // ===== Type Forwarder Resolution =====

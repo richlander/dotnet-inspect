@@ -6,8 +6,8 @@ model for section ownership, discovery, selection, effectiveness, cost, and
 rendering.
 
 The model was first made coherent for the library command and then adopted by
-the package command. New commands and migrations should use the same concepts
-rather than add command-specific selection rules.
+the package and type commands. New commands and migrations should use the same
+concepts rather than add command-specific selection rules.
 
 ## Core terms
 
@@ -76,6 +76,8 @@ The base-category union intentionally excludes separate domains such as
 metadata internals and performance analysis. This keeps ordinary output useful
 without mixing unrelated concepts.
 
+Type listings and single-type views use `@Surface` as their base category.
+
 ### Domain categories
 
 Domain categories are separate conceptual lenses. They are explicit doors and
@@ -95,6 +97,9 @@ The library command currently has these domain categories:
 Domain categories can overlap base categories. For example, `Signals`,
 `Symbols`, and `P/Invoke Methods` remain plain-named base evidence while also
 participating in `@Audit`.
+
+The single-type view uses the same concept for `@Analysis`, `@Audit`,
+`@Performance`, `@Source`, and `@SourceLink`.
 
 ### Category doors
 
@@ -372,6 +377,29 @@ The library command's current authored ownership is:
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains.
 
+## Type category maps
+
+Type listings have one base category:
+
+| Category | Members |
+| --- | --- |
+| `@Surface` | `API Info`, `Classes`, `Structs`, `Interfaces`, `Enums`, `Delegates` |
+
+Single-type views use this authored ownership:
+
+| Category | Members |
+| --- | --- |
+| `@Surface` | `Type Info`, `Values`, `Type Parameters`, `Interfaces`, `Baseclass`, `Constructors`, `Finalizer`, `Fields`, `Properties`, `Method Groups`, `Methods`, `Member Index`, `Operators`, `Explicit Interface Implementations`, `Extension Methods`, `Events`, `Custom Attributes` |
+| `@Analysis` | `Unsafe Members`, `Exception Regions`, `Called Types`, `Allocation Facts`, `Safety Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage`, `IL`, `Facts` |
+| `@Audit` | `Unsafe Members`, `Safety Facts` |
+| `@Performance` | `Allocation Facts`, `Cost Facts`, `Top Leverage`, `Performance Triage` |
+| `@Source` | `Decompiled Source`, `Original Source`, `Source Diff`, `IL` |
+| `@SourceLink` | `Source Files` |
+
+`@Surface` is the base category. The remaining categories are domains. Type
+listing and single-type minimal Markdown render `API Info` and `Type Info`,
+respectively; quiet output retains compact inline identity fields.
+
 ## Registration invariants
 
 The section pipeline enforces these invariants:
@@ -379,7 +407,8 @@ The section pipeline enforces these invariants:
 1. Section names are unique.
 2. Category names are unique and use the `@` prefix.
 3. Every category member names a registered section.
-4. Every selectable library section has authored category ownership.
+4. Every selectable section in a curated catalog has authored category
+   ownership.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.
 6. Every scanner key resolves, and a descriptor cannot understate scanner cost.
@@ -394,7 +423,9 @@ sets so stale and missing entries both fail.
 
 The library model is the reference implementation. Package has adopted the
 same size/cost axes and curated discovery, but its category graph remains
-smaller. Type, member, project, and API commands should migrate incrementally.
+smaller. Type now uses typed query planning and authored categories for both
+listing and single-type views. Member, project, and remaining API paths should
+migrate incrementally.
 
 During migration:
 

@@ -14,6 +14,12 @@ public static class SectionCategoryNames
     public const string Audit = "@Audit";
 
     /// <summary>
+    /// IL-body and control-flow evidence for type inspection. Performance and audit sections may
+    /// also be cross-listed in their narrower domain categories.
+    /// </summary>
+    public const string Analysis = "@Analysis";
+
+    /// <summary>
     /// Actual source content: decompiled, original, and annotated source views plus source diffs
     /// (API/member scope). Distinct from <see cref="SourceLink"/>, which is about SourceLink/PDB
     /// provenance and availability rather than the source text itself.

@@ -280,6 +280,37 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Defines the context-specific minimal-view section set. A section promoted into this set is
+    /// automatically eligible for the minimal view even when a shared descriptor marks it
+    /// explicit-only for another command context.
+    /// </summary>
+    public SectionPipeline<TModel> SetInfoSections(params string[] sections)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+        var requested = sections.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var known = _entries.Select(entry => entry.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = requested.Where(section => !known.Contains(section)).ToArray();
+        if (unknown.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Info preset lists unregistered section(s): {string.Join(", ", unknown)}.");
+        }
+
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            bool info = requested.Contains(_entries[i].Name);
+            _entries[i] = _entries[i] with
+            {
+                Info = info,
+                ExplicitOnly = info ? false : _entries[i].ExplicitOnly,
+            };
+        }
+
+        return this;
+    }
+
+    /// <summary>
     /// Declares a topical category door over already-registered sections. Members are validated
     /// against the registered section names, so a rename that misses a membership list fails at
     /// construction instead of silently dropping the section out of its category.

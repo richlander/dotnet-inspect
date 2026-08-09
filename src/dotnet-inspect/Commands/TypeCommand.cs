@@ -7,6 +7,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
 using DotnetInspector.Services;
@@ -32,10 +33,27 @@ public static class TypeCommand
         options = (TypeOptions)preamble.Options;
         var typePipeline = preamble.TypePipeline;
         var memberPipeline = preamble.MemberPipeline;
+        var queryRegistry = preamble.TypeQueryRegistry;
+        var queryDemand = new (string Reason, InspectionQueryDefinition Query)[]
+        {
+            ("type target resolution", ApiSurfaceQuery.Definition),
+        };
+        var queries = typePipeline.GetRequiredQueries(
+            options.Verbosity,
+            options.IncludeSections,
+            commandDemand: queryDemand);
+        queries.UnionWith(memberPipeline.GetRequiredQueries(
+            options.Verbosity,
+            options.IncludeSections,
+            commandDemand: queryDemand));
 
         try
         {
-            if (await TryExecutePlatformPrefixBrowseAsync(options, typePipeline) is { } prefixBrowseExitCode)
+            if (await TryExecutePlatformPrefixBrowseAsync(
+                    options,
+                    typePipeline,
+                    queryRegistry,
+                    queries) is { } prefixBrowseExitCode)
                 return prefixBrowseExitCode;
             if (await TryExecuteFindIfMissAsync(options) is { } findIfMissExitCode)
                 return findIfMissExitCode;
@@ -82,7 +100,8 @@ public static class TypeCommand
                 // No type specified - list all types
                 var loaded = ApiServices.LoadFullApi(
                     searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll,
+                    queryRegistry, queries);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -110,6 +129,8 @@ public static class TypeCommand
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                         sectionCategories: typePipeline.GetCategoryMap(),
+                        catalogHiddenSections: typePipeline.GetCatalogHiddenSections(),
+                        listedCategoryDoors: typePipeline.GetListedCategoryDoors(),
                         projection: options);
                 }
 
@@ -149,7 +170,8 @@ public static class TypeCommand
             {
                 var loaded = ApiServices.LoadFullApi(
                     searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll);
+                    apiSource, apiVersion, selectedTfm, logger, options.IncludeAll,
+                    queryRegistry, queries);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -353,7 +375,9 @@ public static class TypeCommand
                         tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                         verbosity: (int)options.Verbosity,
                         sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap());
+                        sectionCategories: typePipeline.GetCategoryMap(),
+                        catalogHiddenSections: typePipeline.GetCatalogHiddenSections(),
+                        listedCategoryDoors: typePipeline.GetListedCategoryDoors());
                 }
                 else if (TryWritePrefixBrowse(
                     api,
@@ -371,7 +395,12 @@ public static class TypeCommand
                 }
                 else
                 {
-                    var widePrefixExitCode = await TryExecuteWidePlatformPrefixFallbackAsync(options, originalTypeQuery, typePipeline);
+                    var widePrefixExitCode = await TryExecuteWidePlatformPrefixFallbackAsync(
+                        options,
+                        originalTypeQuery,
+                        typePipeline,
+                        queryRegistry,
+                        queries);
                     if (widePrefixExitCode.HasValue)
                         return widePrefixExitCode.Value;
 
@@ -433,7 +462,9 @@ public static class TypeCommand
     private static Task<int?> TryExecuteWidePlatformPrefixFallbackAsync(
         TypeOptions options,
         string? originalTypeQuery,
-        SectionPipeline<ApiSurface> typePipeline)
+        SectionPipeline<ApiSurface> typePipeline,
+        InspectionQueryRegistry<ApiSurfaceQueryContext> queryRegistry,
+        IReadOnlySet<InspectionQueryDefinition> queries)
     {
         if (!options.AllowPlatformPrefixFallback || string.IsNullOrWhiteSpace(originalTypeQuery))
             return Task.FromResult<int?>(null);
@@ -444,7 +475,7 @@ public static class TypeCommand
         {
             PlatformPrefixQuery = originalTypeQuery,
             AllowPlatformPrefixFallback = false
-        }, typePipeline);
+        }, typePipeline, queryRegistry, queries);
     }
 
     private static bool ShouldDefaultToShape(TypeOptions options)
@@ -500,7 +531,9 @@ public static class TypeCommand
 
     internal static async Task<int?> TryExecutePlatformPrefixBrowseAsync(
         TypeOptions options,
-        SectionPipeline<ApiSurface> typePipeline)
+        SectionPipeline<ApiSurface> typePipeline,
+        InspectionQueryRegistry<ApiSurfaceQueryContext>? queryRegistry = null,
+        IReadOnlySet<InspectionQueryDefinition>? queries = null)
     {
         var query = options.PlatformPrefixQuery;
         if (string.IsNullOrWhiteSpace(query))
@@ -512,7 +545,18 @@ public static class TypeCommand
         if (await PackageExistsAsync(query, options, context))
             return null;
 
-        var api = await BuildPlatformPrefixSurfaceAsync(query, options, context, logger);
+        queryRegistry ??= ApiTypeSectionDescriptors.CreateQueryRegistry();
+        queries ??= new HashSet<InspectionQueryDefinition>
+        {
+            ApiSurfaceQuery.Definition,
+        };
+        var api = await BuildPlatformPrefixSurfaceAsync(
+            query,
+            options,
+            context,
+            logger,
+            queryRegistry,
+            queries);
         if (api == null || api.Types.Count == 0)
             return null;
 
@@ -548,6 +592,8 @@ public static class TypeCommand
                 verbosity: (int)browseOptions.Verbosity,
                 sectionCostAnnotations: typePipeline.GetCostAnnotations(),
                 sectionCategories: typePipeline.GetCategoryMap(),
+                catalogHiddenSections: typePipeline.GetCatalogHiddenSections(),
+                listedCategoryDoors: typePipeline.GetListedCategoryDoors(),
                 projection: browseOptions);
         }
 
@@ -592,7 +638,9 @@ public static class TypeCommand
         string query,
         TypeOptions options,
         CommandContext context,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        InspectionQueryRegistry<ApiSurfaceQueryContext> queryRegistry,
+        IReadOnlySet<InspectionQueryDefinition> queries)
     {
         var pattern = query.EndsWith('*') ? query : $"{query}*";
         var findOptions = new FindOptions
@@ -641,7 +689,12 @@ public static class TypeCommand
                 continue;
             }
 
-            var api = AssemblyReader.ExtractApiSurface(assemblyPath, options.IncludeAll);
+            var api = ApiServices.ExtractApiSurface(
+                assemblyPath,
+                options.IncludeAll,
+                queryRegistry,
+                queries,
+                logger);
             if (api == null)
                 continue;
 
