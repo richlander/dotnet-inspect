@@ -18,15 +18,6 @@ namespace DotnetInspector.Inspectors;
 // which is where it will be deleted once L1 owns the queries.
 
 /// <summary>
-/// Extension member census, plus the metadata order it was projected from. The order is retained
-/// separately because the census is a finding set (unordered by contract) while the rendered and
-/// serialized views need the assembly's own ordering.
-/// </summary>
-internal readonly record struct ExtensionMemberScan(
-    FindingInspection<ExtensionMemberObservation> Inspection,
-    IReadOnlyList<ExtensionMethodInfo>? DisplayOrder);
-
-/// <summary>
 /// Assembly attribute census, plus the order used for JSON serialization.
 /// </summary>
 internal readonly record struct AssemblyAttributeScan(
@@ -69,9 +60,6 @@ internal readonly record struct ResourceTriageScan(
 /// </summary>
 internal static class LibraryScanApply
 {
-    public static void Apply(this LibraryInspection inspection, ExtensionMemberScan scan)
-        => inspection.SetExtensionMemberInspection(scan.Inspection, scan.DisplayOrder);
-
     public static void Apply(this LibraryInspection inspection, AssemblyAttributeScan scan)
         => inspection.SetAssemblyAttributeInspection(scan.Inspection, scan.JsonOrder);
 
