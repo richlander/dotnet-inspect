@@ -578,6 +578,8 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
+                    nuspec?.PackageName ?? packageName,
+                    nuspec?.Version ?? version,
                     options);
             }
 
@@ -2474,6 +2476,8 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
+        string acquisitionPackageName,
+        string acquisitionPackageVersion,
         InspectionOptions options)
     {
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
@@ -2519,7 +2523,7 @@ public class PackageCommand
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         using PackageIntegrationsWorkspace? integrationsWorkspace =
-            scanners.Contains(LibrarySections.ScannerIntegrations)
+            RequiresGroupedIntegrations(scanners, scannerRegistry)
                 ? PackageIntegrationsWorkspace.Create(
                     selected.Select(selection =>
                     {
@@ -2532,8 +2536,8 @@ public class PackageCommand
                             TfmResolver.ExtractTfmFromPath(
                                 relativePath));
                     }),
-                    packageName,
-                    version)
+                    acquisitionPackageName,
+                    acquisitionPackageVersion)
                 : null;
         List<LibraryInspection> inspections = [];
         foreach (var selection in selected)
@@ -2611,6 +2615,13 @@ public class PackageCommand
             Console.WriteLine(markdown);
         return 0;
     }
+
+    internal static bool RequiresGroupedIntegrations(
+        HashSet<string> scanners,
+        ScannerRegistry scannerRegistry) =>
+        scannerRegistry
+            .ExpandRequired(scanners)
+            .Contains(LibrarySections.ScannerIntegrations);
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()

@@ -305,15 +305,24 @@ Package `--all-libraries` constructs one
 passes that shared policy snapshot to every participant in that group.
 `--tfm all` therefore creates separate groups rather than mixing framework
 universes. The host executes the group query only for explicit Integrations
-demand, correlates entries by acquisition registration, and projects them into
-the existing per-library Finding model. It then inspects each available library
-through the retained snapshot descriptor; the legacy Integrations scanner
-recognizes the populated Findings and does not rescan, while the dependent
-integration-opportunity scanner consumes them unchanged. Direct `library` and
-package `--library` remain single-assembly controls.
+demand, including demand introduced by scanner prerequisites, correlates entries
+by acquisition registration, and projects them into the existing per-library
+Finding model. Query production and the asynchronous library pipeline consume
+one participant's retained snapshot before the group releases it and advances,
+so the group keeps its complete binding universe without retaining the package's
+cumulative image bytes. The legacy Integrations scanner recognizes populated
+Findings and does not rescan. The dependent integration-opportunity scanner
+consumes available findings unchanged and emits no gap rows when its prerequisite
+failed. Direct `library` and package `--library` remain single-assembly controls.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates TFM partitioning, participant correlation, package provenance, and
 same-generation host inspection.
+`PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
+gates streaming image release.
+`PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
+and
+`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+gate prerequisite activation and failure-safe opportunity composition.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates the Finding projection and duplicate-scan boundary. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output

@@ -118,6 +118,57 @@ public static class AssemblyContextIntegrationsQuery
             entries.MoveToImmutable());
     }
 
+    /// <summary>
+    /// Scans one participant and runs its asynchronous consumer before
+    /// releasing the participant's retained group image.
+    /// </summary>
+    /// <remarks>
+    /// Hosts invoke participants in group order. This streaming form keeps the
+    /// complete binding universe while bounding retained image bytes to the
+    /// participant currently being consumed. Gated by
+    /// <c>UseAssemblyAsync_ReleasesParticipantBeforeAdvancing</c>.
+    /// </remarks>
+    public static async Task<TResult> ExecuteParticipantAsync<TResult>(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        Func<
+            ResolvedAssemblyReference?,
+            AssemblyIntegrationsEntry,
+            Task<TResult>> callback)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyImageAccessResult<TResult> access =
+            await group.UseAssemblySessionAsync(
+                    participant.Assembly,
+                    async (session, retained) =>
+                    {
+                        AssemblyIntegrationsEntry entry =
+                            Inspect(subject, session);
+                        return await callback(retained, entry)
+                            .ConfigureAwait(false);
+                    },
+                    releaseAfterUse: true)
+                .ConfigureAwait(false);
+        return access switch
+        {
+            AssemblyImageAccessResult<TResult>.Available available =>
+                available.Value,
+            AssemblyImageAccessResult<TResult>.Rejected rejected =>
+                await callback(
+                        null,
+                        new AssemblyIntegrationsEntry.Rejected(
+                            subject,
+                            rejected.Failure))
+                    .ConfigureAwait(false),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly image access result."),
+        };
+    }
+
     static AssemblyIntegrationsEntry Inspect(
         AssemblyContextSubject subject,
         AssemblyInspectionSession session)

@@ -301,6 +301,48 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
+    internal async Task<AssemblyImageAccessResult<TResult>>
+        UseAssemblySessionAsync<TResult>(
+            ResolvedAssemblyReference assembly,
+            Func<
+                AssemblyInspectionSession,
+                ResolvedAssemblyReference,
+                Task<TResult>> callback,
+            bool releaseAfterUse)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        BeginCallback();
+        ParticipantState? participant = null;
+        try
+        {
+            participant = FindParticipant(assembly);
+            SnapshotAccess access = GetSnapshot(participant);
+            if (access.Failure is { } failure)
+            {
+                return new AssemblyImageAccessResult<TResult>.Rejected(
+                    assembly,
+                    failure);
+            }
+
+            AssemblyImageSnapshot snapshot = access.Snapshot!;
+            using AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(snapshot);
+            TResult value = await callback(
+                    session,
+                    snapshot.CreateRetainedReference(assembly))
+                .ConfigureAwait(false);
+            return new AssemblyImageAccessResult<TResult>.Available(value);
+        }
+        finally
+        {
+            if (releaseAfterUse && participant is not null)
+                ReleaseSnapshot(participant);
+            EndCallback();
+        }
+    }
+
     AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
@@ -372,6 +414,9 @@ public sealed class AssemblyContextGroup : IDisposable
     {
         lock (participant.ImageLoadGate)
         {
+            ObjectDisposedException.ThrowIf(
+                participant.Released,
+                participant);
             if (participant.Initialized)
                 return participant.Access;
 
@@ -396,6 +441,15 @@ public sealed class AssemblyContextGroup : IDisposable
             participant.Initialized = true;
             return access;
         }
+    }
+
+    void ReleaseSnapshot(ParticipantState participant)
+    {
+        long imageSize;
+        lock (participant.ImageLoadGate)
+            imageSize = participant.Release();
+        if (imageSize != 0)
+            ReleaseImage(imageSize);
     }
 
     bool TryReserveImage(long imageSize)
@@ -482,13 +536,18 @@ public sealed class AssemblyContextGroup : IDisposable
             participant;
         internal object ImageLoadGate { get; } = new();
         internal bool Initialized { get; set; }
+        internal bool Released { get; private set; }
         internal SnapshotAccess Access { get; set; }
 
         internal long Release()
         {
+            if (Released)
+                return 0;
+
             long imageSize = Access.Snapshot?.Length ?? 0;
             Access = default;
             Initialized = false;
+            Released = true;
             return imageSize;
         }
     }

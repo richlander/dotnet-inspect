@@ -150,14 +150,25 @@ one shared policy version required by the group.
 
 The host correlates query entries to libraries by acquisition registration and
 projects their evidence or typed failure into the existing Finding properties.
-It inspects successful participants through descriptors backed by the same
-retained snapshot, rather than reopening package paths after the group query.
-The legacy Integrations scanner treats those populated properties as complete;
-the dependent integration-opportunity scanner can therefore compose the group
-result without repeating metadata scanning. Direct `library` and package
-`--library` remain single-assembly controls.
+For each participant in group order, the query and asynchronous library pipeline
+consume one retained snapshot before releasing it and advancing. This preserves
+one complete binding universe without retaining the cumulative bytes of every
+package assembly. Metadata, body, Union Type, and Switch scanners borrow that
+same image rather than reopening the package path.
+
+The legacy Integrations scanner treats populated properties as complete. The
+dependent integration-opportunity scanner composes available group results
+without repeating metadata scanning and emits no gaps when its Integrations
+prerequisite failed. Direct `library` and package `--library` remain
+single-assembly controls.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates grouping, correlation, provenance, and retained-generation reuse.
+`PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
+gates participant-at-a-time retention.
+`PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
+and
+`PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
+gate prerequisite activation and failure-safe opportunity composition.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates projection and duplicate-scan avoidance. Existing
 `PackageCommand_AllLibraries_*` tests gate rendering compatibility.

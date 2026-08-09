@@ -29,6 +29,12 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
     internal int ContextGroupCount { get; }
 
+    internal long RetainedImageBytes =>
+        _participants.Values
+            .Select(static participant => participant.Group)
+            .Distinct()
+            .Sum(static group => group.RetainedImageBytes);
+
     internal static PackageIntegrationsWorkspace Create(
         IEnumerable<PackageIntegrationAssembly> assemblies,
         string packageName,
@@ -83,26 +89,25 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                         roots.Select(static root =>
                             (root.Reference,
                                 (IAssemblyBindingPolicy)root.Policy)));
+                List<AssemblyContextParticipant> participants =
+                [
+                    .. roots.Select(root =>
+                        new AssemblyContextParticipant(
+                            root.Reference,
+                            groupPolicy)),
+                ];
                 AssemblyContextGroup group =
                     workspace.CreateAssemblyContextGroup(
-                        roots.Select(root =>
-                            new AssemblyContextParticipant(
-                                root.Reference,
-                                groupPolicy)));
-                AssemblyContextIntegrationsResult integrations =
-                    AssemblyContextIntegrationsQuery.Execute(group);
+                        participants);
 
                 for (int index = 0; index < roots.Count; index++)
                 {
                     Root root = roots[index];
-                    AssemblyIntegrationsEntry entry =
-                        integrations.Assemblies[index];
                     results.Add(
                         Path.GetFullPath(root.Input.Path),
                         new ParticipantResult(
                             group,
-                            root.Reference,
-                            entry));
+                            participants[index]));
                 }
 
                 contextGroupCount++;
@@ -137,25 +142,12 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
             return await callback(null, null).ConfigureAwait(false);
         }
 
-        AssemblyImageAccessResult<TResult> access =
-            await participant.Group.UseAssemblyReferenceAsync(
-                    participant.Reference,
-                    retained => callback(
-                        retained,
-                        participant.Integrations))
-                .ConfigureAwait(false);
-        return access switch
-        {
-            AssemblyImageAccessResult<TResult>.Available available =>
-                available.Value,
-            AssemblyImageAccessResult<TResult>.Rejected =>
-                await callback(
-                        null,
-                        participant.Integrations)
-                    .ConfigureAwait(false),
-            _ => throw new InvalidOperationException(
-                "Unknown assembly image access result."),
-        };
+        return await AssemblyContextIntegrationsQuery
+            .ExecuteParticipantAsync(
+                participant.Group,
+                participant.Participant,
+                callback)
+            .ConfigureAwait(false);
     }
 
     public void Dispose() => _workspace.Dispose();
@@ -167,6 +159,5 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
     sealed record ParticipantResult(
         AssemblyContextGroup Group,
-        ResolvedAssemblyReference Reference,
-        AssemblyIntegrationsEntry Integrations);
+        AssemblyContextParticipant Participant);
 }

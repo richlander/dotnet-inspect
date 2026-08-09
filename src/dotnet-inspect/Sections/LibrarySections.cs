@@ -187,7 +187,9 @@ public static class LibrarySections
                     session => LibraryMetadataService.ScanCustomAttributes(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
-                ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.UnionTypeInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanUnionTypes(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
                 ctx.Model.TypeForwarderInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanTypeForwarders(session, ctx.AssemblyPath, ctx.Logger),
@@ -205,7 +207,9 @@ public static class LibrarySections
                     () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)),
                 ScannerClassifiedMethods)
             .Add(ScannerSwitches, SectionCost.NetworkFree, ctx =>
-                ctx.Model.SwitchInspection = LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger))
+                ctx.Model.SwitchInspection = ctx.Scan(
+                    session => LibraryMetadataService.ScanSwitches(session, ctx.AssemblyPath, ctx.Logger),
+                    () => LibraryMetadataService.ScanSwitches(ctx.AssemblyPath, ctx.Logger)))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>

@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -44,7 +45,6 @@ public sealed class PackageIntegrationsWorkspaceTests
                 "1.0.0");
 
             Assert.Equal(2, workspace.ContextGroupCount);
-            File.Copy(second, first, overwrite: true);
 
             var observed = await workspace.UseAssemblyAsync(
                 first,
@@ -64,8 +64,20 @@ public sealed class PackageIntegrationsWorkspaceTests
                             available.Subject.Provenance);
                     Assert.Equal("net8.0", provenance.Tfm);
 
+                    File.Copy(second, first, overwrite: true);
                     using PdbContext context =
-                        PdbContext.Open(retained);
+                        PdbContext.OpenPrefetched(retained);
+                    MethodBodyInspectionSession bodySession =
+                        MethodBodyInspectionSession
+                            .OpenWithPrefetchedImage(
+                                first,
+                                context,
+                                ILInspector.Analysis
+                                    .LibraryBodyAnalysisFeatures.None,
+                                assembly: retained);
+                    Assert.Same(
+                        retained.Registration,
+                        bodySession.Assembly.Registration);
                     return Task.FromResult(
                         context.ExtractAssemblyInfo().AssemblyName);
                 });
@@ -74,11 +86,63 @@ public sealed class PackageIntegrationsWorkspaceTests
                 typeof(PackageIntegrationsWorkspaceTests)
                     .Assembly.GetName().Name,
                 observed);
+            Assert.Equal(0, workspace.RetainedImageBytes);
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void OpportunityOnlyDemand_RequiresGroupedIntegrations()
+    {
+        ScannerRegistry registry =
+            Sections.LibrarySections.CreateScannerRegistry();
+
+        Assert.True(
+            Commands.PackageCommand.RequiresGroupedIntegrations(
+                [Sections.LibrarySections.ScannerIntegrationOpportunities],
+                registry));
+    }
+
+    [Fact]
+    public void IntegrationFailure_SuppressesOpportunities()
+    {
+        string path =
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
+        var subject = new FindingSubject(
+            path,
+            Path.GetFileName(path));
+        var model = new LibraryInspection
+        {
+            EcosystemIntegrationInspection =
+                new FindingInspection<
+                    EcosystemIntegrationSignalInfo>.Failed(
+                    new InspectionError(
+                        subject,
+                        MetadataFindings.EcosystemIntegrationDescriptor,
+                        "failed")),
+            OpenTelemetryInspection =
+                new FindingInspection<OpenTelemetrySignalInfo>.Failed(
+                    new InspectionError(
+                        subject,
+                        MetadataFindings.OpenTelemetrySignalDescriptor,
+                        "failed")),
+            IntegrationOpportunities =
+            [
+                new("Logging", "AddLogging", "API", "package"),
+            ],
+        };
+
+        using var session = AssemblyInspectionSession.Open(path);
+        LibraryMetadataService.ScanIntegrationOpportunities(
+            session,
+            path,
+            model,
+            new VerboseLogger(enabled: false));
+
+        Assert.Null(model.IntegrationOpportunities);
     }
 
     [Fact]
@@ -117,5 +181,40 @@ public sealed class PackageIntegrationsWorkspaceTests
 
         Assert.Same(ecosystem, model.EcosystemIntegrationInspection);
         Assert.Same(openTelemetry, model.OpenTelemetryInspection);
+    }
+
+    [Fact]
+    public async Task UseAssemblyAsync_ReleasesParticipantBeforeAdvancing()
+    {
+        string first =
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
+        string second = typeof(PdbContext).Assembly.Location;
+        using var workspace = PackageIntegrationsWorkspace.Create(
+            [
+                new(first, "net11.0"),
+                new(second, "net11.0"),
+            ],
+            "Test.Package",
+            "1.0.0");
+
+        await workspace.UseAssemblyAsync(
+            first,
+            (retained, _) =>
+            {
+                Assert.NotNull(retained);
+                Assert.True(workspace.RetainedImageBytes > 0);
+                return Task.FromResult(true);
+            });
+        Assert.Equal(0, workspace.RetainedImageBytes);
+
+        await workspace.UseAssemblyAsync(
+            second,
+            (retained, _) =>
+            {
+                Assert.NotNull(retained);
+                Assert.True(workspace.RetainedImageBytes > 0);
+                return Task.FromResult(true);
+            });
+        Assert.Equal(0, workspace.RetainedImageBytes);
     }
 }

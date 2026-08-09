@@ -139,7 +139,8 @@ public sealed class MethodBodyInspectionSession
         string assemblyPath,
         PdbContext context,
         Analysis.LibraryBodyAnalysisFeatures features,
-        IAssemblyReferenceResolver? resolver = null)
+        IAssemblyReferenceResolver? resolver = null,
+        ResolvedAssemblyReference? assembly = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
@@ -148,10 +149,11 @@ public sealed class MethodBodyInspectionSession
                 context.GetPrefetchedImage(),
                 features,
                 resolver),
-            ResolvedAssemblyReference.CreateFromPath(
-                assemblyPath,
-                AssemblyResolutionProvenance.Local(
-                    "prefetched method body inspection")),
+            assembly
+                ?? ResolvedAssemblyReference.CreateFromPath(
+                    assemblyPath,
+                    AssemblyResolutionProvenance.Local(
+                        "prefetched method body inspection")),
             Path.GetFileNameWithoutExtension(assemblyPath),
             BindingPolicyFor(resolver));
     }

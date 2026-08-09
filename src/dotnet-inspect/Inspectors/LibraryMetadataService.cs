@@ -101,6 +101,7 @@ internal static class LibraryMetadataService
                     using var queryContext = new Sections.ScannerContext
                     {
                         AssemblyPath = path,
+                        AssemblyReference = retainedAssembly,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -220,6 +221,7 @@ internal static class LibraryMetadataService
                 using var scannerContext = new Sections.ScannerContext
                 {
                     AssemblyPath = path,
+                    AssemblyReference = retainedAssembly,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -1637,6 +1639,13 @@ internal static class LibraryMetadataService
 
     internal static void ScanIntegrationOpportunities(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
     {
+        if (inspection.EcosystemIntegrationInspection.Failure() is not null
+            || inspection.OpenTelemetryInspection.Failure() is not null)
+        {
+            inspection.IntegrationOpportunities = null;
+            return;
+        }
+
         try
         {
             var existing = new HashSet<string>(
@@ -1738,12 +1747,30 @@ internal static class LibraryMetadataService
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
+            return ScanSwitches(session, path, logger);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            return FailedInspection<SwitchInfo>(
+                path, MetadataFindings.SwitchDescriptor, ex);
+        }
+    }
+
+    internal static FindingInspection<SwitchInfo> ScanSwitches(
+        AssemblyInspectionSession session,
+        string path,
+        VerboseLogger logger)
+    {
+        try
+        {
             HashSet<SwitchInfo> switches = [.. session.Switches()];
             if (session.HasMetadata)
             {
                 AddAppContextSwitches(
                     switches,
-                    AppContextSwitchProjectionProducer.Produce(session.MethodBodies));
+                    AppContextSwitchProjectionProducer.Produce(
+                        session.MethodBodies));
             }
 
             var orderedSwitches = switches
@@ -1757,9 +1784,12 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Error scanning switches in {path}: {ex.Message}");
+            logger.LogWarning(
+                $"Error scanning switches in {path}: {ex.Message}");
             return FailedInspection<SwitchInfo>(
-                path, MetadataFindings.SwitchDescriptor, ex);
+                path,
+                MetadataFindings.SwitchDescriptor,
+                ex);
         }
     }
 
