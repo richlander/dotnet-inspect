@@ -2943,15 +2943,33 @@ public class PackageCommand
         foreach (var section in sections)
         {
             if (IsAggregatedAllLibrariesSection(section))
-                AppendAggregatedSection(sb, section, inspections);
+                AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
         }
 
-        var markdown = sb.ToString().TrimEnd();
-        // Windowed as text rather than at the writer seam because AppendAggregatedSection
-        // hand-builds its tables into `sb`; the writer never sees those rows. See #3624.
-        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
+    /// the writer, which is what applies <c>--rows</c>.
+    /// </summary>
+    private static void AppendAggregatedTable(StringBuilder sb, string section, MarkoutTable table, RowWindow? rows)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections = [new AggregatedSectionView { Name = section, Body = table }]
+        };
+        var rendered = MarkoutSerializer.Serialize(
+            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
+        if (rendered.Length == 0)
+            return;
+
+        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
+            sb.AppendLine();
+        sb.AppendLine(rendered);
+        sb.AppendLine();
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -2959,7 +2977,7 @@ public class PackageCommand
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
            || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
-    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
+    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections, RowWindow? rows)
     {
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
@@ -2979,13 +2997,12 @@ public class PackageCommand
             if (opportunityRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
                 opportunityRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]));
+                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()), rows);
             return;
         }
 
@@ -3006,13 +3023,12 @@ public class PackageCommand
             if (switchRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
                 switchRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]));
+                    : [row.Kind, row.Switch, row.Api]).ToList()), rows);
             return;
         }
 
@@ -3038,7 +3054,6 @@ public class PackageCommand
         if (focusedRows.Count == 0)
             return;
 
-        AppendHeading(sb, section);
         var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
@@ -3048,14 +3063,14 @@ public class PackageCommand
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
-        AppendTable(sb, headers, focusedRows.Select(row =>
+        AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
             List<string> values = [];
             if (includeLibraryColumn) values.Add(CodeCell(row.Library));
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();
-        }));
+        }).ToList()), rows);
     }
 
     private static void AppendPerLibrarySections(
@@ -3087,7 +3102,10 @@ public class PackageCommand
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = [section],
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            // Windowed here rather than over the assembled document: the heading rewrite below is
+            // the only text this path edits, and it does not touch rows.
+            RowWindow = RowWindow.ToMarkout(options.Rows)
         };
         var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
         if (markdown.Length == 0)
@@ -3113,31 +3131,25 @@ public class PackageCommand
         return string.Join('\n', lines).Trim();
     }
 
-    private static void AppendHeading(StringBuilder sb, string section)
-    {
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine($"## {section}");
-        sb.AppendLine();
-    }
-
-    private static void AppendTable(StringBuilder sb, IReadOnlyList<string> headers, IEnumerable<string[]> rows)
-    {
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(_ => "---"))} |");
-        foreach (var row in rows)
-            sb.AppendLine($"| {string.Join(" | ", row.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine();
-    }
-
-    private static string EscapeMarkdownCell(string value)
-        => value
-            .Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal)
-            .Replace("|", "&#124;", StringComparison.Ordinal);
-
-    private static string CodeCell(string value)
-        => $"`{value.Replace("`", "\\`", StringComparison.Ordinal)}`";
+    /// <summary>
+    /// Marks a cell as code using markout's semantic inline tag rather than literal backticks, so
+    /// the formatter owns the spelling.
+    /// </summary>
+    /// <remarks>
+    /// This also changes two escapes that hand-written backticks got wrong. A pipe was written as
+    /// <c>&amp;#124;</c>, which renders literally inside a code span; markout emits <c>\|</c>,
+    /// which GFM unescapes while splitting rows, before code spans are parsed. A backtick was
+    /// written as <c>\`</c>, but backslash escapes do not apply inside a code span; markout uses
+    /// the doubled-delimiter form instead.
+    ///
+    /// Both corrections are unverified against real data: no package in the differential corpus
+    /// produced a pipe or a backtick in these cells. They are reachable in principle — the
+    /// integration scanner takes raw metadata names, which carry arity backticks such as
+    /// <c>IEnumerable`1</c>, without the display-name normalization other scanners apply — but
+    /// that path is not exercised by a test, so treat this as a latent fix rather than an
+    /// observed one.
+    /// </remarks>
+    private static string CodeCell(string value) => MarkoutInline.Code(value);
 
     private static void WritePackageLibraryCandidates(
         string extractPath,
