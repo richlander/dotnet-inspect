@@ -112,8 +112,11 @@ within a pass-owned lowering shape; it is not a whole-method identity claim for 
 slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
 their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
-loads reached before the next write to the same slot, and it deliberately skips
-structured EH regions where later control-flow rewrites can reshape the range.
+loads reached before the next write to the same slot. Its linear scan requires
+block-local loads; when structured EH is present, the stronger admission proof
+requires every reference to that slot to belong to a top-level statement in one
+block. That admits a straight-line block inside structured EH, while nested
+control flow, handlers or filters, and sibling blocks decline.
 `StackSlotReuseRenderingTests` pins the positive and near-miss cases: bool
 materialization and object/list/count reuse split when needed, while subtype
 stores loaded through a common supertype remain one variable.

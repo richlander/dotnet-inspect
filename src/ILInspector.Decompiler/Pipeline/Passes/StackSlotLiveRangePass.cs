@@ -1,10 +1,11 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Splits block-local synthetic stack-slot live ranges when the compiler reused
-/// the same evaluation-stack position for unrelated values with different C#
-/// types. The rewrite only renumbers the synthetic carrier and the loads reached
-/// before the next write to that slot; it does not move evaluation.
+/// Splits straight-line synthetic stack-slot live ranges when the compiler
+/// reused the same evaluation-stack position for unrelated values with
+/// different C# types. The rewrite only renumbers the synthetic carrier and
+/// the loads reached before the next write to that slot; it does not move
+/// evaluation.
 /// </summary>
 public sealed class StackSlotLiveRangePass : IIrPass
 {
@@ -12,15 +13,13 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        if (function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause))
-            return;
-
-        while (SplitOnce(function, context.Stepper))
+        bool hasStructuredEh = function.Descendants.Any(node => node is TryCatch or TryFinally or CatchClause);
+        while (SplitOnce(function, context.Stepper, hasStructuredEh))
         {
         }
     }
 
-    static bool SplitOnce(IrFunction function, Stepper stepper)
+    static bool SplitOnce(IrFunction function, Stepper stepper, bool hasStructuredEh)
     {
         foreach (var block in function.Descendants.OfType<Block>())
         {
@@ -37,13 +36,15 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (liveLoads.Count == 0)
                     continue;
 
-                // The split only renumbers loads inside this block (LiveLoads scans
-                // block.Children). If the slot is read from any other block, that value
-                // may be live-out and the out-of-block read would be left on the old
-                // slot — now holding a different range. The pass only handles block-local
-                // ranges, so decline when the slot escapes the block.
-                if (function.Descendants.OfType<LoadStackSlot>()
-                    .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block)))
+                // The split only renumbers the loads reached by LiveLoads. A read
+                // from another block may be live-out and would be left on the old
+                // slot. Structured EH needs the stronger proof: later rewrites can
+                // reshape its regions, so every reference must belong to a top-level
+                // statement in this one block.
+                if (hasStructuredEh
+                    ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
+                    : function.Descendants.OfType<LoadStackSlot>()
+                        .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block)))
                     continue;
 
                 int newSlot = FreshStackSlot(function);
@@ -59,6 +60,27 @@ public sealed class StackSlotLiveRangePass : IIrPass
             }
         }
         return false;
+    }
+
+    static bool ReferencesAreStraightLineInBlock(IrFunction function, int slot, Block block)
+    {
+        foreach (var node in function.Descendants)
+        {
+            if (node is StoreStackSlot store && store.Slot == slot
+                || node is LoadStackSlot load && load.Slot == slot)
+            {
+                var statement = node;
+                while (statement.Parent is not null && !ReferenceEquals(statement.Parent, block))
+                    statement = statement.Parent;
+
+                if (!ReferenceEquals(statement.Parent, block)
+                    || statement.Descendants.Any(descendant => descendant is Block or BlockContainer))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
