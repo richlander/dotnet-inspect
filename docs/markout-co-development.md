@@ -179,6 +179,22 @@ version that can be well behind Markout's `main`. Returning to
 change. Bump to current Markout **before** starting the local phase, as its own
 change, so that a step-4 failure is unambiguous.
 
+**One release can collapse a source-level stack.** Local adoption branches can
+prove separate Markout changes against their exact intermediate heads. A
+published package cannot: if several Markout PRs merge before one release, the
+package contains all of them. The lowest downstream branch therefore sees the
+whole released contract when it returns to `PackageReference`, including
+behavior that its source-level proof deliberately left to a later branch.
+
+Choose that boundary explicitly. Publish an intermediate package when the
+downstream slices must retain independent package contracts; otherwise move
+release-wide compatibility updates and expectations into the lowest downstream
+package-bump branch. Do not point an earlier local slice at a later Markout head
+just to imitate the future package — that weakens the source-level proof by
+mixing in behavior outside the slice. In either case, rerun the complete suite
+after the package handoff; the source-level results are not evidence for the
+larger released contract.
+
 **A version bump attracts false attribution.** Once the diff says "Markout
 0.29.0 -> 0.33.0", every failure in the run looks like it belongs to the bump,
 and a failure's own text is easy to read as corroboration. Baseline before
