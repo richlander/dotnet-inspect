@@ -114,6 +114,7 @@ static class ReturnToSender
 
     internal sealed record CompilationClosure(
         AssemblyDependencyResolver Resolver,
+        ResolvedAssemblyReference TargetAssembly,
         MetadataReference[] References);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
@@ -2206,8 +2207,13 @@ static class ReturnToSender
             ExcludeTargetAssembly = true,
             SnapshotAssemblyImages = true,
         });
+        ResolvedAssemblyReference targetAssembly =
+            resolver.AcquireTargetAssembly()
+            ?? throw new InvalidOperationException(
+                "The target assembly could not be acquired into the compilation closure.");
         return new CompilationClosure(
             resolver,
+            targetAssembly,
             CompilationReferences(resolver).ToArray());
     }
 

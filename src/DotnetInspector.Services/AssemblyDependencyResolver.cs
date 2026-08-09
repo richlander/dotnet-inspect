@@ -134,6 +134,15 @@ public sealed class AssemblyDependencyResolver :
             ResolutionProvenance(dependency));
     }
 
+    /// <summary>
+    /// Acquires the target assembly in this resolver's acquisition generation.
+    /// The target remains excluded from <see cref="ResolveAll"/> when requested.
+    /// </summary>
+    public ResolvedAssemblyReference? AcquireTargetAssembly() =>
+        Descriptor(
+            Path.GetFullPath(_options.TargetAssemblyPath),
+            AssemblyResolutionProvenance.Local("target assembly"));
+
     IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(bool deduplicate)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

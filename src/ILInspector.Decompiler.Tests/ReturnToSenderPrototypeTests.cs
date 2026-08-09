@@ -1338,6 +1338,93 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
+            .Assembly.Location;
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class ExactCopyImpl :
+                System.Text.Json.Serialization.IJsonOnDeserialized
+            {
+                void System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.Copy(
+            platformPath,
+            Path.Combine(fixtureDir, "System.Text.Json.dll"));
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExactCopyImpl",
+                    "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
+                    0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                "IJsonOnDeserialized.OnDeserialized()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DeclinesDirectSignedInterfaceSpoof()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.Serialization.IJsonOnDeserialized)
+            .Assembly.Location;
+        string assemblyPath = CompileFixture(
+            """
+            public sealed class SpoofedImpl :
+                System.Text.Json.Serialization.IJsonOnDeserialized
+            {
+                void System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "System.Text.Json.dll"),
+            BuildConfusableInterfaceAssemblyImage(
+                platformPath,
+                "System.Text.Json.Serialization",
+                "IJsonOnDeserialized",
+                "OnDeserialized"));
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "SpoofedImpl",
+                    "System.Text.Json.Serialization.IJsonOnDeserialized.OnDeserialized",
+                    0)]));
+
+            Assert.Contains(
+                "System_Text_Json_Serialization_IJsonOnDeserialized_OnDeserialized",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "IJsonOnDeserialized.OnDeserialized()",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackPropertyGetters_SharesOneCompilationClosure()
     {
         string assemblyPath = CompileFixture(
@@ -8763,6 +8850,80 @@ public class ReturnToSenderPrototypeTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildConfusableInterfaceAssemblyImage(
+        string platformPath,
+        string namespaceName,
+        string typeName,
+        string methodName)
+    {
+        using var stream = File.OpenRead(platformPath);
+        using var reader = new PEReader(stream);
+        var platformMetadata = reader.GetMetadataReader();
+        var platformAssembly = platformMetadata.GetAssemblyDefinition();
+
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name) + ".dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(
+                platformMetadata.GetString(platformAssembly.Name)),
+            platformAssembly.Version,
+            platformAssembly.Culture.IsNil
+                ? default
+                : metadata.GetOrAddString(
+                    platformMetadata.GetString(platformAssembly.Culture)),
+            platformAssembly.PublicKey.IsNil
+                ? default
+                : metadata.GetOrAddBlob(
+                    platformMetadata.GetBlobBytes(platformAssembly.PublicKey)),
+            platformAssembly.Flags,
+            platformAssembly.HashAlgorithm);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+            metadata.GetOrAddString(namespaceName),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x20); // HASTHIS, default calling convention
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x01); // void
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

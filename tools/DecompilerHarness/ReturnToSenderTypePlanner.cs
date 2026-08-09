@@ -530,7 +530,7 @@ public static class CompileBackSourceComposer
                 request.BodyPolicy),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
-                request.CompilationClosure?.Resolver,
+                request.CompilationClosure,
                 request.Reader,
                 request.Function,
                 request.TargetType,
@@ -1417,7 +1417,7 @@ public static class CompileBackSourceComposer
     static ExternalExplicitInterfaceMethodInfo? ExternalExplicitInterfaceMethod(
         MetadataReader reader,
         string assemblyPath,
-        AssemblyDependencyResolver? compilationResolver,
+        ReturnToSender.CompilationClosure? compilationClosure,
         TypeDefinition targetType,
         MethodDefinitionHandle targetMethod,
         string metadataMethodName,
@@ -1473,7 +1473,7 @@ public static class CompileBackSourceComposer
             // target member, so decline to the ContextFail floor.
             if (!TryReadExternalInterfaceSurface(
                     assemblyPath,
-                    compilationResolver,
+                    compilationClosure,
                     interfaceReference,
                     out var requiredMethods)
                 || requiredMethods.Count == 0)
@@ -1796,7 +1796,7 @@ public static class CompileBackSourceComposer
 
     static bool TryReadExternalInterfaceSurface(
         string assemblyPath,
-        AssemblyDependencyResolver? compilationResolver,
+        ReturnToSender.CompilationClosure? compilationClosure,
         ExternalInterfaceReferenceInfo interfaceReference,
         out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
     {
@@ -1812,14 +1812,10 @@ public static class CompileBackSourceComposer
         // interface recurs across many targets and rescanning the closure per target is an
         // unbounded slowdown. Negative results (unresolvable, ambiguous, or unrepresentable)
         // are cached so they are not retried.
-        AssemblyDependencyResolver resolver =
-            compilationResolver
-            ?? new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(assemblyPath)
-                {
-                    ExcludeTargetAssembly = true,
-                    SnapshotAssemblyImages = true,
-                });
+        ReturnToSender.CompilationClosure closure =
+            compilationClosure
+            ?? ReturnToSender.CreateCompilationClosure(assemblyPath);
+        AssemblyDependencyResolver resolver = closure.Resolver;
         var cacheKey = new ExternalInterfaceSurfaceCacheKey(
             interfaceReference.AssemblyIdentity,
             interfaceReference.MetadataFullName);
@@ -1828,6 +1824,20 @@ public static class CompileBackSourceComposer
             static _ => []);
         var cached = surfaces.GetOrAdd(cacheKey, _ =>
         {
+            (ResolvedAssemblyReference Assembly, MetadataTypeDefinitionAddress Address)?
+                resolvedDefinition = null;
+            if (PlatformKeys.IsPlatform(
+                    interfaceReference.AssemblyIdentity.PublicKeyToken))
+            {
+                resolvedDefinition = ResolveExternalTypeDefinition(
+                    closure.TargetAssembly,
+                    interfaceReference.AssemblyIdentity,
+                    interfaceReference.MetadataFullName,
+                    resolver);
+                if (resolvedDefinition is null)
+                    return null;
+            }
+
             // Locate the single closure assembly that defines the interface as a
             // TypeDefinition. Type forwarders are ExportedType rows (FindType returns null),
             // so a BCL interface defined once in CoreLib and forwarded elsewhere resolves to
@@ -1871,10 +1881,22 @@ public static class CompileBackSourceComposer
                 var reader = peReader.GetMetadataReader();
                 if (TypeProducer.FindType(reader, interfaceReference.MetadataFullName) is not { } interfaceHandle)
                     return null;
+                if (resolvedDefinition is { } definition
+                    && (!definition.Address.TryResolve(
+                            reader,
+                            out TypeDefinitionHandle resolvedHandle)
+                        || resolvedHandle != interfaceHandle
+                        || !HaveSameImageContent(
+                            definition.Assembly,
+                            definitionAssembly)))
+                {
+                    return null;
+                }
 
                 var collected = new List<ExternalInterfaceRequiredMethod>();
                 return TryCollectRequiredInterfaceMethods(
                         reader,
+                        definitionAssembly,
                         interfaceHandle,
                         resolver,
                         definitionAssembly.Path
@@ -1997,8 +2019,8 @@ public static class CompileBackSourceComposer
     }
 
     static bool TryCollectExternalInterfaceMethods(
-        ResolvedAssemblyReference assembly,
-        string metadataFullName,
+        ResolvedAssemblyReference requestingAssembly,
+        ExternalInterfaceReferenceInfo interfaceReference,
         AssemblyDependencyResolver resolver,
         HashSet<string> visited,
         List<ExternalInterfaceRequiredMethod> methods)
@@ -2006,8 +2028,9 @@ public static class CompileBackSourceComposer
         try
         {
             if (ResolveExternalTypeDefinition(
-                    assembly,
-                    metadataFullName,
+                    requestingAssembly,
+                    interfaceReference.AssemblyIdentity,
+                    interfaceReference.MetadataFullName,
                     resolver)
                 is not { } definition)
             {
@@ -2032,6 +2055,7 @@ public static class CompileBackSourceComposer
                 : $"{definition.Assembly.Identity}|{definition.Address.ModuleVersionId}";
             return TryCollectRequiredInterfaceMethods(
                 externalReader,
+                definition.Assembly,
                 interfaceHandle,
                 resolver,
                 assemblyKey,
@@ -2048,9 +2072,73 @@ public static class CompileBackSourceComposer
         ResolvedAssemblyReference Assembly,
         MetadataTypeDefinitionAddress Address)?
         ResolveExternalTypeDefinition(
+            ResolvedAssemblyReference requestingAssembly,
+            AssemblyReferenceIdentity assemblyIdentity,
+            string metadataFullName,
+            AssemblyDependencyResolver resolver)
+    {
+        if (!PlatformKeys.IsPlatform(assemblyIdentity.PublicKeyToken))
+        {
+            ResolvedAssemblyReference? selected =
+                resolver.Resolve(
+                    assemblyIdentity,
+                    AssemblyResolutionScope.Any)
+                ?? resolver.Resolve(
+                    assemblyIdentity,
+                    AssemblyResolutionScope.Platform);
+            return selected is null
+                ? null
+                : ResolveExternalTypeDefinition(
+                    selected,
+                    metadataFullName,
+                    resolver);
+        }
+
+        return ResolveExternalTypeDefinition(
+            requestingAssembly,
+            metadataFullName,
+            resolver,
+            validName => TypeResolutionRequest.FromReference(
+                assemblyIdentity,
+                AssemblyBindingOrigin.FromAssembly(requestingAssembly),
+                AssemblyResolutionScope.Platform,
+                validName));
+    }
+
+    internal static (
+        ResolvedAssemblyReference Assembly,
+        MetadataTypeDefinitionAddress Address)?
+        ResolveExternalTypeDefinition(
             ResolvedAssemblyReference assembly,
             string metadataFullName,
             AssemblyDependencyResolver resolver)
+    {
+        foreach (AssemblyResolutionScope scope in
+            new[] { AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform })
+        {
+            var resolved = ResolveExternalTypeDefinition(
+                assembly,
+                metadataFullName,
+                resolver,
+                validName => TypeResolutionRequest.FromAssembly(
+                    assembly,
+                    scope,
+                    validName));
+            if (resolved is not null)
+                return resolved;
+        }
+
+        return null;
+    }
+
+    static (
+        ResolvedAssemblyReference Assembly,
+        MetadataTypeDefinitionAddress Address)?
+        ResolveExternalTypeDefinition(
+            ResolvedAssemblyReference rootAssembly,
+            string metadataFullName,
+            AssemblyDependencyResolver resolver,
+            Func<MetadataTypeDefinitionName, TypeResolutionRequest> createRequest)
     {
         int separator = metadataFullName.LastIndexOf('.');
         string @namespace = separator < 0
@@ -2063,55 +2151,42 @@ public static class CompileBackSourceComposer
             return null;
         }
 
-        var compilationPolicy =
-            new CompilationClosureBindingPolicy(resolver);
-        foreach (AssemblyResolutionScope scope in
-            new[] { AssemblyResolutionScope.Any, AssemblyResolutionScope.Platform })
+        TypeResolutionRequest request = createRequest(valid.Name);
+        using TypeResolutionContext structuredContext =
+            TypeResolutionContext.Create(
+                resolver,
+                [rootAssembly],
+                [request]);
+        if (structuredContext.Resolve(request)
+            is not TypeResolutionOutcome.Resolved resolved)
         {
-            TypeResolutionRequest request =
-                TypeResolutionRequest.FromAssembly(
-                    assembly,
-                    scope,
-                    valid.Name);
-            using TypeResolutionContext structuredContext =
-                TypeResolutionContext.Create(
-                    resolver,
-                    [assembly],
-                    [request]);
-            if (structuredContext.Resolve(request)
-                is not TypeResolutionOutcome.Resolved resolved)
-            {
-                continue;
-            }
-
-            // Structured resolution tightens signed hops to Platform. Replay the
-            // whole walk through Roslyn's sibling-first closure and engage only
-            // when both paths reach defining images with the same SHA-256 digest
-            // and durable TypeDef address.
-            using TypeResolutionContext compilationContext =
-                TypeResolutionContext.Create(
-                    compilationPolicy,
-                    [assembly],
-                    [request]);
-            if (compilationContext.Resolve(request)
-                    is not TypeResolutionOutcome.Resolved compilationResolved
-                || compilationResolved.Definition.Assembly.Assembly.Identity
-                    != resolved.Definition.Assembly.Assembly.Identity
-                || compilationResolved.Definition.Address
-                    != resolved.Definition.Address
-                || !HaveSameImageContent(
-                    compilationResolved.Definition.Assembly.Assembly,
-                    resolved.Definition.Assembly.Assembly))
-            {
-                return null;
-            }
-
-            return (
-                resolved.Definition.Assembly.Assembly,
-                resolved.Definition.Address);
+            return null;
         }
 
-        return null;
+        // Replay the complete initial binding and forwarding walk through
+        // Roslyn's sibling-first closure. Engage only when both paths reach the
+        // same defining image and durable TypeDef address.
+        using TypeResolutionContext compilationContext =
+            TypeResolutionContext.Create(
+                new CompilationClosureBindingPolicy(resolver),
+                [rootAssembly],
+                [request]);
+        if (compilationContext.Resolve(request)
+                is not TypeResolutionOutcome.Resolved compilationResolved
+            || compilationResolved.Definition.Assembly.Assembly.Identity
+                != resolved.Definition.Assembly.Assembly.Identity
+            || compilationResolved.Definition.Address
+                != resolved.Definition.Address
+            || !HaveSameImageContent(
+                compilationResolved.Definition.Assembly.Assembly,
+                resolved.Definition.Assembly.Assembly))
+        {
+            return null;
+        }
+
+        return (
+            resolved.Definition.Assembly.Assembly,
+            resolved.Definition.Address);
     }
 
     static bool HaveSameImageContent(
@@ -2144,6 +2219,7 @@ public static class CompileBackSourceComposer
 
     static bool TryCollectRequiredInterfaceMethods(
         MetadataReader reader,
+        ResolvedAssemblyReference assembly,
         TypeDefinitionHandle interfaceHandle,
         AssemblyDependencyResolver resolver,
         string assemblyKey,
@@ -2259,6 +2335,7 @@ public static class CompileBackSourceComposer
             {
                 if (!TryCollectRequiredInterfaceMethods(
                         reader,
+                        assembly,
                         (TypeDefinitionHandle)implementation.Interface,
                         resolver,
                         assemblyKey,
@@ -2276,11 +2353,9 @@ public static class CompileBackSourceComposer
             {
                 if (ExternalInterfaceReference(reader, (TypeReferenceHandle)implementation.Interface) is not { } baseReference)
                     return false;
-                if (ResolveExternalAssembly(resolver, baseReference.AssemblyIdentity) is not { } baseAssembly)
-                    return false;
                 if (!TryCollectExternalInterfaceMethods(
-                        baseAssembly,
-                        baseReference.MetadataFullName,
+                        assembly,
+                        baseReference,
                         resolver,
                         visited,
                         methods))
@@ -2297,12 +2372,6 @@ public static class CompileBackSourceComposer
 
         return true;
     }
-
-    static ResolvedAssemblyReference? ResolveExternalAssembly(
-        AssemblyDependencyResolver resolver,
-        AssemblyReferenceIdentity identity)
-        => resolver.Resolve(identity, AssemblyResolutionScope.Any)
-           ?? resolver.Resolve(identity, AssemblyResolutionScope.Platform);
 
     static ExternalInterfaceReferenceInfo? ExternalInterfaceReference(
         MetadataReader reader,
@@ -2650,9 +2719,9 @@ public static class CompileBackSourceComposer
         return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
     }
 
-    public static CompileBackSourceResult ComposeMethod(
+    internal static CompileBackSourceResult ComposeMethod(
         string assemblyPath,
-        AssemblyDependencyResolver? compilationResolver,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
@@ -2718,7 +2787,7 @@ public static class CompileBackSourceComposer
                 ? ExternalExplicitInterfaceMethod(
                     reader,
                     assemblyPath,
-                    compilationResolver,
+                    compilationClosure,
                     targetTypeDef,
                     targetMethod,
                     methodName,
