@@ -2628,10 +2628,18 @@ paths.
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
-Direct `Callers` applies this correspondence to the declaring type. Forwarding
-of non-core-library parameter types remains downstream work in
-[#3513](https://github.com/richlander/dotnet-inspect/issues/3513); graph
-correspondence resolves every named signature type independently.
+Direct `Callers` applies target-specific correspondence to scope selection,
+then projects the target and same-name call sites through the catalog member
+model. Declaring, parameter, and return types therefore use the same
+generation-scoped definition currency as graph correspondence. Only
+catalog-issued complete projections can join; incomplete projections do not
+fabricate callers. Indeterminate duplicate-artifact projections remain valid
+catalog-scoped currency and join only when their complete keys agree, matching
+the graph contract. The focused gates in `CatalogDirectCallerQueryTests` and
+the real framework gates in `ForwardedCallerEdgeTests` cover forwarded
+non-core-library parameters, close overloads, constructed generic calls, and
+unavailable correspondence, closing
+[#3513](https://github.com/richlander/dotnet-inspect/issues/3513).
 
 ### Slice 6: graph correspondence and cleanup
 
