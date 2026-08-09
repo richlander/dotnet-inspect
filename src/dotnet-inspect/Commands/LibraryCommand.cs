@@ -579,6 +579,8 @@ public class LibraryCommand
                     queries: queries, queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
+                    integrationOpportunitiesEntry:
+                        integrations?.OpportunitiesEntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -779,6 +781,8 @@ public class LibraryCommand
                     queries: queries, queryRegistry: queryRegistry,
                     assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
+                    integrationOpportunitiesEntry:
+                        integrations?.OpportunitiesEntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
                 if (inspection == null)
                 {
@@ -2310,6 +2314,8 @@ public class LibraryCommand
                 queryRegistry: queryRegistry,
                 assemblyReference: integrations?.AssemblyForInspection(targetPath),
                 integrationsEntry: integrations?.EntryFor(targetPath),
+                integrationOpportunitiesEntry:
+                    integrations?.OpportunitiesEntryFor(targetPath),
                 discoveryOnly: discoveryOnly,
                 trace: trace);
             if (inspection == null)

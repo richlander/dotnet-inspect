@@ -172,6 +172,123 @@ public sealed class AssemblyContextIntegrationsQueryTests
             rejected.Failure.Kind);
     }
 
+    [Fact]
+    public void OpportunityQuery_ConsumesIntegrationsAndReusesSnapshots()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new TestBindingPolicy(version);
+        TestAssembly source = TestAssembly.Create(
+            "CloudClient",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy,
+            additionalIntegrationTypeName:
+                "Amazon.S3.AmazonS3Client");
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextIntegrationsQuery.Definition,
+                    AssemblyContextIntegrationsQuery.Execute)
+                .Add(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                    AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                    AssemblyContextIntegrationsQuery.Definition);
+
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            registry.RequirementsOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            registry.CostOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+
+        InspectionQueryResults results = registry.Run(
+            [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+            group);
+
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            results.Get(AssemblyContextIntegrationsQuery.Definition)
+                .Assemblies[0]);
+        var opportunities =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Available>(
+                    results.Get(
+                        AssemblyContextIntegrationOpportunitiesQuery
+                            .Definition)
+                    .Assemblies[0]);
+        AssertSubject(source, opportunities.Subject);
+        Assert.Contains(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+        Assert.DoesNotContain(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public void OpportunityQuery_CarriesPrerequisiteRejectionBesideAvailableEntry()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        var policy = new TestBindingPolicy(version);
+        TestAssembly rejected = TestAssembly.Create(
+            "RejectedOpportunity",
+            "Npgsql.NpgsqlConnection",
+            policy,
+            selectedName: "DifferentIdentity");
+        TestAssembly available = TestAssembly.Create(
+            "AvailableOpportunity",
+            "Npgsql.NpgsqlConnection",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [rejected.Participant, available.Participant]);
+        var registry =
+            new InspectionQueryRegistry<AssemblyContextGroup>()
+                .Add(
+                    AssemblyContextIntegrationsQuery.Definition,
+                    AssemblyContextIntegrationsQuery.Execute)
+                .Add(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition,
+                    AssemblyContextIntegrationOpportunitiesQuery.Execute,
+                    AssemblyContextIntegrationsQuery.Definition);
+
+        AssemblyContextIntegrationOpportunitiesResult result =
+            registry.Run(
+                    [AssemblyContextIntegrationOpportunitiesQuery.Definition],
+                    group)
+                .Get(
+                    AssemblyContextIntegrationOpportunitiesQuery.Definition);
+
+        var rejectedResult =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Rejected>(
+                    result.Assemblies[0]);
+        AssertSubject(rejected, rejectedResult.Subject);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejectedResult.Failure.Kind);
+        var availableResult =
+            Assert.IsType<
+                AssemblyIntegrationOpportunitiesEntry.Available>(
+                    result.Assemblies[1]);
+        AssertSubject(available, availableResult.Subject);
+        Assert.Contains(
+            availableResult.Opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.HealthChecks);
+        Assert.Equal(1, rejected.OpenCount);
+        Assert.Equal(1, available.OpenCount);
+    }
+
     static void AssertSubject(
         TestAssembly expected,
         AssemblyContextSubject actual)

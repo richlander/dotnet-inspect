@@ -11779,16 +11779,14 @@ public partial class CommandExecutionTests
     [InlineData("System.Runtime.InteropServices")]
     // System.Data.Common is the only offline assembly found that renders
     // "Integration: Opportunities" (two DbDataSource rows), so it is what gives that section any
-    // alone-vs-together coverage at all. It cannot catch a missing Integrations prerequisite —
-    // see IntegrationOpportunities_DeclaresIntegrationsPrerequisite for why.
+    // alone-vs-together coverage at all. The group-query registry contract separately gates the
+    // typed Integrations prerequisite and its transitive cost.
     [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
-        // The gate for removing the scanner fan-out. Every scanner-bound section must render the
-        // same content whether it is asked for alone or alongside all the others. Asking for a
-        // section alone runs only its declared scanner closure, so a scanner that reads data it
-        // did not declare a prerequisite for renders less in isolation — which is exactly the
-        // failure the old fan-out hid by re-scanning from inside the scanner body.
+        // Every generated section must render the same content whether it is asked for alone or
+        // alongside all the others. Asking for a section alone runs only its declared scanner or
+        // query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
         // so deleting a declaration does not also delete the coverage that would catch it.

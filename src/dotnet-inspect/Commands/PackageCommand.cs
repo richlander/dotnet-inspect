@@ -2551,7 +2551,9 @@ public class PackageCommand
                 queries: queries,
                 queryRegistry: queryRegistry,
                 assemblyReference: integrations?.AssemblyForInspection(selection.Path),
-                integrationsEntry: integrations?.EntryFor(selection.Path));
+                integrationsEntry: integrations?.EntryFor(selection.Path),
+                integrationOpportunitiesEntry:
+                    integrations?.OpportunitiesEntryFor(selection.Path));
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");

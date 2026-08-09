@@ -481,7 +481,9 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerIntegrationOpportunities, detailedScanners);
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, detailedScanners);
@@ -1567,6 +1569,7 @@ public class SectionPipelineTests
                 StringComparer.Ordinal));
         Assert.Equal(
             [
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
                 AssemblyContextIntegrationsQuery.Definition,
                 AssemblyReferencesQuery.Definition,
                 MetadataImageQuery.Definition,
@@ -2841,19 +2844,21 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void IntegrationSections_BindToTheAssemblyContextQueryByIdentity()
+    public void IntegrationSections_BindToGroupQueriesByIdentity()
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.GroupQueryRegistry.RegisteredQueries);
+        Assert.Contains(
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            catalog.GroupQueryRegistry.RegisteredQueries);
         Assert.DoesNotContain(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.QueryRegistry.RegisteredQueries);
 
-        foreach (string section in LibraryIntegrationCatalog.CategorySections
-                     .Append(IntegrationSectionNames.Opportunities))
+        foreach (string section in LibraryIntegrationCatalog.CategorySections)
         {
             var include = new HashSet<string>(
                 StringComparer.OrdinalIgnoreCase)
@@ -2874,8 +2879,21 @@ public class SectionPipelineTests
             IntegrationSectionNames.Opportunities,
         };
         Assert.Contains(
-            LibrarySections.ScannerIntegrationOpportunities,
+            AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.DoesNotContain(
+            AssemblyContextIntegrationsQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, opportunities));
+        Assert.Empty(
             pipeline.GetRequiredScanners(Verbosity.Minimal, opportunities));
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            catalog.GroupQueryRegistry.RequirementsOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            catalog.GroupQueryRegistry.CostOf(
+                AssemblyContextIntegrationOpportunitiesQuery.Definition));
     }
 
     [Fact]
@@ -2907,7 +2925,6 @@ public class SectionPipelineTests
             LibrarySections.ScannerResources,
             LibrarySections.ScannerCustomAttributes,
             LibrarySections.ScannerTypeForwarders,
-            LibrarySections.ScannerIntegrationOpportunities,
             // was PopulateLibraryAudit running ScanClassifiedMethods on its own session
             LibrarySections.ScannerAuditSignals,
         ];
@@ -3193,9 +3210,6 @@ public class SectionPipelineTests
         // single scanner fault escapes RunScanners into InspectAsync's broad catch and the whole
         // command degrades to one generic "Could not read library".
         //
-        // ScanIntegrationOpportunities' session overload did NOT catch, so the shared-session
-        // change silently dropped that mapping for it. This gate is why that was found.
-        //
         // A disposed session is the fault injector: AssemblyImage.EnsureAlive throws
         // ObjectDisposedException on every facet, so it faults each scanner at the point where it
         // touches metadata, deterministically and on every platform.
@@ -3205,12 +3219,8 @@ public class SectionPipelineTests
         var logger = new Output.VerboseLogger(false);
         const string Path = "disposed.dll";
 
-        // Each scanner runs against its OWN model and is asserted on the exact field it alone must
-        // populate. Found by review: a single shared model let a typed failure written by an
-        // earlier scanner satisfy an assertion nominally about a later one -- deleting
-        // MarkIntegrationFailuresIfMissing from ScanIntegrationOpportunities' catch left this gate
-        // green, because ScanIntegrations had already set the same two fields and the mapping uses
-        // ??=.
+        // Each scanner runs against its OWN model and is asserted on the exact
+        // field it alone must populate.
         var scans = new (string Name, Action<LibraryInspection> Run, Action<LibraryInspection> Assert)[]
         {
             ("ExtensionMethods",
@@ -3237,18 +3247,6 @@ public class SectionPipelineTests
                 m => m.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(session, Path, logger),
                 m => Xunit.Assert.IsType<FindingInspection<TypeForwarderInfo>.Failed>(
                     m.TypeForwarderInspection!.Value)),
-
-            ("IntegrationOpportunities",
-                m => LibraryMetadataService.ScanIntegrationOpportunities(session, Path, m, logger),
-                m =>
-                {
-                    // Nothing else ran against this model, so these can only come from the
-                    // opportunity scanner's own catch.
-                    Xunit.Assert.IsType<FindingInspection<OpenTelemetrySignalInfo>.Failed>(
-                        m.OpenTelemetryInspection!.Value);
-                    Xunit.Assert.IsType<FindingInspection<EcosystemIntegrationSignalInfo>.Failed>(
-                        m.EcosystemIntegrationInspection!.Value);
-                }),
 
             ("AuditSignals",
                 m => AuditSignalBuilder.PopulateLibraryAudit(session, Path, m, logger),
@@ -3536,7 +3534,6 @@ public class SectionPipelineTests
         LibrarySections.ScannerResources,
         LibrarySections.ScannerCustomAttributes,
         LibrarySections.ScannerTypeForwarders,
-        LibrarySections.ScannerIntegrationOpportunities,
         LibrarySections.ScannerAuditSignals,
     ];
 
@@ -3559,8 +3556,7 @@ public class SectionPipelineTests
         "|",
         $"audit=[{string.Join(",", model.AuditSignals?.Select(s => $"{s.Signal}={s.Value}") ?? [])}]",
         $"otel={PayloadCount(model.OpenTelemetryInspection)}",
-        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}",
-        $"opportunities=[{string.Join(",", model.IntegrationOpportunities?.Select(o => $"{o.Integration}:{o.Api}") ?? [])}]");
+        $"ecosystem={PayloadCount(model.EcosystemIntegrationInspection)}");
 
     private static int? PayloadCount<T>(FindingInspection<T>? inspection) where T : notnull
         => inspection?.Value is FindingInspection<T>.Complete complete ? complete.Findings.Length : null;

@@ -223,8 +223,8 @@ consumer's convenience.
 
 ## Current migration state
 
-Metadata-image, direct-reference, and SourceLink inspection are the first
-vertical L1 canaries:
+Metadata-image, direct-reference, SourceLink, and assembly-context Integrations
+inspection are the first vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -242,6 +242,12 @@ vertical L1 canaries:
 - Library and package sections bind to the same SourceLink query definitions.
   Package owns compatible/highest-TFM asset selection and aggregation, not a
   parallel audit implementation.
+- `AssemblyContextIntegrationsQuery` returns typed evidence for every managed
+  participant in one assembly group.
+  `AssemblyContextIntegrationOpportunitiesQuery` declares that evidence as a
+  prerequisite and composes missing registration surfaces over the same
+  immutable participant snapshots. The entire `@Integrations` section family
+  is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections and `References` bind to query definitions by object
   identity. Diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
