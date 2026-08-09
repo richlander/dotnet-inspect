@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Output;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 using AssemblyReference = ILInspector.Metadata.AssemblyReference;
 
@@ -28,7 +29,7 @@ public class AssemblyReferenceTreeResolutionTests
                 ownerPath,
                 BuildAssembly("Owner", "../payload", "Sibling"));
             File.WriteAllBytes(siblingPath, BuildAssembly("Sibling"));
-            File.WriteAllBytes(payloadPath, BuildAssembly("Payload"));
+            File.WriteAllBytes(payloadPath, BuildAssembly("../payload"));
 
             List<AssemblyReference> references =
                 AssemblyInspector.ExtractReferences(ownerPath);
@@ -59,9 +60,310 @@ public class AssemblyReferenceTreeResolutionTests
         }
     }
 
+    [Fact]
+    public void VersionSkewedSibling_UsesTheAvailableSibling()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            string siblingPath = Path.Combine(root, "Sibling.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    new AssemblyReferenceIdentity(
+                        "Sibling",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                siblingPath,
+                BuildAssembly("Sibling", new Version(2, 0, 0, 0)));
+
+            AssemblyReferenceNode sibling = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == "Sibling");
+
+            Assert.Equal(siblingPath, sibling.Path);
+            Assert.Equal("local", sibling.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PlatformSignedSibling_PreservesSiblingFirstResolution()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            AssemblyReferenceIdentity platformIdentity =
+                ReadIdentity(typeof(object).Assembly.Location);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            string siblingPath = Path.Combine(
+                root,
+                $"{platformIdentity.Name}.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    platformIdentity));
+            File.Copy(typeof(object).Assembly.Location, siblingPath);
+
+            AssemblyReferenceNode sibling = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == platformIdentity.Name);
+
+            Assert.Equal(siblingPath, sibling.Path);
+            Assert.Equal("local", sibling.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void InspectorDependency_IsNotImportedFromTheInspectingProcess()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            AssemblyReferenceIdentity serviceIdentity =
+                ReadIdentity(typeof(AssemblyDependencyResolver).Assembly.Location);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    serviceIdentity));
+
+            AssemblyReferenceNode dependency = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == serviceIdentity.Name);
+
+            Assert.Null(dependency.Path);
+            Assert.Null(dependency.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NewerPlatformReference_UsesTheInstalledPlatformAssembly()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            AssemblyReferenceIdentity platformIdentity =
+                ReadIdentity(typeof(object).Assembly.Location);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    platformIdentity with
+                    {
+                        Version = new Version(
+                            platformIdentity.Version!.Major + 50,
+                            0,
+                            0,
+                            0)
+                    }));
+
+            AssemblyReferenceNode platform = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == platformIdentity.Name);
+
+            Assert.NotNull(platform.Path);
+            Assert.Equal("platform", platform.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VersionTolerance_StillRequiresThePublicKeyToken()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            AssemblyReferenceIdentity platformIdentity =
+                ReadIdentity(typeof(object).Assembly.Location);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            string siblingPath = Path.Combine(
+                root,
+                $"{platformIdentity.Name}.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    platformIdentity with
+                    {
+                        Version = new Version(
+                            platformIdentity.Version!.Major + 50,
+                            0,
+                            0,
+                            0),
+                        PublicKeyToken = "0000000000000000"
+                    }));
+            File.Copy(typeof(object).Assembly.Location, siblingPath);
+
+            AssemblyReferenceNode platform = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == platformIdentity.Name);
+
+            Assert.Null(platform.Path);
+            Assert.Null(platform.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void RecursivePlatformResolution_UsesTheResolvedParentsDirectory()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            var (parentPath, childReference, childPath) =
+                FindPlatformParentWithColocatedReference();
+
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            string plantedChildPath = Path.Combine(
+                root,
+                Path.GetFileName(childPath));
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    ReadIdentity(parentPath)));
+            File.Copy(childPath, plantedChildPath);
+
+            AssemblyReferenceNode resolvedChild = Assert.Single(
+                BuildTree(ownerPath, maxDepth: 2),
+                node => node.Depth == 1
+                    && node.Name == childReference.Name);
+
+            Assert.Equal(childPath, resolvedChild.Path);
+            Assert.NotEqual(plantedChildPath, resolvedChild.Path);
+            Assert.Equal("local", resolvedChild.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static (
+        string ParentPath,
+        AssemblyReference ChildReference,
+        string ChildPath) FindPlatformParentWithColocatedReference()
+    {
+        foreach (string parentName in new[]
+        {
+            "System.Collections",
+            "System.Linq",
+            "System.Console",
+            "System.Runtime"
+        })
+        {
+            var (parentPath, _, _, error) =
+                PlatformResolver.ResolveAssembly(parentName);
+            if (error is not null || parentPath is null)
+                continue;
+
+            string parentDirectory = Path.GetDirectoryName(parentPath)!;
+            var filesByName = Directory.EnumerateFiles(
+                    parentDirectory,
+                    "*.dll")
+                .ToDictionary(
+                    path => Path.GetFileNameWithoutExtension(path)!,
+                    StringComparer.OrdinalIgnoreCase);
+            AssemblyReference? childReference =
+                AssemblyInspector.ExtractReferences(parentPath)
+                    .FirstOrDefault(reference =>
+                        filesByName.ContainsKey(reference.Name));
+            if (childReference is not null)
+            {
+                return (
+                    parentPath,
+                    childReference,
+                    filesByName[childReference.Name]);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "No installed platform parent had a co-located referenced assembly.");
+    }
+
+    private static List<AssemblyReferenceNode> BuildTree(string ownerPath)
+        => BuildTree(ownerPath, maxDepth: 1);
+
+    private static List<AssemblyReferenceNode> BuildTree(
+        string ownerPath,
+        int maxDepth)
+    {
+        List<AssemblyReference> references =
+            AssemblyInspector.ExtractReferences(ownerPath);
+        return LibraryMetadataService.BuildTransitiveReferences(
+            references,
+            ownerPath,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Owner"
+            },
+            new VerboseLogger(enabled: false),
+            deduplicate: true,
+            maxDepth: maxDepth);
+    }
+
+    private static AssemblyReferenceIdentity ReadIdentity(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            peReader.GetMetadataReader());
+    }
+
     private static byte[] BuildAssembly(
         string assemblyName,
         params string[] references)
+        => BuildAssembly(
+            assemblyName,
+            new Version(1, 0, 0, 0),
+            references.Select(reference =>
+                new AssemblyReferenceIdentity(
+                    reference,
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)).ToArray());
+
+    private static byte[] BuildAssembly(
+        string assemblyName,
+        Version assemblyVersion,
+        params AssemblyReferenceIdentity[] references)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -72,7 +374,7 @@ public class AssemblyReferenceTreeResolutionTests
             encBaseId: default);
         metadata.AddAssembly(
             metadata.GetOrAddString(assemblyName),
-            new Version(1, 0, 0, 0),
+            assemblyVersion,
             culture: default,
             publicKey: default,
             flags: default,
@@ -85,13 +387,18 @@ public class AssemblyReferenceTreeResolutionTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
-        foreach (string reference in references)
+        foreach (AssemblyReferenceIdentity reference in references)
         {
             metadata.AddAssemblyReference(
-                metadata.GetOrAddString(reference),
-                new Version(1, 0, 0, 0),
-                culture: default,
-                publicKeyOrToken: default,
+                metadata.GetOrAddString(reference.Name),
+                reference.Version ?? new Version(0, 0, 0, 0),
+                culture: reference.Culture is null
+                    ? default
+                    : metadata.GetOrAddString(reference.Culture),
+                publicKeyOrToken: string.IsNullOrEmpty(reference.PublicKeyToken)
+                    ? default
+                    : metadata.GetOrAddBlob(
+                        Convert.FromHexString(reference.PublicKeyToken)),
                 flags: default,
                 hashValue: default);
         }

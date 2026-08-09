@@ -233,7 +233,9 @@ vertical L1 canaries:
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   a flat immutable reference result. The CLI projects Findings and owns
   transitive tree traversal, while shared Services resolves each metadata
-  identity without deriving a path from `AssemblyRef.Name`.
+  identity without deriving a path from `AssemblyRef.Name`. That tree resolves
+  enumerated siblings relative to each parent first, then installed platform
+  assets; it does not import the inspecting process's dependency closure.
 - `SourceLinkDocumentsQuery` may acquire one matching portable PDB and returns
   the typed source-document Finding inspection.
 - `SourceAvailabilityQuery` and `SourceIntegrityQuery` consume that prerequisite

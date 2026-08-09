@@ -585,18 +585,16 @@ internal static class LibraryMetadataService
         Dictionary<string, int>? globalSeen = null,
         int? maxDepth = null)
     {
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(assemblyPath)
-            {
-                // Preserve the tree's existing local-sibling and platform scope.
-                // Package/deps.json graph expansion belongs to the package resolver.
-                PackageRoots = [],
-                IncludeDepsJsonAssets = false,
-                AllowPlatformAssemblyVersionRollForward = true,
-            });
+        var bindingPolicies = new Dictionary<string, IAssemblyBindingPolicy>(
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
+        IAssemblyBindingPolicy bindingPolicy =
+            ReferenceTreeBindingPolicyFor(assemblyPath, bindingPolicies);
         return BuildTransitiveReferences(
             references,
-            resolver,
+            bindingPolicy,
+            bindingPolicies,
             visited,
             logger,
             depth,
@@ -605,9 +603,38 @@ internal static class LibraryMetadataService
             maxDepth);
     }
 
+    private static IAssemblyBindingPolicy ReferenceTreeBindingPolicyFor(
+        string assemblyPath,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies)
+    {
+        string fullPath = Path.GetFullPath(assemblyPath);
+        string directory = Path.GetDirectoryName(fullPath)
+            ?? throw new InvalidOperationException(
+                "The assembly path has no containing directory.");
+        if (bindingPolicies.TryGetValue(directory, out var existing))
+            return existing;
+
+        var created = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                // Preserve the tree's existing local-sibling and platform scope.
+                // Package/deps.json graph expansion belongs to the package resolver.
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+                // The tree describes the available sibling or installed platform
+                // assembly, as it did before typed binding owned selection.
+                IgnoreAssemblyVersion = true,
+            });
+        bindingPolicies.Add(directory, created);
+        return created;
+    }
+
     private static List<AssemblyReferenceNode> BuildTransitiveReferences(
         List<AssemblyReference> references,
         IAssemblyBindingPolicy bindingPolicy,
+        Dictionary<string, IAssemblyBindingPolicy> bindingPolicies,
         HashSet<string> visited,
         VerboseLogger logger,
         int depth,
@@ -651,14 +678,19 @@ internal static class LibraryMetadataService
             visited.Add(reference.Name);
 
             AssemblyReferenceIdentity identity = AssemblyReferenceIdentity.From(reference);
-            AssemblyResolutionScope scope = PlatformKeys.IsPlatform(identity.PublicKeyToken)
-                ? AssemblyResolutionScope.Platform
-                : AssemblyResolutionScope.Any;
             AssemblyBindingSelection selection = bindingPolicy.Select(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(identity),
                     AssemblyBindingOrigin.Global(),
-                    scope));
+                    AssemblyResolutionScope.Any));
+            if (selection is AssemblyBindingSelection.Missing)
+            {
+                selection = bindingPolicy.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(identity),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Platform));
+            }
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
             if (selection is AssemblyBindingSelection.Unavailable
@@ -687,9 +719,16 @@ internal static class LibraryMetadataService
                         && (maxDepth is null || depth + 1 < maxDepth.Value))
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
+                        IAssemblyBindingPolicy childBindingPolicy =
+                            resolved.Path is { } resolvedPath
+                                ? ReferenceTreeBindingPolicyFor(
+                                    resolvedPath,
+                                    bindingPolicies)
+                                : bindingPolicy;
                         var childNodes = BuildTransitiveReferences(
                             childRefs,
-                            bindingPolicy,
+                            childBindingPolicy,
+                            bindingPolicies,
                             branchVisited,
                             logger,
                             depth + 1,

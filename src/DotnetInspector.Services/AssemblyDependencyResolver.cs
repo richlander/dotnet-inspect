@@ -41,6 +41,12 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeDepsJsonAssets { get; init; } = true;
     public bool PreferImplementationAssemblies { get; init; }
     public bool AllowPlatformAssemblyVersionRollForward { get; init; }
+    /// <summary>
+    /// Treats the metadata version as descriptive while retaining the resolver's
+    /// existing name, culture, and public-key-token matching. Omitted culture
+    /// and token values retain their existing wildcard behavior.
+    /// </summary>
+    public bool IgnoreAssemblyVersion { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
 }
 
@@ -194,7 +200,8 @@ public sealed class AssemblyDependencyResolver :
                 || !MatchesIdentity(
                     identity,
                     selected.Identity,
-                    allowVersionRollForward))
+                    allowVersionRollForward,
+                    _options.IgnoreAssemblyVersion))
             {
                 continue;
             }
@@ -205,8 +212,8 @@ public sealed class AssemblyDependencyResolver :
         // The target may reference an older platform contract than the running
         // inspector, and TPA contains only assemblies in the tool's own closure.
         // Resolve the remaining platform name from installed packs/runtimes.
-        // Decompiler callers may opt into platform roll-forward, which ignores
-        // the assembly version while retaining culture and public-key-token checks.
+        // Callers may opt into one-way platform roll-forward or version-insensitive
+        // descriptive selection while retaining culture and public-key-token checks.
         if (scope == AssemblyResolutionScope.Platform && PlatformResolver.IsPlatformCandidate(identity.Name))
         {
             var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
@@ -224,7 +231,8 @@ public sealed class AssemblyDependencyResolver :
                     && MatchesIdentity(
                         identity,
                         selected.Identity,
-                        _options.AllowPlatformAssemblyVersionRollForward))
+                        _options.AllowPlatformAssemblyVersionRollForward,
+                        _options.IgnoreAssemblyVersion))
                 {
                     return selected;
                 }
@@ -332,7 +340,8 @@ public sealed class AssemblyDependencyResolver :
     static bool MatchesIdentity(
         AssemblyReferenceIdentity expected,
         AssemblyReferenceIdentity actual,
-        bool allowVersionRollForward = false)
+        bool allowVersionRollForward = false,
+        bool ignoreVersion = false)
     {
         if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
             return false;
@@ -343,7 +352,8 @@ public sealed class AssemblyDependencyResolver :
             return true;
         }
 
-        if (expected.Version is not null
+        if (!ignoreVersion
+            && expected.Version is not null
             && actual.Version != expected.Version
             && (!allowVersionRollForward || actual.Version < expected.Version))
             return false;

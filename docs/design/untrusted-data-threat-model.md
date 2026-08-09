@@ -251,10 +251,14 @@ layers.
 
 Assembly-reference names remain metadata identity rather than filesystem path
 components. Reference-tree traversal resolves `AssemblyReferenceIdentity`
-through the shared resolver's enumerated candidate catalog, and platform lookup
-matches requested names against enumerated file names. The
+through the shared resolver's enumerated candidate catalog. Its tree-specific
+policy preserves sibling-first, version-tolerant selection relative to each
+resolved parent before falling back to installed platform assets; supplied
+culture and public-key-token constraints still bind. It excludes the inspecting
+process's own trusted platform assembly closure. Platform lookup matches
+requested names against enumerated file names. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
-and
+and the sibling/platform scope tests in that class, plus
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gates enforce both seams.
 
