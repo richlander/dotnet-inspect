@@ -578,12 +578,13 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
-                    AcquisitionIdentity(
-                        nuspec?.PackageName,
-                        packageName),
-                    AcquisitionIdentity(
-                        nuspec?.Version,
-                        version),
+                    target.IsLocalFile
+                        ? PackageIntegrationAcquisition.Local(
+                            nuspec?.PackageName,
+                            nuspec?.Version)
+                        : PackageIntegrationAcquisition.Remote(
+                            packageName,
+                            version),
                     options);
             }
 
@@ -2480,8 +2481,7 @@ public class PackageCommand
         string packageArg,
         string packageName,
         string version,
-        string acquisitionPackageName,
-        string acquisitionPackageVersion,
+        PackageIntegrationAcquisition acquisition,
         InspectionOptions options)
     {
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
@@ -2540,8 +2540,7 @@ public class PackageCommand
                             TfmResolver.ExtractTfmFromPath(
                                 relativePath));
                     }),
-                    acquisitionPackageName,
-                    acquisitionPackageVersion)
+                    acquisition)
                 : null;
         List<LibraryInspection> inspections = [];
         foreach (var selection in selected)
@@ -2582,6 +2581,12 @@ public class PackageCommand
             inspections.Add(inspection);
         }
 
+        bool integrationsIncomplete =
+            integrationsWorkspace is not null
+            && WriteGroupedIntegrationsFailures(inspections);
+        int completionExitCode =
+            AllLibrariesCompletionExitCode(integrationsIncomplete);
+
         if (inspections.Count == 0)
         {
             CommandError.Write($"No libraries could be read from package '{packageName}'.");
@@ -2591,7 +2596,7 @@ public class PackageCommand
         if (libraryOptions.JsonOutput)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
-            return 0;
+            return completionExitCode;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
@@ -2602,14 +2607,14 @@ public class PackageCommand
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
                 CountOutput.WriteCount(0, options.OutputPath);
-            return 0;
+            return completionExitCode;
         }
 
         if (libraryOptions.TabularExplicitlySet)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
-            return 0;
+            return completionExitCode;
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
@@ -2617,7 +2622,7 @@ public class PackageCommand
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
             Console.WriteLine(markdown);
-        return 0;
+        return completionExitCode;
     }
 
     internal static bool RequiresGroupedIntegrations(
@@ -2627,12 +2632,34 @@ public class PackageCommand
             .ExpandRequired(scanners)
             .Contains(LibrarySections.ScannerIntegrations);
 
-    static string AcquisitionIdentity(
-        string? nuspecValue,
-        string fallback) =>
-        string.IsNullOrWhiteSpace(nuspecValue)
-            ? fallback
-            : nuspecValue;
+    internal static bool WriteGroupedIntegrationsFailures(
+        IReadOnlyList<LibraryInspection> inspections)
+    {
+        var failures = inspections
+            .SelectMany(inspection =>
+                (inspection.InspectionFailures ?? [])
+                    .Where(static failure =>
+                        failure.Section is
+                            LibraryIntegrationCatalog.RollupName
+                            or EcosystemIntegrationNames.OpenTelemetry)
+                    .Select(failure => (
+                        inspection.FileName,
+                        failure.Reason)))
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Integrations inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    internal static int AllLibrariesCompletionExitCode(
+        bool integrationsIncomplete) =>
+        integrationsIncomplete ? 1 : 0;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()

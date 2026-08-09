@@ -314,6 +314,11 @@ cumulative image bytes. The legacy Integrations scanner recognizes populated
 Findings and does not rescan. The dependent integration-opportunity scanner
 consumes available findings unchanged and emits no gap rows when its prerequisite
 failed. Direct `library` and package `--library` remain single-assembly controls.
+Remote package participants carry the coordinate selected by acquisition rather
+than package-controlled nuspec identity. Local archives carry a valid,
+normalized nuspec coordinate when one exists and local-archive provenance
+otherwise. A grouped failure preserves successful rows but emits a warning for
+the affected library and returns a nonzero incomplete result.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates TFM partitioning, participant correlation, package provenance, and
 same-generation host inspection.
@@ -323,8 +328,15 @@ gates streaming image release.
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
-`PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack` gates canonical
-package provenance fallback for malformed blank nuspec identity fields.
+`PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
+and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition provenance.
+`GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
+composition and the shared nonzero completion status used after Markdown,
+count, tabular, or JSON output.
+`PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
+and
+`InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
+gate malformed participant isolation.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates the Finding projection and duplicate-scan boundary. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output

@@ -155,12 +155,18 @@ consume one retained snapshot before releasing it and advancing. This preserves
 one complete binding universe without retaining the cumulative bytes of every
 package assembly. Metadata, body, Union Type, and Switch scanners borrow that
 same image rather than reopening the package path.
+Remote package provenance uses the coordinate resolved by package acquisition,
+not package-controlled nuspec fields. A local archive uses a trimmed, valid
+nuspec coordinate when available and otherwise carries local-archive
+provenance.
 
 The legacy Integrations scanner treats populated properties as complete. The
 dependent integration-opportunity scanner composes available group results
 without repeating metadata scanning and emits no gaps when its Integrations
 prerequisite failed. Direct `library` and package `--library` remain
-single-assembly controls.
+single-assembly controls. Grouped failures leave successful rows renderable,
+emit one warning per affected library and reason, and make the command
+incomplete with a nonzero exit code.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates grouping, correlation, provenance, and retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
@@ -169,8 +175,15 @@ gates participant-at-a-time retention.
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
-`PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack` gates canonical
-package provenance fallback for malformed blank nuspec identity fields.
+`PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
+and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition-owned
+provenance. `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates
+diagnostic composition and the shared nonzero completion status used after
+Markdown, count, tabular, or JSON output.
+`PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
+and
+`InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
+gate malformed participant isolation.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates projection and duplicate-scan avoidance. Existing
 `PackageCommand_AllLibraries_*` tests gate rendering compatibility.

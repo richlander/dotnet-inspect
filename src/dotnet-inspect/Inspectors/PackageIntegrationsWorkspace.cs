@@ -1,12 +1,87 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using NuGet.Versioning;
 
 namespace DotnetInspector.Inspectors;
 
 internal sealed record PackageIntegrationAssembly(
     string Path,
     string? TargetFramework);
+
+internal sealed class PackageIntegrationAcquisition
+{
+    readonly string? _packageId;
+    readonly string? _packageVersion;
+
+    PackageIntegrationAcquisition(
+        string? packageId,
+        string? packageVersion)
+    {
+        _packageId = packageId;
+        _packageVersion = packageVersion;
+    }
+
+    internal static PackageIntegrationAcquisition Remote(
+        string packageId,
+        string packageVersion)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        return new PackageIntegrationAcquisition(
+            packageId.Trim(),
+            packageVersion.Trim());
+    }
+
+    internal static PackageIntegrationAcquisition Local(
+        string? packageId,
+        string? packageVersion)
+    {
+        string? normalizedId = NormalizePackageId(packageId);
+        string? normalizedVersion =
+            NuGetVersion.TryParse(packageVersion?.Trim(), out var parsed)
+                ? parsed.ToNormalizedString()
+                : null;
+        return normalizedId is not null && normalizedVersion is not null
+            ? new PackageIntegrationAcquisition(
+                normalizedId,
+                normalizedVersion)
+            : new PackageIntegrationAcquisition(null, null);
+    }
+
+    internal AssemblyResolutionProvenance CreateProvenance(
+        string? targetFramework) =>
+        _packageId is not null && _packageVersion is not null
+            ? AssemblyResolutionProvenance.Package(
+                _packageId,
+                _packageVersion,
+                targetFramework,
+                rid: null)
+            : AssemblyResolutionProvenance.Local(
+                "local package archive");
+
+    static string? NormalizePackageId(string? packageId)
+    {
+        string? candidate = packageId?.Trim();
+        if (candidate is not { Length: > 0 and <= 100 })
+            return null;
+
+        foreach (char character in candidate)
+        {
+            bool asciiAlphaNumeric =
+                character is >= 'a' and <= 'z'
+                or >= 'A' and <= 'Z'
+                or >= '0' and <= '9';
+            if (!asciiAlphaNumeric
+                && character is not '.' and not '-' and not '_')
+            {
+                return null;
+            }
+        }
+
+        return candidate;
+    }
+}
 
 /// <summary>
 /// Owns the binding-consistent package groups used by one all-library
@@ -38,11 +113,19 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
     internal static PackageIntegrationsWorkspace Create(
         IEnumerable<PackageIntegrationAssembly> assemblies,
         string packageName,
-        string packageVersion)
+        string packageVersion) =>
+        Create(
+            assemblies,
+            PackageIntegrationAcquisition.Remote(
+                packageName,
+                packageVersion));
+
+    internal static PackageIntegrationsWorkspace Create(
+        IEnumerable<PackageIntegrationAssembly> assemblies,
+        PackageIntegrationAcquisition acquisition)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+        ArgumentNullException.ThrowIfNull(acquisition);
 
         var workspace = new InspectionWorkspace();
         try
@@ -58,11 +141,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 List<Root> roots = [];
                 foreach (PackageIntegrationAssembly assembly in context)
                 {
-                    var provenance = AssemblyResolutionProvenance.Package(
-                        packageName,
-                        packageVersion,
-                        assembly.TargetFramework,
-                        rid: null);
+                    var provenance = acquisition.CreateProvenance(
+                        assembly.TargetFramework);
                     if (!ResolvedAssemblyReference.TryCreateFromPath(
                             assembly.Path,
                             provenance,

@@ -217,4 +217,102 @@ public sealed class PackageIntegrationsWorkspaceTests
             });
         Assert.Equal(0, workspace.RetainedImageBytes);
     }
+
+    [Theory]
+    [InlineData(" Test.Package ", " 1.2.3 ", true)]
+    [InlineData("Test Package", "1.2.3", false)]
+    [InlineData("Test.Package", "not-a-version", false)]
+    [InlineData("", "1.2.3", false)]
+    public void LocalAcquisition_UsesOnlyValidNuspecCoordinates(
+        string packageId,
+        string packageVersion,
+        bool expectedPackageProvenance)
+    {
+        var acquisition = PackageIntegrationAcquisition.Local(
+            packageId,
+            packageVersion);
+
+        AssemblyResolutionProvenance provenance =
+            acquisition.CreateProvenance("net10.0");
+
+        if (expectedPackageProvenance)
+        {
+            var package = Assert.IsType<
+                AssemblyResolutionProvenance.PackageAsset>(
+                provenance);
+            Assert.Equal("Test.Package", package.PackageId);
+            Assert.Equal("1.2.3", package.PackageVersion);
+            Assert.Equal("net10.0", package.Tfm);
+        }
+        else
+        {
+            Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+                provenance);
+        }
+    }
+
+    [Fact]
+    public void RemoteAcquisition_UsesResolvedCoordinate()
+    {
+        var acquisition = PackageIntegrationAcquisition.Remote(
+            "Resolved.Package",
+            "2.0.0");
+
+        var package = Assert.IsType<
+            AssemblyResolutionProvenance.PackageAsset>(
+            acquisition.CreateProvenance("net10.0"));
+
+        Assert.Equal("Resolved.Package", package.PackageId);
+        Assert.Equal("2.0.0", package.PackageVersion);
+    }
+
+    [Fact]
+    public async Task GroupedIntegrationsFailure_IsVisibleAndDeduplicated()
+    {
+        string path =
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
+        var subject = new FindingSubject(
+            path,
+            Path.GetFileName(path));
+        var model = new LibraryInspection
+        {
+            FileName = "lib/net10.0/Test.dll",
+            EcosystemIntegrationInspection =
+                new FindingInspection<
+                    EcosystemIntegrationSignalInfo>.Failed(
+                    new InspectionError(
+                        subject,
+                        MetadataFindings.EcosystemIntegrationDescriptor,
+                        "invalid method body")),
+            OpenTelemetryInspection =
+                new FindingInspection<OpenTelemetrySignalInfo>.Failed(
+                    new InspectionError(
+                        subject,
+                        MetadataFindings.OpenTelemetrySignalDescriptor,
+                        "invalid method body")),
+        };
+
+        bool incomplete = false;
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            incomplete =
+                Commands.PackageCommand.WriteGroupedIntegrationsFailures(
+                    [model]);
+        });
+
+        Assert.True(incomplete);
+        Assert.Equal(
+            1,
+            Commands.PackageCommand.AllLibrariesCompletionExitCode(
+                incomplete));
+        Assert.Contains(
+            "Integrations inspection failed for 'lib/net10.0/Test.dll': invalid method body",
+            error,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            error.Split(
+                "Integrations inspection failed",
+                StringSplitOptions.None).Length - 1);
+    }
 }
