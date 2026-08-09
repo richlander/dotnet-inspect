@@ -1368,7 +1368,8 @@ public class LibraryCommand
 
     private static bool ValidateMultiTfmOutput(LibraryOptions options)
     {
-        if (!IsAllTfmPackageSelection(options) || options.Discover != null)
+        if (!IsAllTfmPackageSelection(options)
+            || (options.Discover != null && string.IsNullOrWhiteSpace(options.ILOffsetsPath)))
         {
             return true;
         }

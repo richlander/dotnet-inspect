@@ -12534,6 +12534,25 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_DiscoveryDoesNotBypassILOffsetBatchRejection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var missingCoordinatesPath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.txt");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-D", "--il-offsets", missingCoordinatesPath, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains("--il-offsets", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput()
     {
         var (exit, output, error) = await RunAppAsync(
