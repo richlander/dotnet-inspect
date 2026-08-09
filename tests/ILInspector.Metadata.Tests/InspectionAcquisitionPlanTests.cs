@@ -93,7 +93,7 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
-    public void TryCreateFromPath_BlankAssemblyName_ReturnsFalse()
+    public void PathFactories_BlankAssemblyName_ReturnNoDescriptor()
     {
         string path = Path.GetTempFileName();
         try
@@ -130,6 +130,10 @@ public class InspectionAcquisitionPlanTests
             pe.Serialize(image);
             File.WriteAllBytes(path, image.ToArray());
 
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
             Assert.False(ResolvedAssemblyReference.TryCreateFromPath(
                 path,
                 AssemblyResolutionProvenance.Local("test"),

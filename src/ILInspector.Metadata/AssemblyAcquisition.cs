@@ -206,10 +206,7 @@ public sealed class ResolvedAssemblyReference
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     peReader.GetMetadataReader());
             if (string.IsNullOrWhiteSpace(identity.Name))
-            {
-                throw new BadImageFormatException(
-                    "The selected assembly has no valid name.");
-            }
+                return null;
 
             return Create(
                 identity,

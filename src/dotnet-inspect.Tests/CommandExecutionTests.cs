@@ -224,6 +224,53 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(destinationPath, bytes);
     }
 
+    private static void WriteTruncatedMetadataTableAssembly(
+        string sourcePath,
+        string destinationPath)
+    {
+        byte[] bytes = File.ReadAllBytes(sourcePath);
+        int metadataStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor =
+            metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            bytes.AsSpan(cursor + 2, sizeof(ushort)));
+        cursor += 4;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(
+                bytes,
+                nameStart,
+                nameEnd - nameStart);
+            if (name is "#~" or "#-")
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    bytes.AsSpan(sizeOffset, sizeof(int)),
+                    sizeof(int));
+                File.WriteAllBytes(destinationPath, bytes);
+                return;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException(
+            "The source assembly has no metadata table stream.");
+    }
+
+    private static int AlignTo4(int value)
+        => (value + 3) & ~3;
+
     private static void WriteHostileIlOperandAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileIlOperand");
@@ -12993,6 +13040,88 @@ public partial class CommandExecutionTests
                 nameof(OverflowException),
                 commandError,
                 StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MalformedMetadataPreflightIsIncompleteAcrossOutputPaths()
+    {
+        const string HealthyAssembly =
+            "Microsoft.Extensions.Configuration";
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            HealthyAssembly);
+        try
+        {
+            var (sourcePath, _, _, error) =
+                PlatformResolver.ResolveAssembly(HealthyAssembly);
+            Assert.Null(error);
+            Assert.NotNull(sourcePath);
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedMetadata.dll");
+            WriteTruncatedMetadataTableAssembly(
+                sourcePath,
+                malformedPath);
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference
+                    .CreateFromPathIfManaged(
+                        malformedPath,
+                        AssemblyResolutionProvenance.Local(
+                            "malformed metadata preflight test")));
+
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        $"{HealthyAssembly}.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedMetadata.dll");
+            }
+
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, commandError) =
+                    await RunAppAsync(arguments);
+
+                Assert.Equal(1, exit);
+                Assert.False(string.IsNullOrWhiteSpace(output));
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    commandError,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedMetadata.dll",
+                    commandError,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {

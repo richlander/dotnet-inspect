@@ -174,22 +174,36 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 {
                     var provenance = acquisition.CreateProvenance(
                         assembly.TargetFramework);
-                    if (!ResolvedAssemblyReference.TryCreateFromPath(
-                            assembly.Path,
-                            provenance,
-                            out ResolvedAssemblyReference? reference,
-                            out Exception? failure))
+                    ResolvedAssemblyReference? reference;
+                    try
                     {
-                        if (failure is
-                            ArgumentOutOfRangeException
+                        reference =
+                            ResolvedAssemblyReference
+                                .CreateFromPathIfManaged(
+                                    assembly.Path,
+                                    provenance);
+                    }
+                    catch (Exception ex) when (
+                        ex is BadImageFormatException
+                            or ArgumentOutOfRangeException
                             or OverflowException)
-                        {
-                            preflightFailures.Add(
-                                Path.GetFullPath(assembly.Path),
-                                "The selected image contains invalid metadata.");
-                        }
+                    {
+                        preflightFailures.Add(
+                            Path.GetFullPath(assembly.Path),
+                            "The selected image contains invalid metadata.");
                         continue;
                     }
+                    catch (Exception ex) when (
+                        ex is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ObjectDisposedException)
+                    {
+                        continue;
+                    }
+
+                    if (reference is null)
+                        continue;
 
                     var policy = new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(
