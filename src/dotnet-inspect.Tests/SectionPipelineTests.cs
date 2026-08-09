@@ -1726,6 +1726,43 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffCommand_AllocRegressionsDoesNotRequestUnusedChangesQuery()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        HashSet<InspectionQueryDefinition> singleSection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                    },
+                });
+        HashSet<InspectionQueryDefinition> composedDocument =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.Changes.Name,
+                        DiffSections.AnalysisDiff.Name,
+                    },
+                });
+
+        Assert.Empty(singleSection);
+        Assert.Equal(
+            [ApiComparisonQuery.Definition],
+            composedDocument);
+    }
+
+    [Fact]
     public void PackageIntegrityExitCode_FailsOnlyForMismatches()
     {
         var clean = new InspectionResult

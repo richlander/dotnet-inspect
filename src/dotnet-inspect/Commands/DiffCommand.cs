@@ -192,17 +192,8 @@ public class DiffCommand
 
             try
             {
-                HashSet<string>? querySections = options.IncludeSections;
-                if (querySections is null && options.AllocRegressionsOnly)
-                {
-                    querySections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        DiffSections.AnalysisDiff.Name,
-                    };
-                }
-
                 HashSet<InspectionQueryDefinition> requestedQueries =
-                    pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
+                    GetRequestedQueries(pipeline, options);
                 InspectionQueryResults queryResults = catalog.QueryRegistry.Run(
                     requestedQueries,
                     new DiffQueryContext(inputs.FromSurface, inputs.ToSurface));
@@ -711,6 +702,35 @@ public class DiffCommand
 
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
+
+    internal static HashSet<InspectionQueryDefinition> GetRequestedQueries(
+        SectionPipeline<DiffDiscoveryModel> pipeline,
+        DiffOptions options)
+    {
+        bool writesDocument =
+            options.JsonOutput
+            || options.IncludeSections is { Count: > 1 };
+        HashSet<string>? querySections = options.IncludeSections;
+
+        if (writesDocument)
+        {
+            if (querySections is null && options.AllocRegressionsOnly)
+            {
+                querySections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.AnalysisDiff.Name,
+                };
+            }
+        }
+        else if (SelectsFindingTransitions(options)
+            || SelectsImplementationDiff(options)
+            || SelectsAnalysisDiff(options))
+        {
+            return [];
+        }
+
+        return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
+    }
 
     private static async Task WriteSelectedDocumentAsync(
         DiffInputs inputs,
