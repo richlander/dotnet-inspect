@@ -308,12 +308,33 @@ public static class TfmResolver
     /// Checks if a string looks like a TFM (starts with "net" followed by a digit,
     /// or is a known TFM prefix like "netcoreapp" or "netstandard").
     /// </summary>
-    public static bool IsTfmLike(string name) =>
-        name.StartsWith("net", StringComparison.OrdinalIgnoreCase)
-        && name.Length >= 4
-        && (char.IsAsciiDigit(name[3])
-            || name.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase));
+    public static bool IsTfmLike(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        int prefixLength = name.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase)
+            ? "netstandard".Length
+            : name.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase)
+                ? "netcoreapp".Length
+                : name.StartsWith("net", StringComparison.OrdinalIgnoreCase)
+                    ? "net".Length
+                    : 0;
+        if (prefixLength == 0
+            || prefixLength >= name.Length
+            || !char.IsAsciiDigit(name[prefixLength]))
+        {
+            return false;
+        }
+
+        for (int i = prefixLength; i < name.Length; i++)
+        {
+            char c = name[i];
+            if (!char.IsAsciiLetterOrDigit(c) && c is not '.' and not '-')
+                return false;
+        }
+        return true;
+    }
 }
 
 /// <summary>

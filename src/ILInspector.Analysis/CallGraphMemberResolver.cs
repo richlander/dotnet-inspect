@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using System.Text;
 using CSharpText;
 using ILInspector.Metadata;
@@ -33,7 +34,7 @@ public static class CallGraphMemberResolver
         var methodParameters = (member.SignatureModel?.TypeParameters ?? [])
             .Select((parameter, index) => (parameter.Name, index))
             .ToDictionary(pair => pair.Name, pair => pair.index, StringComparer.Ordinal);
-        string Normalize(string value) => XmlDocumentationNotation.NormalizeParameterType(
+        string Normalize(string value) => NormalizeApiType(
             StripPinned(value),
             typeParameters,
             methodParameters);
@@ -47,6 +48,20 @@ public static class CallGraphMemberResolver
                 member.SignatureModel?.EffectiveCanonicalReturnType
                     ?? member.ReturnType
                     ?? "void"));
+    }
+
+    public static ImmutableArray<CallGraphMemberBodySelector> CreateBodySelectors(
+        ApiType type,
+        ApiMember member)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        return CandidateBodies(type, member)
+            .Select(candidate => new CallGraphMemberBodySelector(
+                candidate.Resolution.BodyToken,
+                candidate.MemberName,
+                candidate.SelectorKey))
+            .ToImmutableArray();
     }
 
     /// <summary>
@@ -66,11 +81,14 @@ public static class CallGraphMemberResolver
         if (metadataToken is int token)
         {
             var tokenMatches = type.Members
-                .SelectMany(MemberBodies)
-                .Where(candidate => candidate.BodyToken == token)
+                .SelectMany(member => CandidateBodies(type, member))
+                .Where(candidate =>
+                    candidate.Resolution.BodyToken == token
+                    && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
+                    && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
                 .ToArray();
             if (tokenMatches.Length == 1)
-                return tokenMatches[0];
+                return tokenMatches[0].Resolution;
         }
 
         var matches = type.Members
@@ -80,20 +98,6 @@ public static class CallGraphMemberResolver
                 && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
             .ToArray();
         return matches.Length == 1 ? matches[0].Resolution : null;
-    }
-
-    static IEnumerable<CallGraphMemberResolution> MemberBodies(ApiMember member)
-    {
-        if (member.MetadataToken is int method)
-            yield return new(member, method);
-        if (member.GetterToken is int getter)
-            yield return new(member, getter);
-        if (member.SetterToken is int setter)
-            yield return new(member, setter);
-        if (member.AdderToken is int adder)
-            yield return new(member, adder);
-        if (member.RemoverToken is int remover)
-            yield return new(member, remover);
     }
 
     static IEnumerable<AccessorCandidate> CandidateBodies(ApiType type, ApiMember member)
@@ -170,7 +174,7 @@ public static class CallGraphMemberResolver
         TypeRefKind.GenericParameter => $"T{type.GenericParameterIndex}",
         TypeRefKind.MethodGenericParameter => $"M{type.GenericParameterIndex}",
         TypeRefKind.GenericInstance when type.ElementType is { } definition =>
-            $"{TypeIdentity(definition)}{{{string.Join(",", type.TypeArguments.Select(TypeIdentity))}}}",
+            NamedGenericTypeIdentity(definition, type.TypeArguments),
         TypeRefKind.SzArray when type.ElementType is { } element =>
             $"{TypeIdentity(element)}[]",
         TypeRefKind.Array when type.ElementType is { } element =>
@@ -181,9 +185,71 @@ public static class CallGraphMemberResolver
             $"{TypeIdentity(element)}*",
         TypeRefKind.Pinned when type.ElementType is { } element =>
             TypeIdentity(element),
+        TypeRefKind.Unsupported when type.UnmodifiedType is { } unmodified =>
+            TypeIdentity(unmodified),
+        TypeRefKind.Unsupported when type.FunctionPointerSignature is { } signature =>
+            FunctionPointerIdentity(signature),
         TypeRefKind.Definition => NamedTypeIdentity(type),
         _ => XmlDocumentationNotation.NormalizeParameterType(type.ToQualifiedDisplayString()),
     };
+
+    static string FunctionPointerIdentity(MethodSignature<TypeRef> signature)
+    {
+        string convention = signature.Header.CallingConvention switch
+        {
+            SignatureCallingConvention.Default => "",
+            SignatureCallingConvention.CDecl => " unmanaged[Cdecl]",
+            SignatureCallingConvention.StdCall => " unmanaged[Stdcall]",
+            SignatureCallingConvention.ThisCall => " unmanaged[Thiscall]",
+            SignatureCallingConvention.FastCall => " unmanaged[Fastcall]",
+            _ => " unmanaged",
+        };
+        return $"delegate*{convention}{{{string.Join(
+            ",",
+            signature.ParameterTypes
+                .Select(TypeIdentity)
+                .Append(TypeIdentity(signature.ReturnType)))}}}";
+    }
+
+    static string NormalizeApiType(
+        string value,
+        IReadOnlyDictionary<string, int> typeParameters,
+        IReadOnlyDictionary<string, int> methodParameters)
+    {
+        if (!value.Contains(">.", StringComparison.Ordinal))
+        {
+            return XmlDocumentationNotation.NormalizeParameterType(
+                value,
+                typeParameters,
+                methodParameters);
+        }
+
+        var segments = new List<string>();
+        int start = 0;
+        int depth = 0;
+        for (int index = 0; index < value.Length; index++)
+        {
+            depth += value[index] switch
+            {
+                '<' => 1,
+                '>' => -1,
+                _ => 0,
+            };
+            if (value[index] == '.' && depth == 0)
+            {
+                segments.Add(value[start..index]);
+                start = index + 1;
+            }
+        }
+        segments.Add(value[start..]);
+        return string.Join(
+            '.',
+            segments.Select(segment =>
+                XmlDocumentationNotation.NormalizeParameterType(
+                    segment,
+                    typeParameters,
+                    methodParameters)));
+    }
 
     static string NamedTypeIdentity(TypeRef type)
     {
@@ -200,6 +266,54 @@ public static class CallGraphMemberResolver
         return string.IsNullOrEmpty(type.Namespace)
             ? name
             : $"{type.Namespace}.{name}";
+    }
+
+    static string NamedGenericTypeIdentity(
+        TypeRef definition,
+        ImmutableArray<TypeRef> arguments)
+    {
+        if (definition.Kind != TypeRefKind.Definition)
+            return $"{TypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+
+        string[] segments = definition.Name.Split('+');
+        int totalArity = segments.Sum(segment =>
+        {
+            int tick = segment.IndexOf('`');
+            return tick >= 0
+                && int.TryParse(segment[(tick + 1)..], out int parsed)
+                    ? parsed
+                    : 0;
+        });
+        if (totalArity != arguments.Length)
+            return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+
+        var result = new StringBuilder();
+        if (!string.IsNullOrEmpty(definition.Namespace))
+            result.Append(definition.Namespace).Append('.');
+        int argumentIndex = 0;
+        for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
+        {
+            if (segmentIndex > 0)
+                result.Append('.');
+            string segment = segments[segmentIndex];
+            int tick = segment.IndexOf('`');
+            result.Append(tick < 0 ? segment : segment[..tick]);
+            int arity = tick >= 0
+                && int.TryParse(segment[(tick + 1)..], out int parsed)
+                    ? parsed
+                    : 0;
+            if (arity <= 0)
+                continue;
+            result.Append('{');
+            for (int index = 0; index < arity && argumentIndex < arguments.Length; index++)
+            {
+                if (index > 0)
+                    result.Append(',');
+                result.Append(TypeIdentity(arguments[argumentIndex++]));
+            }
+            result.Append('}');
+        }
+        return result.ToString();
     }
 
     static string StripArity(string value)
@@ -227,3 +341,8 @@ public sealed record CallGraphMemberSelector(
     string Key);
 
 public sealed record CallGraphMemberResolution(ApiMember Member, int BodyToken);
+
+public sealed record CallGraphMemberBodySelector(
+    int BodyToken,
+    string MemberName,
+    string SelectorKey);

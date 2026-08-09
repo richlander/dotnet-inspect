@@ -187,7 +187,15 @@ public sealed class LayeringTests
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "(overload.bodyTokens ?? []).includes(target.metadataToken)",
+            "(overload.bodySelectors ?? []).some(body =>",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "body.selectorKey === target.selectorKey",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "bodyTokens",
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -201,6 +209,27 @@ public sealed class LayeringTests
         Assert.Contains(
             "CallGraphMemberResolver.CreateSelector(",
             engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".CreateBodySelectors(type, member)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "activatePackage(pkg",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "${escapeHtml(item)}</option>",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            CountOccurrences(
+                browserSource,
+                "state.selectedBodyTarget = bodyTarget;"));
+        Assert.Contains(
+            "state.selectedBodyTarget = view.bodyTarget ?? null;",
+            browserSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "paramNamesFromSig",

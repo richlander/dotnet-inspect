@@ -110,6 +110,12 @@ public class TfmResolverTests
     [InlineData("")]
     [InlineData("runtimes")]
     [InlineData("_rels")]
+    [InlineData("net")]
+    [InlineData("netfoo")]
+    [InlineData("net8.0\"></option><img src=x onerror=alert(1)>")]
+    [InlineData("net8.0/windows")]
+    [InlineData("net8.0?x=1")]
+    [InlineData("net8.0 windows")]
     public void IsTfmLike_InvalidValues_ReturnsFalse(string value)
     {
         Assert.False(TfmResolver.IsTfmLike(value), $"Expected '{value}' to NOT be TFM-like");

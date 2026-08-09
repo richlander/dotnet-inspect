@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -71,7 +72,7 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
-    public void Resolve_PrefersExactAccessorToken()
+    public void Resolve_RequiresTokenAndSelectorToAgree()
     {
         var first = Indexer("int", 0x06000001);
         var second = Indexer("string", 0x06000002);
@@ -94,9 +95,116 @@ public sealed class CallGraphMemberResolverTests
             deliberatelyWrongShape.Key,
             metadataToken: 0x06000002);
 
-        Assert.Same(second, resolved!.Member);
-        Assert.Equal(0x06000002, resolved.BodyToken);
+        Assert.Same(first, resolved!.Member);
+        Assert.Equal(0x06000001, resolved.BodyToken);
     }
+
+    [Fact]
+    public void BodySelectors_PreserveExactAccessorIdentity()
+    {
+        var member = Indexer("string", 0x06000002);
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Indexed",
+            Members = [member],
+        };
+
+        var body = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, member));
+
+        Assert.Equal(0x06000002, body.BodyToken);
+        Assert.Equal("get_Item", body.MemberName);
+        Assert.NotEqual(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            body.SelectorKey);
+    }
+
+    [Fact]
+    public void Selector_ErasesCustomModifiersLikeApiSurface()
+    {
+        var modified = TypeRef.UnsupportedModified(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "IsExternalInit"),
+            TypeRef.CoreLib("System", "Int32"),
+            isRequired: true);
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [modified],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method));
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var member = Method("int");
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+    }
+
+    [Fact]
+    public void Selector_PreservesFunctionPointerPayload()
+    {
+        var signature = new MethodSignature<TypeRef>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.None),
+            TypeRef.CoreLib("System", "Void"),
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [TypeRef.CoreLib("System", "Int32")]);
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [TypeRef.UnsupportedFunctionPointer(signature)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method));
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var member = Method("delegate* unmanaged[Cdecl]<int, void>");
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+    }
+
+    [Fact]
+    public void Selector_PreservesNestedGenericSegments()
+    {
+        var definition = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer`1+Inner`1");
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [
+                TypeRef.GenericInstance(
+                    definition,
+                    [
+                        TypeRef.CoreLib("System", "Int32"),
+                        TypeRef.CoreLib("System", "String"),
+                    ]),
+            ],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method));
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var member = Method("Samples.Outer<int>.Inner<string>");
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+    }
+
+    static ApiMember Method(string parameterType) => new()
+    {
+        Name = "M",
+        Kind = "method",
+        ReturnType = "void",
+        SignatureModel = new ApiSignature
+        {
+            ReturnType = "void",
+            Parameters = [new ApiParameter { Name = "value", Type = parameterType }],
+        },
+    };
 
     static ApiMember Indexer(string parameterType, int getterToken) => new()
     {

@@ -97,7 +97,12 @@ public sealed record BrowserMemberSurface(
     string AnchorDigest,
     string CanonicalSignature,
     string GraphSelectorKey,
-    int[] BodyTokens);
+    BrowserMemberBodySelector[] BodySelectors);
+
+public sealed record BrowserMemberBodySelector(
+    int Token,
+    string MemberName,
+    string SelectorKey);
 
 public sealed record BrowserParameterSurface(
     string Name,
@@ -2525,6 +2530,8 @@ public static partial class BrowserInspectionEngine
         string typeId,
         string memberName,
         string memberSignature,
+        string selectorKey,
+        int metadataToken,
         string workspaceJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
@@ -2617,12 +2624,20 @@ public static partial class BrowserInspectionEngine
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
-            var member = type.Members.FirstOrDefault(candidate =>
+            var resolution = metadataToken != 0 && !string.IsNullOrWhiteSpace(selectorKey)
+                ? Analysis.CallGraphMemberResolver.Resolve(
+                    type,
+                    memberName,
+                    selectorKey,
+                    metadataToken)
+                : null;
+            var member = resolution?.Member ?? type.Members.FirstOrDefault(candidate =>
                 candidate.Name.Equals(memberName, StringComparison.Ordinal)
                 && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
-            if (member.MetadataToken is not int token)
-                throw new InvalidOperationException("The selected member has no method body identity.");
+            int token = resolution?.BodyToken
+                ?? member.MetadataToken
+                ?? throw new InvalidOperationException("The selected member has no method body identity.");
 
             // Abstract and interface methods declare no IL body, so there is nothing to graph.
             // Building the tree anyway yields a lone "<unsupported: method token …>" root; return
@@ -3285,6 +3300,7 @@ public static partial class BrowserInspectionEngine
     [JSExport]
     public static async Task<string> LoadRuntimePack(string targetFramework)
     {
+        ValidateRuntimeFramework(targetFramework);
         var major = ParseTfmMajor(targetFramework);
         var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
         var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, version, RuntimeCoreAssembly)
@@ -3338,6 +3354,7 @@ public static partial class BrowserInspectionEngine
     [JSExport]
     public static async Task<string> LoadRuntimePackAssembly(string targetFramework, string assemblyFileName, string pack)
     {
+        ValidateRuntimeFramework(targetFramework);
         if (string.IsNullOrWhiteSpace(assemblyFileName))
             throw new InvalidOperationException("An assembly file name is required.");
         var fileName = assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
@@ -3622,6 +3639,17 @@ public static partial class BrowserInspectionEngine
         return start < end && int.TryParse(targetFramework[start..end], out var major) ? major : 10;
     }
 
+    static void ValidateRuntimeFramework(string? targetFramework)
+    {
+        if (!string.IsNullOrWhiteSpace(targetFramework)
+            && !NuGetFetch.TfmResolver.IsTfmLike(targetFramework))
+        {
+            throw new ArgumentException(
+                $"'{targetFramework}' is not a valid target framework.",
+                nameof(targetFramework));
+        }
+    }
+
     static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
     {
         var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
@@ -3869,6 +3897,13 @@ public static partial class BrowserInspectionEngine
             var documentationId = GetDocumentationId(type, member);
             var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
             var graphSelector = Analysis.CallGraphMemberResolver.CreateSelector(type, member);
+            var bodySelectors = Analysis.CallGraphMemberResolver
+                .CreateBodySelectors(type, member)
+                .Select(selector => new BrowserMemberBodySelector(
+                    selector.BodyToken,
+                    selector.MemberName,
+                    selector.SelectorKey))
+                .ToArray();
             return new BrowserMemberSurface(
                 member.Name,
                 member.Kind,
@@ -3891,7 +3926,7 @@ public static partial class BrowserInspectionEngine
                 anchor.Fingerprint,
                 anchor.CanonicalSignature,
                 graphSelector.Key,
-                BodyTokens(member));
+                bodySelectors);
         }).ToArray();
 
         var accessibilityDescriptor = AccessibilityDescriptor(accessibility);
@@ -3910,19 +3945,6 @@ public static partial class BrowserInspectionEngine
             string.Join(' ', modifiers),
             members);
     }
-
-    static int[] BodyTokens(ApiMember member)
-        => new[]
-            {
-                member.MetadataToken,
-                member.GetterToken,
-                member.SetterToken,
-                member.AdderToken,
-                member.RemoverToken,
-            }
-            .OfType<int>()
-            .Distinct()
-            .ToArray();
 
     static BrowserAccessibilityDescriptor[] AccessibilityDescriptors(
         IReadOnlyList<BrowserTypeSurface> types)

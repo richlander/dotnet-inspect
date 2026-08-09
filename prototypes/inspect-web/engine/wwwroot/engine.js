@@ -301,6 +301,8 @@ export async function inspectMemberCallGraph(request) {
     request.type,
     request.member,
     request.signature,
+    request.selectorKey ?? "",
+    request.metadataToken ?? 0,
     JSON.stringify(request.workspace ?? []));
   return JSON.parse(json);
 }

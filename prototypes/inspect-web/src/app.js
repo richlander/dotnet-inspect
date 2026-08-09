@@ -158,6 +158,7 @@ const state = {
   runtimePackLoading: false,
   runtimePackError: "",
   navigationSeq: 0,
+  selectedBodyTarget: null,
   graphSourceOpen: false,
   graphSource: null,
   graphSourceLoading: false,
@@ -170,6 +171,7 @@ const state = {
   docViewerMeta: null,
   graphSourceTitle: "",
   graphSourceRequest: null,
+  graphSourceSeq: 0,
   styleTiers: null,
   styleOptions: null,
   styleCatalogError: "",
@@ -192,7 +194,7 @@ const nav = { stack: [], index: -1 };
 
 function viewSignature() {
   return JSON.stringify({
-    p: state.package?.id ?? "",
+    p: packageIdentityKey(state.package),
     l: state.lens,
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
@@ -206,10 +208,12 @@ function viewSignature() {
 function captureView() {
   return {
     package: state.package?.id ?? "",
+    packageKey: packageIdentityKey(state.package),
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
+    bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
     atPackageRoot: state.atPackageRoot,
     packageLens: state.packageLens
@@ -226,8 +230,9 @@ function recordNav() {
 }
 
 function applyView(view) {
-  const pkg = state.packages.find(item => item.id === view.package);
-  if (pkg) state.package = pkg;
+  const pkg = state.packages.find(item => packageIdentityKey(item) === view.packageKey)
+    ?? state.packages.find(item => item.id === view.package);
+  if (pkg) activatePackage(pkg);
   state.lens = view.lens;
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
@@ -244,6 +249,7 @@ function applyView(view) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.selectedBodyTarget = view.bodyTarget ?? null;
   const type = selectedType();
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
     if (state.memberSection === "source") loadSelectedMemberSource();
@@ -638,6 +644,25 @@ function defaultAccessibilityFilter(pkg) {
     .map(descriptor => descriptor.id));
 }
 
+function packageIdentityKey(pkg) {
+  if (!pkg) return "";
+  return [pkg.id, pkg.version, pkg.activeFramework]
+    .map(value => encodeURIComponent(String(value || "").toLowerCase()))
+    .join("|");
+}
+
+function packageIdentityEquals(left, right) {
+  return Boolean(left && right && packageIdentityKey(left) === packageIdentityKey(right));
+}
+
+function activatePackage(pkg, { resetAccessibility = false } = {}) {
+  const changed = !packageIdentityEquals(state.package, pkg);
+  state.package = pkg;
+  if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
+    state.accessibilityFilter = defaultAccessibilityFilter(pkg);
+  return changed;
+}
+
 function isDefaultAccessibility(type) {
   return Boolean(state.package?.accessibility?.some(
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
@@ -790,6 +815,7 @@ function resetMemberSectionState() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.selectedBodyTarget = null;
 }
 
 function openMemberGroup(key) {
@@ -1075,11 +1101,11 @@ function render() {
         <div class="package-tabs" role="tablist" aria-label="Package scope">
           ${platformTabHtml()}
           ${state.packages.filter(item => !item.isRuntimePack).map(item => `
-            <button class="package-tab ${item.id === state.package.id ? "active" : ""}" data-package="${escapeHtml(item.id)}" role="tab">
+            <button class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab">
               <span class="package-cube">⬡</span>
               <span class="tab-label">${escapeHtml(item.id)}</span>
-              <small>${escapeHtml(item.version)}</small>
-              ${item.id === state.package.id ? '<span class="tab-close">×</span>' : ""}
+              <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
+              ${packageIdentityEquals(item, state.package) ? '<span class="tab-close">×</span>' : ""}
             </button>`).join("")}
         </div>
         <form class="package-query" id="package-query">
@@ -1119,7 +1145,7 @@ function render() {
         <label class="framework-select">
           <span>framework</span>
           <select id="framework"${state.package.frameworks.length <= 1 ? " disabled" : ""}>
-            ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${item}</option>`).join("")}
+            ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
           </select>
         </label>
         <div class="asset-path">${escapeHtml(state.package.assemblyAsset)}</div>
@@ -1917,11 +1943,11 @@ function renderPackagePerformance() {
   }
 
   const rows = members.map(member => {
-    const display = `${shortTypeName(member.typeId)}.${escapeHtml(member.memberName)}`;
+    const display = escapeHtml(`${shortTypeName(member.typeId)}.${member.memberName}`);
     const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
     const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
     return `
-      <button class="perf-row" data-perf-token="${member.metadataToken}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+      <button class="perf-row" data-perf-token="${member.metadataToken}" data-perf-assembly="${escapeHtml(member.assembly)}" data-perf-type="${escapeHtml(member.typeId)}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
         <span class="perf-count">${member.opportunityCount}</span>
         <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
         <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
@@ -2798,10 +2824,12 @@ function ensureExplorerResizeListener() {
 
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
-function drillToPerfMember(token) {
+function drillToPerfMember(token, assembly, typeId) {
   const numeric = Number(token);
   const targetType = state.package.types.find(type =>
-    (type.api || []).some(member => member.metadataToken === numeric));
+    type.id === typeId
+    && type.assembly === assembly
+    && (type.api || []).some(member => member.metadataToken === numeric));
   if (!targetType) return;
   const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
   if (!member) return;
@@ -3436,8 +3464,10 @@ function highlightCSharp(value) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-package]").forEach(button => button.addEventListener("click", () => {
-    state.package = state.packages.find(item => item.id === button.dataset.package);
+  document.querySelectorAll("[data-package-key]").forEach(button => button.addEventListener("click", () => {
+    activatePackage(
+      state.packages.find(item => packageIdentityKey(item) === button.dataset.packageKey),
+      { resetAccessibility: true });
     state.selectedTypeId = state.package.types[0].id;
     state.selectedMemberKey = "";
     state.typeFilter = "";
@@ -3541,7 +3571,10 @@ function bindEvents() {
     navigateToTypeByName(button.dataset.graphType);
   }));
   document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
-    drillToPerfMember(button.dataset.perfToken);
+    drillToPerfMember(
+      button.dataset.perfToken,
+      button.dataset.perfAssembly,
+      button.dataset.perfType);
   }));
   document.querySelectorAll("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
     const id = button.dataset.oppType;
@@ -3698,7 +3731,7 @@ function bindEvents() {
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
-    loadPackage(state.package.id, state.package.version, event.target.value);
+    switchPackageFramework(event.target.value);
   });
   document.querySelector("#package-version")?.addEventListener("change", event => {
     if (state.package?.isRuntimePack) switchPlatformVersion(event.target.value);
@@ -4580,6 +4613,7 @@ async function ensureDotnetReleases() {
 async function switchPlatformVersion(tfm) {
   const pkg = runtimePackPackage();
   if (!pkg || !tfm || tfm === pkg.activeFramework) return;
+  const navigationSeq = ++state.navigationSeq;
   state.packages = state.packages.filter(item => !item.isRuntimePack);
   state.libraryScope = null;
   state.platformStack = [];
@@ -4590,6 +4624,8 @@ async function switchPlatformVersion(tfm) {
   state.loadingSubtitle = `.NET Platform · ${tfm}`;
   render();
   const loaded = await loadRuntimePack(tfm);
+  if (navigationSeq !== state.navigationSeq
+    || (state.package && state.package !== pkg)) return;
   if (!loaded) {
     state.loading = false;
     state.error = state.runtimePackError || "Couldn’t load the .NET Platform.";
@@ -4597,7 +4633,7 @@ async function switchPlatformVersion(tfm) {
     render();
     return;
   }
-  state.package = loaded;
+  activatePackage(loaded, { resetAccessibility: true });
   state.loading = false;
   state.atPackageRoot = true;
   state.packageLens = "overview";
@@ -4654,10 +4690,20 @@ async function switchPackageVersion(newVersion) {
   const framework = pkg.activeFramework;
   const loaded = await loadPackage(id, newVersion, framework);
   if (loaded && loaded.version.toLowerCase() !== oldVersion.toLowerCase()) {
-    const before = state.packages.length;
-    state.packages = state.packages.filter(item =>
-      !(item.id.toLowerCase() === id.toLowerCase() && item.version.toLowerCase() === oldVersion.toLowerCase()));
-    if (state.packages.length !== before) render();
+    state.packages = state.packages.filter(item => item !== pkg);
+    render();
+  }
+}
+
+async function switchPackageFramework(newFramework) {
+  const pkg = state.package;
+  if (!pkg || pkg.isRuntimePack) return;
+  if (!newFramework
+    || newFramework.toLowerCase() === pkg.activeFramework.toLowerCase()) return;
+  const loaded = await loadPackage(pkg.id, pkg.version, newFramework);
+  if (loaded && loaded.activeFramework.toLowerCase() !== pkg.activeFramework.toLowerCase()) {
+    state.packages = state.packages.filter(item => item !== pkg);
+    render();
   }
 }
 
@@ -4710,7 +4756,7 @@ function pickSpotlightResult(result) {
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
     case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
     case "rtpack-status": break;
-    default: pickSpotlight(result.pkg.id, result.type.id); break;
+    default: pickSpotlight(result.pkg, result.type.id); break;
   }
 }
 
@@ -4740,8 +4786,8 @@ function activateRuntimePack() {
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
 async function openPlatformLibrary(assembly, pack, options = {}) {
-  const navigationSeq = options.navigationSeq;
-  if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
+  const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
+  if (navigationSeq !== state.navigationSeq) return;
   closeSpotlight();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
@@ -4755,7 +4801,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
     state.loadingSubtitle = `${key} · ${tfm}`;
     render();
     const loaded = await loadRuntimePackAssembly(tfm, fileName, pack);
-    if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
+    if (navigationSeq !== state.navigationSeq) return;
     if (!loaded) {
       state.loading = false;
       state.error = state.runtimePackError
@@ -4768,7 +4814,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   }
   const pkg = runtimePackPackage();
   if (!pkg) { render(); return; }
-  state.package = pkg;
+  activatePackage(pkg, { resetAccessibility: true });
   state.home = false;
   state.loading = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
@@ -4788,9 +4834,9 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
 }
 
 function pickSpotlightLoadedPackage(pkg) {
-  const target = state.packages.find(item => item.id === pkg.id) || pkg;
+  const target = state.packages.find(item => packageIdentityEquals(item, pkg)) || pkg;
   state.home = false;
-  state.package = target;
+  activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.selectedTypeId = null;
   state.selectedMemberKey = "";
@@ -4803,11 +4849,12 @@ function pickSpotlightLoadedPackage(pkg) {
 }
 
 function pickSpotlightMember(result) {
-  const pkg = state.packages.find(item => item.id === result.pkg.id) || result.pkg;
+  const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg))
+    || result.pkg;
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
   state.home = false;
-  state.package = pkg;
+  activatePackage(pkg);
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.lens = "api";
@@ -4825,15 +4872,17 @@ function pickSpotlightMember(result) {
   loadSelectedMemberDocumentation();
 }
 
-function pickSpotlight(pkgId, typeId) {
-  const pkg = state.packages.find(item => item.id === pkgId) || state.package;
+function pickSpotlight(packageResult, typeId) {
+  const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult))
+    || packageResult
+    || state.package;
   const type = pkg?.types?.find(item => item.id === typeId);
   if (!type) {
     closeSpotlight();
     return;
   }
   state.home = false;
-  state.package = pkg;
+  activatePackage(pkg);
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.selectedMemberKey = "";
@@ -5351,6 +5400,7 @@ function goHome() {
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
 // nupkg, so this goes through loadRuntimePack rather than loadPackage).
 async function openRuntimePackFromHome() {
+  const navigationSeq = ++state.navigationSeq;
   state.home = false;
   state.loading = true;
   state.error = "";
@@ -5358,6 +5408,7 @@ async function openRuntimePackFromHome() {
   state.loadingSubtitle = ".NET Platform · net10.0";
   render();
   const pack = await loadRuntimePack("net10.0");
+  if (navigationSeq !== state.navigationSeq) return;
   if (!pack) {
     state.loading = false;
     state.error = "Couldn’t load the .NET runtime pack. Retry, or open a different package.";
@@ -5365,14 +5416,14 @@ async function openRuntimePackFromHome() {
     render();
     return;
   }
-  state.package = pack;
+  activatePackage(pack, { resetAccessibility: true });
   state.home = false;
   state.loading = false;
   // Start on the library you were last looking at, not the aggregate overview,
   // when one is available in this framework's roster.
   const recent = mostRecentAvailableLibrary();
   if (recent) {
-    await openPlatformLibrary(recent.assembly, recent.pack);
+    await openPlatformLibrary(recent.assembly, recent.pack, { navigationSeq });
     return;
   }
   state.atPackageRoot = true;
@@ -5589,24 +5640,30 @@ async function loadSelectedMemberAnnotatedSource() {
   }
 }
 
-function memberRequestSignature(type, overload) {
+function memberRequestSignature(type, overload, includeBody = false) {
   const pkg = state.package;
-  return [
+  const parts = [
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
     type?.assembly,
     type?.queryId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
-  ].join("\u0000");
+  ];
+  if (includeBody) {
+    parts.push(
+      state.selectedBodyTarget?.metadataToken ?? "",
+      state.selectedBodyTarget?.selectorKey ?? "");
+  }
+  return parts.join("\u0000");
 }
 
-function memberRequestIsCurrent(signature) {
+function memberRequestIsCurrent(signature, includeBody = false) {
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
   return Boolean(type && overload)
-    && memberRequestSignature(type, overload) === signature;
+    && memberRequestSignature(type, overload, includeBody) === signature;
 }
 
 async function loadSelectedTypeSource() {
@@ -5999,7 +6056,7 @@ async function renderDependencyGraph() {
 function switchToPackageForDependencies(packageId) {
   const target = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
   if (!target) return;
-  state.package = target;
+  activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
   state.dependenciesFramework = "";
@@ -6047,7 +6104,7 @@ async function loadSelectedMemberCallGraph() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload);
+  const signature = memberRequestSignature(type, overload, true);
   if (state.memberCallGraphKey === signature
     && (state.memberCallGraph || state.memberCallGraphError)) {
     render();
@@ -6082,8 +6139,10 @@ async function loadSelectedMemberCallGraph() {
     framework: state.package.activeFramework,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
-    member: overload.name,
-    signature: overload.signature
+    member: state.selectedBodyTarget?.memberName ?? overload.name,
+    signature: overload.signature,
+    selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+    metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
   };
   const workspacePackages =
     state.packages.filter(packageItem => !packageItem.isRuntimePack);
@@ -6097,7 +6156,7 @@ async function loadSelectedMemberCallGraph() {
   try {
     const local = await inspectMemberCallGraph({ ...base, workspace: [] });
     if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature)
+      || !memberRequestIsCurrent(signature, true)
       || state.memberCallGraphKey !== signature) return;
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
@@ -6110,7 +6169,7 @@ async function loadSelectedMemberCallGraph() {
       // otherwise the stage-1 graph never appears before the blocking cross-library pass.
       await nextPaint();
       if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature)
+        || !memberRequestIsCurrent(signature, true)
         || state.memberCallGraphKey !== signature) return;
       const full = await inspectMemberCallGraph({
         ...base,
@@ -6121,7 +6180,7 @@ async function loadSelectedMemberCallGraph() {
         }))
       });
       if (seq !== state.memberCallGraphSeq
-        || !memberRequestIsCurrent(signature)
+        || !memberRequestIsCurrent(signature, true)
         || state.memberCallGraphKey !== signature) return;
       const previousMermaid = state.memberCallGraph?.mermaid;
       state.memberCallGraph = full;
@@ -6131,7 +6190,7 @@ async function loadSelectedMemberCallGraph() {
     }
   } catch (error) {
     if (seq !== state.memberCallGraphSeq
-      || !memberRequestIsCurrent(signature)
+      || !memberRequestIsCurrent(signature, true)
       || state.memberCallGraphKey !== signature) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
@@ -6165,9 +6224,9 @@ async function loadRuntimeMemberCallGraph(type, overload) {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.metadataId ?? type.queryId ?? type.id,
-      member: overload.name,
-      selectorKey: overload.graphSelectorKey,
-      metadataToken: overload.metadataToken
+      member: state.selectedBodyTarget?.memberName ?? overload.name,
+      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
     });
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraph = graph;
@@ -6404,7 +6463,8 @@ function attachGraphPanZoom(
             loaded.pkg,
             loaded.type,
             loaded.group,
-            loaded.overloadIndex);
+            loaded.overloadIndex,
+            target);
         } else if (loaded) {
           openGraphSource(loaded.request, loaded.title);
         } else if (platform) {
@@ -6476,7 +6536,10 @@ function findGraphMemberSelection(type, target) {
   if (target.metadataToken != null) {
     for (const group of groups) {
       const overloadIndex = group.overloads.findIndex(
-        overload => (overload.bodyTokens ?? []).includes(target.metadataToken));
+        overload => (overload.bodySelectors ?? []).some(body =>
+          body.token === target.metadataToken
+          && body.memberName === target.memberName
+          && body.selectorKey === target.selectorKey));
       if (overloadIndex >= 0)
         return { group, overloadIndex };
     }
@@ -6565,14 +6628,14 @@ async function navigateOrDrillPlatform(node) {
     await drillPlatformNode(node);
     return;
   }
-  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex);
+  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);
 }
 
 // Enter the resident runtime pack focused on one member's call graph. Mirrors
 // navigateToMember but targets the call-graph section (the reason the user clicked a graph
 // node) and clears any active platform descent so the new member's graph loads fresh.
-function navigateToRuntimeMember(pack, type, group, overloadIndex) {
-  state.package = pack;
+function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = null) {
+  activatePackage(pack);
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
@@ -6595,6 +6658,7 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.selectedBodyTarget = bodyTarget;
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
   loadSelectedMemberCallGraph();
 }
@@ -6610,7 +6674,10 @@ function findRuntimeMemberSelection(pack, node) {
   if (node.metadataToken != null) {
     for (const group of groups) {
       const overloadIndex = group.overloads.findIndex(
-        overload => (overload.bodyTokens ?? []).includes(node.metadataToken));
+        overload => (overload.bodySelectors ?? []).some(body =>
+          body.token === node.metadataToken
+          && body.memberName === node.memberName
+          && body.selectorKey === node.selectorKey));
       if (overloadIndex >= 0) return { type, group, overloadIndex };
     }
   }
@@ -6631,6 +6698,7 @@ function stripArity(name) {
 }
 
 async function openGraphSource(request, title) {
+  const seq = ++state.graphSourceSeq;
   state.graphSourceOpen = true;
   state.graphSourceTitle = title;
   state.graphSourceRequest = { request, title };
@@ -6639,16 +6707,24 @@ async function openGraphSource(request, title) {
   state.graphSourceLoading = true;
   render();
   try {
-    state.graphSource = await inspectTypeMemberSource({ ...request, styleOptionsJson: JSON.stringify(state.taste) });
+    const source = await inspectTypeMemberSource({
+      ...request,
+      styleOptionsJson: JSON.stringify(state.taste)
+    });
+    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    state.graphSource = source;
   } catch (error) {
+    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
     state.graphSourceError = String(error?.message || error);
   } finally {
+    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
     state.graphSourceLoading = false;
     render();
   }
 }
 
 function closeGraphSource() {
+  state.graphSourceSeq++;
   state.graphSourceOpen = false;
   state.graphSource = null;
   state.graphSourceError = "";
@@ -6953,8 +7029,8 @@ function renderGraphSource() {
     </div>`;
 }
 
-function navigateToMember(pkg, type, group, overloadIndex = null) {
-  state.package = pkg;
+function navigateToMember(pkg, type, group, overloadIndex = null, bodyTarget = null) {
+  activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;
   state.selectedMemberKey = group.key;
@@ -6969,6 +7045,7 @@ function navigateToMember(pkg, type, group, overloadIndex = null) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.selectedBodyTarget = bodyTarget;
   loadSelectedMemberDocumentation();
 }
 
@@ -7079,12 +7156,13 @@ async function loadPackage(packageId, version, framework, options = {}) {
     };
     const existing = state.packages.findIndex(item =>
       item.id.toLowerCase() === packageModel.id.toLowerCase()
-      && item.version.toLowerCase() === packageModel.version.toLowerCase());
+      && item.version.toLowerCase() === packageModel.version.toLowerCase()
+      && item.activeFramework.toLowerCase() === packageModel.activeFramework.toLowerCase());
     if (existing >= 0) state.packages[existing] = packageModel;
     else state.packages.push(packageModel);
     recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
     if (background) return packageModel;
-    state.package = packageModel;
+    activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
@@ -7121,7 +7199,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       // on a full-screen error. Keep them in their current package and restore the requested
       // identity (so URL/retry stay pinned to the good package); surface a persistent,
       // dismissible notice banner so the failure is clearly explained, not silent.
-      state.package = prevPackage;
+      activatePackage(prevPackage);
       state.requestedPackage = prevRequested.package;
       state.requestedVersion = prevRequested.version;
       state.requestedFramework = prevRequested.framework;
@@ -7214,7 +7292,7 @@ function platformTabHtml() {
   const rt = runtimePackPackage();
   const active = rt && state.package && state.package.id === rt.id ? "active" : "";
   const framework = rt?.activeFramework || state.package?.activeFramework || "";
-  const attr = rt ? `data-package="${escapeHtml(rt.id)}"` : `data-platform-open="1"`;
+  const attr = rt ? `data-package-key="${escapeHtml(packageIdentityKey(rt))}"` : `data-platform-open="1"`;
   return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
       <span class="package-cube">◎</span>
       <span class="tab-label">Platform</span>
@@ -7234,19 +7312,31 @@ function isRuntimePackId(id) {
 // a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
 // Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
 // assemblies load lazily as navigation reaches them. Does not switch the active package.
-async function loadRuntimePack(framework) {
-  if (state.runtimePackLoading) {
-    while (state.runtimePackLoading) {
-      await new Promise(resolve => setTimeout(resolve, 25));
-    }
-    return runtimePackPackage();
+let runtimePackLoadPromise = null;
+
+async function waitForRuntimePackLoad() {
+  while (runtimePackLoadPromise) {
+    const pending = runtimePackLoadPromise;
+    try { await pending; } catch {}
   }
+}
+
+async function loadRuntimePack(framework) {
+  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
+  const requestedFramework = framework || "";
   const existing = runtimePackPackage();
-  if (existing) return existing;
+  if (existing
+    && (!requestedFramework
+      || existing.activeFramework.toLowerCase() === requestedFramework.toLowerCase())) {
+    return existing;
+  }
+  if (existing)
+    state.packages = state.packages.filter(item => item !== existing);
+
   state.runtimePackLoading = true;
   state.runtimePackError = "";
-  try {
-    const result = await inspectLoadRuntimePack(framework || "");
+  const operation = (async () => {
+    const result = await inspectLoadRuntimePack(requestedFramework);
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
     const defaultAssembly = (result.assemblies ?? [])
@@ -7272,15 +7362,22 @@ async function loadRuntimePack(framework) {
     };
     const at = state.packages.findIndex(item =>
       item.id.toLowerCase() === packageModel.id.toLowerCase()
-      && item.version.toLowerCase() === packageModel.version.toLowerCase());
+      && item.version.toLowerCase() === packageModel.version.toLowerCase()
+      && item.activeFramework.toLowerCase() === packageModel.activeFramework.toLowerCase());
     if (at >= 0) state.packages[at] = packageModel;
     else state.packages.push(packageModel);
-    state.runtimePackLoading = false;
     return packageModel;
+  })();
+  runtimePackLoadPromise = operation;
+  try {
+    return await operation;
   } catch (error) {
-    state.runtimePackLoading = false;
     state.runtimePackError = String(error?.message || error);
     return null;
+  } finally {
+    if (runtimePackLoadPromise === operation)
+      runtimePackLoadPromise = null;
+    state.runtimePackLoading = false;
   }
 }
 
@@ -7293,11 +7390,29 @@ async function loadRuntimePack(framework) {
 // and picking a library fetches just that assembly here. Types/assemblies are merged (deduped
 // by id/name) so the runtime pack accumulates the libraries the user visits.
 async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
-  if (state.runtimePackLoading) return runtimePackPackage();
+  if (runtimePackLoadPromise) await waitForRuntimePackLoad();
+  const requestedFramework = framework || "";
+  const resident = runtimePackPackage();
+  if (resident
+    && (!requestedFramework
+      || resident.activeFramework.toLowerCase() === requestedFramework.toLowerCase())
+    && (resident.assemblies || []).some(assembly =>
+      assembly.name.toLowerCase() === String(assemblyFileName).toLowerCase())) {
+    return resident;
+  }
+  if (resident
+    && requestedFramework
+    && resident.activeFramework.toLowerCase() !== requestedFramework.toLowerCase()) {
+    state.packages = state.packages.filter(item => item !== resident);
+  }
+
   state.runtimePackLoading = true;
   state.runtimePackError = "";
-  try {
-    const result = await inspectLoadRuntimePackAssembly(framework || "", assemblyFileName, pack || "");
+  const operation = (async () => {
+    const result = await inspectLoadRuntimePackAssembly(
+      requestedFramework,
+      assemblyFileName,
+      pack || "");
     refreshPackageStats();
     const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
     const existing = runtimePackPackage();
@@ -7318,7 +7433,6 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
         .sort((left, right) => left.order - right.order);
       existing.totalTypes = existing.types.length;
       existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
-      state.runtimePackLoading = false;
       return existing;
     }
     const packageModel = {
@@ -7338,12 +7452,18 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       isRuntimePack: true
     };
     state.packages.push(packageModel);
-    state.runtimePackLoading = false;
     return packageModel;
+  })();
+  runtimePackLoadPromise = operation;
+  try {
+    return await operation;
   } catch (error) {
-    state.runtimePackLoading = false;
     state.runtimePackError = String(error?.message || error);
     return null;
+  } finally {
+    if (runtimePackLoadPromise === operation)
+      runtimePackLoadPromise = null;
+    state.runtimePackLoading = false;
   }
 }
 
@@ -7362,9 +7482,9 @@ async function runCallGraphDemo() {
   const httpPackage = await loadPackage("Microsoft.Extensions.Http", "10.0.0", "net10.0");
   if (!targetPackage || !loggingPackage || !httpPackage) return;
 
-  state.package = state.packages.find(item =>
+  activatePackage(state.packages.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Abstractions"
-    && item.version === "10.0.0") || targetPackage;
+    && item.version === "10.0.0") || targetPackage);
   const type = state.package.types.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
   const member = type && memberGroups(type).find(item =>
@@ -7408,11 +7528,16 @@ async function restoreWorkspaceFromLocation(
     framework: loc.framework || ""
   };
   const tabs = (loc.tabs && loc.tabs.length) ? loc.tabs.slice() : [target];
+  const matchesFramework = tab =>
+    !target.framework
+    || String(tab.framework || tab.activeFramework || "").toLowerCase()
+      === String(target.framework).toLowerCase();
   const matchesTarget = tab =>
     isRuntimePackId(tab.id)
-      ? isRuntimePackId(target.id)
+      ? isRuntimePackId(target.id) && matchesFramework(tab)
       : (tab.id.toLowerCase() === target.id.toLowerCase()
-        && String(tab.version).toLowerCase() === String(target.version).toLowerCase());
+        && String(tab.version).toLowerCase() === String(target.version).toLowerCase()
+        && matchesFramework(tab));
   if (!tabs.some(matchesTarget)) tabs.push(target);
 
   // Load every tab's data so the tab bar and cross-package edges come back, but keep the
@@ -7442,7 +7567,7 @@ async function restoreWorkspaceFromLocation(
 
   const targetModel = state.packages.find(matchesTarget);
   if (targetModel) {
-    state.package = targetModel;
+    activatePackage(targetModel, { resetAccessibility: true });
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
     if (isRuntimePackId(targetModel.id) && loc.library) {
@@ -7462,6 +7587,8 @@ async function restoreWorkspaceFromLocation(
     });
   } else {
     state.loading = false;
+    state.error = state.runtimePackError || "Couldn’t load the requested .NET Platform.";
+    state.errorTitle = "Platform failed";
     render();
   }
 }
@@ -7753,7 +7880,7 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   const pack = await loadRuntimePack(loc.framework || "");
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
-    state.package = pack;
+    activatePackage(pack, { resetAccessibility: true });
     if (loc.library) {
       await applyPlatformLibraryScope(loc.library, navigationSeq);
       if (navigationSeq !== state.navigationSeq) return;
