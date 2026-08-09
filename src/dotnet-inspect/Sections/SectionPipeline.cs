@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Options;
 using DotnetInspector.Queries;
 
@@ -23,7 +24,7 @@ public sealed record SectionEntry<TModel>
     public SectionSizeClass SizeClass { get; init; }
     public SectionCost Cost { get; init; }
     public required string? ScannerKey { get; init; }
-    public InspectionQueryDefinition? Query { get; init; }
+    public ImmutableArray<InspectionQueryDefinition> Queries { get; init; } = [];
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
     public required Func<TModel, bool> CanRender { get; init; }
@@ -99,7 +100,8 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
     /// <summary>
-    /// Binds this pipeline to the typed query registry's prerequisite-aware costs.
+    /// Binds this pipeline to the typed query registry's prerequisite-aware costs. A section
+    /// backed by multiple queries inherits the maximum cost among their prerequisite closures.
     /// </summary>
     public SectionPipeline<TModel> UseQueryCosts(
         Func<InspectionQueryDefinition, InspectionCost> costOf)
@@ -167,7 +169,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add<TDescriptor>(
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
-        => AddDescriptor<TDescriptor>(query: null, isApplicable);
+        => AddDescriptor<TDescriptor>(queries: [], isApplicable);
 
     /// <summary>
     /// Registers a section descriptor whose data is supplied by a typed query.
@@ -177,11 +179,25 @@ public sealed class SectionPipeline<TModel>
         Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
     {
         ArgumentNullException.ThrowIfNull(query);
-        return AddDescriptor<TDescriptor>(query, isApplicable);
+        return AddDescriptor<TDescriptor>([query], isApplicable);
+    }
+
+    /// <summary>
+    /// Registers a section whose data is supplied by multiple typed queries.
+    /// </summary>
+    public SectionPipeline<TModel> Add<TDescriptor>(
+        IReadOnlyList<InspectionQueryDefinition> queries,
+        Func<TModel, bool>? isApplicable = null) where TDescriptor : ISectionDescriptor<TModel>
+    {
+        ArgumentNullException.ThrowIfNull(queries);
+        foreach (InspectionQueryDefinition query in queries)
+            ArgumentNullException.ThrowIfNull(query);
+
+        return AddDescriptor<TDescriptor>(queries, isApplicable);
     }
 
     private SectionPipeline<TModel> AddDescriptor<TDescriptor>(
-        InspectionQueryDefinition? query,
+        IReadOnlyList<InspectionQueryDefinition> queries,
         Func<TModel, bool>? isApplicable) where TDescriptor : ISectionDescriptor<TModel>
     {
         return Add(new SectionEntry<TModel>
@@ -197,7 +213,7 @@ public sealed class SectionPipeline<TModel>
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
             ScannerKey = TDescriptor.ScannerKey,
-            Query = query,
+            Queries = [.. queries],
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
             CanRender = TDescriptor.CanRender,
@@ -211,6 +227,17 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public SectionPipeline<TModel> Add(SectionEntry<TModel> entry)
     {
+        if (entry.Queries.IsDefault)
+            throw new InvalidOperationException($"{entry.Name} has an uninitialized query set.");
+        if (entry.Queries.Any(query => query is null))
+            throw new ArgumentException(
+                $"{entry.Name} has a null typed query binding.",
+                nameof(entry));
+        if (entry.Queries.Length != entry.Queries.Distinct().Count())
+            throw new ArgumentException(
+                $"{entry.Name} binds the same typed query more than once.",
+                nameof(entry));
+
         if (!entry.ProbeEffectiveness && !entry.ExplicitOnly && !entry.HasExplicitApplicability)
             throw new InvalidOperationException(
                 $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
@@ -229,12 +256,14 @@ public sealed class SectionPipeline<TModel>
                 entry = entry with { Cost = scanner };
         }
 
-        if (_queryCost is { } queryCostOf && entry.Query is { } query)
+        if (_queryCost is { } queryCostOf)
         {
-            SectionCost queryCost = queryCostOf(query).ToSectionCost(query);
-
-            if (queryCost > entry.Cost)
-                entry = entry with { Cost = queryCost };
+            foreach (InspectionQueryDefinition query in entry.Queries)
+            {
+                SectionCost queryCost = queryCostOf(query).ToSectionCost(query);
+                if (queryCost > entry.Cost)
+                    entry = entry with { Cost = queryCost };
+            }
         }
 
         // @All renders every member, so an Unbounded section must not be able to join it. Curated
@@ -321,9 +350,7 @@ public sealed class SectionPipeline<TModel>
     /// Query identity is the instance, not its diagnostic name.
     /// </summary>
     public IReadOnlySet<InspectionQueryDefinition> DeclaredQueries => _entries
-        .Select(e => e.Query)
-        .Where(query => query is not null)
-        .Cast<InspectionQueryDefinition>()
+        .SelectMany(e => e.Queries)
         .ToHashSet();
 
     /// <summary>
@@ -340,8 +367,7 @@ public sealed class SectionPipeline<TModel>
     /// Section names paired with the typed query each declares, for sections that declare one.
     /// </summary>
     public IEnumerable<(string Name, InspectionQueryDefinition Query)> QueryBoundSections => _entries
-        .Where(e => e.Query is not null)
-        .Select(e => (e.Name, e.Query!));
+        .SelectMany(e => e.Queries.Select(query => (e.Name, Query: query)));
 
     /// <summary>
     /// Section names paired with the <b>effective</b> cost the verbosity ladder consults — after
@@ -878,14 +904,17 @@ public sealed class SectionPipeline<TModel>
         for (int i = 0; i < _entries.Count; i++)
         {
             SectionEntry<TModel> entry = _entries[i];
-            if (entry.Query is not { } query)
+            if (entry.Queries.IsDefaultOrEmpty)
                 continue;
             if (excludeUnbounded && entry.Cost == SectionCost.Unbounded)
                 continue;
             if (IsRequested(entry, i, verbosity, include, fixedOverview))
             {
-                queries.Add(query);
-                trace?.RecordQueryDemand(entry.Name, query);
+                foreach (InspectionQueryDefinition query in entry.Queries)
+                {
+                    queries.Add(query);
+                    trace?.RecordQueryDemand(entry.Name, query);
+                }
             }
         }
 
