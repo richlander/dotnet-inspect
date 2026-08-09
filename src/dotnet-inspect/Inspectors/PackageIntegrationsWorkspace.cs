@@ -1,4 +1,5 @@
 using DotnetInspector.Queries;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -31,6 +32,17 @@ internal sealed class PackageIntegrationAcquisition
         return new PackageIntegrationAcquisition(
             packageId.Trim(),
             packageVersion.Trim());
+    }
+
+    internal static PackageIntegrationAcquisition Remote(
+        PackageExtractionResult resolution,
+        string fallbackPackageId,
+        string fallbackPackageVersion)
+    {
+        ArgumentNullException.ThrowIfNull(resolution);
+        return Remote(
+            resolution.PackageName ?? fallbackPackageId,
+            resolution.Version ?? fallbackPackageVersion);
     }
 
     internal static PackageIntegrationAcquisition Local(
@@ -66,17 +78,30 @@ internal sealed class PackageIntegrationAcquisition
         if (candidate is not { Length: > 0 and <= 100 })
             return null;
 
-        foreach (char character in candidate)
+        bool previousWasSeparator = false;
+        for (int index = 0; index < candidate.Length; index++)
         {
+            char character = candidate[index];
             bool asciiAlphaNumeric =
                 character is >= 'a' and <= 'z'
                 or >= 'A' and <= 'Z'
                 or >= '0' and <= '9';
-            if (!asciiAlphaNumeric
-                && character is not '.' and not '-' and not '_')
+            bool word = asciiAlphaNumeric || character == '_';
+            bool separator = character is '.' or '-';
+            if (!word && !separator)
             {
                 return null;
             }
+
+            if (separator
+                && (index == 0
+                    || index == candidate.Length - 1
+                    || previousWasSeparator))
+            {
+                return null;
+            }
+
+            previousWasSeparator = separator;
         }
 
         return candidate;

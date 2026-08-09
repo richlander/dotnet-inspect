@@ -62,8 +62,10 @@ shared document prerequisite plus availability or integrity query over a
 host-owned `SourceLinkService`. Separately, the first workspace query executes
 Integrations inspection across every participant in one binding-consistent
 assembly context group, reusing retained immutable content and returning
-per-participant evidence or failure. No command uses that group-scoped query
-yet.
+per-participant evidence or failure. Package `--all-libraries` uses that
+group-scoped query for explicit Integrations demand, grouped by target
+framework; direct `library` and package `--library` remain single-assembly
+controls.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,

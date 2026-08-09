@@ -30,7 +30,8 @@ public abstract record AssemblyIntegrationsEntry(
     public sealed record Available(
         AssemblyContextSubject Subject,
         ImmutableArray<EcosystemIntegrationSignalInfo> EcosystemSignals,
-        ImmutableArray<OpenTelemetrySignalInfo> OpenTelemetrySignals)
+        ImmutableArray<OpenTelemetrySignalInfo> OpenTelemetrySignals,
+        EcosystemIntegrationPresence Presence)
         : AssemblyIntegrationsEntry(Subject);
 
     /// <summary>The participant's immutable image could not be acquired.</summary>
@@ -125,7 +126,9 @@ public static class AssemblyContextIntegrationsQuery
     /// <remarks>
     /// Hosts invoke participants in group order. This streaming form keeps the
     /// complete binding universe while bounding retained image bytes to the
-    /// participant currently being consumed. Gated by
+    /// participant currently being consumed. Release is terminal for that
+    /// participant; callers must not run a later whole-group query over the
+    /// same group. Gated by
     /// <c>UseAssemblyAsync_ReleasesParticipantBeforeAdvancing</c>.
     /// </remarks>
     public static async Task<TResult> ExecuteParticipantAsync<TResult>(
@@ -175,10 +178,17 @@ public static class AssemblyContextIntegrationsQuery
     {
         try
         {
+            ImmutableArray<EcosystemIntegrationSignalInfo> ecosystemSignals =
+                session.EcosystemIntegrations().ToImmutableArray();
+            ImmutableArray<OpenTelemetrySignalInfo> openTelemetrySignals =
+                session.OpenTelemetrySignals().ToImmutableArray();
             return new AssemblyIntegrationsEntry.Available(
                 subject,
-                session.EcosystemIntegrations().ToImmutableArray(),
-                session.OpenTelemetrySignals().ToImmutableArray());
+                ecosystemSignals,
+                openTelemetrySignals,
+                session.EcosystemIntegrationPresence(
+                    ecosystemSignals,
+                    !openTelemetrySignals.IsDefaultOrEmpty));
         }
         catch (BadImageFormatException ex)
         {

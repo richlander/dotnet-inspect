@@ -12,10 +12,10 @@ identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. The first typed query-planning slices are implemented for library
 metadata-image and direct-reference inspection. `DotnetInspector.Queries` also
 contains the first workspace context foundation and a sequential group-scoped
-Integrations query, but commands have not migrated to that owner and the
-remaining query families remain future work. The components below are the
-current hosts, shared substrates, and inspection producers that will extend
-that space.
+Integrations query. Package `--all-libraries` is the first command migrated to
+that owner for explicit Integrations demand; the remaining query families and
+command paths remain future work. The components below are the current hosts,
+shared substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,

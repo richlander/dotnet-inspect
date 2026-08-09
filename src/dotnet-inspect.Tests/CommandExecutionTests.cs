@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
@@ -144,6 +145,60 @@ public partial class CommandExecutionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMalformedTypeNameAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedIntegrations"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Example"),
+            metadata.GetOrAddString("BrokenType"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int typeNameOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+            + reader.GetTableRowSize(TableIndex.TypeDef)
+            + sizeof(uint);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(typeNameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        File.WriteAllBytes(path, bytes);
     }
 
     private static void WriteHostileIlOperandAssembly(string path)
@@ -12598,6 +12653,61 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "Value cannot be null or whitespace",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailure()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            string malformedPath = Path.Combine(
+                tempDir,
+                "MalformedIntegrations.dll");
+            WriteMalformedTypeNameAssembly(malformedPath);
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry healthyEntry = archive.Entries.Single(
+                    entry => entry.FullName.EndsWith(
+                        "Microsoft.Extensions.Configuration.dll",
+                        StringComparison.Ordinal));
+                string directory = healthyEntry.FullName[..(
+                    healthyEntry.FullName.LastIndexOf('/') + 1)];
+                archive.CreateEntryFromFile(
+                    malformedPath,
+                    $"{directory}MalformedIntegrations.dll");
+            }
+
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Integrations inspection failed for",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "MalformedIntegrations.dll",
                 error,
                 StringComparison.Ordinal);
         }

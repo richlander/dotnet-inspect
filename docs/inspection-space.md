@@ -314,6 +314,8 @@ cumulative image bytes. The legacy Integrations scanner recognizes populated
 Findings and does not rescan. The dependent integration-opportunity scanner
 consumes available findings unchanged and emits no gap rows when its prerequisite
 failed. Direct `library` and package `--library` remain single-assembly controls.
+Ecosystem and OpenTelemetry evidence form one grouped query outcome, so
+malformed participant metadata fails that grouped unit.
 Remote package participants carry the coordinate selected by acquisition rather
 than package-controlled nuspec identity. Local archives carry a valid,
 normalized nuspec coordinate when one exists and local-archive provenance
@@ -333,12 +335,18 @@ and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition provenance.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.
+`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailure` gates that
+status independently of later host inspection.
 `PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
 and
 `InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
 gate malformed participant isolation.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
-gates the Finding projection and duplicate-scan boundary. Existing
+and `GroupedEvidence_SuppliesIntegrationPresence` gate the Finding projection
+and duplicate-scan boundary.
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`
+gates preservation of presence flags that are broader than rendered evidence
+rows. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output
 compatibility.
 

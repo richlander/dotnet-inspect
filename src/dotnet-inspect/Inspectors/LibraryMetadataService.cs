@@ -150,7 +150,17 @@ internal static class LibraryMetadataService
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
 
             // Populate cheap presence flags for fast -s discovery
-            var presenceFlags = pdbContext.ScanPresenceFlags();
+            PresenceFlags presenceFlags = assemblyIntegrations switch
+            {
+                AssemblyIntegrationsEntry.Available available =>
+                    pdbContext.ScanPresenceFlags(available.Presence),
+                AssemblyIntegrationsEntry.Rejected
+                    or AssemblyIntegrationsEntry.Failed =>
+                    pdbContext.ScanPresenceFlagsWithoutIntegrations(),
+                null => pdbContext.ScanPresenceFlags(),
+                _ => throw new InvalidOperationException(
+                    $"Unknown assembly Integrations result '{assemblyIntegrations.GetType().Name}'."),
+            };
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
             inspection.HasUnsafeCode = presenceFlags.HasUnsafeCode;

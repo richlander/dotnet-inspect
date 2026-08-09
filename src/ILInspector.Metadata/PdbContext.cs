@@ -1260,6 +1260,16 @@ public class PdbContext : IDisposable
     public PresenceFlags ScanPresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_peReader);
 
+    public PresenceFlags ScanPresenceFlags(
+        EcosystemIntegrationPresence integrationPresence)
+        => AssemblyDetailScanner.ScanPresenceFlags(
+            _peReader,
+            integrationPresence);
+
+    public PresenceFlags ScanPresenceFlagsWithoutIntegrations()
+        => AssemblyDetailScanner.ScanPresenceFlagsWithoutIntegrations(
+            _peReader);
+
     public void Dispose()
     {
         if (_disposed)

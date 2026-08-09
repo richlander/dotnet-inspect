@@ -164,9 +164,11 @@ The legacy Integrations scanner treats populated properties as complete. The
 dependent integration-opportunity scanner composes available group results
 without repeating metadata scanning and emits no gaps when its Integrations
 prerequisite failed. Direct `library` and package `--library` remain
-single-assembly controls. Grouped failures leave successful rows renderable,
-emit one warning per affected library and reason, and make the command
-incomplete with a nonzero exit code.
+single-assembly controls. Ecosystem and OpenTelemetry evidence form one grouped
+query outcome, so malformed participant metadata fails that grouped unit.
+Grouped failures leave successful rows renderable, emit one warning per
+affected library and reason, and make the command incomplete with a nonzero
+exit code.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates grouping, correlation, provenance, and retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
@@ -180,12 +182,18 @@ and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition-owned
 provenance. `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates
 diagnostic composition and the shared nonzero completion status used after
 Markdown, count, tabular, or JSON output.
+`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailure` gates that
+status independently of later host inspection.
 `PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
 and
 `InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
 gate malformed participant isolation.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
-gates projection and duplicate-scan avoidance. Existing
+and `GroupedEvidence_SuppliesIntegrationPresence` gate projection and
+duplicate-scan avoidance.
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`
+gates preservation of presence flags that are broader than rendered evidence
+rows. Existing
 `PackageCommand_AllLibraries_*` tests gate rendering compatibility.
 
 Cancellation-aware execution, optional concurrent execution, and migration of

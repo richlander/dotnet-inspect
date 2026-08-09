@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
@@ -9,6 +10,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class PackageIntegrationsWorkspaceTests
 {
     [Fact]
@@ -223,6 +225,9 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData("Test Package", "1.2.3", false)]
     [InlineData("Test.Package", "not-a-version", false)]
     [InlineData("", "1.2.3", false)]
+    [InlineData(".Test.Package", "1.2.3", false)]
+    [InlineData("Test.Package-", "1.2.3", false)]
+    [InlineData("Test..Package", "1.2.3", false)]
     public void LocalAcquisition_UsesOnlyValidNuspecCoordinates(
         string packageId,
         string packageVersion,
@@ -254,9 +259,15 @@ public sealed class PackageIntegrationsWorkspaceTests
     [Fact]
     public void RemoteAcquisition_UsesResolvedCoordinate()
     {
+        var resolution = new Packages.PackageExtractionResult(
+            "/tmp/payload",
+            TempDir: null,
+            PackageName: "Resolved.Package",
+            Version: "2.0.0");
         var acquisition = PackageIntegrationAcquisition.Remote(
-            "Resolved.Package",
-            "2.0.0");
+            resolution,
+            "Wrapper.Package",
+            "1.0.0");
 
         var package = Assert.IsType<
             AssemblyResolutionProvenance.PackageAsset>(
@@ -267,37 +278,69 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
+    public async Task GroupedEvidence_SuppliesIntegrationPresence()
+    {
+        var (path, _, _, error) =
+            Services.PlatformResolver.ResolveAssembly(
+                "Microsoft.Extensions.Configuration");
+        Assert.Null(error);
+        Assert.NotNull(path);
+        using var workspace = PackageIntegrationsWorkspace.Create(
+            [new(path, "net11.0")],
+            "Test.Package",
+            "1.0.0");
+        using var httpClient = new HttpClient();
+        CoreCache.Initialize("dotnet-inspect-test");
+
+        LibraryInspection? inspection =
+            await workspace.UseAssemblyAsync(
+                path,
+                async (retained, integrations) =>
+                {
+                    var available = Assert.IsType<
+                        AssemblyIntegrationsEntry.Available>(
+                        integrations);
+                    AssemblyIntegrationsEntry entry = available with
+                    {
+                        EcosystemSignals =
+                            ImmutableArray<
+                                EcosystemIntegrationSignalInfo>.Empty,
+                        OpenTelemetrySignals =
+                            ImmutableArray<
+                                OpenTelemetrySignalInfo>.Empty,
+                        Presence = new EcosystemIntegrationPresence(),
+                    };
+                    return await LibraryMetadataService.InspectAsync(
+                        path,
+                        new Options.LibraryOptions(),
+                        new VerboseLogger(enabled: false),
+                        packageName: null,
+                        packageVersion: null,
+                        httpClient,
+                        retainedAssembly: retained,
+                        assemblyIntegrations: entry);
+                });
+
+        Assert.NotNull(inspection);
+        Assert.False(inspection.HasConfigurationSupport);
+        Assert.False(inspection.HasOpenTelemetrySupport);
+        Assert.Equal(0, inspection.IntegrationCount);
+        Assert.NotNull(inspection.EcosystemIntegrationInspection);
+        Assert.NotNull(inspection.OpenTelemetryInspection);
+    }
+
+    [Fact]
     public async Task GroupedIntegrationsFailure_IsVisibleAndDeduplicated()
     {
-        string path =
-            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
-        var subject = new FindingSubject(
-            path,
-            Path.GetFileName(path));
-        var model = new LibraryInspection
-        {
-            FileName = "lib/net10.0/Test.dll",
-            EcosystemIntegrationInspection =
-                new FindingInspection<
-                    EcosystemIntegrationSignalInfo>.Failed(
-                    new InspectionError(
-                        subject,
-                        MetadataFindings.EcosystemIntegrationDescriptor,
-                        "invalid method body")),
-            OpenTelemetryInspection =
-                new FindingInspection<OpenTelemetrySignalInfo>.Failed(
-                    new InspectionError(
-                        subject,
-                        MetadataFindings.OpenTelemetrySignalDescriptor,
-                        "invalid method body")),
-        };
+        (string FileName, string Reason) failure =
+            ("lib/net10.0/Test.dll", "invalid method body");
 
         bool incomplete = false;
         var (_, error) = await ConsoleCapture.RunAsync(() =>
         {
             incomplete =
                 Commands.PackageCommand.WriteGroupedIntegrationsFailures(
-                    [model]);
+                    [failure, failure]);
         });
 
         Assert.True(incomplete);

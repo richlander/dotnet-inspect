@@ -583,6 +583,7 @@ public class PackageCommand
                             nuspec?.PackageName,
                             nuspec?.Version)
                         : PackageIntegrationAcquisition.Remote(
+                            resolution,
                             packageName,
                             version),
                     options);
@@ -2543,12 +2544,31 @@ public class PackageCommand
                     acquisition)
                 : null;
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         foreach (var selection in selected)
         {
+            string relativePath = Path.GetRelativePath(
+                    extractPath,
+                    selection.Path)
+                .Replace('\\', '/');
+
             Task<LibraryInspection?> InspectAsync(
                 ResolvedAssemblyReference? retainedAssembly,
-                AssemblyIntegrationsEntry? integrations) =>
-                LibraryMetadataService.InspectAsync(
+                AssemblyIntegrationsEntry? integrations)
+            {
+                switch (integrations)
+                {
+                    case AssemblyIntegrationsEntry.Rejected rejected:
+                        groupedIntegrationsFailures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        break;
+                    case AssemblyIntegrationsEntry.Failed failed:
+                        groupedIntegrationsFailures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return LibraryMetadataService.InspectAsync(
                     selection.Path,
                     libraryOptions,
                     logger,
@@ -2561,6 +2581,7 @@ public class PackageCommand
                     queryRegistry: queryRegistry,
                     retainedAssembly: retainedAssembly,
                     assemblyIntegrations: integrations);
+            }
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
@@ -2574,7 +2595,6 @@ public class PackageCommand
                 continue;
             }
 
-            var relativePath = Path.GetRelativePath(extractPath, selection.Path).Replace('\\', '/');
             inspection.FileName = relativePath;
             inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
@@ -2583,7 +2603,8 @@ public class PackageCommand
 
         bool integrationsIncomplete =
             integrationsWorkspace is not null
-            && WriteGroupedIntegrationsFailures(inspections);
+            && WriteGroupedIntegrationsFailures(
+                groupedIntegrationsFailures);
         int completionExitCode =
             AllLibrariesCompletionExitCode(integrationsIncomplete);
 
@@ -2633,18 +2654,11 @@ public class PackageCommand
             .Contains(LibrarySections.ScannerIntegrations);
 
     internal static bool WriteGroupedIntegrationsFailures(
-        IReadOnlyList<LibraryInspection> inspections)
+        IEnumerable<(string FileName, string Reason)> groupedFailures)
     {
-        var failures = inspections
-            .SelectMany(inspection =>
-                (inspection.InspectionFailures ?? [])
-                    .Where(static failure =>
-                        failure.Section is
-                            LibraryIntegrationCatalog.RollupName
-                            or EcosystemIntegrationNames.OpenTelemetry)
-                    .Select(failure => (
-                        inspection.FileName,
-                        failure.Reason)))
+        ArgumentNullException.ThrowIfNull(groupedFailures);
+
+        var failures = groupedFailures
             .Distinct()
             .ToList();
 
