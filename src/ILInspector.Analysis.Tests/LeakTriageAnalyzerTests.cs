@@ -612,6 +612,38 @@ public sealed class LeakTriageAnalyzerTests
     }
 
     [Fact]
+    public void LibraryBodyIndex_PrefetchedImageHonorsBodyScope()
+    {
+        string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
+        var image = ImmutableArray.Create(File.ReadAllBytes(path));
+        LibraryBodyIndex full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity selected = full.Methods.First(
+            method => full.DirectCalls.Any(
+                call => call.Caller.MetadataToken
+                    == method.MetadataToken));
+
+        LibraryBodyIndex scoped =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                path,
+                image,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope:
+                    new HashSet<int> { selected.MetadataToken });
+
+        Assert.Equal(full.DeclaredMethods.Length, scoped.DeclaredMethods.Length);
+        Assert.Equal(full.Methods.Length, scoped.Methods.Length);
+        Assert.NotEmpty(scoped.DirectCalls);
+        Assert.True(scoped.DirectCalls.Length < full.DirectCalls.Length);
+        Assert.All(
+            scoped.DirectCalls,
+            call => Assert.Equal(
+                selected.MetadataToken,
+                call.Caller.MetadataToken));
+    }
+
+    [Fact]
     public void LibraryBodyIndex_RejectsScopedLeakTriageCensus()
     {
         string path = typeof(ArrayPoolLeakFixtures).Assembly.Location;
