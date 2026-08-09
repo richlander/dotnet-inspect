@@ -14,10 +14,11 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. Library metadata, direct-reference, extension-method, and
-SourceLink inspection are the first typed-query canaries: the section catalog
-plans typed demand and executes it through a prerequisite-aware registry, while
-the command still owns orchestration. The library CLI and package
+govern its migration. Library metadata, direct-reference, extension-method,
+custom-attribute, and SourceLink inspection are the first typed-query canaries:
+the section catalog plans typed demand and executes it through a
+prerequisite-aware registry, while the command still owns orchestration. The
+library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group scans every selected
 participant sequentially, preserves per-assembly identity, provenance, and
@@ -439,9 +440,10 @@ own acquisition cost or producer dependencies.
 The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
 tracing are useful foundations. `DotnetInspector.Queries` now owns typed
-metadata, direct-reference, extension-method, and SourceLink plans. String keys,
-mutable CLI models, path-shaped residual inputs, and library-command ownership
-remain migration boundaries rather than workspace contracts.
+metadata, direct-reference, extension-method, custom-attribute, and SourceLink
+plans. String keys, mutable CLI models, path-shaped residual inputs, and
+library-command ownership remain migration boundaries rather than workspace
+contracts.
 
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host

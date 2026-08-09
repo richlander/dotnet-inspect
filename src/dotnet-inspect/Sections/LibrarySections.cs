@@ -22,7 +22,6 @@ public static class LibrarySections
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerResources = "Resources";
-    public const string ScannerCustomAttributes = "CustomAttributes";
     public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
@@ -75,7 +74,8 @@ public static class LibrarySections
             .UseScannerCosts(scannerCost)
             .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
-            .Add<LibraryInfo>(ExtensionMethodsQuery.Definition)
+            .Add<LibraryInfo>(
+                [CustomAttributesQuery.Definition, ExtensionMethodsQuery.Definition])
             .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
@@ -131,7 +131,7 @@ public static class LibrarySections
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
-            .Add<CustomAttributes>()
+            .Add<CustomAttributes>(CustomAttributesQuery.Definition)
             .Add<UnionTypes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
@@ -189,10 +189,6 @@ public static class LibrarySections
                 ctx.Model.ResourceInspection = ctx.Scan(
                     session => LibraryMetadataService.ScanResources(session, ctx.AssemblyPath, ctx.Logger),
                     () => LibraryMetadataService.ScanResources(ctx.AssemblyPath, ctx.Logger)))
-            .Add(ScannerCustomAttributes, SectionCost.NetworkFree, ctx =>
-                ctx.Model.Apply(ctx.Scan(
-                    session => LibraryMetadataService.ScanCustomAttributes(session, ctx.AssemblyPath, ctx.Logger),
-                    () => LibraryMetadataService.ScanCustomAttributes(ctx.AssemblyPath, ctx.Logger))))
             .Add(ScannerUnionTypes, SectionCost.NetworkFree, ctx =>
                 ctx.Model.UnionTypeInspection = LibraryMetadataService.ScanUnionTypes(ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTypeForwarders, SectionCost.NetworkFree, ctx =>
@@ -203,7 +199,6 @@ public static class LibrarySections
                 ScannerInfoCounts,
                 ScannerClassifiedMethods,
                 ScannerResources,
-                ScannerCustomAttributes,
                 ScannerTypeForwarders)
             .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
                 ctx.Scan(
@@ -268,6 +263,22 @@ public static class LibrarySections
                         catch (Exception ex)
                         {
                             return new AssemblyReferencesResult.Failed(ex);
+                        }
+                    }))
+            .Add(CustomAttributesQuery.Definition, ctx =>
+                ctx.Scan(
+                    CustomAttributesQuery.Execute,
+                    () =>
+                    {
+                        try
+                        {
+                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
+                                ctx.AssemblyPath);
+                            return CustomAttributesQuery.Execute(session);
+                        }
+                        catch (Exception ex)
+                        {
+                            return new CustomAttributesResult.Failed(ex);
                         }
                     }))
             .Add(ExtensionMethodsQuery.Definition, ctx =>
@@ -810,7 +821,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.CustomAttributes;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerCustomAttributes;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyAttributeInspection.CanRenderWithPresence(model.HasAssemblyAttributes);
     }

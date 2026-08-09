@@ -74,6 +74,34 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void CustomAttributesQueryProjection_RetainsFindingSemanticsAndJsonOrder()
+    {
+        var inspection = new LibraryInspection();
+        string path = typeof(AssemblyInspectionSession).Assembly.Location;
+        using var session = AssemblyInspectionSession.Open(path);
+        var result = Assert.IsType<CustomAttributesResult.Available>(
+            CustomAttributesQuery.Execute(session));
+
+        LibraryMetadataService.ApplyCustomAttributesResult(
+            path,
+            inspection,
+            new VerboseLogger(enabled: false),
+            result);
+
+        var findings = inspection.AssemblyAttributeInspection.Findings();
+        Assert.Contains(
+            findings,
+            finding => finding.Payload.Name == "InternalsVisibleTo");
+        var finding = findings.First(
+            finding => finding.Payload.Name == "InternalsVisibleTo");
+
+        Assert.Same(MetadataFindings.AssemblyAttributeDescriptor, finding.Descriptor);
+        Assert.Equal(
+            result.Attributes.Select(attribute => attribute.Name),
+            inspection.CustomAttributes!.Select(attribute => attribute.Name));
+    }
+
+    [Fact]
     public void LibraryJson_ProjectsFindingPayloadsWithExistingShape()
     {
         AssemblyAttributeInfo[] attributes =
@@ -184,7 +212,12 @@ public class LibraryFindingConsumerTests
             logger,
             new ExtensionMethodsResult.Failed(
                 new FileNotFoundException("Extension method input was not found.", missingPath)));
-        inspection.Apply(LibraryMetadataService.ScanCustomAttributes(missingPath, logger));
+        LibraryMetadataService.ApplyCustomAttributesResult(
+            missingPath,
+            inspection,
+            logger,
+            new CustomAttributesResult.Failed(
+                new FileNotFoundException("Custom attribute input was not found.", missingPath)));
         inspection.TypeForwarderInspection = LibraryMetadataService.ScanTypeForwarders(missingPath, logger);
 
         AssertFailure(inspection.ClassifiedMethodInspection, MetadataFindings.ClassifiedMethodDescriptor);
