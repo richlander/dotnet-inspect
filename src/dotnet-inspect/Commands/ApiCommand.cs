@@ -2177,7 +2177,8 @@ public class ApiCommand
            && options.IncludeSections is { Count: > 0 } sections
            && sections.Contains(SectionNames.AnnotatedSourceDocument)
            && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
-           && !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
 
     private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
         => options.Select is { Length: > 0 } selectors

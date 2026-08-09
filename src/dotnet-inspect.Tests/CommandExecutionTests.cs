@@ -6964,6 +6964,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsImplicitCallerSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Document", "--json",
+            "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+    }
+
+    [Fact]
     public async Task Member_DuplicateAnnotatedSourceDocumentSelectors_UseStructuredJsonContract()
     {
         var (exit, output, error) = await RunAppAsync(
