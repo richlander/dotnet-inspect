@@ -36,6 +36,14 @@ public class ForwardedCallerEdgeTests
         return File.Exists(path) ? path : null;
     }
 
+    static string? DataContractSerializationPath()
+    {
+        string path = Path.Combine(
+            FrameworkDirectory,
+            "System.Private.DataContractSerialization.dll");
+        return File.Exists(path) ? path : null;
+    }
+
     static int CreateToken(
         string targetPath,
         params string[] parameterTypes) =>
@@ -161,6 +169,31 @@ public class ForwardedCallerEdgeTests
         Assert.DoesNotContain(
             edges,
             edge => edge.Call.Caller.Name == nameof(WrapThroughFacade));
+    }
+
+    [Fact]
+    public void CallerEdges_RetainReachabilityProvenFacadeWhenReplayIsUnbound()
+    {
+        string? target = PrivateXmlPath();
+        string? caller = DataContractSerializationPath();
+        Assert.SkipWhen(
+            target is null || caller is null,
+            "Required XML framework assemblies are not in the runtime directory.");
+        var inspection = new ApiMemberAnalysisInspection(
+            target!,
+            [],
+            new HashSet<string> { SectionNames.Callers },
+            [caller!],
+            options: null);
+
+        ImmutableArray<CallerEdge> edges = inspection.CallerEdges(
+            CreateToken(target!, "TextReader"));
+
+        Assert.Contains(
+            edges,
+            edge => edge.Source
+                    == "System.Private.DataContractSerialization"
+                && edge.Call.Caller.Name == "ExportSurrogateData");
     }
 
     [Theory]

@@ -678,12 +678,16 @@ public sealed class CatalogMemberCorrespondencePlan
     /// Compares two complete projections. When resolution is unavailable on
     /// either side, exact assembly-reference or intrinsic-core-library
     /// contracts retain the metadata-level correspondence without collapsing
-    /// distinct reference identities or type names.
+    /// distinct reference identities or type names. A separately established
+    /// type correspondence may also vouch for repeated occurrences of that
+    /// exact request pair elsewhere in the signature.
     /// </summary>
     internal bool CorrespondsTo(
         CatalogMemberCorrespondencePlan other,
         CatalogMemberJoinProjection.Issued projection,
-        CatalogMemberJoinProjection.Issued otherProjection)
+        CatalogMemberJoinProjection.Issued otherProjection,
+        TypeResolutionRequest? correspondingTypeRequest = null,
+        TypeResolutionRequest? otherCorrespondingTypeRequest = null)
     {
         ArgumentNullException.ThrowIfNull(other);
         ArgumentNullException.ThrowIfNull(projection);
@@ -713,6 +717,8 @@ public sealed class CatalogMemberCorrespondencePlan
                 other,
                 other._declaringType,
                 otherKey.DeclaringType,
+                correspondingTypeRequest,
+                otherCorrespondingTypeRequest,
                 ref usedUnresolvedContract)
             || !CompatibleType(
                 _returnType,
@@ -720,6 +726,8 @@ public sealed class CatalogMemberCorrespondencePlan
                 other,
                 other._returnType,
                 otherKey.ReturnType,
+                correspondingTypeRequest,
+                otherCorrespondingTypeRequest,
                 ref usedUnresolvedContract))
         {
             return false;
@@ -733,6 +741,8 @@ public sealed class CatalogMemberCorrespondencePlan
                     other,
                     other._parameterTypes[i],
                     otherKey.ParameterTypes[i],
+                    correspondingTypeRequest,
+                    otherCorrespondingTypeRequest,
                     ref usedUnresolvedContract))
             {
                 return false;
@@ -748,6 +758,8 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         PlannedType otherPlanned,
         CatalogTypeShape otherShape,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest? otherCorrespondingTypeRequest,
         ref bool usedUnresolvedContract)
     {
         if (shape.Equals(otherShape))
@@ -762,9 +774,14 @@ public sealed class CatalogMemberCorrespondencePlan
                     (shape.Kind == CatalogTypeShapeKind.DegradedDefinition
                         || otherShape.Kind
                             == CatalogTypeShapeKind.DegradedDefinition)
-                    && EquivalentUnresolvedContract(
-                        Requests[planned.RequestIndex],
-                        other.Requests[otherPlanned.RequestIndex]);
+                    && (EquivalentUnresolvedContract(
+                            Requests[planned.RequestIndex],
+                            other.Requests[otherPlanned.RequestIndex])
+                        || MatchesEstablishedCorrespondence(
+                            Requests[planned.RequestIndex],
+                            correspondingTypeRequest,
+                            other.Requests[otherPlanned.RequestIndex],
+                            otherCorrespondingTypeRequest));
                 usedUnresolvedContract |= equivalent;
                 return equivalent;
             case PlannedTypeKind.GenericInstance:
@@ -774,6 +791,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract)
                     && CompatibleMany(
                         planned.Components,
@@ -781,6 +800,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract);
             case PlannedTypeKind.SzArray:
             case PlannedTypeKind.Array:
@@ -794,6 +815,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract);
             case PlannedTypeKind.Modified:
                 return planned.IsRequiredModifier
@@ -804,6 +827,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract)
                     && CompatibleMany(
                         planned.Components,
@@ -811,6 +836,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract);
             case PlannedTypeKind.FunctionPointer:
                 return planned.SignatureHeader
@@ -824,6 +851,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.ElementType!,
                         otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract)
                     && CompatibleMany(
                         planned.Components,
@@ -831,6 +860,8 @@ public sealed class CatalogMemberCorrespondencePlan
                         other,
                         otherPlanned.Components,
                         otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
                         ref usedUnresolvedContract);
             case PlannedTypeKind.GenericParameter:
             case PlannedTypeKind.MethodGenericParameter:
@@ -847,6 +878,8 @@ public sealed class CatalogMemberCorrespondencePlan
         CatalogMemberCorrespondencePlan other,
         ImmutableArray<PlannedType> otherPlanned,
         ImmutableArray<CatalogTypeShape> otherShapes,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest? otherCorrespondingTypeRequest,
         ref bool usedUnresolvedContract)
     {
         if (planned.Length != otherPlanned.Length
@@ -864,6 +897,8 @@ public sealed class CatalogMemberCorrespondencePlan
                     other,
                     otherPlanned[i],
                     otherShapes[i],
+                    correspondingTypeRequest,
+                    otherCorrespondingTypeRequest,
                     ref usedUnresolvedContract))
             {
                 return false;
@@ -894,6 +929,20 @@ public sealed class CatalogMemberCorrespondencePlan
             _ => false,
         };
     }
+
+    static bool MatchesEstablishedCorrespondence(
+        TypeResolutionRequest request,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest other,
+        TypeResolutionRequest? otherCorrespondingTypeRequest) =>
+        correspondingTypeRequest is not null
+        && otherCorrespondingTypeRequest is not null
+        && TypeResolutionRequestComparer.Instance.Equals(
+            request,
+            correspondingTypeRequest)
+        && TypeResolutionRequestComparer.Instance.Equals(
+            other,
+            otherCorrespondingTypeRequest);
 
     static CatalogMemberCorrespondencePlan CreateCore(
         ResolvedAssemblyReference source,

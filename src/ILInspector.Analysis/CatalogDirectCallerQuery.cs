@@ -22,6 +22,7 @@ public static class CatalogDirectCallerQuery
         CatalogCallGraphParticipant target,
         int targetMethodToken,
         IEnumerable<CatalogCallGraphParticipant> sources,
+        CallerResolutionPlan? declaringTypeResolution = null,
         TypeResolutionContextOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(bindingPolicy);
@@ -89,12 +90,23 @@ public static class CatalogDirectCallerQuery
         var matches = ImmutableArray.CreateBuilder<CatalogDirectCaller>();
         foreach (var candidate in candidates)
         {
+            (
+                TypeResolutionRequest Target,
+                TypeResolutionRequest Candidate)? declaringCorrespondence =
+                DeclaringTypeCorrespondence(
+                    declaringTypeResolution,
+                    target,
+                    targetMethod,
+                    candidate.Participant,
+                    candidate.Call);
             if (candidate.Plan.Project(context)
                     is CatalogMemberJoinProjection.Issued projection
                 && targetPlan.CorrespondsTo(
                     candidate.Plan,
                     targetProjection,
-                    projection))
+                    projection,
+                    declaringCorrespondence?.Target,
+                    declaringCorrespondence?.Candidate))
             {
                 matches.Add(
                     new CatalogDirectCaller(
@@ -104,5 +116,40 @@ public static class CatalogDirectCallerQuery
         }
 
         return matches.ToImmutable();
+    }
+
+    static (
+        TypeResolutionRequest Target,
+        TypeResolutionRequest Candidate)? DeclaringTypeCorrespondence(
+        CallerResolutionPlan? resolution,
+        CatalogCallGraphParticipant target,
+        MethodIdentity targetMethod,
+        CatalogCallGraphParticipant participant,
+        DirectCall call)
+    {
+        TypeRef candidateType = GenericMemberIdentity.OpenDeclaringType(
+            call.Callee.DeclaringType);
+        if (resolution?.GetRelation(
+                participant.Assembly,
+                candidateType)
+            is not CandidateTypeRelation.SameDefinition)
+        {
+            return null;
+        }
+
+        ResolvableTypeReference? targetReference =
+            GenericMemberIdentity.OpenDeclaringType(
+                targetMethod.DeclaringType).Resolution;
+        ResolvableTypeReference? candidateReference =
+            candidateType.Resolution;
+        return targetReference is null || candidateReference is null
+            ? null
+            : (
+                TypeResolutionRequestFactory.Create(
+                    target.Assembly,
+                    targetReference),
+                TypeResolutionRequestFactory.Create(
+                    participant.Assembly,
+                    candidateReference));
     }
 }

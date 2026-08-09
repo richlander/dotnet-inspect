@@ -2640,11 +2640,17 @@ correspondence preserves the exact metadata contract for that component:
 assembly-reference identity or intrinsic-core-library scope plus structured
 type name. This retains callers when dependencies are unavailable without
 collapsing different references or names; resolved definitions still require
-catalog correspondence. The focused gates in
+catalog correspondence. When the reachability plan has already established
+that a candidate's declaring reference resolves to the target definition, that
+typed request pair also vouches for exact repeated occurrences of the same type
+in the return or parameter signature. This covers a platform facade whose
+forwarder was proven during scope selection but cannot be replayed by the
+source-relative member policy. The focused gates in
 `CatalogDirectCallerQueryTests` and the real framework gates in
 `ForwardedCallerEdgeTests` cover forwarded non-core-library parameters, close
-overloads, constructed generic calls, matching unresolved contracts, and
-unavailable declaring-type correspondence, closing
+overloads, constructed generic calls, matching unresolved contracts,
+reachability-proven platform facades, and unavailable declaring-type
+correspondence, closing
 [#3513](https://github.com/richlander/dotnet-inspect/issues/3513).
 
 ### Slice 6: graph correspondence and cleanup

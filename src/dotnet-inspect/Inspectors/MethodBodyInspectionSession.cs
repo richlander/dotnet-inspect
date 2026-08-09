@@ -248,7 +248,8 @@ public sealed class MethodBodyInspectionSession
     /// </summary>
     public ImmutableArray<CallerEdge> CallerEdges(
         int targetToken,
-        IReadOnlyList<MethodBodyInspectionSession>? scopes = null)
+        IReadOnlyList<MethodBodyInspectionSession>? scopes = null,
+        Analysis.CallerResolutionPlan? declaringTypeResolution = null)
     {
         var selected = BodyIndex.DeclaredMethods.FirstOrDefault(
             method => method.MetadataToken == targetToken);
@@ -299,7 +300,8 @@ public sealed class MethodBodyInspectionSession
                     policy,
                     target,
                     targetToken,
-                    sources))
+                    sources,
+                    declaringTypeResolution))
             {
                 edges.Add(
                     new CallerEdge(

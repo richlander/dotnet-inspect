@@ -84,10 +84,17 @@ internal sealed class ApiMemberAnalysisInspection
         return context.ResolveExceptionRegions(methodToken, out error);
     }
 
-    internal ImmutableArray<CallerEdge> CallerEdges(int methodToken) =>
-        Session.CallerEdges(
+    internal ImmutableArray<CallerEdge> CallerEdges(int methodToken)
+    {
+        Analysis.CallerResolutionPlan? resolution =
+            TryTargetType(methodToken, out Analysis.TypeRef? target)
+                ? Plan(target).Resolution
+                : null;
+        return Session.CallerEdges(
             methodToken,
-            DirectCallerScopes(methodToken));
+            DirectCallerScopes(methodToken),
+            resolution);
+    }
 
     internal Analysis.CallTreeNode BuildCallTree(int methodToken) =>
         BodyIndex.BuildCallTree(methodToken);

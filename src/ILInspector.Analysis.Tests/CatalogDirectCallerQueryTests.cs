@@ -65,7 +65,10 @@ public class CatalogDirectCallerQueryTests
             target,
             store.MetadataToken,
             source,
-            GroupPolicy(target, source));
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(target.Path)),
+            new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(source.Path)));
 
         Assert.Contains(
             callers,
@@ -79,7 +82,7 @@ public class CatalogDirectCallerQueryTests
     public void UnavailableCorrespondenceDoesNotFabricateCaller()
     {
         LibraryBodyIndex target = LibraryBodyIndex.Open(
-            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+            FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
         LibraryBodyIndex source = LibraryBodyIndex.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         MethodIdentity ping = target.DeclaredMethods.Single(method =>
@@ -91,6 +94,7 @@ public class CatalogDirectCallerQueryTests
             target,
             ping.MetadataToken,
             source,
+            UnavailablePolicy.Instance,
             UnavailablePolicy.Instance);
 
         Assert.DoesNotContain(
@@ -111,11 +115,8 @@ public class CatalogDirectCallerQueryTests
             target,
             ping.MetadataToken,
             source,
-            SourceRelativePolicy(
-                target,
-                UnavailablePolicy.Instance,
-                source,
-                UnavailablePolicy.Instance));
+            UnavailablePolicy.Instance,
+            UnavailablePolicy.Instance);
 
         Assert.Contains(
             callers,
@@ -133,18 +134,14 @@ public class CatalogDirectCallerQueryTests
         LibraryBodyIndex source = LibraryBodyIndex.Open(
             FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
         MethodIdentity ping = StringPing(target);
-        var sourcePolicy = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(source.Path));
+        var sourcePolicy = new CountingPolicy(new FrameworkPolicy());
 
         ImmutableArray<CatalogDirectCaller> callers = Find(
             target,
             ping.MetadataToken,
             source,
-            SourceRelativePolicy(
-                target,
-                UnavailablePolicy.Instance,
-                source,
-                sourcePolicy));
+            UnavailablePolicy.Instance,
+            sourcePolicy);
 
         Assert.Contains(
             callers,
@@ -152,6 +149,7 @@ public class CatalogDirectCallerQueryTests
         Assert.DoesNotContain(
             callers,
             caller => caller.Call.Caller.Name == "RunInt");
+        Assert.True(sourcePolicy.SelectedCount > 0);
     }
 
     static ImmutableArray<CatalogDirectCaller> FindFrameworkCallers(
@@ -167,54 +165,33 @@ public class CatalogDirectCallerQueryTests
             && method.ParameterTypes
                 .Select(parameter => parameter.Name)
                 .SequenceEqual(parameterTypes));
-        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
-            [
-                (Descriptor(target), (IAssemblyBindingPolicy)new FrameworkPolicy()),
-                (Descriptor(source), (IAssemblyBindingPolicy)new FrameworkPolicy()),
-            ]);
-
-        return Find(target, create.MetadataToken, source, policy);
+        return Find(
+            target,
+            create.MetadataToken,
+            source,
+            new FrameworkPolicy(),
+            new FrameworkPolicy());
     }
 
     static ImmutableArray<CatalogDirectCaller> Find(
         LibraryBodyIndex target,
         int targetMethodToken,
         LibraryBodyIndex source,
-        IAssemblyBindingPolicy policy)
+        IAssemblyBindingPolicy targetPolicy,
+        IAssemblyBindingPolicy sourcePolicy)
     {
         var targetAssembly = Descriptor(target);
         var sourceAssembly = Descriptor(source);
+        var policy = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (targetAssembly, targetPolicy),
+                (sourceAssembly, sourcePolicy),
+            ]);
         return CatalogDirectCallerQuery.Find(
             policy,
             new CatalogCallGraphParticipant(target, targetAssembly),
             targetMethodToken,
             [new CatalogCallGraphParticipant(source, sourceAssembly)]);
-    }
-
-    static IAssemblyBindingPolicy GroupPolicy(
-        LibraryBodyIndex target,
-        LibraryBodyIndex source)
-        => SourceRelativePolicy(
-            target,
-            new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(target.Path)),
-            source,
-            new AssemblyDependencyResolver(
-                new AssemblyDependencyResolutionOptions(source.Path)));
-
-    static IAssemblyBindingPolicy SourceRelativePolicy(
-        LibraryBodyIndex target,
-        IAssemblyBindingPolicy targetPolicy,
-        LibraryBodyIndex source,
-        IAssemblyBindingPolicy sourcePolicy)
-    {
-        ResolvedAssemblyReference targetAssembly = Descriptor(target);
-        ResolvedAssemblyReference sourceAssembly = Descriptor(source);
-        return new SourceRelativeAssemblyGroupBindingPolicy(
-            [
-                (targetAssembly, targetPolicy),
-                (sourceAssembly, sourcePolicy),
-            ]);
     }
 
     static MethodIdentity StringPing(LibraryBodyIndex target) =>
@@ -275,6 +252,23 @@ public class CatalogDirectCallerQueryTests
                 : AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.IdentityPolicyRequired));
+        }
+    }
+
+    sealed class CountingPolicy(IAssemblyBindingPolicy inner)
+        : IAssemblyBindingPolicy
+    {
+        internal int SelectedCount { get; private set; }
+
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            AssemblyBindingSelection selection = inner.Select(request);
+            if (selection is AssemblyBindingSelection.Selected)
+                SelectedCount++;
+            return selection;
         }
     }
 
