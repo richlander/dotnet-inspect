@@ -1100,6 +1100,16 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
+            if (options is MemberOptions { MemberSourceTooComplex: true }
+                && GetRequestedMemberSections(type, options)
+                    .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+            {
+                CommandError.Write(
+                    "Authored source extraction stopped because the source exceeds the lexical "
+                    + "complexity limit. Document --json cannot represent this code-section "
+                    + "failure; add --print to project the section payload.");
+                return 1;
+            }
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -1261,7 +1271,10 @@ public class ApiCommand
                 }
             }
 
-            PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
+            PopulateSourceDiff(
+                view,
+                GetRequestedMemberSections(type, options),
+                options is MemberOptions { MemberSourceTooComplex: true });
 
         }
 
@@ -1968,7 +1981,10 @@ public class ApiCommand
                         view.MemberCode.OriginalSourceUnavailable = true;
                     }
                 }
-                PopulateSourceDiff(view, requestedSections);
+                PopulateSourceDiff(
+                    view,
+                    requestedSections,
+                    memberOptions.MemberSourceTooComplex);
             }
 
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
@@ -2089,12 +2105,24 @@ public class ApiCommand
                     ? NoAuthoredDeclarationNote
                     : null;
 
-    private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
+    private static void PopulateSourceDiff(
+        TypeView view,
+        IReadOnlySet<string> requestedSections,
+        bool sourceTooComplex)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
             return;
 
         view.MemberCode ??= new MemberCodeView();
+        if (sourceTooComplex)
+        {
+            view.MemberCode.SourceDiffCode = new Markout.CodeSection(
+                "diff",
+                "# Original Source unavailable because authored source extraction exceeded "
+                + "the lexical complexity limit.");
+            return;
+        }
+
         view.MemberCode.SourceDiffCode = new Markout.CodeSection(
             "diff",
             SourceTextDiffRenderer.CreateUnifiedDiff(

@@ -73,6 +73,20 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 }
 
 /// <summary>
+/// An extension block's inclusive source range and the line carrying its opening brace.
+/// </summary>
+public readonly record struct TransparentScopeSpan(
+    int StartLine,
+    int BodyStartLine,
+    int EndLine)
+{
+    /// <summary>Whether <paramref name="line"/> lies inside the scope's complete source range.</summary>
+    public bool Contains(int line) => line >= StartLine && line <= EndLine;
+
+    public override string ToString() => StartLine == EndLine ? $"{StartLine}" : $"{StartLine}-{EndLine}";
+}
+
+/// <summary>
 /// One declaration found in a C# source file, with the line spans that bound it.
 /// <para>
 /// All line numbers are <b>1-based physical lines of the file that was indexed</b>, so a caller
@@ -323,7 +337,7 @@ public sealed class DeclarationIndex
 
     private DeclarationIndex(
         ImmutableArray<DeclarationSpan> declarations,
-        ImmutableArray<LineRange> transparentScopes)
+        ImmutableArray<TransparentScopeSpan> transparentScopes)
     {
         Declarations = declarations;
         TransparentScopes = transparentScopes;
@@ -343,11 +357,11 @@ public sealed class DeclarationIndex
     /// closing lines remain structural boundaries for source slicing. Gated by
     /// <c>DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne</c>.
     /// </remarks>
-    public ImmutableArray<LineRange> TransparentScopes { get; }
+    public ImmutableArray<TransparentScopeSpan> TransparentScopes { get; }
 
     /// <summary>Builds the index for <paramref name="sourceText"/>.</summary>
     public static DeclarationIndex Build(string sourceText) =>
-        Build(SplitLines(sourceText));
+        Build(CSharpSourceText.SplitLines(sourceText, MaxLineCount));
 
     /// <summary>Builds the index for a file already split into lines.</summary>
     public static DeclarationIndex Build(IReadOnlyList<string> lines)
@@ -356,20 +370,10 @@ public sealed class DeclarationIndex
             throw new CSharpTextComplexityException(MaxLineCount, "lines");
 
         ImmutableArray<DeclarationSpan> declarations =
-            DeclarationIndexBuilder.Build(lines, out ImmutableArray<LineRange> transparentScopes);
+            DeclarationIndexBuilder.Build(
+                lines,
+                out ImmutableArray<TransparentScopeSpan> transparentScopes);
         return new DeclarationIndex(declarations, transparentScopes);
-    }
-
-    private static string[] SplitLines(string sourceText)
-    {
-        int lineCount = 1;
-        foreach (char c in sourceText)
-        {
-            if (c == '\n' && ++lineCount > MaxLineCount)
-                throw new CSharpTextComplexityException(MaxLineCount, "lines");
-        }
-
-        return sourceText.Split('\n');
     }
 
     /// <summary>

@@ -641,7 +641,8 @@ more memory than its source spelling. A newline-dense file can likewise
 materialize one retained line entry per byte before tokenization begins.
 `CSharpLexer` therefore stops emission at 500,000 tokens, and
 `DeclarationIndex` refuses more than 500,000 physical lines before splitting
-the source. `DeclarationIndex` carries the declaration's starting column so
+the source. CR, LF, and CRLF each follow the same physical-line accounting.
+`DeclarationIndex` carries the declaration's starting column so
 `BodySlicer` consumes that bounded token stream once rather than tokenizing the
 same untrusted file again.
 

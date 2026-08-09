@@ -53,19 +53,14 @@ internal static class DeclarationIndexBuilder
 
     public static ImmutableArray<DeclarationSpan> Build(
         IReadOnlyList<string> lines,
-        out ImmutableArray<LineRange> transparentScopes)
+        out ImmutableArray<TransparentScopeSpan> transparentScopes)
     {
         var tokens = CSharpLexer.ScanTokens(lines);
         var rows = new List<Row>();
-        var transparentScopeRows = ImmutableArray.CreateBuilder<LineRange>();
-        var transparentScopeStarts = new Dictionary<int, int>();
+        var transparentScopeRows = ImmutableArray.CreateBuilder<TransparentScopeSpan>();
+        var transparentScopeStarts =
+            new Dictionary<int, (int StartLine, int BodyStartLine)>();
         bool depthLost = false;
-        var firstCodeColumns = new Dictionary<int, int>();
-        foreach (ScanToken token in tokens)
-        {
-            if (token.Kind is not (ScanTokenKind.Comment or ScanTokenKind.Directive))
-                firstCodeColumns.TryAdd(token.Line, token.Column);
-        }
 
         // -1 marks an anonymous scope: a method body, a lambda, a property's accessor block, a
         // collection initializer. Members are only recognized inside a type, so an anonymous
@@ -130,12 +125,14 @@ internal static class DeclarationIndexBuilder
         bool inAttribute = false;
         int attributeDepth = 0;
         int attributeStart = 0;
+        int attributeStartColumn = 0;
         int attributeSection = 0;
         int triviaSection = 0;
         int attributeWords = 0;
         bool unitTarget = false;
         bool unitAttribute = false;
         var attributeLists = new List<LineRange>();
+        var attributeStarts = new List<(int Line, int Column)>();
         int initializerDepth = 0;
         int lastTerminatorLine = 0;
 
@@ -241,6 +238,7 @@ internal static class DeclarationIndexBuilder
             attachedAttributesKnown = true;
             triviaStart = -1;
             attributeLists.Clear();
+            attributeStarts.Clear();
         }
 
         void EndDeclaration(ScanToken terminator)
@@ -261,14 +259,15 @@ internal static class DeclarationIndexBuilder
             bool hasInitializer = false)
         {
             int sigStart = pending.Count > 0 ? pending[0].Line + 1 : terminator.Line + 1;
+            int sigColumn = pending.Count > 0 ? pending[0].Column : terminator.Column;
             rows.Add(new Row
             {
                 Kind = kind,
                 Name = name,
                 TriviaStartLine = triviaStart >= 0 ? triviaStart : sigStart,
                 SignatureStartLine = sigStart,
-                SignatureStartColumn = pending.Count > 0 ? pending[0].Column : terminator.Column,
-                FirstCodeColumn = firstCodeColumns.GetValueOrDefault(sigStart - 1),
+                SignatureStartColumn = sigColumn,
+                FirstCodeColumn = FirstCodeColumn(sigStart, sigColumn),
                 SignatureEndLine = terminator.Line + 1,
                 BodyStartLine = bodyStart,
                 EndLine = terminator.Line + 1,
@@ -556,6 +555,7 @@ internal static class DeclarationIndexBuilder
                     else
                     {
                         attributeLists.Add(list);
+                        attributeStarts.Add((attributeStart, attributeStartColumn));
 
                         // Every list, not just the one that opened the trivia. A list written
                         // inside a conditional group is reported in AttributeLists even though
@@ -605,6 +605,7 @@ internal static class DeclarationIndexBuilder
                 inAttribute = true;
                 attributeDepth = 1;
                 attributeStart = tok.Line + 1;
+                attributeStartColumn = tok.Column;
                 attributeSection = tok.Section;
                 // Subsumed by the accumulation above for any input that compiles in both
                 // configurations: the closing "]" is accumulated too, and for this seed to decide
@@ -644,7 +645,8 @@ internal static class DeclarationIndexBuilder
                 // inside a parent that has no metadata counterpart.
                 if (DeclaresAnExtensionBlock(pending, Text))
                 {
-                    transparentScopeStarts[scopes.Count] = pending[0].Line + 1;
+                    int startLine = triviaStart >= 0 ? triviaStart : pending[0].Line + 1;
+                    transparentScopeStarts[scopes.Count] = (startLine, tok.Line + 1);
                     scopes.Add((EnclosingIndex(), false, true));
                     EndDeclaration(tok);
                     lastClosed = -1;
@@ -655,14 +657,15 @@ internal static class DeclarationIndexBuilder
                 if (kind is { } k && Allowed(k, Enclosing(), InAnonymousScope()))
                 {
                     int sigStart = pending.Count > 0 ? pending[0].Line + 1 : tok.Line + 1;
+                    int sigColumn = pending.Count > 0 ? pending[0].Column : tok.Column;
                     rows.Add(new Row
                     {
                         Kind = k,
                         Name = name,
                         TriviaStartLine = triviaStart >= 0 ? triviaStart : sigStart,
                         SignatureStartLine = sigStart,
-                        SignatureStartColumn = pending.Count > 0 ? pending[0].Column : tok.Column,
-                        FirstCodeColumn = firstCodeColumns.GetValueOrDefault(sigStart - 1),
+                        SignatureStartColumn = sigColumn,
+                        FirstCodeColumn = FirstCodeColumn(sigStart, sigColumn),
                         SignatureEndLine = tok.Line + 1,
                         BodyStartLine = tok.Line + 1,
                         ParentIndex = EnclosingIndex(),
@@ -747,9 +750,14 @@ internal static class DeclarationIndexBuilder
                     }
 
                     int scopeIndex = scopes.Count - 1;
-                    if (transparentScopeStarts.Remove(scopeIndex, out int transparentStartLine))
+                    if (transparentScopeStarts.Remove(
+                        scopeIndex,
+                        out var transparentStart))
                     {
-                        transparentScopeRows.Add(new LineRange(transparentStartLine, tok.Line + 1));
+                        transparentScopeRows.Add(new TransparentScopeSpan(
+                            transparentStart.StartLine,
+                            transparentStart.BodyStartLine,
+                            tok.Line + 1));
                     }
 
                     var (idx, ownsRow, _) = scopes[^1];
@@ -1143,8 +1151,13 @@ internal static class DeclarationIndexBuilder
         for (int i = 0; i < rows.Count; i++)
             depths[i] = rows[i].ParentIndex >= 0 ? depths[rows[i].ParentIndex] + 1 : 0;
 
-        foreach (int startLine in transparentScopeStarts.Values)
-            transparentScopeRows.Add(new LineRange(startLine, lines.Count));
+        foreach (var start in transparentScopeStarts.Values)
+        {
+            transparentScopeRows.Add(new TransparentScopeSpan(
+                start.StartLine,
+                start.BodyStartLine,
+                lines.Count));
+        }
 
         transparentScopes = [.. transparentScopeRows
             .OrderBy(scope => scope.StartLine)
@@ -1159,6 +1172,13 @@ internal static class DeclarationIndexBuilder
             IsStatic = r.IsStatic,
             HasInitializer = r.HasInitializer,
         })];
+
+        int FirstCodeColumn(int signatureStartLine, int signatureStartColumn) =>
+            attributeStarts
+                .Where(attribute => attribute.Line == signatureStartLine)
+                .Select(attribute => attribute.Column)
+                .DefaultIfEmpty(signatureStartColumn)
+                .Min();
     }
 
     private static bool IsInsideConstructorArguments(

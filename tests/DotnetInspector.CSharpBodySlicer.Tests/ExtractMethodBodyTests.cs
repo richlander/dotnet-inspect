@@ -1636,6 +1636,38 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ExtensionBlockOpeningBraceSharingTheMembersSignature_ReportsAbsent()
+    {
+        var source = Lines(
+            "static class C",                   // 1
+            "{",                                // 2
+            "    extension(int value)",         // 3
+            "    { public void M()",            // 4
+            "      {",                          // 5
+            "      }",                          // 6
+            "    }",                            // 7
+            "}");                               // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, "M"));
+    }
+
+    [Fact]
+    public void ExtensionBlockAttributeSharingThePreviousMembersBoundary_ReportsAbsent()
+    {
+        var source = Lines(
+            "static class C",                       // 1
+            "{",                                    // 2
+            "    public static void P() { } [A]",   // 3
+            "    extension(int value)",             // 4
+            "    {",                                // 5
+            "        public void M() { }",          // 6
+            "    }",                                // 7
+            "}");                                   // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "P"));
+    }
+
+    [Fact]
     public void CommentBeforeSameLineAttribute_IsRemovedWithoutRemovingTheAttribute()
     {
         var source = Lines(
@@ -1663,6 +1695,33 @@ public class ExtractMethodBodyTests
         Assert.Equal(
             "public void M() { }",
             BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+    }
+
+    [Fact]
+    public void SameLineAttributeAfterAMultiLineAttribute_IsPreserved()
+    {
+        var source = Lines(
+            "class C",                                 // 1
+            "{",                                       // 2
+            "    [A(",                                 // 3
+            "        1)] [B] public void M() { }",     // 4
+            "}");                                      // 5
+
+        Assert.Equal(
+            "[B] public void M() { }",
+            BodySlicer.ExtractMethodBody(source, 4, 4, "M"));
+    }
+
+    [Theory]
+    [InlineData("\r")]
+    [InlineData("\r\n")]
+    public void AlternateLineEndings_UsePdbPhysicalLineNumbers(string newline)
+    {
+        string source = string.Join(newline, ["class C", "{", "    void M() { }", "}"]);
+
+        Assert.Equal(
+            "void M() { }",
+            BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
     }
 
     [Fact]

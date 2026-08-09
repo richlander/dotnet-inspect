@@ -40,6 +40,26 @@ public class DeclarationIndexTests
     }
 
     [Fact]
+    public void CrLfAndCrOnlySource_UseTheSamePhysicalLineModel()
+    {
+        const string cr = "class C\r{\r    void M() { }\r}";
+        const string crlf = "class C\r\n{\r\n    void M() { }\r\n}";
+
+        foreach (var source in new[] { cr, crlf })
+        {
+            var method = Assert.Single(
+                DeclarationIndex.Build(source).FindByName(DeclarationKind.Method, "M"));
+            Assert.Equal(3, method.SignatureStartLine);
+            Assert.Equal(3, method.EndLine);
+        }
+
+        var error = Assert.Throws<CSharpTextComplexityException>(
+            () => DeclarationIndex.Build(new string('\r', 500_000)));
+        Assert.Equal(500_000, error.Limit);
+        Assert.Equal("lines", error.Unit);
+    }
+
+    [Fact]
     public void TheBodySlicerCannotAccessLexerInternals()
     {
         Assert.DoesNotContain(
@@ -741,6 +761,9 @@ public class DeclarationIndexTests
         Assert.Equal(
             ["4-7", "9-13"],
             index.TransparentScopes.Select(scope => scope.ToString()));
+        Assert.Equal(
+            [5, 10],
+            index.TransparentScopes.Select(scope => scope.BodyStartLine));
     }
 
     [Theory]

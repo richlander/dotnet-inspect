@@ -65,17 +65,13 @@ public static class BodySlicer
         if (from >= to)
             return null;
 
-        var methodLines = SliceLines(sourceText, from, to);
+        var methodLines = CSharpSourceText.SliceLines(sourceText, from, to);
         if (methodLines.Length == 0)
             return null;
 
         // A declaration can begin after a block comment closes on its first line. The index carries
         // the first code column so slicing does not tokenize the entire untrusted file a second time.
-        int firstCodeColumn = row.AttributeLists.Any(attribute =>
-            attribute.StartLine < row.SignatureStartLine
-                && attribute.EndLine >= row.SignatureStartLine)
-            ? row.SignatureStartColumn
-            : row.FirstCodeColumn;
+        int firstCodeColumn = row.FirstCodeColumn;
         if (firstCodeColumn > 0)
         {
             var head = methodLines[0];
@@ -94,29 +90,6 @@ public static class BodySlicer
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
-    }
-
-    private static string[] SliceLines(string sourceText, int from, int to)
-    {
-        var selected = new List<string>(to - from);
-        int line = 0;
-        int lineStart = 0;
-        for (int i = 0; i <= sourceText.Length; i++)
-        {
-            if (i < sourceText.Length && sourceText[i] != '\n')
-                continue;
-
-            if (line >= from && line < to)
-                selected.Add(sourceText[lineStart..i]);
-
-            line++;
-            if (line >= to)
-                break;
-
-            lineStart = i + 1;
-        }
-
-        return [.. selected];
     }
 
     private static bool IsTypeOrNamespace(DeclarationKind kind) =>
@@ -169,12 +142,23 @@ public static class BodySlicer
 
     private static bool SharesBoundaryWithTransparentScope(
         DeclarationIndex index,
-        DeclarationSpan declaration) =>
-        index.TransparentScopes.Any(scope =>
-            scope.StartLine == declaration.SignatureStartLine
-            || scope.StartLine == declaration.EndLine
-            || scope.EndLine == declaration.SignatureStartLine
-            || scope.EndLine == declaration.EndLine);
+        DeclarationSpan declaration)
+    {
+        foreach (var scope in index.TransparentScopes)
+        {
+            bool strictlyInsideBody =
+                declaration.SignatureStartLine > scope.BodyStartLine
+                    && declaration.EndLine < scope.EndLine;
+            if (!strictlyInsideBody
+                && (scope.Contains(declaration.SignatureStartLine)
+                    || scope.Contains(declaration.EndLine)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static DeclarationSpan? FindConstructorAtRangeBoundary(
         DeclarationIndex index,

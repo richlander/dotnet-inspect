@@ -201,8 +201,14 @@ public class AuthoredSourceValidityTests
                     op.ParameterList.Parameters.Count == 1 ? "op_UnaryNegation" : "op_Subtraction",
                 SyntaxKind.ExclamationToken => "op_LogicalNot",
                 SyntaxKind.TildeToken => "op_OnesComplement",
-                SyntaxKind.PlusPlusToken => "op_Increment",
-                SyntaxKind.MinusMinusToken => "op_Decrement",
+                SyntaxKind.PlusPlusToken =>
+                    op.ParameterList.Parameters.Count == 0
+                        ? "op_IncrementAssignment"
+                        : "op_Increment",
+                SyntaxKind.MinusMinusToken =>
+                    op.ParameterList.Parameters.Count == 0
+                        ? "op_DecrementAssignment"
+                        : "op_Decrement",
                 SyntaxKind.TrueKeyword => "op_True",
                 SyntaxKind.FalseKeyword => "op_False",
                 SyntaxKind.AsteriskToken => "op_Multiply",
@@ -220,6 +226,18 @@ public class AuthoredSourceValidityTests
                 SyntaxKind.GreaterThanToken => "op_GreaterThan",
                 SyntaxKind.LessThanEqualsToken => "op_LessThanOrEqual",
                 SyntaxKind.GreaterThanEqualsToken => "op_GreaterThanOrEqual",
+                SyntaxKind.PlusEqualsToken => "op_AdditionAssignment",
+                SyntaxKind.MinusEqualsToken => "op_SubtractionAssignment",
+                SyntaxKind.AsteriskEqualsToken => "op_MultiplyAssignment",
+                SyntaxKind.SlashEqualsToken => "op_DivisionAssignment",
+                SyntaxKind.PercentEqualsToken => "op_ModulusAssignment",
+                SyntaxKind.AmpersandEqualsToken => "op_BitwiseAndAssignment",
+                SyntaxKind.BarEqualsToken => "op_BitwiseOrAssignment",
+                SyntaxKind.CaretEqualsToken => "op_ExclusiveOrAssignment",
+                SyntaxKind.LessThanLessThanEqualsToken => "op_LeftShiftAssignment",
+                SyntaxKind.GreaterThanGreaterThanEqualsToken => "op_RightShiftAssignment",
+                SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken =>
+                    "op_UnsignedRightShiftAssignment",
                 _ => throw new InvalidOperationException(
                     $"Unhandled operator token {op.OperatorToken.Kind()}."),
             };
@@ -298,6 +316,21 @@ public class AuthoredSourceValidityTests
             ("static bool operator <=(C left, C right) => true;", "op_LessThanOrEqual"),
             ("static bool operator >=(C left, C right) => true;", "op_GreaterThanOrEqual"),
             ("static C operator checked +(C left, C right) => left;", "op_CheckedAddition"),
+            ("void operator +=(int value) { }", "op_AdditionAssignment"),
+            ("void operator -=(int value) { }", "op_SubtractionAssignment"),
+            ("void operator *=(int value) { }", "op_MultiplyAssignment"),
+            ("void operator /=(int value) { }", "op_DivisionAssignment"),
+            ("void operator %=(int value) { }", "op_ModulusAssignment"),
+            ("void operator &=(int value) { }", "op_BitwiseAndAssignment"),
+            ("void operator |=(int value) { }", "op_BitwiseOrAssignment"),
+            ("void operator ^=(int value) { }", "op_ExclusiveOrAssignment"),
+            ("void operator <<=(int value) { }", "op_LeftShiftAssignment"),
+            ("void operator >>=(int value) { }", "op_RightShiftAssignment"),
+            ("void operator >>>=(int value) { }", "op_UnsignedRightShiftAssignment"),
+            ("void operator ++() { }", "op_IncrementAssignment"),
+            ("void operator --() { }", "op_DecrementAssignment"),
+            ("void operator checked +=(int value) { }", "op_CheckedAdditionAssignment"),
+            ("void operator checked ++() { }", "op_CheckedIncrementAssignment"),
             ("static implicit operator int(C value) => 0;", "op_Implicit"),
             ("static explicit operator int(C value) => 0;", "op_Explicit"),
             ("static explicit operator checked int(C value) => 0;", "op_CheckedExplicit"),
