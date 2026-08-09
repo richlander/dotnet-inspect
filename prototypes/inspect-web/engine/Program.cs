@@ -33,8 +33,16 @@ public sealed record BrowserPackageSurface(
     string DefaultAssemblyId,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
+    BrowserAccessibilityDescriptor[] Accessibility,
     int TotalMembers,
     BrowserPackageDocument[] Documents);
+
+public sealed record BrowserAccessibilityDescriptor(
+    string Id,
+    string Label,
+    int Order,
+    bool IsDefault,
+    int Count);
 
 public sealed record BrowserAssemblySurface(
     string Id,
@@ -67,6 +75,7 @@ public sealed record BrowserTypeSurface(
     string Namespace,
     string Kind,
     string Accessibility,
+    string AccessibilityId,
     string Assembly,
     int Members,
     string Signature,
@@ -86,7 +95,9 @@ public sealed record BrowserMemberSurface(
     BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
-    string CanonicalSignature);
+    string CanonicalSignature,
+    string GraphSelectorKey,
+    int[] BodyTokens);
 
 public sealed record BrowserParameterSurface(
     string Name,
@@ -129,6 +140,7 @@ public sealed record BrowserCallGraphTarget(
     string ReturnType,
     int GenericArity,
     int? MetadataToken,
+    string SelectorKey,
     string Kind);
 
 public sealed record BrowserCallGraphNode(
@@ -638,6 +650,7 @@ public static partial class BrowserInspectionEngine
             defaultAssembly.Id,
             assemblies.ToArray(),
             identifiedTypes,
+            AccessibilityDescriptors(identifiedTypes),
             identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members),
             CollectPackageDocuments(archive).ToArray());
 
@@ -2374,6 +2387,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeName,
         string memberName,
+        string selectorKey,
+        int metadataToken,
         string styleOptionsJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
@@ -2398,34 +2413,34 @@ public static partial class BrowserInspectionEngine
                 () => File.OpenRead(implementationPath),
                 AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
             var surface = inspection.ApiSurface(includeAll: true);
-            bool DeclaresMember(ApiType candidate) =>
-                candidate.Members.Any(m => m.Name.Equals(memberName, StringComparison.Ordinal));
-            // The compact call-graph label strips generic arity, so a caller may pass
-            // "JsonTypeInfo" for a node whose real declaring type is the generic
-            // "JsonTypeInfo`1"; that simple name also collides with a same-named
-            // non-generic type. Match on the full name, the simple name, and their
-            // arity-stripped forms, then prefer the candidate that actually declares the
-            // member so the arity collision resolves to the type that owns it.
-            var candidates = surface.Types.Where(candidate =>
-                candidate.FullName.Equals(typeName, StringComparison.Ordinal)
-                || candidate.Name.Equals(typeName, StringComparison.Ordinal)
-                || StripGenericArity(candidate.FullName).Equals(typeName, StringComparison.Ordinal)
-                || StripGenericArity(candidate.Name).Equals(typeName, StringComparison.Ordinal)).ToArray();
-            var type = candidates.FirstOrDefault(DeclaresMember)
-                ?? candidates.FirstOrDefault()
+            var type = surface.Types.FirstOrDefault(candidate =>
+                    ApiTypeMetadataId(candidate).Equals(typeName, StringComparison.Ordinal)
+                    || candidate.FullName.Equals(typeName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeName}' is not in {assemblyName}.");
-            var member = type.Members.FirstOrDefault(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"Member '{memberName}' was not found on '{type.FullName}'.");
+            var resolved = Analysis.CallGraphMemberResolver.Resolve(
+                    type,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken)
+                ?? throw new InvalidOperationException(
+                    $"Member '{memberName}' could not be resolved uniquely on '{type.FullName}'.");
 
             if (File.Exists(pdbPath)
-                && member.MetadataToken is int token
-                && await TryGetAuthoredSourceAsync(implementationPath, type, member, token) is { } authored)
+                && await TryGetAuthoredSourceAsync(
+                    implementationPath,
+                    type,
+                    resolved.Member,
+                    resolved.BodyToken) is { } authored)
             {
                 return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
             }
 
-            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
+            var decompiled = MemberBodyProducer.ProduceMember(
+                type,
+                resolved.Member,
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null,
+                printerOptions: BuildPrinterOptions(styleOptionsJson));
             if (decompiled.Text is not { Length: > 0 } text)
                 throw new InvalidOperationException("Decompilation did not produce source for the selected member.");
 
@@ -2890,6 +2905,7 @@ public static partial class BrowserInspectionEngine
     static BrowserCallGraphTarget ToBrowserCallTarget(CallGraphNode node)
     {
         var definition = RootDefinition(node.Member.DeclaringType);
+        var selector = Analysis.CallGraphMemberResolver.CreateSelector(node.Member);
         var typeFullName = definition.Namespace.Length == 0
             ? definition.Name
             : $"{definition.Namespace}.{definition.Name}";
@@ -2906,6 +2922,7 @@ public static partial class BrowserInspectionEngine
             node.Member.ReturnType.ToDisplayString(),
             node.Member.GenericArity,
             metadataToken,
+            selector.Key,
             node.Kind.ToString());
     }
 
@@ -3304,6 +3321,7 @@ public static partial class BrowserInspectionEngine
                     assemblyTypes.Sum(type => type.Members)),
             ],
             assemblyTypes,
+            AccessibilityDescriptors(assemblyTypes),
             assemblyTypes.Sum(type => type.Members),
             []);
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
@@ -3364,6 +3382,7 @@ public static partial class BrowserInspectionEngine
                     assemblyTypes.Sum(type => type.Members)),
             ],
             assemblyTypes,
+            AccessibilityDescriptors(assemblyTypes),
             assemblyTypes.Sum(type => type.Members),
             []);
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
@@ -3521,9 +3540,8 @@ public static partial class BrowserInspectionEngine
         string assembly,
         string typeFullName,
         string memberName,
-        string parameterTypesJson,
-        string returnType,
-        int genericArity)
+        string selectorKey,
+        int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
@@ -3557,31 +3575,21 @@ public static partial class BrowserInspectionEngine
                 ApiTypeMetadataId(candidate).Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
                     $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
-            string[] parameterTypes =
-                JsonSerializer.Deserialize(
-                    parameterTypesJson,
-                    BrowserJsonContext.Default.StringArray) ?? [];
-            var member = SelectPlatformMember(
-                type,
-                memberName,
-                parameterTypes,
-                returnType,
-                genericArity);
-            // Call-graph rows spell property/event accessors by their IL method name
-            // (get_Foo, set_Foo, add_Bar, remove_Bar); ApiSurface exposes the owning
-            // property/event instead, carrying the accessor's MethodDef token. Fall back to
-            // that token so descent into an accessor callee (e.g. RouteBuilder.get_ServiceProvider)
-            // resolves instead of reporting the member missing.
-            var token = member?.MetadataToken ?? ResolveAccessorToken(type, memberName);
-            if (token is not int methodToken)
-                throw new InvalidOperationException(member is null
-                    ? $"Member '{memberName}' was not found on '{typeFullName}'."
-                    : "The selected platform member has no method body identity.");
+            var resolved = Analysis.CallGraphMemberResolver.Resolve(
+                    type,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken)
+                ?? throw new InvalidOperationException(
+                    $"Member '{memberName}' could not be resolved uniquely on '{typeFullName}'.");
 
             var index = Analysis.LibraryBodyIndex.Open(
                 path,
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
-            var callees = index.BuildCallTree(methodToken, maxDepth: 2, maxNodes: 30);
+            var callees = index.BuildCallTree(
+                resolved.BodyToken,
+                maxDepth: 2,
+                maxNodes: 30);
             var calleeNode = ToBrowserCallNode(callees);
             CallGraphProjection graph = CallGraphProjection.FromCallees(callees);
             var result = new BrowserCallGraph(
@@ -3779,91 +3787,6 @@ public static partial class BrowserInspectionEngine
         return dot < 0 ? ("", fullName) : (fullName[..dot], fullName[(dot + 1)..]);
     }
 
-    static ApiMember? SelectPlatformMember(
-        ApiType type,
-        string memberName,
-        IReadOnlyList<string> parameterTypes,
-        string returnType,
-        int genericArity)
-    {
-        var named = type.Members
-            .Where(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal))
-            .ToArray();
-        if (named.Length <= 1)
-            return named.FirstOrDefault();
-        var wantKey = ParameterTypesKey(parameterTypes);
-        ApiMember[] matches = named.Where(candidate =>
-            (candidate.SignatureModel?.Parameters.Count ?? -1) == parameterTypes.Count
-            && (candidate.SignatureModel?.TypeParameters.Count ?? 0) == genericArity
-            && MemberParamKey(candidate) == wantKey
-            && SimpleTypeName(
-                candidate.SignatureModel?.ReturnType
-                    ?? candidate.ReturnType
-                    ?? "") == SimpleTypeName(returnType))
-            .ToArray();
-        return matches.Length == 1 ? matches[0] : null;
-    }
-
-    // Maps an accessor's IL method name (get_/set_/add_/remove_) back to the MethodDef token
-    // ApiSurface records on the owning property or event, so descent into an accessor callee
-    // that ApiSurface does not expose as a standalone method still finds a body to graph.
-    static int? ResolveAccessorToken(ApiType type, string memberName)
-    {
-        (string Prefix, Func<ApiMember, int?> Pick)[] accessors =
-        [
-            ("get_", member => member.GetterToken),
-            ("set_", member => member.SetterToken),
-            ("add_", member => member.AdderToken),
-            ("remove_", member => member.RemoverToken),
-        ];
-        foreach (var (prefix, pick) in accessors)
-        {
-            if (!memberName.StartsWith(prefix, StringComparison.Ordinal))
-                continue;
-            var ownerName = memberName[prefix.Length..];
-            foreach (var member in type.Members)
-            {
-                if (string.Equals(member.Name, ownerName, StringComparison.Ordinal) && pick(member) is int token)
-                    return token;
-            }
-        }
-        return null;
-    }
-
-    static string MemberParamKey(ApiMember member)
-        => string.Join(",", (member.SignatureModel?.Parameters ?? [])
-            .Select(parameter => SimpleTypeName(parameter.TypeWithModifier)));
-
-    static string ParameterTypesKey(IEnumerable<string> parameterTypes)
-        => string.Join(",", parameterTypes.Select(SimpleTypeName));
-
-    static string SimpleTypeName(string type)
-    {
-        type = type.Trim();
-        foreach (string modifier in new[] { "ref ", "out ", "in ", "params ", "pinned " })
-        {
-            if (type.StartsWith(modifier, StringComparison.OrdinalIgnoreCase))
-            {
-                type = type[modifier.Length..].TrimStart();
-                break;
-            }
-        }
-        int generic = type.IndexOf('<');
-        if (generic >= 0)
-            type = type[..generic];
-        int array = type.IndexOf('[');
-        string suffix = array >= 0 ? type[array..] : "";
-        if (array >= 0)
-            type = type[..array];
-        int tick = type.IndexOf('`');
-        if (tick >= 0)
-            type = type[..tick];
-        int dot = type.LastIndexOf('.');
-        if (dot >= 0)
-            type = type[(dot + 1)..];
-        return (type.TrimEnd('?') + suffix.TrimEnd('?')).ToLowerInvariant();
-    }
-
     static string ApiTypeMetadataId(ApiType type)
     {
         var name = type.MetadataName ?? type.Name;
@@ -3945,6 +3868,7 @@ public static partial class BrowserInspectionEngine
         {
             var documentationId = GetDocumentationId(type, member);
             var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+            var graphSelector = Analysis.CallGraphMemberResolver.CreateSelector(type, member);
             return new BrowserMemberSurface(
                 member.Name,
                 member.Kind,
@@ -3965,9 +3889,12 @@ public static partial class BrowserInspectionEngine
                 [],
                 anchor.StableSelector,
                 anchor.Fingerprint,
-                anchor.CanonicalSignature);
+                anchor.CanonicalSignature,
+                graphSelector.Key,
+                BodyTokens(member));
         }).ToArray();
 
+        var accessibilityDescriptor = AccessibilityDescriptor(accessibility);
         return new BrowserTypeSurface(
             type.FullName,
             type.FullName,
@@ -3977,10 +3904,59 @@ public static partial class BrowserInspectionEngine
             type.Namespace ?? "",
             string.Join(' ', modifiers.Skip(1).SkipLast(1)),
             accessibility,
+            accessibilityDescriptor.Id,
             assembly,
             members.Length,
             string.Join(' ', modifiers),
             members);
+    }
+
+    static int[] BodyTokens(ApiMember member)
+        => new[]
+            {
+                member.MetadataToken,
+                member.GetterToken,
+                member.SetterToken,
+                member.AdderToken,
+                member.RemoverToken,
+            }
+            .OfType<int>()
+            .Distinct()
+            .ToArray();
+
+    static BrowserAccessibilityDescriptor[] AccessibilityDescriptors(
+        IReadOnlyList<BrowserTypeSurface> types)
+    {
+        var descriptors = types
+            .GroupBy(type => type.AccessibilityId, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var descriptor = AccessibilityDescriptor(group.First().Accessibility);
+                return descriptor with { Count = group.Count() };
+            })
+            .ToList();
+        if (!descriptors.Any(descriptor => descriptor.IsDefault))
+            descriptors.Add(AccessibilityDescriptor("public"));
+        return descriptors
+            .OrderBy(descriptor => descriptor.Order)
+            .ToArray();
+    }
+
+    static BrowserAccessibilityDescriptor AccessibilityDescriptor(string? accessibility)
+    {
+        string value = string.IsNullOrWhiteSpace(accessibility)
+            ? "public"
+            : accessibility.ToLowerInvariant();
+        return value switch
+        {
+            _ when value.Contains("protected", StringComparison.Ordinal) =>
+                new("protected", "protected", 1, false, 0),
+            _ when value.Contains("internal", StringComparison.Ordinal) =>
+                new("internal", "internal", 2, false, 0),
+            _ when value.Contains("private", StringComparison.Ordinal) =>
+                new("private", "private", 3, false, 0),
+            _ => new("public", "public", 0, true, 0),
+        };
     }
 
     [JSExport]

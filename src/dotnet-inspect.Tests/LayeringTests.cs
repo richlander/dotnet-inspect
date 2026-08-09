@@ -187,12 +187,20 @@ public sealed class LayeringTests
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "overload.metadataToken === target.metadataToken",
+            "(overload.bodyTokens ?? []).includes(target.metadataToken)",
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "target.parameterTypes ?? []",
+            "group.overloads[index].graphSelectorKey === target.selectorKey",
             browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CallGraphMemberResolver.Resolve(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CallGraphMemberResolver.CreateSelector(",
+            engineSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "paramNamesFromSig",
@@ -206,6 +214,34 @@ public sealed class LayeringTests
             "paramSig",
             engineSource,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "simpleTypeName(",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "SimpleTypeName(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ACCESS_ORDER",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "function accessBucket",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AccessibilityDescriptors(identifiedTypes)",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[`t${index}`, node.id]",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "shortTypeName(node.displayName), node.id",
+            browserSource,
+            StringComparison.Ordinal);
         Assert.Contains(
             "memberRequestIsCurrent(signature)",
             browserSource,
@@ -216,6 +252,14 @@ public sealed class LayeringTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Workspace restore was incomplete:",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "navigationSeq !== state.navigationSeq",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "state.workspaceDependencies[key] = []",
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(

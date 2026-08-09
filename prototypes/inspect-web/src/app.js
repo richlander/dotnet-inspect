@@ -96,6 +96,7 @@ const state = {
   dependenciesFramework: "",
   workspaceDependencies: {},
   workspaceDependencyErrors: {},
+  workspaceDependencyLoads: new Set(),
   packageIntegrations: null,
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
@@ -116,6 +117,7 @@ const state = {
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
+  memberCallGraphKey: "",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
   platformStack: [],
@@ -138,7 +140,7 @@ const state = {
   libraryScope: null,
   platformRecent: loadPlatformRecent(),
   recentPackages: loadRecentPackages(),
-  accessibilityFilter: new Set(["public"]),
+  accessibilityFilter: new Set(),
   command: "",
   completionIndex: 0,
   promptOpen: false,
@@ -155,6 +157,7 @@ const state = {
   packageVersionsLoading: {},
   runtimePackLoading: false,
   runtimePackError: "",
+  navigationSeq: 0,
   graphSourceOpen: false,
   graphSource: null,
   graphSourceLoading: false,
@@ -236,6 +239,7 @@ function applyView(view) {
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -467,7 +471,7 @@ if (initialLocation.atPackageRoot) {
 
 // Deep-link selection to restore once the first package model is available. Consumed
 // (and cleared) by the first loadPackage so later package switches start fresh.
-let pendingDeepLink = {
+const initialDeepLink = {
   type: initialLocation.type,
   member: initialLocation.member,
   overload: initialLocation.overload,
@@ -501,7 +505,7 @@ function filteredTypes() {
       && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(accessBucket(item.accessibility));
+      && state.accessibilityFilter.has(item.accessibilityId);
   });
 }
 
@@ -535,7 +539,7 @@ function packageLibraries() {
   if (!state.package) return [];
   const counts = new Map();
   for (const item of state.package.types) {
-    if (!state.accessibilityFilter.has(accessBucket(item.accessibility))) continue;
+    if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
     const key = libraryKey(item);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
@@ -620,33 +624,23 @@ function libraryControl() {
 function namespaces() {
   if (!state.package) return [];
   return [...new Set(state.package.types
-    .filter(item => state.accessibilityFilter.has(accessBucket(item.accessibility)))
+    .filter(item => state.accessibilityFilter.has(item.accessibilityId))
     .map(item => item.namespace))];
 }
 
-const ACCESS_ORDER = ["public", "protected", "internal", "private"];
-
-// Collapse a raw accessibility string ("public", "protected internal",
-// "private protected", "internal", "private", …) to one of four buckets. The
-// protected-family variants bucket under "protected" (they are visible to
-// subclassers); a missing value is treated as public (top-level public types
-// carry no explicit accessibility in metadata).
-function accessBucket(access) {
-  const value = (access || "public").toLowerCase();
-  if (value.includes("protected")) return "protected";
-  if (value.includes("internal")) return "internal";
-  if (value.includes("private")) return "private";
-  return "public";
+function accessibilityBuckets() {
+  return state.package?.accessibility ?? [];
 }
 
-// Accessibility buckets present in the package, in canonical order. "public" is
-// always offered; the others appear only when the package actually carries a
-// type in that bucket, so a wholly-public package shows just the one chip.
-function accessibilityBuckets() {
-  if (!state.package) return ["public"];
-  const present = new Set(state.package.types.map(item => accessBucket(item.accessibility)));
-  present.add("public");
-  return ACCESS_ORDER.filter(bucket => present.has(bucket));
+function defaultAccessibilityFilter(pkg) {
+  return new Set((pkg?.accessibility ?? [])
+    .filter(descriptor => descriptor.isDefault)
+    .map(descriptor => descriptor.id));
+}
+
+function isDefaultAccessibility(type) {
+  return Boolean(state.package?.accessibility?.some(
+    descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
 
 // Multi-select chip toggle for the accessibility filter. Flips a bucket in the
@@ -655,7 +649,9 @@ function accessibilityBuckets() {
 function toggleAccessibilityChip(bucket) {
   const next = new Set(state.accessibilityFilter);
   if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
-  if (next.size === 0) next.add("public");
+  if (next.size === 0) {
+    for (const id of defaultAccessibilityFilter(state.package)) next.add(id);
+  }
   state.accessibilityFilter = next;
 }
 
@@ -666,7 +662,7 @@ function accessibilityControl() {
   const buckets = accessibilityBuckets();
   if (buckets.length <= 1) return "";
   const chips = buckets
-    .map(bucket => `<button class="${state.accessibilityFilter.has(bucket) ? "active" : ""}" data-access-chip="${bucket}">${bucket}</button>`)
+    .map(bucket => `<button class="${state.accessibilityFilter.has(bucket.id) ? "active" : ""}" data-access-chip="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</button>`)
     .join("");
   return `<div class="namespace-chips access-chips" aria-label="Accessibility filters">${chips}</div>`;
 }
@@ -679,7 +675,7 @@ function namespaceOptions() {
   const counts = new Map();
   for (const item of state.package.types) {
     if (state.libraryScope && !state.libraryScope.has(libraryKey(item))) continue;
-    if (!state.accessibilityFilter.has(accessBucket(item.accessibility))) continue;
+    if (!state.accessibilityFilter.has(item.accessibilityId)) continue;
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
   return [...counts.keys()]
@@ -708,7 +704,7 @@ function typeKinds() {
   const present = new Set(state.package.types
     .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
     .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
-    .filter(item => state.accessibilityFilter.has(accessBucket(item.accessibility)))
+    .filter(item => state.accessibilityFilter.has(item.accessibilityId))
     .map(item => typeKind(item.kind)));
   return KIND_ORDER.filter(kind => present.has(kind));
 }
@@ -785,6 +781,7 @@ function resetMemberSectionState() {
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   // Invalidate any in-flight progressive call-graph load so a late cross-library
   // result can't repopulate the graph after the selection has moved on.
@@ -1519,16 +1516,24 @@ async function loadPackageDependencies() {
   state.packageDependenciesError = "";
   state.packageDependenciesLoading = true;
   render();
+  const packageRequest = {
+    id: state.package.id,
+    version: state.package.version,
+    activeFramework: state.package.activeFramework,
+    assemblyId: state.package.assemblyId
+  };
+  const workspaceKey = workspaceDependencyKey(packageRequest);
   try {
     const result = await inspectPackageDependencies({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assemblyId: state.package.assemblyId
+      packageId: packageRequest.id,
+      version: packageRequest.version,
+      framework: packageRequest.activeFramework,
+      assemblyId: packageRequest.assemblyId
     });
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
     if (result?.dependencyGroups) {
-      state.workspaceDependencies[`${state.package.id.toLowerCase()}@${state.package.version.toLowerCase()}`] = result.dependencyGroups;
+      state.workspaceDependencies[workspaceKey] = result.dependencyGroups;
+      delete state.workspaceDependencyErrors[workspaceKey];
     }
   } catch (error) {
     if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
@@ -1538,6 +1543,14 @@ async function loadPackageDependencies() {
     render();
     ensureWorkspaceDependencies();
   }
+}
+
+function workspaceDependencyKey(pkg) {
+  return [
+    pkg.id.toLowerCase(),
+    pkg.version.toLowerCase(),
+    pkg.activeFramework.toLowerCase()
+  ].join("@");
 }
 
 function maybeAutoLoadPackageDependencies() {
@@ -1559,13 +1572,15 @@ async function ensureWorkspaceDependencies() {
     !item.isRuntimePack
     && !Object.hasOwn(
       state.workspaceDependencies,
-      `${item.id.toLowerCase()}@${item.version.toLowerCase()}`));
+      workspaceDependencyKey(item))
+    && !state.workspaceDependencyLoads.has(workspaceDependencyKey(item)));
   if (!missing.length) {
     renderDependencyGraph();
     return;
   }
   for (const item of missing) {
-    const key = `${item.id.toLowerCase()}@${item.version.toLowerCase()}`;
+    const key = workspaceDependencyKey(item);
+    state.workspaceDependencyLoads.add(key);
     try {
       const result = await inspectPackageDependencies({
         packageId: item.id,
@@ -1576,12 +1591,14 @@ async function ensureWorkspaceDependencies() {
       state.workspaceDependencies[key] = result?.dependencyGroups || [];
       delete state.workspaceDependencyErrors[key];
     } catch (error) {
-      delete state.workspaceDependencies[key];
+      state.workspaceDependencies[key] = [];
       state.workspaceDependencyErrors[key] = String(error?.message || error);
+    } finally {
+      state.workspaceDependencyLoads.delete(key);
     }
   }
 
-  if (state.atPackageRoot && state.packageLens === "dependencies") renderDependencyGraph();
+  if (state.atPackageRoot && state.packageLens === "dependencies") render();
   refreshPackageStats();
 }
 
@@ -1589,7 +1606,7 @@ function workspaceDependencyErrorHtml() {
   const failures = state.packages
     .filter(item => !item.isRuntimePack)
     .map(item => {
-      const key = `${item.id.toLowerCase()}@${item.version.toLowerCase()}`;
+      const key = workspaceDependencyKey(item);
       return state.workspaceDependencyErrors[key]
         ? `${item.id}@${item.version}: ${state.workspaceDependencyErrors[key]}`
         : null;
@@ -2823,7 +2840,7 @@ function renderPackageOverview() {
   // non-public types are reached via the type nav pane's accessibility filter.
   const libStats = new Map();
   for (const type of pkg.types) {
-    if (accessBucket(type.accessibility) !== "public") continue;
+    if (!isDefaultAccessibility(type)) continue;
     const asm = type.assembly || pkg.assembly || "(unknown)";
     let stat = libStats.get(asm);
     if (!stat) libStats.set(asm, (stat = { types: 0, kinds: new Map() }));
@@ -2874,7 +2891,7 @@ function renderPackageOverview() {
 
   const nsCounts = new Map();
   for (const type of pkg.types) {
-    if (accessBucket(type.accessibility) !== "public") continue;
+    if (!isDefaultAccessibility(type)) continue;
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
@@ -3751,7 +3768,7 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.libraryScope = null;
-    state.accessibilityFilter = new Set(["public"]);
+    state.accessibilityFilter = defaultAccessibilityFilter(state.package);
     render();
     focusFilter();
   });
@@ -4722,7 +4739,9 @@ function activateRuntimePack() {
 // extending the resident runtime pseudo-package, then scope the workbench to it and land in
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
-async function openPlatformLibrary(assembly, pack) {
+async function openPlatformLibrary(assembly, pack, options = {}) {
+  const navigationSeq = options.navigationSeq;
+  if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   closeSpotlight();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
@@ -4736,6 +4755,7 @@ async function openPlatformLibrary(assembly, pack) {
     state.loadingSubtitle = `${key} · ${tfm}`;
     render();
     const loaded = await loadRuntimePackAssembly(tfm, fileName, pack);
+    if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
     if (!loaded) {
       state.loading = false;
       state.error = state.runtimePackError
@@ -4822,6 +4842,7 @@ function pickSpotlight(pkgId, typeId) {
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
+  state.memberCallGraphKey = "";
   state.memberCallGraphError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
@@ -5092,6 +5113,23 @@ function syncUrl() {
 function applyDeepLink(deep) {
   const pkg = state.package;
   if (!pkg) return;
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberSourceKey = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
+  state.memberAnnotatedKey = "";
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  state.memberFactsKey = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraphSeq++;
+  state.platformStack = [];
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
   state.selectedMemberKey = "";
@@ -5670,7 +5708,8 @@ async function renderTypeGraph() {
   const meta = state.typeMetadata;
   const definition = meta ? buildTypeGraphMermaid(meta) : null;
   if (!definition) return;
-  const fullNameOf = new Map((meta.graphNodes || []).map(node => [shortTypeName(node.displayName), node.id]));
+  const fullNameOf = new Map(
+    (meta.graphNodes || []).map((node, index) => [`t${index}`, node.id]));
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
@@ -5700,8 +5739,9 @@ async function renderTypeGraph() {
     viewport.innerHTML = svg;
     attachGraphPanZoom(container, viewport);
     viewport.querySelectorAll("g.node").forEach(node => {
-      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
-      const fullName = fullNameOf.get(label);
+      const dataId = node.getAttribute("data-id");
+      const idMatch = node.id.match(/(?:^|flowchart-)(t\d+)(?:-|$)/);
+      const fullName = fullNameOf.get(dataId || idMatch?.[1]);
       if (!fullName) return;
       const target = state.package.types.find(candidate => candidate.id === fullName);
       if (target) {
@@ -5731,7 +5771,7 @@ function navigateToTypeByName(fullName) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
-  const bucket = accessBucket(target.accessibility);
+  const bucket = target.accessibilityId;
   if (!state.accessibilityFilter.has(bucket)) {
     const next = new Set(state.accessibilityFilter);
     next.add(bucket);
@@ -5798,7 +5838,10 @@ function buildDependencyGraphMermaid(selectedTfm) {
   };
 
   const groupFor = (id, version) => {
-    let groups = state.workspaceDependencies[`${id.toLowerCase()}@${String(version).toLowerCase()}`];
+    const open = openById.get(id.toLowerCase());
+    let groups = open
+      ? state.workspaceDependencies[workspaceDependencyKey(open)]
+      : null;
     if (!groups && id.toLowerCase() === centerKey) groups = state.packageDependencies?.dependencyGroups;
     if (!groups) return null;
     return groups.find(group => group.framework === selectedTfm)
@@ -5996,11 +6039,6 @@ function nextPaint() {
 }
 
 async function loadSelectedMemberCallGraph() {
-  if (state.memberCallGraph) {
-    render();
-    renderMermaidCallGraph();
-    return;
-  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -6009,6 +6047,16 @@ async function loadSelectedMemberCallGraph() {
     render();
     return;
   }
+  const signature = memberRequestSignature(type, overload);
+  if (state.memberCallGraphKey === signature
+    && (state.memberCallGraph || state.memberCallGraphError)) {
+    render();
+    renderMermaidCallGraph();
+    return;
+  }
+  state.memberCallGraphKey = signature;
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
 
   // A resident runtime pack has no NuGet workspace to scan for callers; its members'
   // implementation lives in the range-fetched platform assembly. Route them through the
@@ -6048,7 +6096,9 @@ async function loadSelectedMemberCallGraph() {
   render();
   try {
     const local = await inspectMemberCallGraph({ ...base, workspace: [] });
-    if (seq !== state.memberCallGraphSeq) return;
+    if (seq !== state.memberCallGraphSeq
+      || !memberRequestIsCurrent(signature)
+      || state.memberCallGraphKey !== signature) return;
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = hasOtherLibraries;
@@ -6059,7 +6109,9 @@ async function loadSelectedMemberCallGraph() {
       // The engine runs synchronously on the main thread, so yield a paint frame first —
       // otherwise the stage-1 graph never appears before the blocking cross-library pass.
       await nextPaint();
-      if (seq !== state.memberCallGraphSeq) return;
+      if (seq !== state.memberCallGraphSeq
+        || !memberRequestIsCurrent(signature)
+        || state.memberCallGraphKey !== signature) return;
       const full = await inspectMemberCallGraph({
         ...base,
         workspace: workspacePackages.map(packageItem => ({
@@ -6068,7 +6120,9 @@ async function loadSelectedMemberCallGraph() {
           framework: packageItem.activeFramework
         }))
       });
-      if (seq !== state.memberCallGraphSeq) return;
+      if (seq !== state.memberCallGraphSeq
+        || !memberRequestIsCurrent(signature)
+        || state.memberCallGraphKey !== signature) return;
       const previousMermaid = state.memberCallGraph?.mermaid;
       state.memberCallGraph = full;
       state.memberCallGraphExpanding = false;
@@ -6076,7 +6130,9 @@ async function loadSelectedMemberCallGraph() {
       patchCallGraphSection(previousMermaid);
     }
   } catch (error) {
-    if (seq !== state.memberCallGraphSeq) return;
+    if (seq !== state.memberCallGraphSeq
+      || !memberRequestIsCurrent(signature)
+      || state.memberCallGraphKey !== signature) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     if (state.memberCallGraph) {
@@ -6110,9 +6166,8 @@ async function loadRuntimeMemberCallGraph(type, overload) {
       assembly: type.assembly,
       type: type.metadataId ?? type.queryId ?? type.id,
       member: overload.name,
-      parameterTypes: (overload.parameters ?? []).map(parameter => parameter.type),
-      returnType: overload.returnType ?? "",
-      genericArity: overload.genericArity ?? 0
+      selectorKey: overload.graphSelectorKey,
+      metadataToken: overload.metadataToken
     });
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraph = graph;
@@ -6406,8 +6461,10 @@ function resolveLoadedGraphTarget(target) {
         version: pkg.version,
         framework: pkg.activeFramework,
         assembly: type.assembly,
-        type: type.queryId ?? type.id,
-        member: target.memberName
+        type: target.typeFullName,
+        member: target.memberName,
+        selectorKey: target.selectorKey,
+        metadataToken: target.metadataToken
       }
     };
   }
@@ -6419,39 +6476,26 @@ function findGraphMemberSelection(type, target) {
   if (target.metadataToken != null) {
     for (const group of groups) {
       const overloadIndex = group.overloads.findIndex(
-        overload => overload.metadataToken === target.metadataToken);
+        overload => (overload.bodyTokens ?? []).includes(target.metadataToken));
       if (overloadIndex >= 0)
         return { group, overloadIndex };
     }
   }
 
-  const group = findMemberGroup(groups, target.memberName);
-  if (!group) return null;
   const matches = [];
-  for (let index = 0; index < group.overloads.length; index++) {
-    if (overloadMatchesGraphTarget(group.overloads[index], target)) {
-      matches.push(index);
+  for (const group of groups) {
+    for (let index = 0; index < group.overloads.length; index++) {
+      if (group.overloads[index].graphSelectorKey === target.selectorKey) {
+        matches.push({ group, overloadIndex: index });
+      }
     }
   }
-  if (matches.length === 1)
-    return { group, overloadIndex: matches[0] };
-  return { group, overloadIndex: group.overloads.length === 1 ? 0 : null };
-}
-
-function overloadMatchesGraphTarget(overload, target) {
-  const parameters = overload.parameters ?? [];
-  const wantedParameters = target.parameterTypes ?? [];
-  return parameters.length === wantedParameters.length
-    && (overload.genericArity ?? 0) === (target.genericArity ?? 0)
-    && simpleTypeName(overload.returnType) === simpleTypeName(target.returnType)
-    && parameters.every(
-      (parameter, parameterIndex) =>
-        simpleTypeName(parameter.type)
-          === simpleTypeName(wantedParameters[parameterIndex]));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function drillPlatformNode(node) {
   if (state.platformDrillLoading) return;
+  const seq = state.memberCallGraphSeq;
   state.platformDrillLoading = true;
   state.platformDrillError = "";
   render();
@@ -6461,10 +6505,10 @@ async function drillPlatformNode(node) {
       assembly: node.assembly,
       type: node.typeFullName,
       member: node.memberName,
-      parameterTypes: node.parameterTypes ?? [],
-      returnType: node.returnType ?? "",
-      genericArity: node.genericArity ?? 0
+      selectorKey: node.selectorKey,
+      metadataToken: node.metadataToken
     });
+    if (seq !== state.memberCallGraphSeq) return;
     state.platformStack.push({
       graph,
       title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
@@ -6473,6 +6517,7 @@ async function drillPlatformNode(node) {
     render();
     await renderMermaidCallGraph();
   } catch (error) {
+    if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     state.platformDrillError =
       `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
@@ -6497,6 +6542,7 @@ function popPlatformDrill() {
 // fall back to the lightweight in-place descent so the callees still appear.
 async function navigateOrDrillPlatform(node) {
   if (state.platformDrillLoading) return;
+  const seq = state.memberCallGraphSeq;
   const framework = state.package?.activeFramework || "";
   let pack = runtimePackPackage();
   if (!pack) {
@@ -6504,6 +6550,7 @@ async function navigateOrDrillPlatform(node) {
     state.platformDrillError = "";
     render();
     pack = await loadRuntimePack(framework);
+    if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
@@ -6513,6 +6560,7 @@ async function navigateOrDrillPlatform(node) {
     }
   }
   const selection = findRuntimeMemberSelection(pack, node);
+  if (seq !== state.memberCallGraphSeq) return;
   if (!selection) {
     await drillPlatformNode(node);
     return;
@@ -6541,6 +6589,7 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   state.memberFacts = null;
   state.memberFactsError = "";
@@ -6557,12 +6606,18 @@ function findRuntimeMemberSelection(pack, node) {
   const type = pack.types.find(
     item => (item.metadataId ?? item.queryId ?? item.id) === node.typeFullName);
   if (!type) return null;
-  const named = memberGroups(type).filter(group => group.name === node.memberName);
-  if (!named.length) return null;
+  const groups = memberGroups(type);
+  if (node.metadataToken != null) {
+    for (const group of groups) {
+      const overloadIndex = group.overloads.findIndex(
+        overload => (overload.bodyTokens ?? []).includes(node.metadataToken));
+      if (overloadIndex >= 0) return { type, group, overloadIndex };
+    }
+  }
   const matches = [];
-  for (const group of named) {
+  for (const group of groups) {
     for (let i = 0; i < group.overloads.length; i++) {
-      if (overloadMatchesGraphTarget(group.overloads[i], node)) {
+      if (group.overloads[i].graphSelectorKey === node.selectorKey) {
         matches.push({ type, group, overloadIndex: i });
       }
     }
@@ -6570,52 +6625,9 @@ function findRuntimeMemberSelection(pack, node) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-// Client-side mirror of the engine's SimpleTypeName: strip namespace, generic arguments,
-// arity, and the nullable-reference annotation so overload matching survives the display-
-// vs metadata-name gap (e.g. a callee's "string" against an overload's "string?").
-function simpleTypeName(type) {
-  if (!type) return "";
-  let name = String(type).trim();
-  name = name.replace(/^(?:ref|out|in|params|pinned)\s+/i, "");
-  const generic = name.indexOf("<");
-  if (generic >= 0) name = name.slice(0, generic);
-  const array = name.indexOf("[");
-  const suffix = array >= 0 ? name.slice(array) : "";
-  if (array >= 0) name = name.slice(0, array);
-  const tick = name.indexOf("`");
-  if (tick >= 0) name = name.slice(0, tick);
-  const dot = name.lastIndexOf(".");
-  if (dot >= 0) name = name.slice(dot + 1);
-  return (name.replace(/\?+$/, "") + suffix.replace(/\?+$/, "")).toLowerCase();
-}
-
 function stripArity(name) {
   const tick = name.indexOf("`");
   return tick < 0 ? name : name.slice(0, tick);
-}
-
-function findMemberGroup(groups, memberName) {
-  let group = groups.find(item => item.name === memberName);
-  if (group) return group;
-
-  const accessor = memberName.match(/^(get|set|add|remove)_(.+)$/);
-  if (accessor) {
-    const backing = accessor[2];
-    const kind = accessor[1] === "get" || accessor[1] === "set" ? "property" : "event";
-    group = groups.find(item => item.name === backing && item.kind === kind)
-      ?? groups.find(item => item.name === backing);
-    if (group) return group;
-    if ((backing === "Item" || backing === "Chars")) {
-      group = groups.find(item => item.kind === "property" && (item.name === "Item" || item.name === "this[]"));
-      if (group) return group;
-    }
-  }
-
-  if (memberName === "ctor" || memberName === ".ctor" || memberName === "#ctor") {
-    group = groups.find(item => item.kind === "constructor");
-    if (group) return group;
-  }
-  return null;
 }
 
 async function openGraphSource(request, title) {
@@ -6952,6 +6964,7 @@ function navigateToMember(pkg, type, group, overloadIndex = null) {
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -7014,6 +7027,8 @@ async function loadPackage(packageId, version, framework, options = {}) {
   // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
   // overlay up and focuses the real target once, so non-target tabs never flash into view.
   const background = options.background === true;
+  const navigationSeq = options.navigationSeq
+    ?? (background ? null : ++state.navigationSeq);
   const prevPackage = state.package;
   const prevRequested = {
     package: state.requestedPackage,
@@ -7035,6 +7050,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
 
   try {
     const result = await inspectPackage(packageId, version, framework);
+    if (navigationSeq != null && navigationSeq !== state.navigationSeq) return null;
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({
       ...type,
@@ -7055,7 +7071,9 @@ async function loadPackage(packageId, version, framework, options = {}) {
       assemblyAsset: defaultAssembly.asset,
       assemblies: result.assemblies ?? [],
       types,
-      totalTypes: types.filter(type => accessBucket(type.accessibility) === "public").length,
+      accessibility: result.accessibility ?? [],
+      totalTypes: (result.assemblies ?? [])
+        .reduce((count, assembly) => count + (assembly.publicTypes ?? 0), 0),
       totalMembers: result.totalMembers,
       documents: result.documents ?? []
     };
@@ -7071,10 +7089,9 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.libraryScope = null;
-    state.accessibilityFilter = new Set(["public"]);
+    state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
     state.dependenciesFramework = "";
-    const deep = pendingDeepLink;
-    pendingDeepLink = null;
+    const deep = options.deepLink;
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {
@@ -7088,6 +7105,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     loadSelectionData();
     return packageModel;
   } catch (error) {
+    if (navigationSeq != null && navigationSeq !== state.navigationSeq) return null;
     const friendly = friendlyLoadError(error, packageId, version);
     if (background) {
       const failure =
@@ -7217,7 +7235,12 @@ function isRuntimePackId(id) {
 // Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
 // assemblies load lazily as navigation reaches them. Does not switch the active package.
 async function loadRuntimePack(framework) {
-  if (state.runtimePackLoading) return runtimePackPackage();
+  if (state.runtimePackLoading) {
+    while (state.runtimePackLoading) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return runtimePackPackage();
+  }
   const existing = runtimePackPackage();
   if (existing) return existing;
   state.runtimePackLoading = true;
@@ -7241,6 +7264,7 @@ async function loadRuntimePack(framework) {
       assemblyAsset: defaultAssembly.asset,
       assemblies: result.assemblies ?? [],
       types,
+      accessibility: result.accessibility ?? [],
       totalTypes: types.length,
       totalMembers: result.totalMembers,
       documents: result.documents ?? [],
@@ -7282,6 +7306,16 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
       const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
       for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
+      const descriptors = new Map(
+        (existing.accessibility || []).map(descriptor => [descriptor.id, descriptor]));
+      for (const descriptor of (result.accessibility ?? [])) {
+        const current = descriptors.get(descriptor.id);
+        descriptors.set(descriptor.id, current
+          ? { ...current, count: current.count + descriptor.count }
+          : descriptor);
+      }
+      existing.accessibility = [...descriptors.values()]
+        .sort((left, right) => left.order - right.order);
       existing.totalTypes = existing.types.length;
       existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
       state.runtimePackLoading = false;
@@ -7297,6 +7331,7 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       assemblyAsset: result.assemblies[0].asset,
       assemblies: result.assemblies ?? [],
       types: newTypes,
+      accessibility: result.accessibility ?? [],
       totalTypes: newTypes.length,
       totalMembers: result.totalMembers,
       documents: result.documents ?? [],
@@ -7348,6 +7383,7 @@ async function runCallGraphDemo() {
   state.memberSection = "call-graph";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
   state.loading = false;
   render();
   await loadSelectedMemberCallGraph();
@@ -7356,7 +7392,11 @@ async function runCallGraphDemo() {
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
 // lone target), then restores the active tab's platform library scope and deep-link
 // selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
-async function restoreWorkspaceFromLocation(loc, deep) {
+async function restoreWorkspaceFromLocation(
+  loc,
+  deep,
+  navigationSeq = ++state.navigationSeq) {
+  if (navigationSeq !== state.navigationSeq) return;
   state.queryNotice = "";
   state.home = false;
   state.loading = true;
@@ -7375,16 +7415,29 @@ async function restoreWorkspaceFromLocation(loc, deep) {
         && String(tab.version).toLowerCase() === String(target.version).toLowerCase());
   if (!tabs.some(matchesTarget)) tabs.push(target);
 
-  // Tab loads must not consume a stale deep link; the target's selection is applied below.
-  pendingDeepLink = null;
   // Load every tab's data so the tab bar and cross-package edges come back, but keep the
   // main view under the loading overlay throughout: NuGet tabs load in the background (no
   // focus steal) and loadRuntimePack already never steals focus. The real target is focused
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
   for (const tab of tabs) {
-    if (isRuntimePackId(tab.id)) await loadRuntimePack(tab.framework);
-    else await loadPackage(tab.id, tab.version, tab.framework, { background: true });
+    let loaded;
+    if (isRuntimePackId(tab.id)) {
+      loaded = await loadRuntimePack(tab.framework);
+      if (!loaded && navigationSeq === state.navigationSeq) {
+        const failure =
+          `Workspace restore was incomplete: ${tab.id}: ${state.runtimePackError || "runtime pack acquisition failed."}`;
+        state.queryNotice = state.queryNotice
+          ? `${state.queryNotice} ${failure}`
+          : failure;
+      }
+    } else {
+      loaded = await loadPackage(tab.id, tab.version, tab.framework, {
+        background: true,
+        navigationSeq
+      });
+    }
+    if (navigationSeq !== state.navigationSeq) return;
   }
 
   const targetModel = state.packages.find(matchesTarget);
@@ -7393,7 +7446,8 @@ async function restoreWorkspaceFromLocation(loc, deep) {
     // Restore the platform library scope captured in the share packet before applying the
     // deep link, so a refreshed/shared platform-library link lands on that library.
     if (isRuntimePackId(targetModel.id) && loc.library) {
-      await applyPlatformLibraryScope(loc.library);
+      await applyPlatformLibraryScope(loc.library, navigationSeq);
+      if (navigationSeq !== state.navigationSeq) return;
     }
     applyDeepLink(deep);
     state.loading = false;
@@ -7402,8 +7456,10 @@ async function restoreWorkspaceFromLocation(loc, deep) {
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
-    pendingDeepLink = deep;
-    await loadPackage(target.id, target.version, target.framework);
+    await loadPackage(target.id, target.version, target.framework, {
+      deepLink: deep,
+      navigationSeq
+    });
   } else {
     state.loading = false;
     render();
@@ -7420,7 +7476,7 @@ async function restoreInitialWorkspace() {
     version: state.requestedVersion,
     framework: state.requestedFramework
   };
-  await restoreWorkspaceFromLocation(loc, pendingDeepLink);
+  await restoreWorkspaceFromLocation(loc, initialDeepLink);
 }
 
 async function bootstrap() {
@@ -7619,6 +7675,9 @@ document.addEventListener("mousedown", event => {
 // package is (re)loaded with the URL selection queued as a deep link.
 window.addEventListener("popstate", () => {
   if (!state.package) return;
+  const navigationSeq = ++state.navigationSeq;
+  state.memberCallGraphSeq++;
+  state.loading = false;
   const loc = parseLocation();
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
@@ -7640,7 +7699,7 @@ window.addEventListener("popstate", () => {
     if (isRuntimePackId(state.package.id)) {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
-      restorePlatformScopeThenDeepLink(loc);
+      restorePlatformScopeThenDeepLink(loc, navigationSeq);
     } else {
       applyDeepLink(loc);
       render();
@@ -7649,19 +7708,23 @@ window.addEventListener("popstate", () => {
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
-    restoreRuntimePackFromHistory(loc);
+    const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    restoreRuntimePackFromHistory(loc, deep, navigationSeq);
   } else {
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
-    loadPackage(loc.package, loc.version || "latest", loc.framework || "");
+    const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
+      deepLink: deep,
+      navigationSeq
+    });
   }
 });
 
 // Re-scope the active runtime pack to the platform library named in a share/history packet
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
 // clear the scope for the aggregate platform, then restore the deep-linked selection.
-async function restorePlatformScopeThenDeepLink(loc) {
-  await applyPlatformLibraryScope(loc.library);
+async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
+  await applyPlatformLibraryScope(loc.library, navigationSeq);
+  if (navigationSeq !== state.navigationSeq) return;
   applyDeepLink(loc);
   render();
   loadSelectionData();
@@ -7669,7 +7732,8 @@ async function restorePlatformScopeThenDeepLink(loc) {
 
 // Load and scope to a single platform library key (or clear the scope when null). Reuses
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
-async function applyPlatformLibraryScope(libraryKey) {
+async function applyPlatformLibraryScope(libraryKey, navigationSeq = null) {
+  if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   const key = String(libraryKey || "").replace(/\.dll$/i, "");
   if (!key) { state.libraryScope = null; return; }
   // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
@@ -7677,21 +7741,27 @@ async function applyPlatformLibraryScope(libraryKey) {
   if (!state.platformIndex) {
     try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
   }
-  await openPlatformLibrary(key, platformPackForAssembly(key));
+  if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
+  await openPlatformLibrary(key, platformPackForAssembly(key), { navigationSeq });
 }
 
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
 // has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant),
 // re-scope to the captured library, and re-apply the deep link, mirroring
 // restoreInitialWorkspace's runtime-pack path.
-async function restoreRuntimePackFromHistory(loc) {
+async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   const pack = await loadRuntimePack(loc.framework || "");
-  const deep = pendingDeepLink;
-  pendingDeepLink = null;
+  if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     state.package = pack;
-    if (loc.library) await applyPlatformLibraryScope(loc.library);
-    applyDeepLink(deep || loc);
+    if (loc.library) {
+      await applyPlatformLibraryScope(loc.library, navigationSeq);
+      if (navigationSeq !== state.navigationSeq) return;
+    }
+    applyDeepLink(deep);
+  } else {
+    state.queryNotice =
+      `Workspace restore was incomplete: ${loc.package}: ${state.runtimePackError || "runtime pack acquisition failed."}`;
   }
   render();
   loadSelectionData();

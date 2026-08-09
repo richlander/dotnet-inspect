@@ -119,6 +119,8 @@ export async function inspectTypeMemberSource(request) {
     request.assembly,
     request.type,
     request.member,
+    request.selectorKey,
+    request.metadataToken ?? 0,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
@@ -310,9 +312,8 @@ export async function inspectExpandPlatformCallGraph(request) {
     request.assembly ?? "",
     request.type,
     request.member,
-    JSON.stringify(request.parameterTypes ?? []),
-    request.returnType ?? "",
-    request.genericArity ?? 0);
+    request.selectorKey,
+    request.metadataToken ?? 0);
   return JSON.parse(json);
 }
 

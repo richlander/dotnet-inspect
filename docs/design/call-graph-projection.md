@@ -81,6 +81,16 @@ The projection owns everything a host must not re-invent in JavaScript:
   the *entire* projection. It never mixes catalog and structural identities in
   one result. Shared callees, cycles, and the target as both caller and callee
   collapse to one node in either domain.
+- **API-surface correspondence.** `CallGraphMemberResolver` projects the typed
+  `MemberRef` and metadata-owned `ApiMember` shapes into the same opaque selector.
+  Browser hosts compare that selector or an exact MethodDef/accessor token; they
+  do not normalize display signatures in JavaScript. Token lookup wins within
+  the selected type, while structural fallback preserves generic arguments,
+  namespaces, generic-parameter positions, arrays, pointers, by-ref shape, and
+  return type and succeeds only for one candidate. Overloaded property and event
+  accessors resolve through their owning API member without discarding the
+  accessor signature. `CallGraphMemberResolverTests` is the gate for generic,
+  by-ref, accessor-overload, and token-first correspondence.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   The catalog scope retains the complete physical store independently. A
