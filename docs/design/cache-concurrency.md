@@ -173,6 +173,21 @@ transactions from older direct-copy writers, earlier layouts that did not
 scope entries by source, and payloads previously misattributed by a
 noncanonical NuGet.org URL shortcut.
 
+## Versioned cache retirement
+
+Each versioned cache family registers its prefix and current numeric contract.
+Registration starts best-effort background cleanup, and cache initialization
+rechecks every known family. Cleanup deletes only lower numeric contracts.
+Current, future, and malformed directory suffixes are preserved, so running an
+older dotnet-inspect cannot destroy a cache written by a newer one.
+
+Cleanup scans on every initialization rather than trusting a persisted
+high-water mark. An older executable can still be running and can recreate an
+old contract after a newer process removes it; the next initialization must
+therefore check again. Routine cleanup is silent. An explicit `cache clear`
+waits for in-flight maintenance and includes its reclaimed bytes in the
+reported total.
+
 ## Filesystem coordination
 
 `Directory.Move(stagingPath, targetPath)` delegates coordination to the

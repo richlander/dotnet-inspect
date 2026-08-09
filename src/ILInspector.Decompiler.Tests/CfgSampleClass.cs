@@ -6574,6 +6574,12 @@ public sealed class DeclScopeLoopClient
 // it accepts. The declined ones must not print a call to a name they never declare.
 public static class UnraisedLocalFunctionSamples
 {
+    public static void CallsEmpty()
+    {
+        F();
+        static void F() { }
+    }
+
     // Declined: IsPrintableBody rejects a try body.
     public static int CallsUnraisedTry(int x)
     {
@@ -6618,6 +6624,34 @@ public static class DuplicateLocalFunctionNameSamples
                 return t;
             }
             return Pick(2);
+        }
+    }
+
+    public static int BothRaise(bool b, int x)
+    {
+        if (b)
+        {
+            int Pick(int n) => n + 1;
+            return Pick(x);
+        }
+        else
+        {
+            int Pick(int n) => n * 2;
+            return Pick(x);
+        }
+    }
+
+    public static int BothRaiseWithIfBodies(bool b, int x)
+    {
+        if (b)
+        {
+            int Pick(int n) { if (n > 0) return n + 1; return n; }
+            return Pick(x);
+        }
+        else
+        {
+            int Pick(int n) { if (n > 0) return n * 2; return n; }
+            return Pick(x);
         }
     }
 }

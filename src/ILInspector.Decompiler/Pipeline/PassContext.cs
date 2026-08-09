@@ -88,7 +88,7 @@ public sealed class PassContext
         {
             body = scope.Import();
             if (body is not null)
-                IrPasses.Run(body, passes, NestedPipelineContext());
+                scope.Run(body, passes);
             return true;
         }
     }
@@ -150,6 +150,13 @@ public sealed class PassContext
         }
 
         public IrFunction? Import() => _context.ImportMethodBody!(_method);
+
+        /// <summary>
+        /// Runs the imported sibling's pipeline without attributing its steps or
+        /// structuring diagnostics to the parent method.
+        /// </summary>
+        public void Run(IrFunction body, ImmutableArray<IIrPass> passes)
+            => IrPasses.Run(body, passes, _context.NestedPipelineContext());
 
         public void Dispose()
         {

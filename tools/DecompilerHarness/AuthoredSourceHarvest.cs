@@ -91,8 +91,8 @@ static class AuthoredSourceHarvest
             return 1;
         }
 
-        HttpClientFactory.Initialize();
-        using var httpClient = HttpClientFactory.CreateNew();
+        HttpClientFactory.Initialize(new HttpClientFactoryOptions());
+        using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
 
         var libraries = new List<LibraryState>();

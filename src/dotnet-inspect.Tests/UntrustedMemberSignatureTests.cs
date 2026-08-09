@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
 using ILInspector.CSharp;
+using CSharpText;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
