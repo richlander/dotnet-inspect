@@ -65,9 +65,10 @@ public class AuthoredSourceValidityTests
         NotSliceable,
 
         /// <summary>
-        /// The slice parses as a member declaration, but not the kind requested. In particular,
-        /// constructor sequence points include field and property initializers; returning one of
-        /// those declarations as constructor source is well-formed C# with the wrong identity.
+        /// The slice parses as exactly one member declaration, but its kind, name, or constructor
+        /// staticness does not match the requested metadata member. In particular, constructor
+        /// sequence points include field and property initializers; returning one of those
+        /// declarations as constructor source is well-formed C# with the wrong identity.
         /// </summary>
         WrongDeclaration,
 
@@ -94,16 +95,22 @@ public class AuthoredSourceValidityTests
         return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
-    private static bool ParsesAsTypeDeclaration(string text)
+    private static bool TryGetSingleMember(
+        string text,
+        out MemberDeclarationSyntax? member)
     {
         var tree = CSharpSyntaxTree.ParseText(
             $"class __Shell {{\n{text}\n}}",
             new CSharpParseOptions(LanguageVersion.Preview));
         if (tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error))
+        {
+            member = null;
             return false;
+        }
 
         var shell = tree.GetCompilationUnitRoot().Members.OfType<ClassDeclarationSyntax>().Single();
-        return shell.Members.FirstOrDefault() is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax;
+        member = shell.Members.Count == 1 ? shell.Members[0] : null;
+        return member is not null;
     }
 
     private static SliceOutcome Classify(string? text, string memberName = "")
@@ -111,23 +118,17 @@ public class AuthoredSourceValidityTests
         if (text is null)
             return SliceOutcome.NotSliceable;
 
-        if (ParsesAsTypeDeclaration(text))
-            return SliceOutcome.TypeHeader;
-
-        if (ParsesAsMember(text))
+        if (TryGetSingleMember(text, out var member)
+            && member is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
         {
-            bool constructorRequested = memberName is "#ctor" or ".ctor" or ".cctor";
-            bool containsConstructor = CSharpSyntaxTree.ParseText(
-                    $"class __Shell {{\n{text}\n}}",
-                    new CSharpParseOptions(LanguageVersion.Preview))
-                .GetRoot()
-                .DescendantNodes()
-                .OfType<ConstructorDeclarationSyntax>()
-                .Any();
+            return SliceOutcome.TypeHeader;
+        }
 
-            return constructorRequested && !containsConstructor
-                ? SliceOutcome.WrongDeclaration
-                : SliceOutcome.WellFormed;
+        if (member is not null)
+        {
+            return memberName.Length == 0 || CorrespondsTo(member, memberName)
+                ? SliceOutcome.WellFormed
+                : SliceOutcome.WrongDeclaration;
         }
 
         var trimmed = text.TrimEnd();
@@ -139,6 +140,75 @@ public class AuthoredSourceValidityTests
 
         var firstLine = text.TrimStart().Split('\n')[0].Trim();
         return TypeDeclaration.IsMatch(firstLine) ? SliceOutcome.TypeHeader : SliceOutcome.Malformed;
+    }
+
+    private static bool CorrespondsTo(MemberDeclarationSyntax member, string metadataName)
+    {
+        if (metadataName is "#ctor" or ".ctor" or ".cctor")
+        {
+            return member is ConstructorDeclarationSyntax constructor
+                && constructor.Modifiers.Any(SyntaxKind.StaticKeyword)
+                    == (metadataName == ".cctor");
+        }
+
+        string terminalName = metadataName[(metadataName.LastIndexOf('.') + 1)..];
+        int generic = terminalName.IndexOf('<');
+        if (generic >= 0)
+            terminalName = terminalName[..generic];
+
+        return member switch
+        {
+            MethodDeclarationSyntax method =>
+                terminalName == method.Identifier.ValueText,
+            PropertyDeclarationSyntax property =>
+                AccessorName(terminalName) == property.Identifier.ValueText,
+            IndexerDeclarationSyntax =>
+                AccessorName(terminalName) == "Item",
+            EventDeclarationSyntax @event =>
+                EventAccessorName(terminalName) == @event.Identifier.ValueText,
+            EventFieldDeclarationSyntax eventField =>
+                eventField.Declaration.Variables.Any(variable =>
+                    variable.Identifier.ValueText == EventAccessorName(terminalName)),
+            DestructorDeclarationSyntax =>
+                terminalName == "Finalize",
+            OperatorDeclarationSyntax or ConversionOperatorDeclarationSyntax =>
+                terminalName.StartsWith("op_", StringComparison.Ordinal),
+            _ => false,
+        };
+
+        static string AccessorName(string name) =>
+            name.StartsWith("get_", StringComparison.Ordinal)
+                || name.StartsWith("set_", StringComparison.Ordinal)
+                    ? name[4..]
+                    : name;
+
+        static string EventAccessorName(string name) =>
+            name.StartsWith("add_", StringComparison.Ordinal)
+                ? name[4..]
+                : name.StartsWith("remove_", StringComparison.Ordinal)
+                    ? name[7..]
+                    : name;
+    }
+
+    [Fact]
+    public void SliceClassifier_RequiresOneCorrespondingMember()
+    {
+        Assert.Equal(SliceOutcome.Malformed, Classify("", "M"));
+        Assert.Equal(
+            SliceOutcome.Malformed,
+            Classify("void A() { } void B() { }", "B"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("void A() { }", "B"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("C() { }", ".cctor"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("static C() { }", ".ctor"));
+        Assert.Equal(
+            SliceOutcome.WrongDeclaration,
+            Classify("int Q { get; }", "get_P"));
     }
 
     /// <summary>
@@ -314,6 +384,50 @@ public class AuthoredSourceValidityTests
         Assert.Equal(
             "public static void Ping(LibB::Shared.Token value)\n{\n}",
             last.Text);
+    }
+
+    [Fact]
+    public void ConstructorInitializerBraces_RealPdbRangeKeepsTheCompleteDeclaration()
+    {
+        var slices = SliceCorpus()
+            .Where(s => Path.GetFileName(s.File) == "ConstructorInitializerCorpusFixture.cs"
+                && s.Member == "#ctor"
+                && s.Text.Contains(
+                    "public ConstructorInitializerCorpusFixture(string path)",
+                    StringComparison.Ordinal))
+            .ToList();
+
+        var slice = Assert.Single(slices);
+        Assert.Equal(SliceOutcome.WellFormed, slice.Outcome);
+        Assert.Contains("GC.KeepAlive(path);", slice.Text, StringComparison.Ordinal);
+        Assert.EndsWith("}", slice.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConstructorInitializerWithAnotherArgument_RealPdbRangeRemainsSliceable()
+    {
+        var slices = SliceCorpus()
+            .Where(s => Path.GetFileName(s.File) == "ConstructorInitializerCorpusFixture.cs"
+                && s.Member == "#ctor"
+                && s.Text.Contains(
+                    "public ConstructorInitializerCorpusFixture(string path, int count)",
+                    StringComparison.Ordinal))
+            .ToList();
+
+        var slice = Assert.Single(slices);
+        Assert.Equal(SliceOutcome.WellFormed, slice.Outcome);
+    }
+
+    [Fact]
+    public void SameLineSiblings_RealPdbRangesReportAbsent()
+    {
+        var slices = SliceCorpus()
+            .Where(s => Path.GetFileName(s.File) == "ConstructorInitializerCorpusFixture.cs"
+                && s.Member is "First" or "Second")
+            .ToList();
+
+        Assert.Equal(2, slices.Count);
+        Assert.All(slices, slice => Assert.Equal(SliceOutcome.NotSliceable, slice.Outcome));
     }
 
     /// <summary>

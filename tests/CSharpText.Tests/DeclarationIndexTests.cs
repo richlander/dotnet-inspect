@@ -362,6 +362,106 @@ public class DeclarationIndexTests
         Assert.Equal(DeclarationKind.Field, index.FindByLine(3)?.Kind);
     }
 
+    [Theory]
+    [InlineData(": base(new Options { Path = path })")]
+    [InlineData(": base(new object[] { path })")]
+    [InlineData(": base(() => { Use(path); })")]
+    [InlineData(": base(path is { Length: > 0 })")]
+    public void BracesInsideAConstructorInitializer_DoNotCloseTheConstructor(string initializer)
+    {
+        var index = DeclarationIndex.Build($$"""
+            class C
+            {
+                C(string path)
+                    {{initializer}}
+                {
+                    Use(path);
+                }
+            }
+            """);
+
+        var ctor = Assert.Single(index.Declarations, d => d.Kind == DeclarationKind.Constructor);
+        Assert.Equal(3, ctor.SignatureStartLine);
+        Assert.Equal(5, ctor.BodyStartLine);
+        Assert.Equal(7, ctor.BodyEndLine);
+        Assert.Equal(7, ctor.EndLine);
+        Assert.True(ctor.SpanKnown);
+        Assert.False(ctor.IsStatic);
+    }
+
+    [Fact]
+    public void ObjectInitializerFollowedByAnotherConstructorArgument_DoesNotCreateAPhantomRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                C(S value, int count) { }
+                C() : this(new S { Value = 1 }, 2) { }
+            }
+            """);
+
+        Assert.Equal(
+            2,
+            index.Declarations.Count(d => d.Kind == DeclarationKind.Constructor));
+        Assert.DoesNotContain(
+            index.Declarations,
+            d => d.ParentIndex >= 0 && d.Kind == DeclarationKind.Property);
+    }
+
+    [Fact]
+    public void AStaticConstructorCarriesStaticIdentity()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                C() { }
+                static C() { }
+            }
+            """);
+
+        var constructors = index.Declarations
+            .Where(d => d.Kind == DeclarationKind.Constructor)
+            .OrderBy(d => d.SignatureStartLine)
+            .ToArray();
+        Assert.False(constructors[0].IsStatic);
+        Assert.True(constructors[1].IsStatic);
+    }
+
+    [Fact]
+    public void StaticInAnExpressionBody_IsNotADeclarationModifier()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                Func<int> Factory;
+                C() => Factory = static () => 1;
+                static C() => Factory = static () => 2;
+            }
+            """);
+
+        var constructors = index.Declarations
+            .Where(d => d.Kind == DeclarationKind.Constructor)
+            .OrderBy(d => d.SignatureStartLine)
+            .ToArray();
+        Assert.False(constructors[0].IsStatic);
+        Assert.True(constructors[1].IsStatic);
+    }
+
+    [Fact]
+    public void ATypeTrailerExtendsTheDeclarationButNotItsBody()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            }
+            ;
+            """);
+
+        var type = Assert.Single(index.Declarations);
+        Assert.Equal(3, type.BodyEndLine);
+        Assert.Equal(4, type.EndLine);
+    }
+
     /// <summary>
     /// The selector for members the PDB cannot reach. An interface method has no body, so it has no
     /// sequence point and no line range — a name is the only way in.

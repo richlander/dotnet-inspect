@@ -24,9 +24,11 @@ internal static class DeclarationIndexBuilder
         public int SignatureStartLine;
         public int SignatureEndLine;
         public int BodyStartLine = -1;
+        public int BodyEndLine = -1;
         public int EndLine = -1;
         public int ParentIndex = -1;
         public bool SpanKnown = true;
+        public bool IsStatic;
         public bool ClosesAtEndOfFile;
         public ImmutableArray<LineRange> AttributeLists = [];
     }
@@ -254,6 +256,10 @@ internal static class DeclarationIndexBuilder
                 AttributeLists = [.. attributeLists],
                 SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown
                     && attachedAttributesKnown && pending.All(t => t.DepthKnown),
+                IsStatic = HasTopLevelKeyword(
+                    Truncate(pending, Text).Header,
+                    "static",
+                    Text),
             });
         }
 
@@ -596,11 +602,14 @@ internal static class DeclarationIndexBuilder
 
             if (text == "{")
             {
-                // "= new(...) { ... }" is an initializer, not a member body. The braces belong to
-                // the value, so the declaration is still running: keep the header and let the
-                // terminating ";" close it, which is what puts the whole initializer inside the
-                // field's span and stops the initializer from reading as a property's accessors.
-                if (Truncate(pending, Text).CutAtEquals)
+                // "= new(...) { ... }" is an initializer, not a member body. Neither is a brace
+                // nested inside a constructor's ": base(...)" or ": this(...)" argument list:
+                // object/array initializers, lambda blocks, and property patterns all occur there.
+                // Keep the header until the initializer closes so the next top-level brace can
+                // open the declaration body.
+                if (initializerDepth > 0
+                    || Truncate(pending, Text).CutAtEquals
+                    || IsInsideConstructorInitializerArguments(pending, Text))
                 {
                     initializerDepth++;
                     scopes.Add((-1, false, true));
@@ -636,6 +645,10 @@ internal static class DeclarationIndexBuilder
                         AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && triviaKnown && headerKnown
                             && attachedAttributesKnown && pending.All(t => t.DepthKnown),
+                        IsStatic = HasTopLevelKeyword(
+                            Truncate(pending, Text).Header,
+                            "static",
+                            Text),
                     });
                     scopes.Add((rows.Count - 1, true, true));
                 }
@@ -708,6 +721,7 @@ internal static class DeclarationIndexBuilder
                     scopes.RemoveAt(scopes.Count - 1);
                     if (idx >= 0 && ownsRow)
                     {
+                        rows[idx].BodyEndLine = tok.Line + 1;
                         rows[idx].EndLine = tok.Line + 1;
                         if (!tok.DepthKnown) rows[idx].SpanKnown = false;
                         lastClosed = idx;
@@ -1088,10 +1102,67 @@ internal static class DeclarationIndexBuilder
 
         return [.. rows.Select((r, i) => new DeclarationSpan(
             r.Kind, r.Name, r.TriviaStartLine, r.SignatureStartLine, r.SignatureEndLine,
-            r.BodyStartLine, r.EndLine, depths[i], r.ParentIndex, r.SpanKnown)
+            r.BodyStartLine, r.BodyEndLine, r.EndLine, depths[i], r.ParentIndex, r.SpanKnown)
         {
             AttributeLists = r.AttributeLists,
+            IsStatic = r.IsStatic,
         })];
+    }
+
+    private static bool IsInsideConstructorInitializerArguments(
+        IReadOnlyList<ScanToken> pending,
+        Func<ScanToken, string> text)
+    {
+        int depth = 0;
+        bool initializer = false;
+        for (int i = 0; i < pending.Count; i++)
+        {
+            var token = pending[i];
+            if (token.Kind != ScanTokenKind.Punctuator)
+                continue;
+
+            string value = text(token);
+            if (value == ":" && depth == 0 && i + 1 < pending.Count
+                && (IsKeyword(pending, i + 1, "this", text)
+                    || IsKeyword(pending, i + 1, "base", text)))
+            {
+                initializer = true;
+            }
+            else if (value is "(" or "[" or "{")
+            {
+                depth++;
+            }
+            else if (value is ")" or "]" or "}")
+            {
+                depth--;
+            }
+        }
+
+        return initializer && depth > 0;
+    }
+
+    private static bool HasTopLevelKeyword(
+        IReadOnlyList<ScanToken> pending,
+        string keyword,
+        Func<ScanToken, string> text)
+    {
+        int depth = 0;
+        for (int i = 0; i < pending.Count; i++)
+        {
+            var token = pending[i];
+            if (token.Kind == ScanTokenKind.Punctuator)
+            {
+                string value = text(token);
+                if (value is "(" or "[" or "{") depth++;
+                else if (value is ")" or "]" or "}") depth--;
+            }
+            else if (depth == 0 && IsKeyword(pending, i, keyword, text))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

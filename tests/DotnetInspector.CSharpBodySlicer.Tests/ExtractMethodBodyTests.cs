@@ -416,6 +416,46 @@ public class ExtractMethodBodyTests
         Assert.Null(BodySlicer.ExtractMethodBody(source, startLine, endLine, "M"));
     }
 
+    [Fact]
+    public void SameLineSiblingMembers_ReportAbsent()
+    {
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    void A() { } void B() { }",        // 3  <- StartLine/EndLine
+            "}");                                   // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "B"));
+    }
+
+    [Fact]
+    public void MemberSharingATypeClosingBraceBeforeALaterTrailer_ReportsAbsent()
+    {
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    void M() { } }",                   // 3  <- StartLine/EndLine
+            ";");                                   // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+    }
+
+    [Fact]
+    public void MemberFollowingASiblingTypesClosingBrace_ReportsAbsent()
+    {
+        var source = Lines(
+            "class Outer",                          // 1
+            "{",                                    // 2
+            "    class Inner",                      // 3
+            "    {",                                // 4
+            "    } public void M()",                // 5  <- StartLine
+            "    {",                                // 6
+            "    }",                                // 7  <- EndLine
+            "}");                                   // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 7, "M"));
+    }
+
     /// <summary>
     /// A block-bodied property's accessor has no declaration of its own, so its sequence points
     /// select the property — and the whole property is what gets sliced.
@@ -1362,6 +1402,122 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
+    /// Parent indexes identify lexical declarations, not logical partial types. When initializer
+    /// and constructor boundaries sit in separate partial declarations in one file, line-only
+    /// evidence cannot establish that they belong to one metadata constructor.
+    /// </summary>
+    [Fact]
+    public void ConstructorRangeCrossingPartialTypeDeclarations_ReportsAbsent()
+    {
+        var source = Lines(
+            "partial class C",                        // 1
+            "{",                                      // 2
+            "    int Field = 1;",                     // 3  <- StartLine
+            "}",                                      // 4
+            "partial class C",                        // 5
+            "{",                                      // 6
+            "    C() { }",                            // 7  <- EndLine
+            "}");                                     // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+    }
+
+    [Fact]
+    public void ConstructorInitializerContainingBraces_KeepsTheCompleteBody()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    C(string path)",                           // 3  <- StartLine
+            "        : base(new Options { Path = path })",   // 4
+            "    {",                                        // 5
+            "        Use(path);",                           // 6
+            "    }",                                        // 7  <- EndLine
+            "}");                                           // 8
+
+        Assert.Equal(
+            "C(string path)\n    : base(new Options { Path = path })\n{\n    Use(path);\n}",
+            BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+    }
+
+    [Fact]
+    public void OneLineConstructorInitializerWithBracesAndAnotherArgument_RemainsSliceable()
+    {
+        var source = Lines(
+            "class C",                                              // 1
+            "{",                                                    // 2
+            "    C(S value, int count) { }",                        // 3
+            "    C() : this(new S { Value = 1 }, 2) { }",           // 4  <- StartLine/EndLine
+            "}");                                                   // 5
+
+        Assert.Equal(
+            "C() : this(new S { Value = 1 }, 2) { }",
+            BodySlicer.ExtractMethodBody(source, 4, 4, ".ctor"));
+    }
+
+    [Fact]
+    public void ConstructorSharingItsClosingLineWithSiblingTrivia_ReportsAbsent()
+    {
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    C() { } [Obsolete]",               // 3  <- StartLine/EndLine
+            "    void M() { }",                     // 4
+            "}");                                   // 5
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, ".ctor"));
+    }
+
+    /// <summary>
+    /// Member selection is case-insensitive, so every supported casing must retain constructor
+    /// correspondence rather than falling through to start-line lookup and returning the
+    /// initializer. Product callers pass the resolved metadata name when available; this remains
+    /// the slicer's defensive contract for direct and fallback callers.
+    /// </summary>
+    [Theory]
+    [InlineData(".ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".Ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".CTOR", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData("#ctor", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData("#CTOR", "    private readonly int X;", "    C() => Use(X);", "C() => Use(X);")]
+    [InlineData(".cctor", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
+    [InlineData(".Cctor", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
+    [InlineData(".CCTOR", "    private static readonly int X;", "    static C() => Use(X);", "static C() => Use(X);")]
+    public void ConstructorMetadataNameCasing_PreservesConstructorCorrespondence(
+        string methodName,
+        string field,
+        string constructor,
+        string expected)
+    {
+        var source = Lines(
+            "class C",      // 1
+            "{",            // 2
+            field,          // 3  <- StartLine
+            "",             // 4
+            constructor,    // 5  <- EndLine
+            "}");           // 6
+
+        Assert.Equal(expected, BodySlicer.ExtractMethodBody(source, 3, 5, methodName));
+    }
+
+    [Theory]
+    [InlineData(".ctor", "    static C() { }")]
+    [InlineData("#ctor", "    static C() { }")]
+    [InlineData(".cctor", "    C() { }")]
+    public void ConstructorStaticnessMismatch_ReportsAbsent(
+        string methodName,
+        string constructor)
+    {
+        var source = Lines(
+            "class C",      // 1
+            "{",            // 2
+            constructor,    // 3  <- StartLine/EndLine
+            "}");           // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
+    }
+
+    /// <summary>
     /// A synthesized constructor has initializer sequence points but no authored constructor
     /// declaration. An initializer is not a substitute: returning it as Original Source
     /// misattributes one declaration to another and makes Source Diff compare unrelated members.
@@ -1383,33 +1539,4 @@ public class ExtractMethodBodyTests
         Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
     }
 
-    /// <summary>
-    /// Member selection is case-insensitive, so every supported casing must retain constructor
-    /// correspondence rather than falling through to start-line lookup and returning the
-    /// initializer. Product callers pass the resolved metadata name when available; this remains
-    /// the slicer's defensive contract for direct and fallback callers.
-    /// </summary>
-    [Theory]
-    [InlineData(".ctor")]
-    [InlineData(".Ctor")]
-    [InlineData(".CTOR")]
-    [InlineData("#ctor")]
-    [InlineData("#CTOR")]
-    [InlineData(".cctor")]
-    [InlineData(".Cctor")]
-    [InlineData(".CCTOR")]
-    public void ConstructorMetadataNameCasing_PreservesConstructorCorrespondence(string methodName)
-    {
-        var source = Lines(
-            "class C",                              // 1
-            "{",                                    // 2
-            "    private static readonly int X;",   // 3  <- StartLine
-            "",                                     // 4
-            "    static C() => X = 1;",             // 5  <- EndLine
-            "}");                                   // 6
-
-        Assert.Equal(
-            "static C() => X = 1;",
-            BodySlicer.ExtractMethodBody(source, 3, 5, methodName));
-    }
 }

@@ -122,6 +122,11 @@ public readonly record struct LineRange(int StartLine, int EndLine)
 /// or <c>-1</c> for a declaration with no body at all (abstract, interface, <c>extern</c>,
 /// <c>partial</c> without implementation, field, enum member, positional record).
 /// </param>
+/// <param name="BodyEndLine">
+/// The line carrying the closing brace of a brace-bodied declaration, or <c>-1</c> when the
+/// declaration has no closing brace. This remains the brace line when an optional trailing
+/// semicolon extends <see cref="EndLine"/>.
+/// </param>
 /// <param name="EndLine">The last line of the declaration, inclusive.</param>
 /// <param name="Depth">
 /// How many declarations enclose this one. Counted from <see cref="ParentIndex"/> rather than from
@@ -214,6 +219,7 @@ public sealed record DeclarationSpan(
     int SignatureStartLine,
     int SignatureEndLine,
     int BodyStartLine,
+    int BodyEndLine,
     int EndLine,
     int Depth,
     int ParentIndex,
@@ -238,6 +244,9 @@ public sealed record DeclarationSpan(
     /// </summary>
     public IReadOnlyList<LineRange> AttributeLists { get; init; } = [];
 
+    /// <summary>True when the declaration carries a top-level <c>static</c> modifier.</summary>
+    public bool IsStatic { get; init; }
+
     /// <summary>True when this declaration can itself contain member declarations.</summary>
     public bool IsType => Kind is DeclarationKind.Class or DeclarationKind.Struct
         or DeclarationKind.Interface or DeclarationKind.Record or DeclarationKind.Enum;
@@ -249,7 +258,8 @@ public sealed record DeclarationSpan(
     public bool Contains(int line) => line >= SignatureStartLine && line <= EndLine;
 
     /// <summary>True when <paramref name="line"/> lies within the declaration's body.</summary>
-    public bool BodyContains(int line) => HasBody && line >= BodyStartLine && line <= EndLine;
+    public bool BodyContains(int line) =>
+        HasBody && line >= BodyStartLine && line <= (BodyEndLine >= 0 ? BodyEndLine : EndLine);
 }
 
 /// <summary>

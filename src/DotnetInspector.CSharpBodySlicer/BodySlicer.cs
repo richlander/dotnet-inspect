@@ -25,9 +25,12 @@ public static class BodySlicer
     /// Ordinary members select by the first line alone. Constructor ranges are different: field
     /// and property initializer sequence points belong to the constructor, so their minimum line
     /// may name an unrelated declaration. A constructor request therefore selects a known
-    /// constructor containing either range boundary, and refuses an ambiguous range. The index
-    /// still owns all source boundaries; <paramref name="methodName"/> is used only to recognize
-    /// metadata's constructor identities, never to match a source spelling.
+    /// constructor of matching staticness containing either range boundary, requires both
+    /// boundaries to be explained by that constructor or an initializer declaration, and refuses
+    /// an ambiguous range. Any member whose first or last line is shared with a sibling is likewise
+    /// refused because line-only evidence cannot remove the sibling's text. The index still owns
+    /// all source boundaries; <paramref name="methodName"/> is used only to recognize metadata's
+    /// constructor identities, never to match a source spelling.
     /// </para>
     /// </summary>
     public static string? ExtractMethodBody(
@@ -38,12 +41,22 @@ public static class BodySlicer
     {
         var lines = sourceText.Split('\n');
         var index = DeclarationIndex.Build(lines);
-        var row = IsConstructorRequest(methodName)
-            ? FindConstructorAtRangeBoundary(index, startLine, endLine)
+        bool constructorRequest = IsConstructorRequest(methodName);
+        var row = constructorRequest
+            ? FindConstructorAtRangeBoundary(
+                index,
+                startLine,
+                endLine,
+                staticConstructor: IsStaticConstructorRequest(methodName))
             : index.FindByLine(startLine);
 
-        if (row is null || IsTypeOrNamespace(row.Kind) || SharesBoundaryWithParentType(index, row))
+        if (row is null
+            || IsTypeOrNamespace(row.Kind)
+            || SharesBoundaryWithParentType(index, row)
+            || SharesBoundaryWithSibling(index, row))
+        {
             return null;
+        }
 
         int from = row.SignatureStartLine - 1;
         int to = Math.Min(row.EndLine, lines.Length);
@@ -89,6 +102,9 @@ public static class BodySlicer
             || methodName.Equals("#ctor", StringComparison.OrdinalIgnoreCase)
             || methodName.Equals(".cctor", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsStaticConstructorRequest(string methodName) =>
+        methodName.Equals(".cctor", StringComparison.OrdinalIgnoreCase);
+
     private static bool SharesBoundaryWithParentType(
         DeclarationIndex index,
         DeclarationSpan declaration)
@@ -96,13 +112,39 @@ public static class BodySlicer
         var parent = index.ParentOf(declaration);
         return parent is { IsType: true }
             && (declaration.SignatureStartLine == parent.BodyStartLine
-                || declaration.EndLine == parent.EndLine);
+                || declaration.EndLine == parent.BodyEndLine);
+    }
+
+    private static bool SharesBoundaryWithSibling(
+        DeclarationIndex index,
+        DeclarationSpan declaration)
+    {
+        foreach (var sibling in index.Declarations)
+        {
+            if (ReferenceEquals(sibling, declaration)
+                || sibling.ParentIndex != declaration.ParentIndex)
+            {
+                continue;
+            }
+
+            if (TouchesLine(sibling, declaration.SignatureStartLine)
+                || TouchesLine(sibling, declaration.EndLine))
+            {
+                return true;
+            }
+        }
+
+        return false;
+
+        static bool TouchesLine(DeclarationSpan candidate, int line) =>
+            line >= candidate.TriviaStartLine && line <= candidate.EndLine;
     }
 
     private static DeclarationSpan? FindConstructorAtRangeBoundary(
         DeclarationIndex index,
         int startLine,
-        int endLine)
+        int endLine,
+        bool staticConstructor)
     {
         int matchIndex = -1;
         for (int i = 0; i < index.Declarations.Length; i++)
@@ -110,6 +152,7 @@ public static class BodySlicer
             var declaration = index.Declarations[i];
             if (!declaration.SpanKnown
                 || declaration.Kind != DeclarationKind.Constructor
+                || declaration.IsStatic != staticConstructor
                 || (!declaration.Contains(startLine) && !declaration.Contains(endLine)))
             {
                 continue;
@@ -125,34 +168,24 @@ public static class BodySlicer
             return null;
 
         var match = index.Declarations[matchIndex];
-        for (int i = 0; i < index.Declarations.Length; i++)
-        {
-            var declaration = index.Declarations[i];
-            if (i != matchIndex
-                && declaration.SpanKnown
-                && declaration.ParentIndex == match.ParentIndex
-                && (declaration.Contains(match.SignatureStartLine)
-                    || declaration.Contains(match.EndLine)))
-            {
-                return null;
-            }
-        }
-
-        // A sibling type closing on the constructor's signature line leaves its "}" before the
-        // constructor text. With line-only spans that prefix cannot be removed safely, so retain
-        // the prior conservative absence for this shape.
-        for (int i = 0; i < index.Declarations.Length; i++)
-        {
-            var declaration = index.Declarations[i];
-            if (i != matchIndex
-                && declaration.IsType
-                && declaration.ParentIndex == match.ParentIndex
-                && declaration.EndLine == match.SignatureStartLine)
-            {
-                return null;
-            }
-        }
+        if (!BoundaryIsExplained(index, match, startLine)
+            || !BoundaryIsExplained(index, match, endLine))
+            return null;
 
         return match;
+    }
+
+    private static bool BoundaryIsExplained(
+        DeclarationIndex index,
+        DeclarationSpan constructor,
+        int line)
+    {
+        if (constructor.Contains(line))
+            return true;
+
+        return index.Declarations.Any(declaration =>
+            declaration.SpanKnown
+            && declaration.ParentIndex == constructor.ParentIndex
+            && declaration.Contains(line));
     }
 }
