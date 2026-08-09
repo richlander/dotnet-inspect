@@ -310,7 +310,9 @@ export async function inspectExpandPlatformCallGraph(request) {
     request.assembly ?? "",
     request.type,
     request.member,
-    request.paramSig ?? "");
+    JSON.stringify(request.parameterTypes ?? []),
+    request.returnType ?? "",
+    request.genericArity ?? 0);
   return JSON.parse(json);
 }
 

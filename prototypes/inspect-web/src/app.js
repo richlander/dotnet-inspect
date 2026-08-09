@@ -76,9 +76,11 @@ const state = {
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
+  memberSourceKey: "",
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
+  memberAnnotatedKey: "",
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -93,6 +95,7 @@ const state = {
   packageDependenciesKey: "",
   dependenciesFramework: "",
   workspaceDependencies: {},
+  workspaceDependencyErrors: {},
   packageIntegrations: null,
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
@@ -123,6 +126,7 @@ const state = {
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
+  memberFactsKey: "",
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   lens: "api",
@@ -1421,6 +1425,7 @@ function renderPackageDependencies() {
   const graphSection = `
     <section class="document-section">
       <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+      ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
@@ -1551,7 +1556,10 @@ function maybeAutoLoadPackageDependencies() {
 // draw incoming "caller" edges (open packages that declare a dependency on the current one).
 async function ensureWorkspaceDependencies() {
   const missing = state.packages.filter(item =>
-    !state.workspaceDependencies[`${item.id.toLowerCase()}@${item.version.toLowerCase()}`]);
+    !item.isRuntimePack
+    && !Object.hasOwn(
+      state.workspaceDependencies,
+      `${item.id.toLowerCase()}@${item.version.toLowerCase()}`));
   if (!missing.length) {
     renderDependencyGraph();
     return;
@@ -1566,12 +1574,30 @@ async function ensureWorkspaceDependencies() {
         assemblyId: item.assemblyId
       });
       state.workspaceDependencies[key] = result?.dependencyGroups || [];
-    } catch {
-      state.workspaceDependencies[key] = [];
+      delete state.workspaceDependencyErrors[key];
+    } catch (error) {
+      delete state.workspaceDependencies[key];
+      state.workspaceDependencyErrors[key] = String(error?.message || error);
     }
   }
+
   if (state.atPackageRoot && state.packageLens === "dependencies") renderDependencyGraph();
   refreshPackageStats();
+}
+
+function workspaceDependencyErrorHtml() {
+  const failures = state.packages
+    .filter(item => !item.isRuntimePack)
+    .map(item => {
+      const key = `${item.id.toLowerCase()}@${item.version.toLowerCase()}`;
+      return state.workspaceDependencyErrors[key]
+        ? `${item.id}@${item.version}: ${state.workspaceDependencyErrors[key]}`
+        : null;
+    })
+    .filter(Boolean);
+  return failures.length
+    ? `<div class="graph-drill-error">Dependency workspace is incomplete: ${escapeHtml(failures.join("; "))}</div>`
+    : "";
 }
 
 function packageIntegrationsSignature() {
@@ -5430,10 +5456,6 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (state.memberSource) {
-    render();
-    return;
-  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -5442,12 +5464,20 @@ async function loadSelectedMemberSource() {
     render();
     return;
   }
+  const signature = memberRequestSignature(type, overload);
+  if (state.memberSourceKey === signature
+    && (state.memberSource || state.memberSourceError)) {
+    render();
+    return;
+  }
 
+  state.memberSourceKey = signature;
+  state.memberSource = null;
   state.memberSourceLoading = true;
   state.memberSourceError = "";
   render();
   try {
-    state.memberSource = await inspectMemberSource({
+    const result = await inspectMemberSource({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
@@ -5457,19 +5487,23 @@ async function loadSelectedMemberSource() {
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
     });
+    if (memberRequestIsCurrent(signature)
+      && state.memberSourceKey === signature) {
+      state.memberSource = result;
+    }
   } catch (error) {
-    state.memberSourceError = String(error?.message || error);
+    if (memberRequestIsCurrent(signature)
+      && state.memberSourceKey === signature) {
+      state.memberSourceError = String(error?.message || error);
+    }
   } finally {
-    state.memberSourceLoading = false;
+    if (state.memberSourceKey === signature)
+      state.memberSourceLoading = false;
     render();
   }
 }
 
 async function loadSelectedMemberAnnotatedSource() {
-  if (state.memberAnnotated) {
-    render();
-    return;
-  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -5478,12 +5512,20 @@ async function loadSelectedMemberAnnotatedSource() {
     render();
     return;
   }
+  const signature = memberRequestSignature(type, overload);
+  if (state.memberAnnotatedKey === signature
+    && (state.memberAnnotated || state.memberAnnotatedError)) {
+    render();
+    return;
+  }
 
+  state.memberAnnotatedKey = signature;
+  state.memberAnnotated = null;
   state.memberAnnotatedLoading = true;
   state.memberAnnotatedError = "";
   render();
   try {
-    state.memberAnnotated = await inspectMemberAnnotatedSource({
+    const result = await inspectMemberAnnotatedSource({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
@@ -5493,12 +5535,40 @@ async function loadSelectedMemberAnnotatedSource() {
       signature: overload.signature,
       styleOptionsJson: JSON.stringify(state.taste)
     });
+    if (memberRequestIsCurrent(signature)
+      && state.memberAnnotatedKey === signature) {
+      state.memberAnnotated = result;
+    }
   } catch (error) {
-    state.memberAnnotatedError = String(error?.message || error);
+    if (memberRequestIsCurrent(signature)
+      && state.memberAnnotatedKey === signature) {
+      state.memberAnnotatedError = String(error?.message || error);
+    }
   } finally {
-    state.memberAnnotatedLoading = false;
+    if (state.memberAnnotatedKey === signature)
+      state.memberAnnotatedLoading = false;
     render();
   }
+}
+
+function memberRequestSignature(type, overload) {
+  const pkg = state.package;
+  return [
+    pkg?.id,
+    pkg?.version,
+    pkg?.activeFramework,
+    type?.assembly,
+    type?.queryId ?? type?.id,
+    overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
+  ].join("\u0000");
+}
+
+function memberRequestIsCurrent(signature) {
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  return Boolean(type && overload)
+    && memberRequestSignature(type, overload) === signature;
 }
 
 async function loadSelectedTypeSource() {
@@ -6035,13 +6105,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
   state.memberCallGraphError = "";
   render();
   try {
-    const paramSig = (overload.parameters ?? []).map(parameter => parameter.type).join(",");
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.queryId ?? type.id,
+      type: type.metadataId ?? type.queryId ?? type.id,
       member: overload.name,
-      paramSig
+      parameterTypes: (overload.parameters ?? []).map(parameter => parameter.type),
+      returnType: overload.returnType ?? "",
+      genericArity: overload.genericArity ?? 0
     });
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraph = graph;
@@ -6319,7 +6390,7 @@ function resolveLoadedGraphTarget(target) {
     if (!pkg || pkg.isRuntimePack) continue;
     const type = pkg.types?.find(item =>
       libraryKey(item).toLowerCase() === target.assembly.toLowerCase()
-      && (item.queryId ?? item.id) === target.typeFullName);
+      && (item.metadataId ?? item.queryId ?? item.id) === target.typeFullName);
     if (!type) continue;
 
     const selection = findGraphMemberSelection(type, target);
@@ -6335,7 +6406,7 @@ function resolveLoadedGraphTarget(target) {
         version: pkg.version,
         framework: pkg.activeFramework,
         assembly: type.assembly,
-        type: target.typeFullName,
+        type: type.queryId ?? type.id,
         member: target.memberName
       }
     };
@@ -6344,24 +6415,39 @@ function resolveLoadedGraphTarget(target) {
 }
 
 function findGraphMemberSelection(type, target) {
-  const group = findMemberGroup(memberGroups(type), target.memberName);
-  if (!group) return null;
-  const wantedParameters = paramNamesFromSig(target.paramSig);
-  let arityMatch = null;
-  for (let index = 0; index < group.overloads.length; index++) {
-    const parameters = group.overloads[index].parameters ?? [];
-    if (parameters.length !== wantedParameters.length) continue;
-    arityMatch ??= index;
-    if (parameters.every(
-      (parameter, parameterIndex) =>
-        simpleTypeName(parameter.type) === wantedParameters[parameterIndex])) {
-      return { group, overloadIndex: index };
+  const groups = memberGroups(type);
+  if (target.metadataToken != null) {
+    for (const group of groups) {
+      const overloadIndex = group.overloads.findIndex(
+        overload => overload.metadataToken === target.metadataToken);
+      if (overloadIndex >= 0)
+        return { group, overloadIndex };
     }
   }
-  return {
-    group,
-    overloadIndex: arityMatch ?? (group.overloads.length === 1 ? 0 : null)
-  };
+
+  const group = findMemberGroup(groups, target.memberName);
+  if (!group) return null;
+  const matches = [];
+  for (let index = 0; index < group.overloads.length; index++) {
+    if (overloadMatchesGraphTarget(group.overloads[index], target)) {
+      matches.push(index);
+    }
+  }
+  if (matches.length === 1)
+    return { group, overloadIndex: matches[0] };
+  return { group, overloadIndex: group.overloads.length === 1 ? 0 : null };
+}
+
+function overloadMatchesGraphTarget(overload, target) {
+  const parameters = overload.parameters ?? [];
+  const wantedParameters = target.parameterTypes ?? [];
+  return parameters.length === wantedParameters.length
+    && (overload.genericArity ?? 0) === (target.genericArity ?? 0)
+    && simpleTypeName(overload.returnType) === simpleTypeName(target.returnType)
+    && parameters.every(
+      (parameter, parameterIndex) =>
+        simpleTypeName(parameter.type)
+          === simpleTypeName(wantedParameters[parameterIndex]));
 }
 
 async function drillPlatformNode(node) {
@@ -6375,7 +6461,9 @@ async function drillPlatformNode(node) {
       assembly: node.assembly,
       type: node.typeFullName,
       member: node.memberName,
-      paramSig: node.paramSig ?? ""
+      parameterTypes: node.parameterTypes ?? [],
+      returnType: node.returnType ?? "",
+      genericArity: node.genericArity ?? 0
     });
     state.platformStack.push({
       graph,
@@ -6462,36 +6550,24 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex) {
   loadSelectedMemberCallGraph();
 }
 
-// Resolve a platform call-graph node's structured identity (typeFullName / memberName /
-// paramSig) to a concrete type + member group + overload in the resident runtime pack.
-// Overload disambiguation mirrors the engine's SelectPlatformMember: match by name, then by
-// parameter arity, preferring an exact simplified-type-name match as a tie-breaker. Returns
-// null when the type isn't resident so the caller can fall back to an in-place descent.
+// Resolve a platform call-graph node's structured identity to a concrete type, member
+// group, and overload in the resident runtime pack.
 function findRuntimeMemberSelection(pack, node) {
   if (!pack || !node?.typeFullName) return null;
-  const type = pack.types.find(item => item.id === node.typeFullName);
+  const type = pack.types.find(
+    item => (item.metadataId ?? item.queryId ?? item.id) === node.typeFullName);
   if (!type) return null;
   const named = memberGroups(type).filter(group => group.name === node.memberName);
   if (!named.length) return null;
-  const want = paramNamesFromSig(node.paramSig);
-  let arityMatch = null;
+  const matches = [];
   for (const group of named) {
     for (let i = 0; i < group.overloads.length; i++) {
-      const params = group.overloads[i].parameters ?? [];
-      if (params.length !== want.length) continue;
-      if (!arityMatch) arityMatch = { type, group, overloadIndex: i };
-      if (params.every((parameter, idx) => simpleTypeName(parameter.type) === want[idx])) {
-        return { type, group, overloadIndex: i };
+      if (overloadMatchesGraphTarget(group.overloads[i], node)) {
+        matches.push({ type, group, overloadIndex: i });
       }
     }
   }
-  return arityMatch ?? { type, group: named[0], overloadIndex: 0 };
-}
-
-function paramNamesFromSig(sig) {
-  return sig
-    ? String(sig).split(",").map(part => part.trim()).filter(Boolean).map(simpleTypeName)
-    : [];
+  return matches.length === 1 ? matches[0] : null;
 }
 
 // Client-side mirror of the engine's SimpleTypeName: strip namespace, generic arguments,
@@ -6500,6 +6576,7 @@ function paramNamesFromSig(sig) {
 function simpleTypeName(type) {
   if (!type) return "";
   let name = String(type).trim();
+  name = name.replace(/^(?:ref|out|in|params|pinned)\s+/i, "");
   const generic = name.indexOf("<");
   if (generic >= 0) name = name.slice(0, generic);
   const array = name.indexOf("[");
@@ -6883,10 +6960,6 @@ function navigateToMember(pkg, type, group, overloadIndex = null) {
 }
 
 async function loadSelectedMemberFacts() {
-  if (state.memberFacts) {
-    render();
-    return;
-  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -6895,14 +6968,22 @@ async function loadSelectedMemberFacts() {
     render();
     return;
   }
+  const signature = memberRequestSignature(type, overload);
+  if (state.memberFactsKey === signature
+    && (state.memberFacts || state.memberFactsError)) {
+    render();
+    return;
+  }
 
+  state.memberFactsKey = signature;
+  state.memberFacts = null;
   state.memberFactsLoading = true;
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   render();
   try {
-    state.memberFacts = await inspectMemberFacts({
+    const result = await inspectMemberFacts({
       packageId: state.package.id,
       version: state.package.version,
       framework: state.package.activeFramework,
@@ -6911,10 +6992,18 @@ async function loadSelectedMemberFacts() {
       member: overload.name,
       signature: overload.signature
     });
+    if (memberRequestIsCurrent(signature)
+      && state.memberFactsKey === signature) {
+      state.memberFacts = result;
+    }
   } catch (error) {
-    state.memberFactsError = String(error?.message || error);
+    if (memberRequestIsCurrent(signature)
+      && state.memberFactsKey === signature) {
+      state.memberFactsError = String(error?.message || error);
+    }
   } finally {
-    state.memberFactsLoading = false;
+    if (state.memberFactsKey === signature)
+      state.memberFactsLoading = false;
     render();
   }
 }
@@ -6999,11 +7088,16 @@ async function loadPackage(packageId, version, framework, options = {}) {
     loadSelectionData();
     return packageModel;
   } catch (error) {
-    // A failed background restore of a non-target tab must not disrupt the workbench or the
-    // real target; drop it silently (the tab simply won't appear).
-    if (background) return null;
-    state.loading = false;
     const friendly = friendlyLoadError(error, packageId, version);
+    if (background) {
+      const failure =
+        `Workspace restore was incomplete: ${packageId}@${version}: ${friendly.message}`;
+      state.queryNotice = state.queryNotice
+        ? `${state.queryNotice} ${failure}`
+        : failure;
+      return null;
+    }
+    state.loading = false;
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested
@@ -7263,6 +7357,7 @@ async function runCallGraphDemo() {
 // lone target), then restores the active tab's platform library scope and deep-link
 // selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
 async function restoreWorkspaceFromLocation(loc, deep) {
+  state.queryNotice = "";
   state.home = false;
   state.loading = true;
   state.error = "";

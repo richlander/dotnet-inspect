@@ -61,6 +61,7 @@ public sealed record BrowserPackageDocumentContent(
 public sealed record BrowserTypeSurface(
     string Id,
     string QueryId,
+    string MetadataId,
     string Name,
     string DisplayName,
     string Namespace,
@@ -75,6 +76,7 @@ public sealed record BrowserMemberSurface(
     string Name,
     string Kind,
     string Signature,
+    int GenericArity,
     int? MetadataToken,
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
@@ -123,7 +125,10 @@ public sealed record BrowserCallGraphTarget(
     string Assembly,
     string TypeFullName,
     string MemberName,
-    string ParamSig,
+    string[] ParameterTypes,
+    string ReturnType,
+    int GenericArity,
+    int? MetadataToken,
     string Kind);
 
 public sealed record BrowserCallGraphNode(
@@ -134,8 +139,7 @@ public sealed record BrowserCallGraphNode(
     BrowserCallGraphNode[] Children,
     string Assembly,
     string TypeFullName,
-    string MemberName,
-    string ParamSig);
+    string MemberName);
 
 public sealed record BrowserCallGraphScope(
     int Packages,
@@ -2612,7 +2616,7 @@ public static partial class BrowserInspectionEngine
             {
                 var emptyNode = new BrowserCallGraphNode(
                     member.Signature ?? member.Name, "target", false, null, [],
-                    assemblyName, type.FullName, member.Name, member.Signature ?? "");
+                    assemblyName, type.FullName, member.Name);
                 return JsonSerializer.Serialize(
                     new BrowserCallGraph(
                         "",
@@ -2880,8 +2884,7 @@ public static partial class BrowserInspectionEngine
             node.Children.Select(ToBrowserCallNode).ToArray(),
             definition.Assembly,
             typeFullName,
-            node.Member.Name,
-            string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+            node.Member.Name);
     }
 
     static BrowserCallGraphTarget ToBrowserCallTarget(CallGraphNode node)
@@ -2890,14 +2893,19 @@ public static partial class BrowserInspectionEngine
         var typeFullName = definition.Namespace.Length == 0
             ? definition.Name
             : $"{definition.Namespace}.{definition.Name}";
+        int? metadataToken = node.GraphEvidence
+            .FirstOrDefault(evidence =>
+                evidence.Storage.Kind == Analysis.GraphNodeStorageKind.Definition)
+            ?.Storage.MethodToken;
         return new(
             $"n{node.Id}",
             definition.Assembly,
             typeFullName,
             node.Member.Name,
-            string.Join(
-                ", ",
-                node.Member.ParameterTypes.Select(type => type.ToDisplayString())),
+            [.. node.Member.ParameterTypes.Select(type => type.ToDisplayString())],
+            node.Member.ReturnType.ToDisplayString(),
+            node.Member.GenericArity,
+            metadataToken,
             node.Kind.ToString());
     }
 
@@ -3214,7 +3222,9 @@ public static partial class BrowserInspectionEngine
     // shared framework from the base CoreCLR pack; everything else resolves against CoreCLR.
     static string SelectRuntimePackId(string? assembly, string typeFullName) =>
         (assembly?.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase) == true
-            || typeFullName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+            || assembly?.StartsWith("Microsoft.Extensions", StringComparison.OrdinalIgnoreCase) == true
+            || typeFullName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal)
+            || typeFullName.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal))
             ? AspNetCoreRuntimePackId
             : PlatformRuntimePackId;
 
@@ -3511,7 +3521,9 @@ public static partial class BrowserInspectionEngine
         string assembly,
         string typeFullName,
         string memberName,
-        string paramSig)
+        string parameterTypesJson,
+        string returnType,
+        int genericArity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
@@ -3542,10 +3554,19 @@ public static partial class BrowserInspectionEngine
                 () => File.OpenRead(path),
                 AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{acquired.FileName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
-                candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
+                ApiTypeMetadataId(candidate).Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
                     $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
-            var member = SelectPlatformMember(type, memberName, paramSig);
+            string[] parameterTypes =
+                JsonSerializer.Deserialize(
+                    parameterTypesJson,
+                    BrowserJsonContext.Default.StringArray) ?? [];
+            var member = SelectPlatformMember(
+                type,
+                memberName,
+                parameterTypes,
+                returnType,
+                genericArity);
             // Call-graph rows spell property/event accessors by their IL method name
             // (get_Foo, set_Foo, add_Bar, remove_Bar); ApiSurface exposes the owning
             // property/event instead, carrying the accessor's MethodDef token. Fall back to
@@ -3758,20 +3779,29 @@ public static partial class BrowserInspectionEngine
         return dot < 0 ? ("", fullName) : (fullName[..dot], fullName[(dot + 1)..]);
     }
 
-    static ApiMember? SelectPlatformMember(ApiType type, string memberName, string paramSig)
+    static ApiMember? SelectPlatformMember(
+        ApiType type,
+        string memberName,
+        IReadOnlyList<string> parameterTypes,
+        string returnType,
+        int genericArity)
     {
         var named = type.Members
             .Where(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal))
             .ToArray();
         if (named.Length <= 1)
             return named.FirstOrDefault();
-        int wantArity = string.IsNullOrEmpty(paramSig) ? 0 : paramSig.Split(',').Length;
-        var byArity = named
-            .Where(candidate => (candidate.SignatureModel?.Parameters.Count ?? -1) == wantArity)
+        var wantKey = ParameterTypesKey(parameterTypes);
+        ApiMember[] matches = named.Where(candidate =>
+            (candidate.SignatureModel?.Parameters.Count ?? -1) == parameterTypes.Count
+            && (candidate.SignatureModel?.TypeParameters.Count ?? 0) == genericArity
+            && MemberParamKey(candidate) == wantKey
+            && SimpleTypeName(
+                candidate.SignatureModel?.ReturnType
+                    ?? candidate.ReturnType
+                    ?? "") == SimpleTypeName(returnType))
             .ToArray();
-        var pool = byArity.Length > 0 ? byArity : named;
-        var wantKey = SimpleParamKey(paramSig);
-        return pool.FirstOrDefault(candidate => MemberParamKey(candidate) == wantKey) ?? pool[0];
+        return matches.Length == 1 ? matches[0] : null;
     }
 
     // Maps an accessor's IL method name (get_/set_/add_/remove_) back to the MethodDef token
@@ -3804,14 +3834,20 @@ public static partial class BrowserInspectionEngine
         => string.Join(",", (member.SignatureModel?.Parameters ?? [])
             .Select(parameter => SimpleTypeName(parameter.TypeWithModifier)));
 
-    static string SimpleParamKey(string paramSig)
-        => string.IsNullOrEmpty(paramSig)
-            ? ""
-            : string.Join(",", paramSig.Split(',').Select(part => SimpleTypeName(part.Trim())));
+    static string ParameterTypesKey(IEnumerable<string> parameterTypes)
+        => string.Join(",", parameterTypes.Select(SimpleTypeName));
 
     static string SimpleTypeName(string type)
     {
         type = type.Trim();
+        foreach (string modifier in new[] { "ref ", "out ", "in ", "params ", "pinned " })
+        {
+            if (type.StartsWith(modifier, StringComparison.OrdinalIgnoreCase))
+            {
+                type = type[modifier.Length..].TrimStart();
+                break;
+            }
+        }
         int generic = type.IndexOf('<');
         if (generic >= 0)
             type = type[..generic];
@@ -3819,10 +3855,21 @@ public static partial class BrowserInspectionEngine
         string suffix = array >= 0 ? type[array..] : "";
         if (array >= 0)
             type = type[..array];
+        int tick = type.IndexOf('`');
+        if (tick >= 0)
+            type = type[..tick];
         int dot = type.LastIndexOf('.');
         if (dot >= 0)
             type = type[(dot + 1)..];
-        return (type + suffix).ToLowerInvariant();
+        return (type.TrimEnd('?') + suffix.TrimEnd('?')).ToLowerInvariant();
+    }
+
+    static string ApiTypeMetadataId(ApiType type)
+    {
+        var name = type.MetadataName ?? type.Name;
+        return string.IsNullOrEmpty(type.Namespace)
+            ? name
+            : $"{type.Namespace}.{name}";
     }
 
 
@@ -3902,6 +3949,7 @@ public static partial class BrowserInspectionEngine
                 member.Name,
                 member.Kind,
                 member.Signature ?? member.Name,
+                member.SignatureModel?.TypeParameters.Count ?? 0,
                 member.MetadataToken,
                 member.SignatureModel?.ReturnType ?? member.ReturnType,
                 member.SignatureModel?.Parameters.Select(parameter => new BrowserParameterSurface(
@@ -3923,6 +3971,7 @@ public static partial class BrowserInspectionEngine
         return new BrowserTypeSurface(
             type.FullName,
             type.FullName,
+            ApiTypeMetadataId(type),
             type.Name,
             displayName,
             type.Namespace ?? "",

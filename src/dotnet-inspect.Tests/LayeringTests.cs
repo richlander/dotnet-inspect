@@ -147,6 +147,10 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.Contains(
+            "string MetadataId",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "type.queryId ?? type.id",
             browserSource,
             StringComparison.Ordinal);
@@ -177,6 +181,46 @@ public sealed class LayeringTests
         Assert.Contains(
             "target.id === \"n0\"",
             browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "(item.metadataId ?? item.queryId ?? item.id) === target.typeFullName",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "overload.metadataToken === target.metadataToken",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "target.parameterTypes ?? []",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "paramNamesFromSig",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "paramSig",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "paramSig",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "memberRequestIsCurrent(signature)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "!item.isRuntimePack",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Workspace restore was incomplete:",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "assembly?.StartsWith(\"Microsoft.Extensions\"",
+            engineSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "resolveNodeLabel",
