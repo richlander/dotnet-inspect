@@ -132,8 +132,8 @@ how to group or present it.
 Image acquisition rejection remains explicit beside available participant
 results, so a budget-limited group cannot look like a complete group with fewer
 integrations. Late malformed-metadata mapping is implemented but not yet
-independently gated. The query reuses the workspace's immutable snapshots and
-does not reopen paths or streams.
+independently gated. The query reuses the workspace's immutable snapshots and does not reopen paths
+or streams.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
 and
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
@@ -141,9 +141,29 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-This query does not yet drive `@Integrations` sections. Command migration,
-integration-opportunity composition, cancellation-aware execution, and optional
-concurrent execution remain later slices.
+Package `--all-libraries` uses this query whenever its selected sections demand
+Integrations. It creates one binding-consistent group per target framework, so
+`--tfm all` never combines different framework universes. Every root receives
+its own `AssemblyDependencyResolver`, and
+`SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
+one shared policy version required by the group.
+
+The host correlates query entries to libraries by acquisition registration and
+projects their evidence or typed failure into the existing Finding properties.
+It inspects successful participants through descriptors backed by the same
+retained snapshot, rather than reopening package paths after the group query.
+The legacy Integrations scanner treats those populated properties as complete;
+the dependent integration-opportunity scanner can therefore compose the group
+result without repeating metadata scanning. Direct `library` and package
+`--library` remain single-assembly controls.
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+gates grouping, correlation, provenance, and retained-generation reuse.
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
+gates projection and duplicate-scan avoidance. Existing
+`PackageCommand_AllLibraries_*` tests gate rendering compatibility.
+
+Cancellation-aware execution, optional concurrent execution, and migration of
+other command paths remain later slices.
 
 ## Relationship to sections and categories
 

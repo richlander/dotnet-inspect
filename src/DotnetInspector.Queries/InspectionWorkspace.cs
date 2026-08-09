@@ -241,6 +241,49 @@ public sealed class AssemblyContextGroup : IDisposable
                     snapshot.Content.AsSpan())));
     }
 
+    /// <summary>
+    /// Runs asynchronous work through a descriptor backed by this group's
+    /// retained immutable image.
+    /// </summary>
+    /// <remarks>
+    /// The callback may suspend without reopening the participant's source.
+    /// Disposal waits to release the group's retained reference until the
+    /// callback completes. The descriptor remains memory-safe if it escapes,
+    /// just like a returned image span, because its opener retains the
+    /// immutable non-pooled array. Gated by
+    /// <c>UseAssemblyReferenceAsync_AwaitsOverRetainedSnapshot</c>.
+    /// </remarks>
+    public async Task<AssemblyImageAccessResult<TResult>>
+        UseAssemblyReferenceAsync<TResult>(
+            ResolvedAssemblyReference assembly,
+            Func<ResolvedAssemblyReference, Task<TResult>> callback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        BeginCallback();
+        try
+        {
+            ParticipantState participant = FindParticipant(assembly);
+            SnapshotAccess access = GetSnapshot(participant);
+            if (access.Failure is { } failure)
+            {
+                return new AssemblyImageAccessResult<TResult>.Rejected(
+                    assembly,
+                    failure);
+            }
+
+            TResult value = await callback(
+                    access.Snapshot!.CreateRetainedReference(assembly))
+                .ConfigureAwait(false);
+            return new AssemblyImageAccessResult<TResult>.Available(value);
+        }
+        finally
+        {
+            EndCallback();
+        }
+    }
+
     internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyInspectionSession, TResult> callback)

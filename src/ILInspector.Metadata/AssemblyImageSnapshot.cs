@@ -40,15 +40,21 @@ public abstract class AssemblyImageSnapshotResult
 /// </summary>
 public sealed class AssemblyImageSnapshot
 {
+    readonly byte[] _content;
+    readonly AssemblyAcquisitionRegistration _registration;
+
     public const long DefaultMaxRetainedImageBytes =
         512L * 1024 * 1024;
 
     AssemblyImageSnapshot(
-        ImmutableArray<byte> content,
+        byte[] content,
+        AssemblyAcquisitionRegistration registration,
         AssemblyReferenceIdentity identity,
         Guid moduleVersionId)
     {
-        Content = content;
+        _content = content;
+        _registration = registration;
+        Content = ImmutableCollectionsMarshal.AsImmutableArray(content);
         Identity = identity;
         ModuleVersionId = moduleVersionId;
     }
@@ -95,10 +101,8 @@ public sealed class AssemblyImageSnapshot
                 var bytes =
                     GC.AllocateUninitializedArray<byte>((int)length);
                 stream.ReadExactly(bytes);
-                ImmutableArray<byte> content =
-                    ImmutableCollectionsMarshal.AsImmutableArray(bytes);
-
-                using var peReader = new PEReader(content);
+                using var peReader = new PEReader(
+                    ImmutableCollectionsMarshal.AsImmutableArray(bytes));
                 if (!peReader.HasMetadata)
                 {
                     return Reject(
@@ -118,7 +122,8 @@ public sealed class AssemblyImageSnapshot
                 }
 
                 snapshot = new AssemblyImageSnapshot(
-                    content,
+                    bytes,
+                    assembly.Registration,
                     identity,
                     reader.GetGuid(
                         reader.GetModuleDefinition().Mvid));
@@ -153,6 +158,30 @@ public sealed class AssemblyImageSnapshot
             if (reservedBytes != 0)
                 releaseBytes(reservedBytes);
         }
+    }
+
+    /// <summary>
+    /// Rebinds the selected descriptor to this immutable image while
+    /// preserving its registration and provenance.
+    /// </summary>
+    public ResolvedAssemblyReference CreateRetainedReference(
+        ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        if (!ReferenceEquals(
+                assembly.Registration,
+                _registration)
+            || !IdentityMatches(assembly.Identity, Identity))
+        {
+            throw new ArgumentException(
+                "The descriptor does not own this snapshot.",
+                nameof(assembly));
+        }
+
+        return assembly.WithOpenRead(
+            () => new MemoryStream(
+                _content,
+                writable: false));
     }
 
     internal static Stream OpenSource(

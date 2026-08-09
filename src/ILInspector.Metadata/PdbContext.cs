@@ -248,6 +248,24 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
 
     /// <summary>
+    /// Opens descriptor-owned PE metadata without loading an embedded or
+    /// adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default,
+            loadLocalPdb: false);
+    }
+
+    /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
     /// The optional path is used only for adjacent PDB discovery and file metadata.
     /// </summary>
@@ -298,6 +316,23 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
             loadLocalPdb: true);
+
+    /// <summary>
+    /// Opens a descriptor-owned PE image with its complete content prefetched.
+    /// </summary>
+    public static PdbContext OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: true);
+    }
 
     static PdbContext Open(
         string assemblyPath,

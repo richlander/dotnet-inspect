@@ -167,6 +167,40 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task UseAssemblyReferenceAsync_AwaitsOverRetainedSnapshot()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        byte expected = source.Bytes[0];
+
+        AssemblyImageAccessResult<byte> result =
+            await group.UseAssemblyReferenceAsync(
+                source.Assembly,
+                async retained =>
+                {
+                    source.Bytes[0] ^= 0xff;
+                    await Task.Yield();
+                    workspace.Dispose();
+                    Assert.Equal(
+                        source.Bytes.Length,
+                        group.RetainedImageBytes);
+
+                    using Stream stream = retained.OpenRead();
+                    return (byte)stream.ReadByte();
+                });
+
+        Assert.Equal(
+            expected,
+            Assert.IsType<
+                AssemblyImageAccessResult<byte>.Available>(result).Value);
+        Assert.Equal(1, source.OpenCount);
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task BlockedParticipant_DoesNotBlockAnotherParticipant()
     {
         TestAssembly blocked = TestAssembly.Create();

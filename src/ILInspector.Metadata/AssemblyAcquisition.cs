@@ -158,6 +158,18 @@ public sealed class ResolvedAssemblyReference
             provenance);
     }
 
+    internal ResolvedAssemblyReference WithOpenRead(
+        Func<Stream> openRead)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        return new ResolvedAssemblyReference(
+            Registration,
+            Identity,
+            Path,
+            openRead,
+            Provenance);
+    }
+
     public static ResolvedAssemblyReference CreateFromPath(
         string path,
         AssemblyResolutionProvenance provenance)

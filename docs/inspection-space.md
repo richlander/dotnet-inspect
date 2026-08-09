@@ -14,16 +14,16 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace today. Library
-metadata and direct-reference inspection are the first typed-query canaries:
-the section catalog plans typed demand and executes it through a
-prerequisite-aware registry, while the command still owns orchestration.
-`DotnetInspector.Queries` also contains the first workspace foundation: an
-ephemeral workspace can own binding-consistent assembly context groups, and a
-group retains lazily acquired immutable assembly snapshots behind
-callback-scoped and stack-only access. The first group-scoped query scans
-Integrations evidence across every participant sequentially while preserving
-per-assembly identity, provenance, and failures. Existing commands have not
+govern its migration. Package `--all-libraries` is the first workspace-backed
+command path: explicit Integrations demand groups selected managed assemblies
+by target framework and scans each group sequentially. Library metadata and
+direct-reference inspection remain the first single-assembly typed-query
+canaries: the section catalog plans typed demand and executes it through a
+prerequisite-aware registry, while the command owns orchestration.
+`DotnetInspector.Queries` contains the workspace foundation: an ephemeral
+workspace owns binding-consistent assembly context groups, and a group retains
+lazily acquired immutable assembly snapshots behind callback-scoped, stack-only,
+and asynchronous retained-descriptor access. Other command paths have not
 migrated to that workspace owner yet. Other foundations include shared image
 and inspection session ownership, catalog generations, `CoreCache`, typed
 provenance and resolution currencies, and `InertString`; the remaining
@@ -268,13 +268,16 @@ under a cumulative group budget reserved before snapshot allocation. Metadata
 exposes that bounded immutable snapshot acquisition as a narrow public
 capability; raw PE and metadata readers remain private, and Queries receives no
 friend access to Metadata. Callback access receives a scoped stack-only image
-view; direct access returns a stack-only read-only span result. Disposing the
-group prevents new access and releases its retained references after active
-callbacks complete, but it never attempts to revoke or recycle an already
-returned span.
+view; direct access returns a stack-only read-only span result. Asynchronous
+host work receives a descriptor whose opener retains that same immutable image,
+so suspension does not reopen a mutable path. Disposing the group prevents new
+access and releases its retained references after active callbacks complete,
+but it never attempts to revoke or recycle an already returned span or retained
+descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
-isolation, callback and span lifetimes, concurrent disposal, bounded retention,
-per-participant single-flight acquisition, and typed acquisition failures.
+isolation, callback, span, and asynchronous descriptor lifetimes, concurrent
+disposal, bounded retention, per-participant single-flight acquisition, and
+typed acquisition failures.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
 
@@ -297,8 +300,27 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-Catalogs, query authorization, integration-opportunity composition, concurrent
-execution, and command migration remain later slices.
+Package `--all-libraries` constructs one
+`SourceRelativeAssemblyGroupBindingPolicy` per selected target framework and
+passes that shared policy snapshot to every participant in that group.
+`--tfm all` therefore creates separate groups rather than mixing framework
+universes. The host executes the group query only for explicit Integrations
+demand, correlates entries by acquisition registration, and projects them into
+the existing per-library Finding model. It then inspects each available library
+through the retained snapshot descriptor; the legacy Integrations scanner
+recognizes the populated Findings and does not rescan, while the dependent
+integration-opportunity scanner consumes them unchanged. Direct `library` and
+package `--library` remain single-assembly controls.
+`PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
+gates TFM partitioning, participant correlation, package provenance, and
+same-generation host inspection.
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
+gates the Finding projection and duplicate-scan boundary. Existing
+`PackageCommand_AllLibraries_*` tests gate Markdown and structured output
+compatibility.
+
+Catalogs, query authorization, concurrent execution, and broader command
+migration remain later slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while

@@ -2518,20 +2518,49 @@ public class PackageCommand
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
+        using PackageIntegrationsWorkspace? integrationsWorkspace =
+            scanners.Contains(LibrarySections.ScannerIntegrations)
+                ? PackageIntegrationsWorkspace.Create(
+                    selected.Select(selection =>
+                    {
+                        string relativePath = Path.GetRelativePath(
+                                extractPath,
+                                selection.Path)
+                            .Replace('\\', '/');
+                        return new PackageIntegrationAssembly(
+                            selection.Path,
+                            TfmResolver.ExtractTfmFromPath(
+                                relativePath));
+                    }),
+                    packageName,
+                    version)
+                : null;
         List<LibraryInspection> inspections = [];
         foreach (var selection in selected)
         {
-            var inspection = await LibraryMetadataService.InspectAsync(
-                selection.Path,
-                libraryOptions,
-                logger,
-                packageName,
-                version,
-                context.HttpClient,
-                scanners: scanners,
-                scannerRegistry: scannerRegistry,
-                queries: queries,
-                queryRegistry: queryRegistry);
+            Task<LibraryInspection?> InspectAsync(
+                ResolvedAssemblyReference? retainedAssembly,
+                AssemblyIntegrationsEntry? integrations) =>
+                LibraryMetadataService.InspectAsync(
+                    selection.Path,
+                    libraryOptions,
+                    logger,
+                    packageName,
+                    version,
+                    context.HttpClient,
+                    scanners: scanners,
+                    scannerRegistry: scannerRegistry,
+                    queries: queries,
+                    queryRegistry: queryRegistry,
+                    retainedAssembly: retainedAssembly,
+                    assemblyIntegrations: integrations);
+
+            LibraryInspection? inspection =
+                integrationsWorkspace is null
+                    ? await InspectAsync(null, null)
+                    : await integrationsWorkspace.UseAssemblyAsync(
+                        selection.Path,
+                        InspectAsync);
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(selection.Path)}");
