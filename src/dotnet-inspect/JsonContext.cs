@@ -51,6 +51,12 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<SourceFileInfo>))]
 [JsonSerializable(typeof(PackageSourceFileInfo))]
 [JsonSerializable(typeof(List<PackageSourceFileInfo>))]
+[JsonSerializable(typeof(PackageSourceLinkIssue))]
+[JsonSerializable(typeof(List<PackageSourceLinkIssue>))]
+[JsonSerializable(typeof(PackageSourceLinkFile))]
+[JsonSerializable(typeof(List<PackageSourceLinkFile>))]
+[JsonSerializable(typeof(PackageSourceAvailability))]
+[JsonSerializable(typeof(PackageSourceIntegrity))]
 public partial class JsonContext : JsonSerializerContext
 {
 }

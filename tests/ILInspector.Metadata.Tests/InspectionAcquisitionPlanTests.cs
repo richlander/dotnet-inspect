@@ -63,6 +63,9 @@ public class InspectionAcquisitionPlanTests
 
         Assert.Equal(ReadIdentity(SelfBytes()), descriptor.Identity);
         Assert.Equal(Path.GetFullPath(SelfPath), descriptor.Path);
+        Assert.Equal(
+            File.GetLastWriteTimeUtc(SelfPath),
+            descriptor.LastWriteTimeUtc);
     }
 
     [Fact]
@@ -82,6 +85,23 @@ public class InspectionAcquisitionPlanTests
                 invalid,
                 AssemblyResolutionProvenance.Local("test"),
                 out _));
+        }
+        finally
+        {
+            File.Delete(invalid);
+        }
+    }
+
+    [Fact]
+    public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
+    {
+        string invalid = Path.GetTempFileName();
+        try
+        {
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    invalid,
+                    AssemblyResolutionProvenance.Local("test")));
         }
         finally
         {
@@ -511,6 +531,30 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void Session_WhenUnexpectedOpenThrows_ReleasesImage()
+    {
+        byte[] image = SelfBytes();
+        int opens = 0;
+        using var plan = new InspectionAcquisitionPlan();
+        var descriptor = ResolvedAssemblyReference.Create(
+            ReadIdentity(image),
+            path: null,
+            openRead: () =>
+                Interlocked.Increment(ref opens) == 1
+                    ? new MemoryStream(image, writable: false)
+                    : new ThrowingDisposeMemoryStream(image),
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+
+        Assert.Throws<InvalidOperationException>(
+            () => plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(0, plan.RetainedImageBytes);
+    }
+
+    [Fact]
     public async Task Session_ConcurrentRequestsShareOneOpen()
     {
         byte[] image = SelfBytes();
@@ -847,6 +891,20 @@ public class InspectionAcquisitionPlanTests
                 disposed();
             }
             base.Dispose(disposing);
+        }
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
         }
     }
 

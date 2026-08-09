@@ -114,7 +114,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
@@ -146,7 +146,15 @@ scope.
 
 ## Signals
 
-`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink: Availability`, `SourceLink: Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink: Integrity`) is opt-in only.
+`Signals` is an evidence report, not a safety certification. Select it with
+`-S Signals`. For libraries, Signals reports metadata/provenance observations
+and acquires a missing PDB when selected to resolve SourceLink. For packages,
+Signals reports package metadata/assets, dependencies, signature provenance,
+and NuGet registry observations. On either `library` or `package`, the
+per-source-file reachability pass (`SourceLink: Availability`,
+`SourceLink: Missing Files`) is selected explicitly with `-S` because its cost
+scales with source-file count. The slow, exhaustive content check
+(`SourceLink: Integrity`) is opt-in only.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
@@ -154,6 +162,8 @@ scope.
 | `library X -S "Signals,SourceLink: Availability,SourceLink: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
+| `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
+| `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
 
 Vulnerability-service traffic is capability-gated. It runs only for detailed
 package inspection or an explicitly selected network-using package section;
@@ -490,6 +500,8 @@ dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
+dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect package System.Text.Json --versions --include-unlisted
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions

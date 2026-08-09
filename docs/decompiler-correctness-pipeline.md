@@ -409,13 +409,13 @@ completeness checks when deliberately running a subset locally. CI runs the full
 preset and never passes it.
 
 The path filter is deliberately broad — roughly `src/`, `tests/`, `tools/`, and
-build files including `global.json` and `nuget.config`, minus `*.md`. A fidelity
-result is a whole-pipeline observation, so its real input set is the test
-project's transitive closure, which an enumerated project list cannot track
-without rotting. Under-triggering silently disables the gate on exactly the
-changes it exists to catch; over-triggering costs a parallel job that never
-blocks the hot lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl`
-under those trees can be a corpus or baseline fixture.
+build files including `global.json`, minus `*.md`. A fidelity result is a
+whole-pipeline observation, so its real input set is the test project's
+transitive closure, which an enumerated project list cannot track without
+rotting. Under-triggering silently disables the gate on exactly the changes it
+exists to catch; over-triggering costs a parallel job that never blocks the hot
+lane. Only `*.md` is excluded by extension: a `.txt` or `.jsonl` under those
+trees can be a corpus or baseline fixture.
 
 A job-level timeout would cancel the job, and a cancelled job runs no further
 steps and satisfies no `failure()` condition — the same silent-cancellation
@@ -434,11 +434,11 @@ truncated report.
 > `cancelled` one, so this gate skipping on a docs-only PR is fine while this
 > gate hitting its timeout is not (#3523).
 
-`pre-merge` deliberately selects nine workload classes rather than the whole
+`pre-merge` deliberately selects ten workload classes rather than the whole
 `Fidelity` area, plus `GateExpectedClassesTests`, the plumbing guard that rides
 along in the preset it guards.
 
-The nine workload classes share `FidelityGateCollection` and therefore run
+The ten workload classes share `FidelityGateCollection` and therefore run
 serially even though this test assembly allows two parallel collections. That
 boundary is intentional: run 30885078644 overlapped the newly gated Printer
 compile-back with Cluster capture for 7m01s and the lowered gate for another
@@ -464,12 +464,20 @@ starts each ID exactly once. The delayed-enumeration negative canary remains
 nineteen tests, with one ID starting eighteen times. The checker rejects that
 shape as `NON-ENUMERATED OR REPEATED CASES`.
 
-`SkeletonEmitTests` is the remaining cost exclusion. It is the most expensive
-class in the suite (~630s on CI, #3495) and wants the emit-bound residual
-addressed first.
-Note it deliberately asserts the *whole-module* skeleton compiles, so it cannot
-simply adopt a narrower build. Case granularity is no longer a blocker; making
-the class tractable is.
+`SkeletonEmitTests` now contributes its eight cases to `pre-merge` (#3872).
+Its focused `FidelityCheck.Evaluate` calls select a typed
+`(Type, Method, Overload)` identity before method import, rendering,
+disassembly, and compile-back, reducing the class from 374.25 seconds to 13.31
+seconds locally. The resulting 94-case serialized `pre-merge` preset completes
+in 729.56 seconds locally. A supplied method filter that produces no processable
+row throws rather than returning a vacuous green result; selecting by name
+admits all overloads, while the overload ordinal can select one.
+
+Method selection does **not** narrow reconstruction. Each selected body still
+compiles against the whole-module skeleton, preserving the class's declaration
+hazard contract. A gated `SkeletonEmitTests` case mutates two unrelated metadata
+type names to collide and requires that collision to fail the selected
+compile-back; a pruned skeleton would incorrectly turn that canary green.
 
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this

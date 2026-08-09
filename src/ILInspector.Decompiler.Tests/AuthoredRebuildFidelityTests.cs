@@ -5,6 +5,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -82,6 +83,55 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.NotNull(result.ImplementationDiff);
         Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
         Assert.Equal(decompiler, result.DecompilerLane);
+    }
+
+    [Fact]
+    public void AuthoredBody_ReusesFrozenRtsCompilationClosure()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"authored-rts-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string dependencyPath = CompileFixture(
+                "namespace D; public sealed class Before { }",
+                directory,
+                "RtsAuthoredDependency");
+            string assemblyPath = CompileFixture(
+                "public sealed class Fixture { public D.Before Value => null; }",
+                directory,
+                "fixture",
+                MetadataReference.CreateFromFile(dependencyPath));
+            ReturnToSender.Result decompiler =
+                ReturnToSender.CompileBackFirstPropertyGetter(
+                    assemblyPath);
+
+            CompileFixture(
+                "namespace D; public sealed class After { }",
+                directory,
+                "RtsAuthoredDependency");
+            var context = new AuthoredBuildContextAssessment(
+                AuthoredBuildContextStatus.Incomplete,
+                IsDeterministic: true,
+                "test context");
+
+            AuthoredRebuildFidelityResult result =
+                AuthoredRebuildFidelity.CompileAuthoredBody(
+                    decompiler,
+                    decompiler.TargetBody,
+                    SourceChecksumVerification.Exact,
+                    context);
+
+            Assert.True(
+                result.Outcome is AuthoredRebuildOutcome.Exact
+                    or AuthoredRebuildOutcome.IlDifferent,
+                result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Theory]
@@ -248,4 +298,29 @@ public sealed class AuthoredRebuildFidelityTests
     static FindingInspection<CompilationReferenceInfo> CompleteReferences(
         params CompilationReferenceInfo[] references)
         => MetadataFindings.InspectCompilationReferences(references, Subject);
+
+    static string CompileFixture(
+        string source,
+        string directory,
+        string assemblyName,
+        params MetadataReference[] additionalReferences)
+    {
+        string path = Path.Combine(directory, assemblyName + ".dll");
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(source)],
+            RoslynTestReferences.TrustedPlatform
+                .Concat(additionalReferences),
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        using var stream = File.Create(path);
+        var emit = compilation.Emit(stream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                Environment.NewLine,
+                emit.Diagnostics));
+        return path;
+    }
 }
