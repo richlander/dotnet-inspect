@@ -244,8 +244,8 @@ public class ExtensionsCommand
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
-        OutputFormatter.WriteLimitedMarkdown(Console.Out,
-            MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
     }
 
     private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)
