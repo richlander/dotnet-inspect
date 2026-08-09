@@ -1054,7 +1054,15 @@ public class ApiCommand
 
         if (options is TypeOptions { ShapeOutput: true } && !options.Count)
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                options.Limit);
             return 0;
         }
 

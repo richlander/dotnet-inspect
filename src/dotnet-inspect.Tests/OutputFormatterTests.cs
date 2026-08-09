@@ -795,6 +795,49 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void BuildShapeView_MemberLimitCountsCollapsedOverloadGroups()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha()" },
+                new() { Kind = "method", Name = "Alpha", Signature = "void Alpha(int value)" },
+                new() { Kind = "method", Name = "Beta", Signature = "void Beta()" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            memberLimit: 1);
+
+        var methods = Assert.Single(view.Members);
+        Assert.Equal("Methods (1 logical, 2 overloads)", methods.Text);
+        var child = Assert.Single(methods.Children!);
+        Assert.Equal("Alpha (2 overloads)", child.Text);
+
+        var expanded = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var expandedMethods = Assert.Single(expanded.Members);
+        Assert.Equal("Methods (1)", expandedMethods.Text);
+        var expandedChild = Assert.Single(expandedMethods.Children!);
+        Assert.Equal("void Alpha()", expandedChild.Text);
+    }
+
+    [Fact]
     public void GetMemberSignatureSortKey_StripsMethodGenericListOnly()
     {
         var member = new ApiMember

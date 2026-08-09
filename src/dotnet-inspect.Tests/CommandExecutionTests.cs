@@ -1819,6 +1819,45 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MemberLimitRestrictsShapeMembers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "property", Name = "First", Signature = "int First { get; }" },
+                new() { Kind = "property", Name = "Second", Signature = "int Second { get; }" },
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            Limit = 1
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("int First { get; }", output);
+        Assert.DoesNotContain("Second", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(

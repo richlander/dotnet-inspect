@@ -342,9 +342,18 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
-        var view = BuildShapeView(type, foundIn, packageName, packageVersion, memberFilter, kindFilter, verbosity);
+        var view = BuildShapeView(
+            type,
+            foundIn,
+            packageName,
+            packageVersion,
+            memberFilter,
+            kindFilter,
+            verbosity,
+            memberLimit);
         if (view.Members is { Count: > 0 })
         {
             // Lead with a declaration-style header when the type carries modifiers
@@ -532,7 +541,8 @@ public static class ApiOutputFormatter
         string? packageVersion,
         HashSet<string> memberFilter,
         HashSet<string>? kindFilter = null,
-        Verbosity verbosity = Verbosity.Minimal)
+        Verbosity verbosity = Verbosity.Minimal,
+        int? memberLimit = null)
     {
         bool hasFilter = memberFilter.Count > 0 || kindFilter?.Count > 0;
         bool expandOverloads = verbosity >= Verbosity.Normal;
@@ -554,7 +564,36 @@ public static class ApiOutputFormatter
                 members = members.Where(m => kindFilter.Contains(m.Kind));
             }
 
-            var membersByKind = members
+            var memberList = members.ToList();
+            if (memberLimit.HasValue)
+            {
+                var displayEntries = memberList
+                    .GroupBy(m => m.Kind)
+                    .OrderBy(g => GetTreeKindOrder(g.Key))
+                    .SelectMany(group =>
+                        expandOverloads || !IsOverloadGroupedKind(group.Key)
+                            ? group
+                                .OrderBy(m => m.Name, StringComparer.Ordinal)
+                                .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                .Select(member => new List<ApiMember> { member })
+                            : group
+                                .GroupBy(m => m.Name)
+                                .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                .Select(overloads => overloads
+                                    .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                    .ToList()))
+                    .ToList();
+
+                if (memberLimit.Value < displayEntries.Count)
+                {
+                    memberList = displayEntries
+                        .Take(memberLimit.Value)
+                        .SelectMany(entry => entry)
+                        .ToList();
+                }
+            }
+
+            var membersByKind = memberList
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => GetTreeKindOrder(g.Key))
                 .ToList();
