@@ -12444,6 +12444,31 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "This section (Async Methods) produced no output.",
                 error);
+
+            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--markdown", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Contains("## Libraries", markdown);
+            Assert.Contains(
+                nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
+                markdown);
+            Assert.DoesNotContain(
+                "This section (Async Methods) produced no output.",
+                markdownError);
+
+            var (singleCountExit, singleCountOutput, singleCountError) = await RunAppAsync(
+                "library", TestAssemblyPath, "-S", "Async Methods", "--count", "--tips", "q");
+            var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--count", "--tips", "q");
+
+            Assert.Equal(0, singleCountExit);
+            Assert.Equal(0, multiCountExit);
+            Assert.Empty(singleCountError);
+            Assert.Empty(multiCountError);
+            Assert.Equal(singleCountOutput, multiCountOutput);
         }
         finally
         {
