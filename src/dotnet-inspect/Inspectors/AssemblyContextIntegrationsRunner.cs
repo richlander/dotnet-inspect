@@ -70,9 +70,7 @@ internal static class AssemblyContextIntegrationsRunner
         var candidates = inputArray
             .Select(input => (
                 Input: input,
-                Assembly: ResolvedAssemblyReference.CreateFromPathIfManaged(
-                    input.Path,
-                    input.Provenance)))
+                Assembly: TryCreateManagedParticipant(input)))
             .ToArray();
         var roots = candidates
             .Where(candidate => candidate.Assembly is not null)
@@ -158,5 +156,26 @@ internal static class AssemblyContextIntegrationsRunner
                     ? available.Value
                     : throw new InspectionQueryException(
                         $"Integrations participant '{assembly.Identity.Name}' could not retain its acquired image.");
+    }
+
+    static ResolvedAssemblyReference? TryCreateManagedParticipant(
+        AssemblyContextIntegrationsInput input)
+    {
+        try
+        {
+            return ResolvedAssemblyReference.CreateFromPathIfManaged(
+                input.Path,
+                input.Provenance);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            // The owning per-library inspection path reports the artifact
+            // failure; it must not prevent valid group participants from
+            // producing evidence.
+            return null;
+        }
     }
 }

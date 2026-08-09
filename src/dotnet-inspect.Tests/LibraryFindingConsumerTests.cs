@@ -1,3 +1,5 @@
+using System.Reflection.PortableExecutable;
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
@@ -353,6 +355,87 @@ public class LibraryFindingConsumerTests
     }
 
     [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsMissingFileBesideManagedInput()
+    {
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
+
+        AssemblyContextIntegrationsBatch batch =
+            Assert.IsType<AssemblyContextIntegrationsBatch>(
+                AssemblyContextIntegrationsRunner.RunIfRequested(
+                    queries,
+                    LibrarySections.CreateGroupQueryRegistry(),
+                    [
+                        new AssemblyContextIntegrationsInput(
+                            missingPath,
+                            AssemblyResolutionProvenance.Local(
+                                "missing compatibility test")),
+                        new AssemblyContextIntegrationsInput(
+                            managedPath,
+                            AssemblyResolutionProvenance.Local(
+                                "managed compatibility test")),
+                    ]));
+
+        Assert.Null(batch.EntryFor(missingPath));
+        Assert.Null(batch.AssemblyForInspection(missingPath));
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            batch.EntryFor(managedPath));
+        Assert.NotNull(batch.AssemblyForInspection(managedPath));
+    }
+
+    [Fact]
+    public void AssemblyContextIntegrationsRunner_SkipsMalformedManagedFileBesideManagedInput()
+    {
+        string malformedPath = Path.GetTempFileName();
+        string managedPath =
+            typeof(LibraryFindingConsumerTests).Assembly.Location;
+        try
+        {
+            File.WriteAllBytes(
+                malformedPath,
+                CorruptTableStream(File.ReadAllBytes(managedPath)));
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    malformedPath,
+                    AssemblyResolutionProvenance.Local(
+                        "malformed compatibility test")));
+            HashSet<InspectionQueryDefinition> queries =
+                [AssemblyContextIntegrationsQuery.Definition];
+
+            AssemblyContextIntegrationsBatch batch =
+                Assert.IsType<AssemblyContextIntegrationsBatch>(
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        LibrarySections.CreateGroupQueryRegistry(),
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                malformedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "malformed compatibility test")),
+                            new AssemblyContextIntegrationsInput(
+                                managedPath,
+                                AssemblyResolutionProvenance.Local(
+                                    "managed compatibility test")),
+                        ]));
+
+            Assert.Null(batch.EntryFor(malformedPath));
+            Assert.Null(batch.AssemblyForInspection(malformedPath));
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                batch.EntryFor(managedPath));
+            Assert.NotNull(batch.AssemblyForInspection(managedPath));
+        }
+        finally
+        {
+            File.Delete(malformedPath);
+        }
+    }
+
+    [Fact]
     public async Task AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection()
     {
         string tempDir = Path.Combine(
@@ -562,4 +645,45 @@ public class LibraryFindingConsumerTests
         Assert.Same(expectedDescriptor, failure.Error.Descriptor);
         Assert.False(string.IsNullOrWhiteSpace(failure.Error.Reason));
     }
+
+    static byte[] CorruptTableStream(byte[] bytes)
+    {
+        int metadataStart;
+        using (var peReader =
+               new PEReader(new MemoryStream(bytes, writable: false)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        int versionLength = BitConverter.ToInt32(
+            bytes,
+            metadataStart + 12);
+        int cursor = metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BitConverter.ToUInt16(bytes, cursor + 2);
+        cursor += 4;
+
+        for (int i = 0; i < streamCount; i++)
+        {
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(
+                bytes,
+                nameStart,
+                nameEnd - nameStart);
+            if (name is "#~" or "#-")
+            {
+                BitConverter.GetBytes(4).CopyTo(bytes, sizeOffset);
+                return bytes;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException(
+            "The test assembly has no metadata table stream.");
+    }
+
+    static int AlignTo4(int value)
+        => (value + 3) & ~3;
 }
