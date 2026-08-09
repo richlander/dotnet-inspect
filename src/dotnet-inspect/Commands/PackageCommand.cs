@@ -2555,20 +2555,7 @@ public class PackageCommand
             Task<LibraryInspection?> InspectAsync(
                 ResolvedAssemblyReference? retainedAssembly,
                 AssemblyIntegrationsEntry? integrations)
-            {
-                switch (integrations)
-                {
-                    case AssemblyIntegrationsEntry.Rejected rejected:
-                        groupedIntegrationsFailures.Add(
-                            (relativePath, rejected.Failure.Detail));
-                        break;
-                    case AssemblyIntegrationsEntry.Failed failed:
-                        groupedIntegrationsFailures.Add(
-                            (relativePath, failed.Error.Message));
-                        break;
-                }
-
-                return LibraryMetadataService.InspectAsync(
+                => LibraryMetadataService.InspectAsync(
                     selection.Path,
                     libraryOptions,
                     logger,
@@ -2581,13 +2568,15 @@ public class PackageCommand
                     queryRegistry: queryRegistry,
                     retainedAssembly: retainedAssembly,
                     assemblyIntegrations: integrations);
-            }
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
                     ? await InspectAsync(null, null)
-                    : await integrationsWorkspace.UseAssemblyAsync(
+                    : await InspectGroupedAssemblyAsync(
+                        integrationsWorkspace,
                         selection.Path,
+                        relativePath,
+                        groupedIntegrationsFailures,
                         InspectAsync);
             if (inspection == null)
             {
@@ -2644,6 +2633,43 @@ public class PackageCommand
         else
             Console.WriteLine(markdown);
         return completionExitCode;
+    }
+
+    internal static Task<LibraryInspection?>
+        InspectGroupedAssemblyAsync(
+            PackageIntegrationsWorkspace workspace,
+            string path,
+            string relativePath,
+            ICollection<(string FileName, string Reason)> failures,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                Task<LibraryInspection?>> inspectAsync)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        ArgumentNullException.ThrowIfNull(failures);
+        ArgumentNullException.ThrowIfNull(inspectAsync);
+
+        return workspace.UseAssemblyAsync(
+            path,
+            (retainedAssembly, integrations) =>
+            {
+                switch (integrations)
+                {
+                    case AssemblyIntegrationsEntry.Rejected rejected:
+                        failures.Add(
+                            (relativePath, rejected.Failure.Detail));
+                        return Task.FromResult<LibraryInspection?>(null);
+                    case AssemblyIntegrationsEntry.Failed failed:
+                        failures.Add(
+                            (relativePath, failed.Error.Message));
+                        break;
+                }
+
+                return inspectAsync(retainedAssembly, integrations);
+            });
     }
 
     internal static bool RequiresGroupedIntegrations(

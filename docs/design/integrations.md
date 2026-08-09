@@ -182,8 +182,9 @@ and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition-owned
 provenance. `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates
 diagnostic composition and the shared nonzero completion status used after
 Markdown, count, tabular, or JSON output.
-`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailure` gates that
-status independently of later host inspection.
+`PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths`
+gates that status independently of later host inspection across Markdown,
+JSON, count, and tabular output.
 `PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
 and
 `InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`

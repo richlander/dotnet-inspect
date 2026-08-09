@@ -330,6 +330,42 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
+    public async Task GroupedRejection_DoesNotFallBackToPathInspection()
+    {
+        string path =
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
+        using var workspace = PackageIntegrationsWorkspace.Create(
+            [new(path, "net11.0")],
+            PackageIntegrationAcquisition.Remote(
+                "Test.Package",
+                "1.0.0"),
+            maxRetainedImageBytes: 1);
+        List<(string FileName, string Reason)> failures = [];
+        int inspectionCount = 0;
+
+        LibraryInspection? inspection =
+            await Commands.PackageCommand.InspectGroupedAssemblyAsync(
+                workspace,
+                path,
+                "ref/net11.0/Test.dll",
+                failures,
+                (_, _) =>
+                {
+                    inspectionCount++;
+                    return Task.FromResult<LibraryInspection?>(new());
+                });
+
+        Assert.Null(inspection);
+        Assert.Equal(0, inspectionCount);
+        var failure = Assert.Single(failures);
+        Assert.Equal("ref/net11.0/Test.dll", failure.FileName);
+        Assert.Contains(
+            "budget",
+            failure.Reason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GroupedIntegrationsFailure_IsVisibleAndDeduplicated()
     {
         (string FileName, string Reason) failure =

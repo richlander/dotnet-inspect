@@ -12663,7 +12663,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailure()
+    public async Task PackageCommand_AllLibraries_GroupedFailureSurvivesHostFailureAcrossOutputPaths()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
             "Microsoft.Extensions.Configuration");
@@ -12688,28 +12688,65 @@ public partial class CommandExecutionTests
                     $"{directory}MalformedIntegrations.dll");
             }
 
-            var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "--all-libraries",
-                "-S",
-                "Integration: Configuration",
-                "--tips",
-                "q");
+            string[][] outputOptions =
+            [
+                [],
+                ["--json"],
+                ["--count"],
+                ["--tsv"],
+            ];
+            foreach (string[] outputOption in outputOptions)
+            {
+                string[] arguments =
+                [
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    "Integration: Configuration",
+                    "--tips",
+                    "q",
+                    .. outputOption,
+                ];
+                var (exit, output, error) =
+                    await RunAppAsync(arguments);
 
-            Assert.Equal(1, exit);
-            Assert.Contains(
-                "## Integration: Configuration",
-                output,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "Integrations inspection failed for",
-                error,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "MalformedIntegrations.dll",
-                error,
-                StringComparison.Ordinal);
+                Assert.Equal(1, exit);
+                switch (outputOption.FirstOrDefault())
+                {
+                    case null:
+                        Assert.Contains(
+                            "## Integration: Configuration",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                    case "--json":
+                        Assert.StartsWith("[", output);
+                        break;
+                    case "--count":
+                        Assert.True(
+                            int.TryParse(
+                                output.Trim(),
+                                CultureInfo.InvariantCulture,
+                                out int count));
+                        Assert.True(count > 0);
+                        break;
+                    case "--tsv":
+                        Assert.Contains(
+                            "package\tversion\tlibrary\ttfm",
+                            output,
+                            StringComparison.Ordinal);
+                        break;
+                }
+                Assert.Contains(
+                    "Integrations inspection failed for",
+                    error,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "MalformedIntegrations.dll",
+                    error,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {

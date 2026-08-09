@@ -147,7 +147,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
     internal static PackageIntegrationsWorkspace Create(
         IEnumerable<PackageIntegrationAssembly> assemblies,
-        PackageIntegrationAcquisition acquisition)
+        PackageIntegrationAcquisition acquisition,
+        long? maxRetainedImageBytes = null)
     {
         ArgumentNullException.ThrowIfNull(assemblies);
         ArgumentNullException.ThrowIfNull(acquisition);
@@ -203,7 +204,13 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                 ];
                 AssemblyContextGroup group =
                     workspace.CreateAssemblyContextGroup(
-                        participants);
+                        participants,
+                        maxRetainedImageBytes is long maxBytes
+                            ? new AssemblyContextGroupOptions
+                            {
+                                MaxRetainedImageBytes = maxBytes,
+                            }
+                            : null);
 
                 for (int index = 0; index < roots.Count; index++)
                 {
