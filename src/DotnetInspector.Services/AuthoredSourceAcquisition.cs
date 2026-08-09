@@ -188,11 +188,11 @@ public static class AuthoredSourceAcquisition
                 methodName);
             if (memberText is null)
             {
-                // The member's sequence points map to its type's header, not to a declaration
-                // of its own. Absent is the honest answer; the header is not this member's
-                // source.
+                // The source range does not identify a vouched declaration for this member.
+                // Absent is the honest answer; a type header, initializer, or guessed span is
+                // not a substitute.
                 return Absent(
-                    "The selected member has no authored declaration of its own; its source range is the declaring type's header.",
+                    "The selected member's source range does not identify one authored declaration that can be shown.",
                     mapping,
                     document,
                     verification);

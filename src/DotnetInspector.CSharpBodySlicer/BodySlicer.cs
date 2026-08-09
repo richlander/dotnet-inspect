@@ -13,16 +13,19 @@ public static class BodySlicer
     /// declaration's complete source span, dedented. The declaration index computes the file's
     /// shape once; this method does not recover either boundary by scanning from the PDB range.
     /// <para>
-    /// Returns <see langword="null"/> when the index cannot vouch for the selected span or when
-    /// the range maps to a type header rather than an authored member declaration. Positional
-    /// record accessors, primary constructors, and constructors synthesized from field
-    /// initializers can all have that shape.
+    /// Returns <see langword="null"/> when the index cannot vouch for the selected span, when the
+    /// range maps to a type or namespace rather than an authored member declaration, or when a
+    /// constructor's flattened range does not identify a constructor at either boundary.
+    /// Positional-record members, primary constructors, and constructors synthesized from field
+    /// initializers can all have no declaration that this range can isolate.
     /// </para>
     /// <para>
-    /// <paramref name="endLine"/> and <paramref name="methodName"/> remain part of the slicing
-    /// request because they describe the PDB/member correspondence supplied by callers. Selection
-    /// deliberately uses the first line alone: the declaration index owns the source boundaries,
-    /// and metadata names do not reliably match source names for constructors and accessors.
+    /// Ordinary members select by the first line alone. Constructor ranges are different: field
+    /// and property initializer sequence points belong to the constructor, so their minimum line
+    /// may name an unrelated declaration. A constructor request therefore selects a known
+    /// constructor containing either range boundary, and refuses an ambiguous range. The index
+    /// still owns all source boundaries; <paramref name="methodName"/> is used only to recognize
+    /// metadata's constructor identities, never to match a source spelling.
     /// </para>
     /// </summary>
     public static string? ExtractMethodBody(
@@ -32,7 +35,10 @@ public static class BodySlicer
         string methodName)
     {
         var lines = sourceText.Split('\n');
-        var row = DeclarationIndex.Build(lines).FindByLine(startLine);
+        var index = DeclarationIndex.Build(lines);
+        var row = IsConstructorRequest(methodName)
+            ? FindConstructorAtRangeBoundary(index, startLine, endLine)
+            : index.FindByLine(startLine);
 
         if (row is null || IsTypeOrNamespace(row.Kind))
             return null;
@@ -75,4 +81,51 @@ public static class BodySlicer
         kind is DeclarationKind.Class or DeclarationKind.Struct or DeclarationKind.Record
             or DeclarationKind.Interface or DeclarationKind.Enum or DeclarationKind.Delegate
             or DeclarationKind.Namespace;
+
+    private static bool IsConstructorRequest(string methodName) =>
+        methodName is ".ctor" or "#ctor" or ".cctor";
+
+    private static DeclarationSpan? FindConstructorAtRangeBoundary(
+        DeclarationIndex index,
+        int startLine,
+        int endLine)
+    {
+        int matchIndex = -1;
+        for (int i = 0; i < index.Declarations.Length; i++)
+        {
+            var declaration = index.Declarations[i];
+            if (!declaration.SpanKnown
+                || declaration.Kind != DeclarationKind.Constructor
+                || (!declaration.Contains(startLine) && !declaration.Contains(endLine)))
+            {
+                continue;
+            }
+
+            if (matchIndex >= 0)
+                return null;
+
+            matchIndex = i;
+        }
+
+        if (matchIndex < 0)
+            return null;
+
+        var match = index.Declarations[matchIndex];
+        // A sibling type closing on the constructor's signature line leaves its "}" before the
+        // constructor text. With line-only spans that prefix cannot be removed safely, so retain
+        // the prior conservative absence for this shape.
+        for (int i = 0; i < index.Declarations.Length; i++)
+        {
+            var declaration = index.Declarations[i];
+            if (i != matchIndex
+                && declaration.IsType
+                && declaration.ParentIndex == match.ParentIndex
+                && declaration.EndLine == match.SignatureStartLine)
+            {
+                return null;
+            }
+        }
+
+        return match;
+    }
 }

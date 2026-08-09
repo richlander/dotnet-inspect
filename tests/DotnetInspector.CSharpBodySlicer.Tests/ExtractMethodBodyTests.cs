@@ -1256,4 +1256,96 @@ public class ExtractMethodBodyTests
 
         Assert.Null(BodySlicer.ExtractMethodBody(source, 5, 6, ".ctor"));
     }
+
+    /// <summary>
+    /// Field and property initializer sequence points are emitted into a constructor. Their
+    /// minimum source line can therefore precede the constructor declaration; selecting that
+    /// line alone returns the initializer as successful constructor source. The opposite range
+    /// boundary still belongs to the explicit constructor and establishes the correspondence.
+    /// </summary>
+    [Theory]
+    [InlineData("    private readonly int _value = 1;")]
+    [InlineData("    public string Value { get; } = \"one\";")]
+    public void ConstructorRangeBeginningAtAnInitializer_SelectsTheExplicitConstructor(string initializer)
+    {
+        var source = Lines(
+            "class C",                      // 1
+            "{",                            // 2
+            initializer,                    // 3  <- StartLine
+            "",                             // 4
+            "    public C(int value)",      // 5
+            "    {",                        // 6
+            "        Use(value);",          // 7
+            "    }",                        // 8  <- EndLine
+            "}");                           // 9
+
+        Assert.Equal(
+            "public C(int value)\n{\n    Use(value);\n}",
+            BodySlicer.ExtractMethodBody(source, 3, 8, ".ctor"));
+    }
+
+    /// <summary>
+    /// An initializer may also sit below the explicit constructor in source. In that ordering the
+    /// constructor owns the minimum line and the initializer owns the maximum; either boundary is
+    /// sufficient only when it names the requested declaration kind.
+    /// </summary>
+    [Fact]
+    public void ConstructorRangeEndingAtAnInitializer_SelectsTheExplicitConstructor()
+    {
+        var source = Lines(
+            "class C",                                  // 1
+            "{",                                        // 2
+            "    public C(int value) => Use(value);",    // 3  <- StartLine
+            "",                                         // 4
+            "    private readonly int _value = 1;",      // 5  <- EndLine
+            "}");                                       // 6
+
+        Assert.Equal(
+            "public C(int value) => Use(value);",
+            BodySlicer.ExtractMethodBody(source, 3, 5, "#ctor"));
+    }
+
+    /// <summary>
+    /// When initializers bound both sides of an explicit constructor, the flattened PDB range
+    /// does not identify which declaration supplied a sequence point. The slicer must refuse the
+    /// ambiguity rather than pick either initializer or search the numeric interval and risk a
+    /// different constructor overload.
+    /// </summary>
+    [Fact]
+    public void ConstructorRangeBoundedByInitializers_ReportsAbsent()
+    {
+        var source = Lines(
+            "class C",                                  // 1
+            "{",                                        // 2
+            "    private readonly int _first = 1;",      // 3  <- StartLine
+            "",                                         // 4
+            "    public C(int value) => Use(value);",    // 5
+            "",                                         // 6
+            "    private readonly int _last = 2;",       // 7  <- EndLine
+            "}");                                       // 8
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+    }
+
+    /// <summary>
+    /// A synthesized constructor has initializer sequence points but no authored constructor
+    /// declaration. An initializer is not a substitute: returning it as Original Source
+    /// misattributes one declaration to another and makes Source Diff compare unrelated members.
+    /// </summary>
+    [Theory]
+    [InlineData(".ctor", "    private readonly int _value = 1;")]
+    [InlineData("#ctor", "    public string Value { get; } = \"one\";")]
+    [InlineData(".cctor", "    private static readonly int s_value = 1;")]
+    public void ConstructorRangeContainingOnlyAnInitializer_ReportsAbsent(
+        string methodName,
+        string initializer)
+    {
+        var source = Lines(
+            "class C",      // 1
+            "{",            // 2
+            initializer,    // 3  <- StartLine/EndLine
+            "}");           // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 3, methodName));
+    }
 }

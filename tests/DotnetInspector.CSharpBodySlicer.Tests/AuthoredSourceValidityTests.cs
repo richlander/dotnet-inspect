@@ -3,11 +3,12 @@ using System.Text.RegularExpressions;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace DotnetInspector.CSharpBodySlicer.Tests;
 
 /// <summary>
-/// Parse-validity gate for the authored-source slicer
+/// Parse-validity and declaration-correspondence gate for the authored-source slicer
 /// (<see cref="BodySlicer.ExtractMethodBody"/>).
 /// <para>
 /// The slicer selects one declaration-index row from a sequence-point line and emits that row's
@@ -16,9 +17,11 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 /// the member signature untouched.
 /// </para>
 /// <para>
-/// Roslyn is the independent oracle here. The claim is deliberately narrow — the extracted
-/// text must parse as a well-formed member declaration — but it is sensitive to both
-/// boundaries at once and needs no per-member expected output, so it scales over a corpus.
+/// Roslyn is the independent oracle here. The extracted text must parse as a well-formed member
+/// declaration, and a constructor request must contain a constructor declaration. The latter
+/// matters because a field or property initializer is valid C# while still being the wrong source
+/// for its constructor. These checks are sensitive to both boundaries at once and need no
+/// per-member expected output, so they scale over a corpus.
 /// Roslyn is legitimate in a test for this: product paths stay Roslyn-free, and a hand-rolled
 /// checker would only be a second copy of the heuristic under test.
 /// </para>
@@ -31,8 +34,9 @@ namespace DotnetInspector.CSharpBodySlicer.Tests;
 public class AuthoredSourceValidityTests
 {
     /// <summary>
-    /// Extraction outcome for one member, classified by how the text fails to parse. The
-    /// classification is diagnostic only; the assertions below name the categories they gate.
+    /// Extraction outcome for one member, classified by parse validity and declaration
+    /// correspondence. The classification is diagnostic only; the assertions below name the
+    /// categories they gate.
     /// </summary>
     private enum SliceOutcome
     {
@@ -60,6 +64,13 @@ public class AuthoredSourceValidityTests
         /// </summary>
         NotSliceable,
 
+        /// <summary>
+        /// The slice parses as a member declaration, but not the kind requested. In particular,
+        /// constructor sequence points include field and property initializers; returning one of
+        /// those declarations as constructor source is well-formed C# with the wrong identity.
+        /// </summary>
+        WrongDeclaration,
+
         /// <summary>Anything else, including a slice that starts or ends mid-declaration.</summary>
         Malformed,
     }
@@ -83,13 +94,26 @@ public class AuthoredSourceValidityTests
         return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
-    private static SliceOutcome Classify(string? text)
+    private static SliceOutcome Classify(string? text, string memberName = "")
     {
         if (text is null)
             return SliceOutcome.NotSliceable;
 
         if (ParsesAsMember(text))
-            return SliceOutcome.WellFormed;
+        {
+            bool constructorRequested = memberName is "#ctor" or ".ctor" or ".cctor";
+            bool containsConstructor = CSharpSyntaxTree.ParseText(
+                    $"class __Shell {{\n{text}\n}}",
+                    new CSharpParseOptions(LanguageVersion.Preview))
+                .GetRoot()
+                .DescendantNodes()
+                .OfType<ConstructorDeclarationSyntax>()
+                .Any();
+
+            return constructorRequested && !containsConstructor
+                ? SliceOutcome.WrongDeclaration
+                : SliceOutcome.WellFormed;
+        }
 
         var trimmed = text.TrimEnd();
         if (trimmed.EndsWith('}') && ParsesAsMember(trimmed[..^1].TrimEnd()))
@@ -122,9 +146,8 @@ public class AuthoredSourceValidityTests
 
     /// <summary>
     /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberDocuments"/>
-    /// supplies the same anchor, line range, and finalizer flag that
-    /// <c>AuthoredSourceAcquisition</c> passes to the slicer, so nothing here reconstructs a
-    /// range the product would compute differently.
+    /// supplies the same anchor and line range that <c>AuthoredSourceAcquisition</c> passes to
+    /// the slicer, so nothing here reconstructs a range the product would compute differently.
     /// </summary>
     private static List<Slice> SliceCorpus()
     {
@@ -192,7 +215,7 @@ public class AuthoredSourceValidityTests
                         member.StartLine,
                         member.EndLine,
                         text ?? "",
-                        text is null ? SliceOutcome.NotSliceable : Classify(text)));
+                        text is null ? SliceOutcome.NotSliceable : Classify(text, member.Anchor.MemberName)));
                 }
             }
         }
@@ -305,10 +328,10 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Both boundary defect populations are gone, so this asserts their absence rather than a
-    /// ceiling over them. A ceiling above a zero rate gates nothing: the previous form allowed
-    /// 3.0% under-capture and 1.5% malformed against measured rates of 0.42% and 0.10%, so the
-    /// whole population could return before it failed.
+    /// The boundary-defect and wrong-declaration populations are gone, so this asserts their
+    /// absence rather than a ceiling over them. A ceiling above a zero rate gates nothing: the
+    /// previous form allowed 3.0% under-capture and 1.5% malformed against measured rates of
+    /// 0.42% and 0.10%, so the whole population could return before it failed.
     /// <para>
     /// Locating declarations over the index rather than recovering each boundary from the capture
     /// is what emptied them. The non-empty not-sliceable population below is the control: the
@@ -322,7 +345,7 @@ public class AuthoredSourceValidityTests
     /// </para>
     /// </summary>
     [Fact]
-    public void TheBoundaryDefectPopulations_AreEmpty()
+    public void InvalidAndMisattributedSlicePopulations_AreEmpty()
     {
         var slices = SliceCorpus();
         Assert.NotEmpty(slices);
@@ -336,6 +359,10 @@ public class AuthoredSourceValidityTests
 
         Assert.True(Count(SliceOutcome.UnderCapture) == 0, $"under-capture returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
         Assert.True(Count(SliceOutcome.Malformed) == 0, $"malformed slices returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
+        Assert.True(
+            Count(SliceOutcome.WrongDeclaration) == 0,
+            $"a declaration was attributed to the wrong member:\n{summary}\n\n"
+                + Report(slices.Where(s => s.Outcome == SliceOutcome.WrongDeclaration)));
     }
 
     /// <summary>
@@ -880,18 +907,12 @@ public class AuthoredSourceValidityTests
     /// <summary>
     /// Characterization, and a limit of the design rather than a defect in it. Spans are
     /// line-granular, matching the PDB sequence points that drive selection, so when a type and
-    /// every member it declares share one line there is no span that distinguishes them and the
-    /// slice is that line. The selector also does not consult the requested member name: the
-    /// name is available and could reject here, but a rejection rule strong enough to help is
-    /// also strong enough to lose the shapes metadata spells differently from source — a field
-    /// initializer's sequence points really are attributed to ".ctor", and an accessor really is
-    /// requested as "get_P" against a row named "P". Pinned rather than suppressed, because a
-    /// narrow name check is exactly the kind of patch this file's history records unwinding.
-    /// Real source does not write these shapes; the corpus differential over 4,088 slices moved
-    /// no member into an invalid outcome.
+    /// every member it declares share one line there is no span that distinguishes them and a
+    /// real constructor request returns that line. An initializer-only range is deliberately not
+    /// included: constructor identity now rejects a field or property row even when it shares the
+    /// line, because well-formed unrelated source is worse than honest absence.
     /// </summary>
     [Theory]
-    [InlineData("public class C { static C I = new C(); }")]
     [InlineData("public class C { class D { D() { } } }")]
     [InlineData("class A { } class B { B() { } }")]
     public void EverythingOnOneLine_SlicesThatLine(string source)
