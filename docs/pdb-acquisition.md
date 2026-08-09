@@ -30,6 +30,10 @@ recognizes and interprets the SourceLink custom-debug-information document.
 
 The tool searches for PDBs in this order:
 
+`PdbAcquisitionService` owns this reusable acquisition algorithm. The typed
+`SourceLinkDocumentsQuery` invokes it through a host-supplied `SourceLinkService`
+and HTTP client, so library and package hosts do not duplicate symbol lookup.
+
 ### 1. Embedded PDB
 
 Check if the library has an embedded PDB (stored inside the PE file itself). This is the most reliable option as no external lookup is needed.
@@ -139,6 +143,10 @@ When PDB acquisition fails, we report the reason:
 - **"no symbols"**: No PDB found on any server (distro build, private package, etc.)
 - **"embedded"**: PDB is embedded in the library (success case)
 - **"msdl.microsoft.com"**: Downloaded from Microsoft symbol server (success case)
+
+Typed SourceLink queries preserve these states as absent or failed outcomes.
+Package aggregation retains the package-relative library path beside each
+unavailable or failed outcome.
 
 ## Related resources
 

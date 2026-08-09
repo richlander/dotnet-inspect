@@ -7,9 +7,21 @@ dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
+dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
 ```
 
-Cost is governed by verbosity (the cost ceiling) and explicit section selection. `library X -S Signals` reports metadata/provenance signals and acquires a missing library PDB to resolve SourceLink. The per-source-file reachability pass (the `SourceLink: Availability` and `SourceLink: Missing Files` sections, which issue one HTTP HEAD per tracked source URL) is selected explicitly via `-S`. It does not run in a plain `library X -v:d` flow, because its cost scales with source-file count. The exhaustive content check — downloading every tracked source file and comparing its hash to the PDB checksum — is the opt-in `SourceLink: Integrity` section, selected explicitly via `library X -S "SourceLink: Integrity"`; it never runs in a default flow and exits non-zero on a checksum mismatch. For packages, `Signals` is opt-in and includes registry-backed signals.
+Cost is governed by verbosity (the cost ceiling) and explicit section
+selection. `library X -S Signals` reports metadata/provenance signals and
+acquires a missing library PDB to resolve SourceLink. On either `library` or
+`package`, the per-source-file reachability pass (`SourceLink: Availability`
+and `SourceLink: Missing Files`) is selected explicitly via `-S`; Missing Files
+reuses the availability result. It does not run in a plain detailed flow because
+its cost scales with source-file count. The exhaustive content check downloads
+every tracked source file and compares its hash to the PDB checksum. It is
+selected explicitly as `SourceLink: Integrity`, never runs in a default flow,
+and exits non-zero on any checksum mismatch. Package results aggregate the
+selected compatible/highest-TFM libraries and retain library provenance.
 
 See [SourceLink Exposure](sourcelink-exposure.md) for the product surfaces,
 PDB dependency, and network policy behind these sections.
