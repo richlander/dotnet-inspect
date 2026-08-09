@@ -142,7 +142,7 @@ public class TopLeverageSectionTests
         {
             TypeName = typeof(LeverageSampleType).FullName,
             AssemblyPath = typeof(LeverageSampleType).Assembly.Location,
-            Discover = [],
+            Discover = [SectionCategoryNames.Analysis],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,

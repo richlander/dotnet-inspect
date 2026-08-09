@@ -63,7 +63,8 @@ public class OfflineVerbosityTests : IDisposable
             "type", "--platform", "System.Text.Json", "-v:m", "--offline");
 
         Assert.Equal(0, exit);
-        Assert.Contains("JsonSerializer", output);
+        Assert.Contains("## API Info", output);
+        Assert.DoesNotContain("JsonSerializer", output);
     }
 
     // ── type command: single type ────────────────────────────────────
@@ -207,7 +208,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_ForwardedTypeMatchesFilter_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "-t", "HashSet*", "--offline");
+            "type", "--platform", "System.Collections", "-t", "HashSet*", "-v:d", "--offline");
 
         Assert.Equal(0, exit);
         // Table table: type name appears in row
@@ -218,7 +219,7 @@ public class OfflineVerbosityTests : IDisposable
     public async Task TypeListing_NativeAndForwardedTypes_Offline()
     {
         var (exit, output, _) = await RunAppAsync(
-            "type", "--platform", "System.Collections", "-v:m", "--offline");
+            "type", "--platform", "System.Collections", "-v:d", "--offline");
 
         Assert.Equal(0, exit);
         // Forwarded type

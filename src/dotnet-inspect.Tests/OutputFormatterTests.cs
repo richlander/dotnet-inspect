@@ -2327,19 +2327,20 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ApiFullSurface_MinimalMode_ShowsTypeTables()
+    public void ApiFullSurface_MinimalMode_ShowsApiInfo()
     {
         var api = CreateTestApiSurface();
         var options = new ApiOptions { Verbosity = Verbosity.Minimal };
 
         var output = RenderFullApi(api, options);
 
-        Assert.Contains("## Classes", output);
-        Assert.Contains("TestLib.Type1", output);
+        Assert.Contains("## API Info", output);
+        Assert.DoesNotContain("## Classes", output);
+        Assert.DoesNotContain("TestLib.Type1", output);
     }
 
     [Fact]
-    public void ApiFullSurface_QuietWithTypeFilter_ShowsTypeTables()
+    public void ApiFullSurface_MinimalWithTypeFilter_ShowsApiInfo()
     {
         var api = CreateTestApiSurface();
         // Glob upgrade: quiet + TypeFilter should behave as minimal
@@ -2351,8 +2352,9 @@ public class OutputFormatterTests
 
         var output = RenderFullApi(api, options);
 
-        Assert.Contains("## Classes", output);
-        Assert.Contains("TestLib.Type1", output);
+        Assert.Contains("## API Info", output);
+        Assert.DoesNotContain("## Classes", output);
+        Assert.DoesNotContain("TestLib.Type1", output);
     }
 
     [Fact]

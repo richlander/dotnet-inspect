@@ -65,7 +65,7 @@ public class CalledTypesSectionTests
         {
             TypeName = typeof(CalledTypesFixture).FullName,
             AssemblyPath = typeof(CalledTypesFixture).Assembly.Location,
-            Discover = [],
+            Discover = [SectionCategoryNames.Analysis],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,

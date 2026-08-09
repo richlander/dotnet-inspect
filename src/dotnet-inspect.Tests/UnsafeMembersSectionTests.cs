@@ -182,7 +182,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            Discover = [],
+            Discover = [SectionCategoryNames.Audit],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Minimal,
             Tabular = true,
