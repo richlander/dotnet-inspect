@@ -70,6 +70,35 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectHighestAssembliesFromPackage_ExplicitTfmAcceptsUppercaseExtension()
+    {
+        var assembly = WriteDll("lib/net8.0/MyLib.DLL");
+
+        var (paths, tfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(
+                _tempDir,
+                "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([assembly], paths);
+    }
+
+    [Fact]
+    public void SelectHighestAssembliesFromPackage_ExplicitTfmFiltersUppercaseSatellite()
+    {
+        var assembly = WriteDll("lib/net8.0/MyLib.DLL");
+        WriteDll("lib/net8.0/de/MyLib.resources.DLL");
+
+        var (paths, tfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(
+                _tempDir,
+                "net8.0");
+
+        Assert.Equal("net8.0", tfm);
+        Assert.Equal([assembly], paths);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_ToolsLayoutExplicitTfm_SelectsMatchingAssemblies()
     {
         var tool = WriteDll("tools/net8.0/any/MyTool.dll");
@@ -168,6 +197,58 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void AutomaticEntryPointsAgreeWhenToolsAndLibrariesCoexist()
+    {
+        WriteDll("tools/net6.0/any/MyTool.dll");
+        var library = WriteDll("lib/netstandard2.1/MyPackage.dll");
+
+        var assemblies = TfmSelector.GetPackageAssemblies(_tempDir);
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+        var libraries = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.Equal([library], assemblies);
+        Assert.Equal(["netstandard2.1"], tfms);
+        Assert.Equal("netstandard2.1", highestTfm);
+        Assert.Equal([library], highest);
+        Assert.Equal(highestTfm, libraries.Tfm);
+        Assert.Equal(highest, libraries.Paths);
+    }
+
+    [Fact]
+    public void AutomaticEntryPointsRankAcrossReferenceAndLibraryRoots()
+    {
+        WriteDll("ref/netstandard2.0/MyPackage.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal(["net8.0", "netstandard2.0"], tfms);
+        Assert.Equal("net8.0", highestTfm);
+        Assert.Equal([library], highest);
+    }
+
+    [Fact]
+    public void AutomaticEntryPointsFallBackForUnrecognizedFrameworkDirectories()
+    {
+        var monoAndroid = WriteDll("lib/MonoAndroid10/MyPackage.dll");
+        var xamarinIos = WriteDll("lib/Xamarin.iOS10/MyPackage.dll");
+
+        var assemblies = TfmSelector.GetPackageAssemblies(_tempDir);
+        var tfms = TfmSelector.GetPackageTfms(_tempDir);
+        var (highest, highestTfm) =
+            TfmSelector.SelectHighestAssembliesFromPackage(_tempDir);
+
+        Assert.Equal([monoAndroid, xamarinIos], assemblies);
+        Assert.Empty(tfms);
+        Assert.Null(highestTfm);
+        Assert.Equal([monoAndroid, xamarinIos], highest);
+    }
+
+    [Fact]
     public void SelectHighestAssembliesFromPackage_NoTfmLayout_ReturnsPackageAssemblies()
     {
         var root = WriteDll("MyLib.dll");
@@ -231,6 +312,71 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_ExplicitRequestSearchesAllTargetFrameworks()
+    {
+        WriteDll("lib/net10.0/Primary.dll");
+        var requested = WriteDll("lib/net452/Implementation.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "Implementation");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net452", result.Tfm);
+        Assert.Equal([requested], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_ExplicitRequestSearchesAllLayoutsAtTfm()
+    {
+        WriteDll("ref/net8.0/MyPackage.dll");
+        var requested = WriteDll("lib/net8.0/Implementation.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "Implementation",
+            tfm: "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([requested], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_AutomaticRequestUsesSelectedCompileSet()
+    {
+        WriteDll("tools/net8.0/MyTool.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "MyPackage");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibrary_DuplicateNameUsesAutomaticallySelectedTfm()
+    {
+        WriteDll("ref/netstandard2.0/MyPackage.dll");
+        var library = WriteDll("lib/net8.0/MyPackage.dll");
+
+        var result = TfmSelector.SelectPackageLibrary(
+            _tempDir,
+            "MyPackage",
+            requestedLibrary: "MyPackage");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library], result.Paths);
+    }
+
+    [Fact]
     public void SelectPackageLibraries_NoTfm_SelectsHighestTfmInStableOrder()
     {
         WriteDll("lib/net8.0/Zeta.dll");
@@ -242,6 +388,31 @@ public class TfmSelectorTests : IDisposable
         Assert.True(result.IsSelected);
         Assert.Equal("net10.0", result.Tfm);
         Assert.Equal([alpha, beta], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_ExplicitTfmScansAllLayouts()
+    {
+        var library = WriteDll("lib/net8.0/MyLib.dll");
+        var runtime =
+            WriteDll("runtimes/linux-x64/lib/net8.0/MyRuntime.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir, "net8.0");
+
+        Assert.True(result.IsSelected);
+        Assert.Equal("net8.0", result.Tfm);
+        Assert.Equal([library, runtime], result.Paths);
+    }
+
+    [Fact]
+    public void SelectPackageLibraries_KeepsRootAssemblyEndingInResources()
+    {
+        var resources = WriteDll("lib/net8.0/MyCompany.Resources.dll");
+
+        var result = TfmSelector.SelectPackageLibraries(_tempDir);
+
+        Assert.True(result.IsSelected);
+        Assert.Equal([resources], result.Paths);
     }
 
     [Fact]
@@ -266,6 +437,34 @@ public class TfmSelectorTests : IDisposable
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0", "MyPackage");
 
         Assert.Equal(primary, result);
+    }
+
+    [Fact]
+    public void FindAssemblyContainingType_AutomaticLookupUsesSelectedCompileSet()
+    {
+        WriteAssembly("tools/net8.0/MyTool.dll");
+        var library = WriteAssembly("lib/net8.0/MyPackage.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyContainingType(
+            _tempDir,
+            typeof(TfmSelectorTests).FullName!);
+
+        Assert.Equal(library, path);
+        Assert.Equal("net8.0", tfm);
+    }
+
+    [Fact]
+    public void FindAssemblyContainingType_DoesNotEscapeSelectedCompileSet()
+    {
+        WriteAssembly("tools/net8.0/MyTool.dll");
+        WriteDll("lib/net8.0/MyPackage.dll");
+
+        var (path, tfm) = TfmSelector.FindAssemblyContainingType(
+            _tempDir,
+            typeof(TfmSelectorTests).FullName!);
+
+        Assert.Null(path);
+        Assert.Equal("net8.0", tfm);
     }
 
     [Fact]
@@ -339,6 +538,16 @@ public class TfmSelectorTests : IDisposable
         var path = Path.Combine(_tempDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, []);
+        return path;
+    }
+
+    private string WriteAssembly(string relativePath)
+    {
+        var path = Path.Combine(
+            _tempDir,
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.Copy(typeof(TfmSelectorTests).Assembly.Location, path);
         return path;
     }
 }

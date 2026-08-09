@@ -111,33 +111,45 @@ public static class TfmSelector
         string[] candidates = [];
         if (Directory.Exists(toolsDir))
         {
-            candidates = Directory.GetFiles(toolsDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(toolsDir);
         }
 
         // Ref packages (e.g. Microsoft.NETCore.App.Ref) put assemblies in ref/
         if (candidates.Length == 0 && Directory.Exists(refDir))
         {
-            candidates = Directory.GetFiles(refDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(refDir);
         }
 
         if (candidates.Length == 0 && Directory.Exists(libDir))
         {
-            candidates = Directory.GetFiles(libDir, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(libDir);
         }
 
         if (candidates.Length == 0)
         {
-            candidates = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+            candidates = GetDllFiles(extractPath);
         }
 
         return candidates.OrderBy(f => f).ToList();
     }
 
     public static List<string> GetPackageAssemblies(string extractPath)
-        => FilterResourceAssemblies(GetPackageDlls(extractPath));
+    {
+        List<string> compilePaths =
+            GetAutomaticallySelectedCompileAssemblies(extractPath, out _);
+        return compilePaths.Count > 0
+            ? compilePaths
+            : GetLegacyPackageAssemblies(extractPath);
+    }
 
     public static List<string> GetPackageTfms(string extractPath)
-        => GetPackageTfms(GetPackageDlls(extractPath), extractPath);
+    {
+        PackageCompileAssetSelection selection =
+            GetCompileAssetSelection(extractPath);
+        return selection.CandidateAssets.Count > 0
+            ? [.. selection.AvailableTargetFrameworks]
+            : GetPackageTfms(GetPackageDlls(extractPath), extractPath);
+    }
 
     public static List<string> GetPackageTfms(IEnumerable<string> paths, string extractPath)
         => OrderByTfmPriorityDescending(
@@ -232,13 +244,22 @@ public static class TfmSelector
         if (string.Equals(tfm, "all", StringComparison.OrdinalIgnoreCase))
             return (GetAllPackageAssemblies(extractPath), null);
 
-        return !string.IsNullOrWhiteSpace(tfm)
-            ? SelectAssembliesByTfmFromPackage(extractPath, tfm)
-            : SelectHighestAssemblies(GetPackageDlls(extractPath), extractPath, tfm);
+        if (!string.IsNullOrWhiteSpace(tfm))
+            return SelectAssembliesByTfmFromPackage(extractPath, tfm);
+
+        List<string> compilePaths =
+            GetAutomaticallySelectedCompileAssemblies(
+                extractPath,
+                out string? compileTfm);
+        return compilePaths.Count > 0
+            ? (compilePaths, compileTfm)
+            : SelectHighestAssemblies(
+                GetPackageDlls(extractPath),
+                extractPath);
     }
 
     private static List<string> GetAllPackageAssemblies(string extractPath)
-        => FilterResourceAssemblies(Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories))
+        => FilterResourceAssemblies(GetDllFiles(extractPath))
             .OrderBy(path => GetExplicitTfmLookupPriority(extractPath, path))
             .ThenBy(path => Path.GetRelativePath(extractPath, path).Replace('\\', '/'), StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -280,10 +301,19 @@ public static class TfmSelector
     {
         if (!string.IsNullOrWhiteSpace(requestedLibrary))
         {
-            var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(extractPath, requestedLibrary, tfm);
-            return matchedAssembly != null
-                ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
-                : new PackageLibraryResolution([], tfm, PackageLibraryResolutionStatus.RequestedLibraryNotFound, GetCandidateLibraries(extractPath, tfm));
+            var (matchedAssembly, matchedTfm) =
+                FindAssemblyInPackage(extractPath, requestedLibrary, tfm);
+            return matchedAssembly is not null
+                ? new PackageLibraryResolution(
+                    [matchedAssembly],
+                    matchedTfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [matchedAssembly])
+                : new PackageLibraryResolution(
+                    [],
+                    tfm,
+                    PackageLibraryResolutionStatus.RequestedLibraryNotFound,
+                    GetCandidateLibraries(extractPath, tfm));
         }
 
         var resolution = SelectPackageLibraries(extractPath, tfm);
@@ -303,6 +333,22 @@ public static class TfmSelector
 
     public static PackageLibraryResolution SelectPackageLibraries(string extractPath, string? tfm = null)
     {
+        if (string.IsNullOrWhiteSpace(tfm))
+        {
+            List<string> compilePaths =
+                GetAutomaticallySelectedCompileAssemblies(
+                    extractPath,
+                    out string? compileTfm);
+            if (compilePaths.Count > 0)
+            {
+                return new PackageLibraryResolution(
+                    compilePaths,
+                    compileTfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    compilePaths);
+            }
+        }
+
         List<string> selected;
         string? selectedTfm;
         if (string.IsNullOrWhiteSpace(tfm))
@@ -328,15 +374,29 @@ public static class TfmSelector
     }
 
     private static List<string> GetCandidateLibraries(string extractPath, string? tfm)
-        => string.IsNullOrWhiteSpace(tfm)
-            ? GetPackageAssemblies(extractPath)
-            : SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
+    {
+        if (!string.IsNullOrWhiteSpace(tfm))
+            return SelectHighestAssembliesFromPackage(extractPath, tfm).paths;
+
+        List<string> compilePaths =
+            GetAutomaticallySelectedCompileAssemblies(extractPath, out _);
+        return compilePaths.Count > 0
+            ? compilePaths
+            : GetLegacyPackageAssemblies(extractPath);
+    }
 
     public static (string? path, string? tfm) FindAssemblyInPackage(string extractPath, string assemblyName, string? tfm = null)
     {
+        List<string> automaticallySelected = string.IsNullOrWhiteSpace(tfm)
+            ? GetAutomaticallySelectedCompileAssemblies(
+                extractPath,
+                out _)
+            : [];
         var dlls = !string.IsNullOrEmpty(tfm)
             ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
-            : GetPackageAssemblies(extractPath);
+            : automaticallySelected.Count > 0
+                ? automaticallySelected
+                : GetLegacyPackageAssemblies(extractPath);
         if (dlls.Count == 0)
             return (null, null);
 
@@ -349,7 +409,20 @@ public static class TfmSelector
             ? assemblyLeaf
             : $"{bareName}.dll";
 
-        var matchingFiles = dlls
+        List<string> matchingFiles = MatchingFiles(dlls);
+        if (matchingFiles.Count == 0 && automaticallySelected.Count > 0)
+            matchingFiles = MatchingFiles(
+                GetLegacyPackageAssemblies(extractPath));
+
+        if (matchingFiles.Count == 0)
+            return (null, null);
+
+        var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
+        return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
+
+        List<string> MatchingFiles(IEnumerable<string> candidates) =>
+        [
+            .. candidates
             .Where(dll =>
             {
                 var relativePath = Path.GetRelativePath(extractPath, dll).Replace('\\', '/');
@@ -357,18 +430,30 @@ public static class TfmSelector
                     || relativePath.Equals(normalizedAssemblyName + ".dll", StringComparison.OrdinalIgnoreCase)
                     || Path.GetFileName(dll).Equals(fileName, StringComparison.OrdinalIgnoreCase)
                     || Path.GetFileNameWithoutExtension(dll).Equals(bareName, StringComparison.OrdinalIgnoreCase);
-            })
-            .ToList();
-
-        if (matchingFiles.Count == 0)
-            return (null, null);
-
-        var (selectedPath, selectedTfm) = SelectHighestTfmAssembly(matchingFiles, extractPath);
-        return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
+            }),
+        ];
     }
 
     public static (string? path, string? tfm) FindAssemblyContainingType(string extractPath, string typeName, string? tfm = null)
     {
+        if (string.IsNullOrWhiteSpace(tfm))
+        {
+            List<string> compilePaths =
+                GetAutomaticallySelectedCompileAssemblies(
+                    extractPath,
+                    out string? compileTfm);
+            if (compilePaths.Count > 0)
+            {
+                foreach (string path in compilePaths)
+                {
+                    if (PlatformResolver.HasType(path, typeName))
+                        return (path, compileTfm);
+                }
+
+                return (null, compileTfm);
+            }
+        }
+
         var dlls = !string.IsNullOrEmpty(tfm)
             ? SelectAssembliesByTfmFromPackage(extractPath, tfm).paths
             : GetPackageAssemblies(extractPath);
@@ -411,6 +496,46 @@ public static class TfmSelector
         return (null, selectedTfm);
     }
 
+    private static List<string> GetAutomaticallySelectedCompileAssemblies(
+        string extractPath,
+        out string? tfm)
+    {
+        PackageCompileAssetSelection selection =
+            GetCompileAssetSelection(extractPath);
+        tfm = selection.TargetFramework;
+        if (!selection.IsSelected)
+            return [];
+
+        return
+        [
+            .. selection.Assets.Select(asset => Path.Combine(
+                extractPath,
+                asset.Path.Replace(
+                    '/',
+                    Path.DirectorySeparatorChar))),
+        ];
+    }
+
+    private static PackageCompileAssetSelection GetCompileAssetSelection(
+        string extractPath)
+    {
+        var content = new FileSystemPackageContent(
+            extractPath,
+            nupkgPath: null,
+            fromCache: false,
+            producerKey: "filesystem");
+        return PackageCompileAssetSelector.Select(content, "package");
+    }
+
+    private static List<string> GetLegacyPackageAssemblies(string extractPath)
+        => FilterResourceAssemblies(GetPackageDlls(extractPath));
+
+    private static string[] GetDllFiles(string path)
+        => Directory.GetFiles(path, "*", SearchOption.AllDirectories)
+            .Where(file => Path.GetExtension(file)
+                .Equals(".dll", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
     private static string? GetTfm(string extractPath, string path)
         => TfmResolver.ExtractTfmFromPath(Path.GetRelativePath(extractPath, path).Replace('\\', '/'));
 
@@ -450,10 +575,14 @@ public static class TfmSelector
             return false;
 
         var primaryAssemblyName = Path.GetFileName(path)[..^".resources.dll".Length] + ".dll";
-        var primaryAssemblyPath = Path.Combine(
-            parentDirectory!.Parent?.FullName ?? "",
-            primaryAssemblyName);
-        return File.Exists(primaryAssemblyPath);
+        return Directory.EnumerateFiles(
+                parentDirectory!.Parent?.FullName ?? "",
+                "*",
+                SearchOption.TopDirectoryOnly)
+            .Any(candidate => Path.GetFileName(candidate)
+                .Equals(
+                    primaryAssemblyName,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsCultureDirectoryName(string? name)

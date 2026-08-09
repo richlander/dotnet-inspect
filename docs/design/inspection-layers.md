@@ -65,6 +65,21 @@ assembly context group, reusing retained immutable content and returning
 per-participant evidence or failure. No command uses that group-scoped query
 yet.
 
+The browser engine is the second host for `AssemblyReferencesQuery`. Its package
+Dependencies lens asks `PackageCompileAssetSelector` for the same content-shaped
+compile asset used by the package surface, opens that asset through its own
+`AssemblyInspectionSession`, runs the same L1 definition through a browser-owned
+registry, and projects the typed result directly into its transport model. The
+browser carries the selected asset's product-owned opaque identity; it does not
+parse package paths or use assembly display labels as identity. It does not
+consume the CLI aggregate or renderer.
+
+`LayeringTests.BrowserDependencies_UsesProductQueriesAndCompileAssetSelection`
+is the non-vacuity gate for that wiring. It fails if the browser stops
+registering/requesting `AssemblyReferencesQuery.Definition` by object identity,
+reintroduces manual `MetadataReader.AssemblyReferences` enumeration, or restores
+browser-owned compile-asset parsing and TFM ranking.
+
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
@@ -241,8 +256,8 @@ vertical L1 canaries:
 - Library and package sections bind to the same SourceLink query definitions.
   Package owns compatible/highest-TFM asset selection and aggregation, not a
   parallel audit implementation.
-- Metadata sections and `References` bind to query definitions by object
-  identity. Diagnostic names are never lookup keys.
+- Metadata sections, CLI `References`, and the browser Dependencies lens bind to
+  query definitions by object identity. Diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.

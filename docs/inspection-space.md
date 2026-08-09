@@ -432,6 +432,10 @@ metadata, direct-reference, and SourceLink plans. String keys, mutable CLI
 models, path-shaped residual inputs, and library-command ownership remain
 migration boundaries rather than workspace contracts.
 
+Both the CLI `References` section and the browser package Dependencies lens
+lower direct-reference demand into `AssemblyReferencesQuery`; each host keeps
+its own acquisition and presentation adapter.
+
 The registry executes synchronous and asynchronous queries in deterministic
 prerequisite order. It passes each query's maximum transitive cost into the host
 execution scope. SourceLink demonstrates the network boundary: a moderated

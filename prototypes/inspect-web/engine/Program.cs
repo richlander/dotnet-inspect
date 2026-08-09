@@ -1,0 +1,4006 @@
+using System.IO.Compression;
+using System.Collections.Immutable;
+using System.Net.Http.Headers;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices.JavaScript;
+using System.Runtime.Versioning;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Xml.Linq;
+using ILInspector.CallGraph;
+using ILInspector.Decompiler;
+using ILInspector.Metadata;
+using ILInspector.SourceLink;
+using DotnetInspector.CSharpBodySlicer;
+using DotnetInspector.Packages;
+using DotnetInspector.Queries;
+using DotnetInspector.Services;
+using Analysis = ILInspector.Analysis;
+using Pipeline = ILInspector.Decompiler.Pipeline;
+using Research = ILInspector.Research;
+
+Console.WriteLine("dotnet-inspect browser engine ready");
+
+public sealed record BrowserPackageSurface(
+    string Package,
+    string Version,
+    string[] Frameworks,
+    string ActiveFramework,
+    string DefaultAssemblyId,
+    BrowserAssemblySurface[] Assemblies,
+    BrowserTypeSurface[] Types,
+    int TotalMembers,
+    BrowserPackageDocument[] Documents);
+
+public sealed record BrowserAssemblySurface(
+    string Id,
+    string Name,
+    string Asset,
+    int PublicTypes,
+    int PublicMembers);
+
+// A browsable Markdown document shipped inside the package: the root README/PACKAGE
+// or a skill file under a skills directory. The manifest carries presence + size only;
+// the body is fetched on demand through GetPackageDocument to keep the surface payload small.
+public sealed record BrowserPackageDocument(
+    string Kind,
+    string Name,
+    string Path,
+    int Size);
+
+public sealed record BrowserPackageDocumentContent(
+    string Kind,
+    string Name,
+    string Path,
+    string Text);
+
+public sealed record BrowserTypeSurface(
+    string Id,
+    string Name,
+    string DisplayName,
+    string Namespace,
+    string Kind,
+    string Accessibility,
+    string Assembly,
+    int Members,
+    string Signature,
+    BrowserMemberSurface[] Api);
+
+public sealed record BrowserMemberSurface(
+    string Name,
+    string Kind,
+    string Signature,
+    int? MetadataToken,
+    string? ReturnType,
+    BrowserParameterSurface[] Parameters,
+    string? DocumentationId,
+    string? Summary,
+    string? Returns,
+    BrowserExceptionSurface[] Exceptions,
+    string StableSelector,
+    string AnchorDigest,
+    string CanonicalSignature);
+
+public sealed record BrowserParameterSurface(
+    string Name,
+    string Type,
+    string? Modifier,
+    bool HasDefault,
+    string? DefaultValue,
+    string? Description);
+
+public sealed record BrowserExceptionSurface(
+    string Type,
+    string Description);
+
+public sealed record BrowserMemberDocumentation(
+    string? Summary,
+    string? Returns,
+    IReadOnlyDictionary<string, string> Parameters,
+    BrowserExceptionSurface[] Exceptions);
+
+public sealed record BrowserMemberSource(
+    string Provider,
+    string Text,
+    string? Url,
+    string Provenance);
+
+public sealed record BrowserCallGraph(
+    string Mermaid,
+    BrowserCallGraphNode Callers,
+    BrowserCallGraphNode Callees,
+    BrowserCallGraphScope Scope,
+    bool NoBody = false);
+
+public sealed record BrowserCallGraphNode(
+    string Label,
+    string Status,
+    bool InLoop,
+    string? Source,
+    BrowserCallGraphNode[] Children,
+    string Assembly,
+    string TypeFullName,
+    string MemberName,
+    string ParamSig);
+
+public sealed record BrowserCallGraphScope(
+    int Packages,
+    int Assemblies,
+    int CallerAssemblies,
+    string CalleeScope);
+
+public sealed record BrowserWorkspacePackage(
+    string Package,
+    string Version,
+    string Framework);
+
+public sealed record BrowserTypeCandidate(
+    string Key,
+    string Name,
+    string Full);
+
+public sealed record BrowserTypeSearchHit(
+    string Key,
+    string Kind);
+
+public sealed record BrowserMemberFacts(
+    BrowserMethodSignals Signals,
+    BrowserAllocationFact[] Allocations,
+    BrowserCallFact[] Calls,
+    BrowserSafetyFact[] Safety,
+    BrowserExceptionRegion[] ExceptionRegions,
+    BrowserPerformanceOpportunity[] PerformanceOpportunities);
+
+public sealed record BrowserMethodSignals(
+    int Allocations,
+    int Copies,
+    bool Unsafe,
+    int Reflection,
+    int Throws,
+    int Catches,
+    int Finallys,
+    bool AllocatesInLoop,
+    string[] EvidenceOffsets,
+    string[] ExceptionTypes);
+
+public sealed record BrowserAllocationFact(
+    string Kind,
+    string? Type,
+    string Offset,
+    string Frequency,
+    string Multiplicity,
+    string Path,
+    string Escape,
+    bool InLoop,
+    int? EstimatedSizeBytes,
+    string? Detail);
+
+public sealed record BrowserCallFact(
+    string Callee,
+    string Offset,
+    string Opcode,
+    string Kind,
+    string Multiplicity,
+    bool InLoop,
+    bool ExactTarget);
+
+public sealed record BrowserSafetyFact(
+    string Kind,
+    string? Offset,
+    string Detail);
+
+public sealed record BrowserExceptionRegion(
+    int Region,
+    string Clause,
+    string TryRange,
+    string HandlerRange,
+    string? FilterRange,
+    string? CaughtType);
+
+public sealed record BrowserPerformanceOpportunity(
+    string Shape,
+    string Evidence,
+    string Fix,
+    string Confidence,
+    string? Offset,
+    bool InLoop,
+    string? Caveat,
+    string? Finding,
+    string Provenance);
+
+public sealed record BrowserStyleOption(
+    string Id,
+    string Title,
+    string Summary,
+    string Tier,
+    bool ByteDivergent,
+    bool OracleEndorsed,
+    string? ConflictGroup);
+
+public sealed record BrowserStyleTier(
+    string Id,
+    string Title,
+    string Summary,
+    int Order,
+    bool ByteDivergent);
+
+// Type-level metadata projection — a JSON mirror of ILInspector.Research
+// ResearchViews.TypeProjectionResult, the presentation-neutral shared seam.
+public sealed record BrowserTypeMetadata(
+    string FullName,
+    string? Namespace,
+    string Name,
+    string Kind,
+    string[] Modifiers,
+    string? Accessibility,
+    string? Assembly,
+    string? BaseType,
+    string[] Interfaces,
+    string[] DerivedTypes,
+    BrowserTypeParameter[] TypeParameters,
+    string[] Attributes,
+    string? EnumUnderlyingType,
+    BrowserTypeComposition? Composition,
+    BrowserTypeGraphNode[] GraphNodes,
+    BrowserTypeGraphEdge[] GraphEdges,
+    string[] InspectionFailures);
+
+public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
+
+public sealed record BrowserTypeComposition(
+    int Methods,
+    int Properties,
+    int Fields,
+    int Events,
+    int Constructors,
+    int Operators,
+    int ExplicitInterfaceImplementations,
+    int ExtensionMethods,
+    int Static,
+    int Unsafe,
+    int Async,
+    int Virtual,
+    int Abstract,
+    int Override,
+    int Extension,
+    int Obsolete,
+    int Total);
+
+public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
+
+public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kind);
+
+public sealed record BrowserPackageDependencies(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    string Assembly,
+    BrowserPackageDependencyGroup[] DependencyGroups,
+    BrowserAssemblyReference[] AssemblyReferences,
+    string? AssemblyReferenceError);
+
+public sealed record BrowserPackageDependencyGroup(
+    string Framework,
+    bool IsActive,
+    BrowserPackageDependency[] Dependencies);
+
+public sealed record BrowserPackageDependency(string Id, string VersionRange);
+
+public sealed record BrowserAssemblyReference(string Name, string Version);
+
+public sealed record BrowserPackageIntegrations(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserIntegrationCategory[] Categories,
+    int TotalSignals,
+    string? InspectionError);
+
+public sealed record BrowserIntegrationCategory(
+    string Integration,
+    int TypeCount,
+    int ApiCount,
+    BrowserIntegrationSignal[] Signals);
+
+public sealed record BrowserIntegrationSignal(string Kind, string Name, string Shape);
+
+public sealed record BrowserPackageOpportunities(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserOpportunityCategory[] Categories,
+    int TotalOpportunities,
+    string? InspectionError);
+
+public sealed record BrowserOpportunityCategory(
+    string Integration,
+    BrowserOpportunityItem[] Items);
+
+public sealed record BrowserOpportunityItem(string Api, string IntegrationType, string LookFor);
+
+public sealed record BrowserPackagePerformance(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserPerfMember[] Members,
+    int TotalOpportunities,
+    int NonPublicOpportunities,
+    string? InspectionError);
+
+public sealed record BrowserPerfMember(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    string MemberSignature,
+    int MetadataToken,
+    int OpportunityCount,
+    int InLoopCount,
+    string[] Shapes,
+    string Confidence);
+
+// The metadata "container" view: image-level facts a metadata browser shows, one entry per
+// assembly. Distinct from the API surface — it reports the physical shape of the metadata
+// (format version, heap sizes, table row counts, PE/CLI headers), not the types within.
+public sealed record BrowserPackageMetadata(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserAssemblyMetadata[] Assemblies,
+    string? InspectionError);
+
+public sealed record BrowserAssemblyMetadata(
+    string Assembly,
+    string Provenance,
+    string MetadataVersion,
+    string Kind,
+    bool IsAssembly,
+    int MetadataSize,
+    BrowserMetadataHeap[] Heaps,
+    BrowserMetadataTable[] Tables,
+    int TableTotal,
+    int ProjectedTableTotal,
+    BrowserMetadataHeaders Headers);
+
+public sealed record BrowserMetadataHeap(
+    string Name,
+    int SizeInBytes,
+    string Addressing,
+    int MaxAddress);
+
+public sealed record BrowserMetadataTable(
+    string Name,
+    int RowCount,
+    bool IsProjected,
+    int Index);
+
+// A windowed projection of one metadata table: schema + a page of rows whose cells
+// carry typed, resolvable references (the substrate for the spatial metadata explorer).
+public sealed record BrowserMetadataWindow(
+    string Assembly,
+    int Index,
+    string Name,
+    int RowCount,
+    BrowserMetadataColumn[] Columns,
+    BrowserMetadataRow[] Rows,
+    int StartRowId,
+    bool Truncated,
+    string? Error);
+
+public sealed record BrowserMetadataColumn(
+    string Name,
+    string Kind,
+    int[] CandidateTargets);
+
+public sealed record BrowserMetadataRow(
+    int RowId,
+    int Token,
+    BrowserMetadataCell[] Cells);
+
+// A flat tagged union over MetadataValue. Kind selects which fields are meaningful:
+//   nil       -> (none)
+//   scalar    -> Raw, Display
+//   flags     -> Raw, Decoded
+//   heap      -> Heap, Offset, Length, Text, Preview, Truncated
+//   handle    -> TargetTable, TargetRowId, Token, Display, Truncated (=display truncated)
+//   range     -> TargetTable, StartRowId, EndRowId, Count
+//   malformed -> Detail
+public sealed record BrowserMetadataCell(
+    string Kind,
+    long? Raw = null,
+    string? Display = null,
+    string? Decoded = null,
+    string? Heap = null,
+    int? Offset = null,
+    int? Length = null,
+    string? Text = null,
+    string? Preview = null,
+    bool? Truncated = null,
+    int? TargetTable = null,
+    int? TargetRowId = null,
+    int? StartRowId = null,
+    int? EndRowId = null,
+    int? Count = null,
+    int? Token = null,
+    string? Detail = null);
+
+// A listing of one metadata heap's entries with the coverage/limits of that listing attached.
+// Backed by ILInspector.Metadata.MetadataHeapEntries; the substrate for browsing #Strings/#Blob/
+// #GUID/#US in the spatial explorer alongside the tables. Coverage travels with the answer so a
+// referenced-only or truncated list is never read as a whole heap.
+public sealed record BrowserHeapListing(
+    string Assembly,
+    string Heap,          // HeapKind name: String | Blob | Guid | UserString
+    string StreamName,    // ECMA-335 stream name: #Strings | #Blob | #GUID | #US
+    int SizeInBytes,
+    string Coverage,      // Complete | ReferencedOnly | NotEnumerable
+    BrowserHeapEntry[] Entries,
+    bool EntriesTruncated,
+    bool RowsTruncated,
+    string? Error);
+
+// One heap entry: its heap address, how many projected cells pointed at it, and its value
+// (reusing the flat cell union — normally a "heap" cell carrying the decoded preview).
+public sealed record BrowserHeapEntry(
+    int Offset,
+    int ReferenceCount,
+    BrowserMetadataCell Value);
+
+public sealed record BrowserMetadataHeaders(
+    string Machine,
+    string Subsystem,
+    bool IsPE32Plus,
+    string? CorFlags,
+    int? MajorRuntimeVersion,
+    int? MinorRuntimeVersion,
+    int? EntryPointToken);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserPackageDocumentContent))]
+[JsonSerializable(typeof(BrowserMemberSource))]
+[JsonSerializable(typeof(BrowserCallGraph))]
+[JsonSerializable(typeof(BrowserMemberDocumentation))]
+[JsonSerializable(typeof(BrowserMemberFacts))]
+[JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageIntegrations))]
+[JsonSerializable(typeof(BrowserPackageOpportunities))]
+[JsonSerializable(typeof(BrowserPackagePerformance))]
+[JsonSerializable(typeof(BrowserPackageMetadata))]
+[JsonSerializable(typeof(BrowserMetadataWindow))]
+[JsonSerializable(typeof(BrowserHeapListing))]
+[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(typeof(BrowserTypeCandidate[]))]
+[JsonSerializable(typeof(BrowserTypeSearchHit[]))]
+[JsonSerializable(typeof(BrowserStyleOption[]))]
+[JsonSerializable(typeof(BrowserStyleTier[]))]
+[JsonSerializable(typeof(string[]))]
+internal sealed partial class BrowserJsonContext : JsonSerializerContext;
+
+[SupportedOSPlatform("browser")]
+public static partial class BrowserInspectionEngine
+{
+    static readonly HttpClient Http = new();
+    static readonly InspectionQueryRegistry<AssemblyInspectionSession> AssemblyQueries =
+        new InspectionQueryRegistry<AssemblyInspectionSession>()
+            .Add(AssemblyReferencesQuery.Definition, AssemblyReferencesQuery.Execute);
+    static readonly object PackageCacheLock = new();
+    static readonly Dictionary<string, PackageCacheEntry> PackageCache = new(StringComparer.Ordinal);
+    const int MaxCachedPackages = 12;
+    const long MaxCachedPackageBytes = 128L * 1024 * 1024;
+    static long _packageCacheClock;
+    static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
+
+    sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
+    sealed record SelectedPackageAssembly(
+        PackageCompileAsset Asset,
+        byte[] Image);
+
+    [JSExport]
+    public static async Task<string> QueryPackage(string packageId, string version, string targetFramework)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+
+        var normalizedId = packageId.ToLowerInvariant();
+        var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
+        var normalizedVersion = resolvedVersion.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
+            "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, packageId, targetFramework);
+        if (selection.Status == PackageCompileAssetSelectionStatus.NoCompileAssets)
+            throw new InvalidOperationException("The package has no compile-time assemblies.");
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            throw new InvalidOperationException(
+                $"Framework '{targetFramework}' is not present. Available frameworks: "
+                + string.Join(", ", selection.AvailableTargetFrameworks)
+                + ".");
+        }
+
+        using var packageStream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+
+        var assemblies = new List<BrowserAssemblySurface>();
+        var types = new List<BrowserTypeSurface>();
+
+        foreach (PackageCompileAsset asset in selection.Assets)
+        {
+            if (!content.TryOpenEntry(asset.Path, out Stream? entryStream))
+            {
+                throw new InvalidOperationException(
+                    $"Selected package asset '{asset.Id}' is no longer available.");
+            }
+
+            await using (entryStream)
+            {
+                using var assemblyStream = new MemoryStream();
+                await entryStream.CopyToAsync(assemblyStream);
+                var image = assemblyStream.ToArray();
+
+                var reference = ResolvedAssemblyReference.Create(
+                    new AssemblyReferenceIdentity(
+                        Path.GetFileNameWithoutExtension(asset.AssemblyName),
+                        null,
+                        null,
+                        null),
+                    null,
+                    () => new MemoryStream(image, writable: false),
+                    AssemblyResolutionProvenance.Package(
+                        packageId,
+                        resolvedVersion,
+                        asset.TargetFramework,
+                        rid: null));
+
+                using var inspection = AssemblyInspectionSession.Open(reference);
+                if (!inspection.HasMetadata)
+                    continue;
+
+                var publicTypes = inspection.ApiSurface().Types
+                    .Select(type => ToBrowserType(type, asset.AssemblyName))
+                    .ToArray();
+
+                // Non-public types (internal/private/protected/…) are excluded from the public
+                // surface by design. Pull them in separately so the client can offer an
+                // accessibility filter (public by default). Public types keep their public-only
+                // member lists from the surface above; the includeAll surface would also expand
+                // every public type's members to include private ones, so we take non-public
+                // TYPES from it but not the public entries.
+                var nonPublicTypes = inspection.ApiSurface(includeAll: true).Types
+                    .Where(type => !string.IsNullOrWhiteSpace(type.Accessibility))
+                    .Select(type => ToBrowserType(type, asset.AssemblyName))
+                    .ToArray();
+
+                var assemblyTypes = publicTypes
+                    .Concat(nonPublicTypes)
+                    .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+                    .ThenBy(type => type.Name, StringComparer.Ordinal)
+                    .ToArray();
+
+                assemblies.Add(new BrowserAssemblySurface(
+                    asset.Id,
+                    asset.AssemblyName,
+                    asset.Path,
+                    publicTypes.Length,
+                    publicTypes.Sum(type => type.Members)));
+                types.AddRange(assemblyTypes);
+            }
+        }
+
+        BrowserAssemblySurface defaultAssembly = assemblies.FirstOrDefault(
+                assembly => assembly.Id.Equals(
+                    selection.DefaultAsset!.Id,
+                    StringComparison.Ordinal))
+            ?? assemblies.FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                "The selected compile assets contain no managed assemblies.");
+
+        var duplicateNames = types
+            .GroupBy(type => type.Id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        var identifiedTypes = types
+            .Select(type => duplicateNames.Contains(type.Id)
+                ? type with { Id = $"{type.Assembly}:{type.Id}" }
+                : type)
+            .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        var result = new BrowserPackageSurface(
+            packageId,
+            resolvedVersion,
+            [.. selection.AvailableTargetFrameworks],
+            selection.TargetFramework!,
+            defaultAssembly.Id,
+            assemblies.ToArray(),
+            identifiedTypes,
+            identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members),
+            CollectPackageDocuments(archive).ToArray());
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    // Enumerates the package's browsable Markdown: a root README.md/PACKAGE.md and any *.md
+    // under a "skills" directory (e.g. skills/&lt;name&gt;/SKILL.md). Presence + size only; the
+    // body is served on demand by GetPackageDocument, which validates against this same list so
+    // the client can never coax an arbitrary zip entry (assembly, signature) out of the package.
+    static List<BrowserPackageDocument> CollectPackageDocuments(ZipArchive archive)
+    {
+        var documents = new List<BrowserPackageDocument>();
+        foreach (var entry in archive.Entries)
+        {
+            var fullName = entry.FullName;
+            if (fullName.EndsWith('/'))
+                continue;
+            var segments = fullName.Split('/');
+            var fileName = segments[^1];
+            var isRoot = segments.Length == 1;
+
+            if (isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase))
+                documents.Add(new BrowserPackageDocument("readme", fileName, fullName, (int)entry.Length));
+            else if (isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase))
+                documents.Add(new BrowserPackageDocument("package", fileName, fullName, (int)entry.Length));
+            else if (fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && IsUnderSkillsDirectory(segments))
+                documents.Add(new BrowserPackageDocument("skill", SkillDisplayName(segments), fullName, (int)entry.Length));
+        }
+
+        // Stable order: README, then PACKAGE, then skills alphabetically.
+        return documents
+            .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, _ => 2 })
+            .ThenBy(document => document.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    static bool IsUnderSkillsDirectory(string[] segments)
+    {
+        // Any directory segment before the file name named "skills" (skills/, .github/skills/, …).
+        for (var i = 0; i < segments.Length - 1; i++)
+            if (segments[i].Equals("skills", StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    static string SkillDisplayName(string[] segments)
+    {
+        // Prefer the skill's own folder name (skills/<name>/SKILL.md -> <name>); fall back to the
+        // file name for a flat skills/<file>.md layout.
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            if (!segments[i].Equals("skills", StringComparison.OrdinalIgnoreCase))
+                continue;
+            return i + 2 < segments.Length ? segments[i + 1] : segments[^1];
+        }
+        return segments[^1];
+    }
+
+    /// <summary>
+    /// Returns the UTF-8 text of one package-shipped Markdown document, identified by its exact zip
+    /// entry path. The path must appear in <see cref="CollectPackageDocuments"/> for the package —
+    /// arbitrary entries are refused — so this never becomes a general file-extraction primitive.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> GetPackageDocument(string packageId, string version, string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var normalizedId = packageId.ToLowerInvariant();
+        var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
+        var normalizedVersion = resolvedVersion.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        using var packageStream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+
+        var document = CollectPackageDocuments(archive)
+            .FirstOrDefault(candidate => string.Equals(candidate.Path, path, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"'{path}' is not a browsable document in {packageId} {resolvedVersion}.");
+
+        var entry = archive.GetEntry(document.Path)
+            ?? throw new InvalidOperationException($"'{path}' was not found in the package.");
+        await using var entryStream = entry.Open();
+        using var reader = new StreamReader(entryStream, Encoding.UTF8);
+        var text = await reader.ReadToEndAsync();
+
+        var content = new BrowserPackageDocumentContent(document.Kind, document.Name, document.Path, text);
+        return JsonSerializer.Serialize(content, BrowserJsonContext.Default.BrowserPackageDocumentContent);
+    }
+
+    /// <summary>
+    /// Ranks loaded type candidates against an incremental query, mirroring the CLI
+    /// <c>TypeSearchService</c> find pipeline: exact/namespace-suffix (<see cref="TypeMatcher.Matches"/>),
+    /// then prefix and substring globs (<see cref="TypeMatcher.MatchesTypeFilter"/>), then a
+    /// Levenshtein "did you mean" fallback (<see cref="TypeMatcher.FindClosest"/>). Highlight spans are
+    /// intentionally left to the caller; this method owns ranking only.
+    /// </summary>
+    [JSExport]
+    public static string SearchTypes(string query, string candidatesJson)
+    {
+        var candidates = JsonSerializer.Deserialize(
+                candidatesJson,
+                BrowserJsonContext.Default.BrowserTypeCandidateArray)
+            ?? [];
+        query = query?.Trim() ?? string.Empty;
+
+        if (query.Length == 0)
+        {
+            var alphabetical = candidates
+                .OrderBy(candidate => candidate.Name.Length)
+                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(30)
+                .Select(candidate => new BrowserTypeSearchHit(candidate.Key, "all"))
+                .ToArray();
+            return JsonSerializer.Serialize(alphabetical, BrowserJsonContext.Default.BrowserTypeSearchHitArray);
+        }
+
+        var hits = new List<BrowserTypeSearchHit>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddTier(string kind, Func<BrowserTypeCandidate, bool> predicate)
+        {
+            var matched = candidates
+                .Where(candidate => !used.Contains(candidate.Key) && predicate(candidate))
+                .OrderBy(candidate => candidate.Name.Length)
+                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in matched)
+            {
+                if (used.Add(candidate.Key))
+                    hits.Add(new BrowserTypeSearchHit(candidate.Key, kind));
+            }
+        }
+
+        AddTier("exact", candidate => TypeMatcher.Matches(candidate.Full, query));
+        AddTier("prefix", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, query + "*"));
+        AddTier("substring", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, "*" + query + "*"));
+        AddTier("path", candidate => TypeMatcher.MatchesTypeFilter(candidate.Full, "*" + query + "*"));
+
+        var remaining = candidates.Where(candidate => !used.Contains(candidate.Key)).ToList();
+        if (remaining.Count > 0)
+        {
+            var namesToKeys = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var candidate in remaining)
+            {
+                if (!namesToKeys.TryGetValue(candidate.Full, out var keys))
+                    namesToKeys[candidate.Full] = keys = new List<string>();
+                keys.Add(candidate.Key);
+            }
+
+            foreach (var (name, _) in TypeMatcher.FindClosest(namesToKeys.Keys, query, minSimilarity: 0.5, maxResults: 8))
+            {
+                if (!namesToKeys.TryGetValue(name, out var keys))
+                    continue;
+                foreach (var key in keys)
+                {
+                    if (used.Add(key))
+                        hits.Add(new BrowserTypeSearchHit(key, "fuzzy"));
+                }
+            }
+        }
+
+        var limited = hits.Take(40).ToArray();
+        return JsonSerializer.Serialize(limited, BrowserJsonContext.Default.BrowserTypeSearchHitArray);
+    }
+
+    static async Task<string> ResolvePackageVersionAsync(string normalizedId, string? requestedVersion)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedVersion)
+            && !requestedVersion.Equals("latest", StringComparison.OrdinalIgnoreCase))
+        {
+            return requestedVersion;
+        }
+
+        var indexUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/index.json";
+        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        using var document = JsonDocument.Parse(indexBytes);
+        var versions = document.RootElement.GetProperty("versions")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray();
+        return versions.LastOrDefault(candidate => !candidate.Contains('-'))
+            ?? throw new InvalidOperationException(
+                $"Package '{normalizedId}' has no stable published version. Specify a prerelease version explicitly.");
+    }
+
+    [JSExport]
+    public static string PackageCacheStats()
+    {
+        int packages;
+        int resident;
+        lock (PackageCacheLock)
+        {
+            packages = DownloadedPackages.Count;
+            resident = PackageCache.Count;
+        }
+
+        return $"{{\"packages\":{packages},\"resident\":{resident}}}";
+    }
+
+    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler
+    // style taxonomy and knobs ("taste"). These browser records only carry its data across
+    // the Wasm boundary; hosts retain no labels, summaries, or ordering of their own.
+    [JSExport]
+    public static string ListStyleTiers()
+    {
+        var tiers = Pipeline.StyleOptionCatalog.Tiers
+            .Select(descriptor => new BrowserStyleTier(
+                descriptor.Id.ToString(),
+                descriptor.Title,
+                descriptor.Summary,
+                descriptor.Order,
+                descriptor.ByteDivergent))
+            .ToArray();
+        return JsonSerializer.Serialize(tiers, BrowserJsonContext.Default.BrowserStyleTierArray);
+    }
+
+    [JSExport]
+    public static string ListStyleOptions()
+    {
+        var options = new List<BrowserStyleOption>();
+        foreach (var descriptor in Pipeline.StyleOptionCatalog.Options)
+        {
+            // A knob is an axis of values; the default/off value is not selectable taste.
+            // Boolean knobs expose one non-default value and keep the descriptor id so
+            // stored selections stay stable; multi-value axes expose one option per value
+            // and share a conflict group so the client single-selects within the axis.
+            var choices = descriptor.Values
+                .Where(value => !string.Equals(value.Token, descriptor.DefaultValue, StringComparison.Ordinal))
+                .ToArray();
+            var multiValue = choices.Length > 1;
+            foreach (var value in choices)
+            {
+                options.Add(new BrowserStyleOption(
+                    multiValue ? $"{descriptor.Id}:{value.Token}" : descriptor.Id,
+                    multiValue ? $"{descriptor.Title} · {value.Title ?? value.Token}" : descriptor.Title,
+                    descriptor.Summary,
+                    descriptor.Tier.ToString(),
+                    descriptor.ByteDivergent,
+                    value.OracleEndorsed,
+                    multiValue ? descriptor.Id : null));
+            }
+        }
+        return JsonSerializer.Serialize(options.ToArray(), BrowserJsonContext.Default.BrowserStyleOptionArray);
+    }
+
+    // Builds PrinterOptions from a JSON array of enabled option ids by single-selecting the
+    // chosen value on each descriptor's axis — no knob-specific code, so new taste options
+    // flow through automatically.
+    static Pipeline.PrinterOptions BuildPrinterOptions(string? styleOptionsJson)
+    {
+        var options = Pipeline.PrinterOptions.Default;
+        if (string.IsNullOrWhiteSpace(styleOptionsJson))
+            return options;
+
+        string[]? ids;
+        try { ids = JsonSerializer.Deserialize(styleOptionsJson, BrowserJsonContext.Default.StringArray); }
+        catch (JsonException) { return options; }
+        if (ids is not { Length: > 0 })
+            return options;
+
+        var enabled = new HashSet<string>(ids, StringComparer.Ordinal);
+        foreach (var descriptor in Pipeline.StyleOptionCatalog.Options)
+        {
+            var choices = descriptor.Values
+                .Where(value => !string.Equals(value.Token, descriptor.DefaultValue, StringComparison.Ordinal))
+                .ToArray();
+            var multiValue = choices.Length > 1;
+            foreach (var value in choices)
+            {
+                var id = multiValue ? $"{descriptor.Id}:{value.Token}" : descriptor.Id;
+                if (enabled.Contains(id))
+                {
+                    options = descriptor.WithValue(options, value.Token);
+                    break;
+                }
+            }
+        }
+        return options;
+    }
+
+    [JSExport]
+    public static async Task<string> QueryMemberSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature,
+        string styleOptionsJson)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+
+            if (File.Exists(pdbPath)
+                && member.MetadataToken is int token
+                && await TryGetAuthoredSourceAsync(
+                    implementationPath,
+                    type,
+                    member,
+                    token) is { } authored)
+            {
+                return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
+            }
+
+            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
+            if (decompiled.Text is not { Length: > 0 } text)
+                throw new InvalidOperationException("Authored source was unavailable and decompilation did not produce source.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "decompiled",
+                    text,
+                    null,
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // The one IL-inclusive member view: the Research annotated projection raises the member
+    // to C# with hidden-fact comments and interleaves the raw IL beneath each statement. This
+    // is a separate pipeline from QueryMemberSource (which renders clean decompiled or authored
+    // C#) and from QueryMemberFacts (which reads LibraryBodyIndex signals).
+    [JSExport]
+    public static async Task<string> QueryMemberAnnotatedSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature,
+        string styleOptionsJson)
+    {
+        _ = styleOptionsJson;
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected member has no method body identity.");
+
+            var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
+            using var source = Pipeline.MetadataSource.Open(
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null,
+                resolver);
+
+            var projection = Research.ResearchViews.ProjectMember(new Research.ResearchViews.MemberProjectionRequest(
+                source,
+                type.FullName,
+                member.Name,
+                PublicOnly: false,
+                AnnotatedSource: true,
+                MethodToken: token));
+
+            var annotated = projection.AnnotatedSource;
+            if (annotated?.Output is not { Length: > 0 } text)
+            {
+                var diagnostic = annotated?.Diagnostics is { Count: > 0 } diagnostics ? diagnostics[0] : (DecompilerDiagnostic?)null;
+                throw new InvalidOperationException(diagnostic is { } d
+                    ? $"Annotated source projection failed ({d.Id}): {d.Message}"
+                    : "Annotated source projection produced no output.");
+            }
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "annotated",
+                    text,
+                    null,
+                    $"Annotated by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // Projects type-level metadata (identity, shape, generic parameters, base/interfaces/
+    // derived relationships, attributes, and aggregate member composition) through the shared
+    // ILInspector.Research ProjectType seam — the same presentation-neutral view the CLI
+    // consumes — so the web Metadata section never reimplements type-fact composition.
+    [JSExport]
+    public static async Task<string> QueryTypeProjection(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath =
+                await MaterializeSelectedCompileAssemblyAsync(
+                    normalizedId,
+                    normalizedVersion,
+                    packageId,
+                    targetFramework,
+                    assemblyName,
+                    tempRoot);
+
+            var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
+            using var source = Pipeline.MetadataSource.Open(implementationPath, null, resolver);
+
+            var projection = Research.ResearchViews.ProjectType(
+                new Research.ResearchViews.TypeProjectionRequest(source, typeId));
+
+            var result = new BrowserTypeMetadata(
+                projection.Identity.FullName,
+                projection.Identity.Namespace,
+                projection.Identity.Name,
+                projection.Identity.Kind,
+                [.. projection.Identity.Modifiers],
+                projection.Identity.Accessibility,
+                projection.Identity.Assembly,
+                projection.BaseType,
+                [.. projection.Interfaces],
+                [.. projection.DerivedTypes],
+                projection.TypeParameters
+                    .Select(parameter => new BrowserTypeParameter(
+                        parameter.Name, parameter.Variance, [.. parameter.Constraints]))
+                    .ToArray(),
+                [.. projection.Attributes],
+                projection.EnumUnderlyingType,
+                projection.Composition is { } composition
+                    ? new BrowserTypeComposition(
+                        composition.Methods,
+                        composition.Properties,
+                        composition.Fields,
+                        composition.Events,
+                        composition.Constructors,
+                        composition.Operators,
+                        composition.ExplicitInterfaceImplementations,
+                        composition.ExtensionMethods,
+                        composition.Static,
+                        composition.Unsafe,
+                        composition.Async,
+                        composition.Virtual,
+                        composition.Abstract,
+                        composition.Override,
+                        composition.Extension,
+                        composition.Obsolete,
+                        composition.Total)
+                    : null,
+                projection.Graph?.Nodes
+                    .Select(node => new BrowserTypeGraphNode(
+                        node.Id, node.DisplayName, node.Role.ToString().ToLowerInvariant()))
+                    .ToArray() ?? [],
+                projection.Graph?.Edges
+                    .Select(edge => new BrowserTypeGraphEdge(
+                        edge.FromId, edge.ToId, edge.Kind.ToString().ToLowerInvariant()))
+                    .ToArray() ?? [],
+                projection.InspectionFailures
+                    .Select(failure => $"{failure.Operation}: {failure.Detail}")
+                    .ToArray());
+
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserTypeMetadata);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // Projects package-scoped dependency evidence: the NuGet .nuspec dependency groups
+    // (per target framework, kept as-declared so the reality of "no group for this exact
+    // TFM" stays visible) plus the typed direct-reference query over the active assembly.
+    // The .nuspec is untrusted feed content, so it is parsed with DTD processing prohibited
+    // to block XXE and entity-expansion attacks.
+    [JSExport]
+    public static async Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
+            "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, packageId, targetFramework);
+        PackageCompileAsset? selectedAssembly = selection.Status
+            == PackageCompileAssetSelectionStatus.Selected
+                ? selection.FindAsset(assemblyId)
+                : null;
+
+        var groups = new List<BrowserPackageDependencyGroup>();
+        string packageName = packageId;
+        string packageVersion = version;
+        BrowserAssemblyReference[] assemblyReferences = [];
+        string? assemblyReferenceError = null;
+
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var nuspec = archive.Entries.FirstOrDefault(entry =>
+                !entry.FullName.Contains('/') && entry.Name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+            if (nuspec is not null)
+            {
+                using var nuspecStream = nuspec.Open();
+                var readerSettings = new System.Xml.XmlReaderSettings
+                {
+                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    MaxCharactersFromEntities = 1024
+                };
+                using var xmlReader = System.Xml.XmlReader.Create(nuspecStream, readerSettings);
+                var document = XDocument.Load(xmlReader, LoadOptions.None);
+
+                var metadata = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "metadata");
+                packageName = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "id")?.Value ?? packageId;
+                packageVersion = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "version")?.Value ?? version;
+
+                var dependencies = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "dependencies");
+                if (dependencies is not null)
+                {
+                    var groupElements = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToList();
+                    if (groupElements.Count > 0)
+                    {
+                        foreach (var group in groupElements)
+                        {
+                            var tfm = NormalizeFrameworkMoniker(group.Attribute("targetFramework")?.Value ?? "any");
+                            groups.Add(new BrowserPackageDependencyGroup(
+                                tfm,
+                                string.Equals(tfm, targetFramework, StringComparison.OrdinalIgnoreCase),
+                                ReadDependencies(group)));
+                        }
+                    }
+                    else
+                    {
+                        var flat = ReadDependencies(dependencies);
+                        if (flat.Length > 0)
+                            groups.Add(new BrowserPackageDependencyGroup("any", true, flat));
+                    }
+                }
+            }
+
+            if (selectedAssembly is null)
+            {
+                assemblyReferenceError =
+                    selection.Status switch
+                    {
+                        PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                            "The package has no compile-time assemblies.",
+                        PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                            $"Framework '{targetFramework}' is not present.",
+                        _ => $"Assembly asset '{assemblyId}' is not selected for framework '{targetFramework}'.",
+                    };
+            }
+            else
+            {
+                if (!content.TryOpenEntry(selectedAssembly.Path, out Stream? assemblyStream))
+                {
+                    assemblyReferenceError =
+                        $"Selected package asset '{selectedAssembly.Id}' is no longer available.";
+                }
+                else
+                {
+                    using (assemblyStream)
+                    using (var buffer = new MemoryStream())
+                    {
+                        await assemblyStream.CopyToAsync(buffer);
+                        AssemblyReferencesResult references;
+                        try
+                        {
+                            var image = buffer.ToArray();
+                            var reference = ResolvedAssemblyReference.Create(
+                                new AssemblyReferenceIdentity(
+                                    Path.GetFileNameWithoutExtension(
+                                        selectedAssembly.AssemblyName),
+                                    null,
+                                    null,
+                                    null),
+                                path: null,
+                                () => new MemoryStream(image, writable: false),
+                                AssemblyResolutionProvenance.Package(
+                                    packageId,
+                                    version,
+                                    selectedAssembly.TargetFramework,
+                                    rid: null));
+                            using var inspection =
+                                AssemblyInspectionSession.Open(reference);
+                            InspectionQueryResults queryResults =
+                                AssemblyQueries.Run(
+                                    [AssemblyReferencesQuery.Definition],
+                                    inspection);
+                            references = queryResults.Get(
+                                AssemblyReferencesQuery.Definition);
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException
+                                or BadImageFormatException)
+                        {
+                            references =
+                                new AssemblyReferencesResult.Failed(exception);
+                        }
+
+                        switch (references)
+                        {
+                            case AssemblyReferencesResult.Available available:
+                                assemblyReferences = available.References
+                                    .OrderBy(
+                                        item => item.Name,
+                                        StringComparer.OrdinalIgnoreCase)
+                                    .ThenBy(
+                                        item => item.Version,
+                                        StringComparer.Ordinal)
+                                    .Select(
+                                        item => new BrowserAssemblyReference(
+                                            item.Name,
+                                            item.Version))
+                                    .ToArray();
+                                break;
+
+                            case AssemblyReferencesResult.Failed failed:
+                                assemblyReferenceError = failed.Error.Message;
+                                break;
+
+                            default:
+                                throw new InvalidOperationException(
+                                    "Unknown assembly-reference query result.");
+                        }
+                    }
+                }
+            }
+        }
+
+        var result = new BrowserPackageDependencies(
+            packageName,
+            packageVersion,
+            targetFramework,
+            selectedAssembly?.AssemblyName ?? assemblyId,
+            [.. groups],
+            assemblyReferences,
+            assemblyReferenceError);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageDependencies);
+    }
+
+    private static BrowserPackageDependency[] ReadDependencies(XElement container) =>
+        container.Elements()
+            .Where(e => e.Name.LocalName == "dependency")
+            .Select(dependency => new BrowserPackageDependency(
+                dependency.Attribute("id")?.Value ?? "",
+                dependency.Attribute("version")?.Value ?? ""))
+            .Where(dependency => dependency.Id.Length > 0)
+            .ToArray();
+
+    // Scans every implementation assembly under the active framework for ecosystem
+    // integration signals (DI, logging, OpenTelemetry, ASP.NET Core, AI, Aspire, …) using
+    // the shared SRM-only EcosystemIntegrationScanner, then groups the signals by
+    // integration. A per-assembly decode failure is recorded in InspectionError rather than
+    // silently dropped, so a partial or empty result stays visible as such.
+    [JSExport]
+    public static async Task<string> QueryPackageIntegrations(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        var failures = new List<string>();
+
+        foreach (SelectedPackageAssembly assembly in
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework))
+        {
+            try
+            {
+                using var buffer = new MemoryStream(
+                    assembly.Image,
+                    writable: false);
+                using var peReader =
+                    new System.Reflection.PortableExecutable.PEReader(buffer);
+                signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
+            }
+            catch (Exception exception)
+            {
+                failures.Add(
+                    $"{assembly.Asset.AssemblyName}: {exception.Message}");
+            }
+        }
+
+        var categories = BuildIntegrationCategories(signals);
+
+        var result = new BrowserPackageIntegrations(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Signals.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageIntegrations);
+    }
+
+    // Groups raw ecosystem signals into the category shape the Integrations lens renders,
+    // deduping identical (shape, kind, name) triples and splitting type vs API counts.
+    // Shared by the NuGet-package scan (nupkg lib/) and the platform-library scan (a single
+    // runtime-pack assembly) so both lenses produce byte-identical category output.
+    static BrowserIntegrationCategory[] BuildIntegrationCategories(
+        IEnumerable<EcosystemIntegrationSignalInfo> signals) =>
+        signals
+            .GroupBy(signal => signal.Integration, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var distinct = group
+                    .GroupBy(signal => (signal.Shape, signal.Kind, signal.Name))
+                    .Select(inner => inner.First())
+                    .OrderBy(signal => signal.Shape, StringComparer.Ordinal)
+                    .ThenBy(signal => signal.Name, StringComparer.Ordinal)
+                    .Select(signal => new BrowserIntegrationSignal(signal.Kind, signal.Name, signal.Shape))
+                    .ToArray();
+                var typeCount = distinct.Count(signal =>
+                    signal.Shape.Equals(IntegrationSignalShape.Type, StringComparison.Ordinal));
+                return new BrowserIntegrationCategory(
+                    group.Key,
+                    typeCount,
+                    distinct.Length - typeCount,
+                    distinct);
+            })
+            .ToArray();
+
+    static string NormalizeRuntimeAssemblyFileName(string assemblyFileName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        return assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyFileName
+            : assemblyFileName + ".dll";
+    }
+
+    // Integrations for a single .NET platform library. The runtime pseudo-package has no
+    // nupkg, so this acquires just the one runtime-pack assembly (session-cached, like the
+    // per-library type load in LoadRuntimePackAssembly) and scans it, rather than reading a
+    // lib/{tfm}/ layout. Scanning one assembly keeps the WASM scan bounded — the whole shared
+    // framework is ~160 assemblies.
+    [JSExport]
+    public static async Task<string> QueryPlatformIntegrations(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        var failures = new List<string>();
+        try
+        {
+            using var buffer = new MemoryStream(bytes, writable: false);
+            using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
+            signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+
+        var categories = BuildIntegrationCategories(signals);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageIntegrations(
+            Path.GetFileNameWithoutExtension(fileName),
+            version,
+            tfm,
+            categories,
+            categories.Sum(category => category.Signals.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageIntegrations);
+    }
+
+    // Integration opportunities are the complement of the Integrations lens: types on the
+    // public surface that suggest an ecosystem area (auth, cloud clients, configuration,
+    // database, AI clients) the package does not yet integrate with. The set of integrations
+    // it already ships is computed first (union across all active-framework assemblies) so a
+    // package that already covers an area is not flagged for it.
+    [JSExport]
+    public static async Task<string> QueryPackageOpportunities(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var opportunities = new Dictionary<string, IntegrationOpportunityInfo>(StringComparer.Ordinal);
+        var failures = new List<string>();
+
+        SelectedPackageAssembly[] selectedAssemblies =
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework);
+
+        foreach (var pair in ScanOpportunities(
+            selectedAssemblies
+                .Select(assembly => assembly.Image)
+                .ToArray(),
+            failures))
+        {
+            opportunities.TryAdd(pair.Key, pair.Value);
+        }
+
+        var categories = BuildOpportunityCategories(opportunities.Values);
+
+        var result = new BrowserPackageOpportunities(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Items.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    // Two-pass opportunity scan over a set of assembly images: first the union of ecosystem
+    // integrations they already ship (so an area a package already covers is not flagged),
+    // then the complement — surface types that suggest an area the set does not integrate with.
+    // Shared by the NuGet-package scan (nupkg lib/) and the single platform-library scan.
+    static Dictionary<string, IntegrationOpportunityInfo> ScanOpportunities(
+        IReadOnlyList<byte[]> assemblyBytes,
+        List<string> failures)
+    {
+        var existing = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var bytes in assemblyBytes)
+        {
+            try
+            {
+                using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                foreach (var signal in EcosystemIntegrationScanner.Scan(peReader))
+                    existing.Add(signal.Integration);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception.Message);
+            }
+        }
+
+        var opportunities = new Dictionary<string, IntegrationOpportunityInfo>(StringComparer.Ordinal);
+        foreach (var bytes in assemblyBytes)
+        {
+            try
+            {
+                using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                foreach (var opportunity in IntegrationOpportunityScanner.Scan(peReader, existing))
+                {
+                    var key = $"{opportunity.Integration}|{opportunity.Api}|{opportunity.IntegrationType}";
+                    opportunities.TryAdd(key, opportunity);
+                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception.Message);
+            }
+        }
+
+        return opportunities;
+    }
+
+    static BrowserOpportunityCategory[] BuildOpportunityCategories(
+        IEnumerable<IntegrationOpportunityInfo> opportunities) =>
+        opportunities
+            .GroupBy(opportunity => opportunity.Integration, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new BrowserOpportunityCategory(
+                group.Key,
+                group
+                    .OrderBy(opportunity => opportunity.Api, StringComparer.Ordinal)
+                    .Select(opportunity => new BrowserOpportunityItem(
+                        opportunity.Api, opportunity.IntegrationType, opportunity.LookFor))
+                    .ToArray()))
+            .ToArray();
+
+    // Integration opportunities for a single .NET platform library (see QueryPlatformIntegrations
+    // for the acquisition rationale). Scanning one assembly means the "already ships" set is that
+    // library's own integrations, so opportunities read as "this library exposes X but not Y".
+    [JSExport]
+    public static async Task<string> QueryPlatformOpportunities(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var failures = new List<string>();
+        var opportunities = ScanOpportunities(new[] { bytes }, failures);
+        var categories = BuildOpportunityCategories(opportunities.Values);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageOpportunities(
+            Path.GetFileNameWithoutExtension(fileName),
+            version,
+            tfm,
+            categories,
+            categories.Sum(category => category.Items.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    // Ranks the package's public members by the allocation/performance opportunities the
+    // Analysis layer classifies over their method bodies. The whole-assembly LibraryBodyIndex
+    // pass computes opportunities once; they are joined back to public API members by method
+    // token so each ranked row drills to its member. Opportunities in non-public members are
+    // counted (NonPublicOpportunities) rather than dropped, so their absence stays visible.
+    [JSExport]
+    public static async Task<string> QueryPackagePerformance(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-perf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        var members = new List<BrowserPerfMember>();
+        var failures = new List<string>();
+        var totalOpportunities = 0;
+        var nonPublicOpportunities = 0;
+
+        try
+        {
+            using var stream = new MemoryStream(
+                packageBytes,
+                writable: false);
+            using var archive = new ZipArchive(
+                stream,
+                ZipArchiveMode.Read);
+            ZipArchiveEntry[] implementationEntries =
+                GetDirectPackageAssemblyEntries(
+                    archive,
+                    targetFramework);
+            foreach (ZipArchiveEntry entry in implementationEntries)
+            {
+                string assemblyPath = Path.Combine(
+                    tempRoot,
+                    entry.Name);
+                await WriteEntryAsync(entry, assemblyPath);
+            }
+
+            foreach (ZipArchiveEntry entry in implementationEntries)
+            {
+                string assemblyName = entry.Name;
+                var assemblyPath = Path.Combine(
+                    tempRoot,
+                    assemblyName);
+                try
+                {
+                    AnalyzeAssemblyPerformance(
+                        assemblyName,
+                        assemblyPath,
+                        entry.FullName,
+                        members,
+                        ref totalOpportunities,
+                        ref nonPublicOpportunities);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{assemblyName}: {exception.Message}");
+                }
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { /* Best-effort scratch cleanup. */ }
+        }
+
+        var ranked = RankPerfMembers(members);
+
+        var result = new BrowserPackagePerformance(
+            packageId,
+            version,
+            targetFramework,
+            ranked,
+            totalOpportunities,
+            nonPublicOpportunities,
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    // Perf-triage for one assembly on disk: maps optimization opportunities from the IL body
+    // index back to public members by metadata token (non-public hits are counted only), so the
+    // caller can rank the public members with the most opportunities. Shared by the NuGet-package
+    // scan (loops lib/ assemblies) and the single platform-library scan (one call).
+    static void AnalyzeAssemblyPerformance(
+        string assemblyName,
+        string assemblyPath,
+        string provenance,
+        List<BrowserPerfMember> members,
+        ref int totalOpportunities,
+        ref int nonPublicOpportunities)
+    {
+        var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
+        using (var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(assemblyName, null, null, null),
+            assemblyPath,
+            () => File.OpenRead(assemblyPath),
+            AssemblyResolutionProvenance.Local(provenance))))
+        {
+            foreach (var type in inspection.ApiSurface(includeAll: true).Types)
+            {
+                foreach (var member in type.Members)
+                {
+                    if (member.MetadataToken is int memberToken)
+                        tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
+                }
+            }
+        }
+
+        var index = Analysis.LibraryBodyIndex.Open(
+            assemblyPath,
+            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        foreach (var group in index.OptimizationOpportunities.GroupBy(opportunity => opportunity.Method.MetadataToken))
+        {
+            var count = group.Count();
+            totalOpportunities += count;
+            if (!tokenMap.TryGetValue(group.Key, out var target))
+            {
+                nonPublicOpportunities += count;
+                continue;
+            }
+
+            var shapes = group
+                .Select(opportunity => opportunity.Shape)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(shape => shape, StringComparer.Ordinal)
+                .ToArray();
+            var confidence = group
+                .Select(opportunity => opportunity.Confidence)
+                .OrderByDescending(RankConfidence)
+                .FirstOrDefault() ?? "";
+
+            members.Add(new BrowserPerfMember(
+                assemblyName,
+                target.TypeId,
+                target.Name,
+                target.Signature,
+                group.Key,
+                count,
+                group.Count(opportunity => opportunity.InLoop),
+                shapes,
+                confidence));
+        }
+    }
+
+    static BrowserPerfMember[] RankPerfMembers(IEnumerable<BrowserPerfMember> members) =>
+        members
+            .OrderByDescending(member => member.InLoopCount)
+            .ThenByDescending(member => member.OpportunityCount)
+            .ThenBy(member => member.TypeId, StringComparer.Ordinal)
+            .ThenBy(member => member.MemberSignature, StringComparer.Ordinal)
+            .Take(200)
+            .ToArray();
+
+    // Perf-triage for a single .NET platform library (see QueryPlatformIntegrations for the
+    // acquisition rationale). LibraryBodyIndex/AssemblyInspectionSession need a path, so the
+    // acquired bytes are written to a temp file and deleted after the scan.
+    [JSExport]
+    public static async Task<string> QueryPlatformPerformance(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-perf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var assemblyPath = Path.Combine(tempRoot, fileName);
+
+        var members = new List<BrowserPerfMember>();
+        var failures = new List<string>();
+        var totalOpportunities = 0;
+        var nonPublicOpportunities = 0;
+
+        try
+        {
+            await File.WriteAllBytesAsync(assemblyPath, bytes);
+            AnalyzeAssemblyPerformance(
+                fileName,
+                assemblyPath,
+                $"{packId}/{version}/{fileName}",
+                members,
+                ref totalOpportunities,
+                ref nonPublicOpportunities);
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { /* Best-effort scratch cleanup. */ }
+        }
+
+        var ranked = RankPerfMembers(members);
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackagePerformance(
+            Path.GetFileNameWithoutExtension(fileName),
+            version,
+            tfm,
+            ranked,
+            totalOpportunities,
+            nonPublicOpportunities,
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    // The metadata "container" view for a NuGet package: one image-level description per
+    // active-framework assembly (metadata format version, heap sizes, table row counts,
+    // PE/CLI headers). This reads the metadata root — not the API surface — so it needs only
+    // the PE bytes and no temp files; each lib/{tfm}/ assembly is described in memory.
+    [JSExport]
+    public static async Task<string> QueryPackageMetadata(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var assemblies = new List<BrowserAssemblyMetadata>();
+        var failures = new List<string>();
+
+        foreach (SelectedPackageAssembly assembly in
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework))
+        {
+            try
+            {
+                var described = DescribeAssemblyMetadata(
+                    assembly.Asset.AssemblyName,
+                    assembly.Asset.Path,
+                    assembly.Image);
+                if (described is not null)
+                    assemblies.Add(described);
+            }
+            catch (Exception exception)
+            {
+                failures.Add(
+                    $"{assembly.Asset.AssemblyName}: {exception.Message}");
+            }
+        }
+
+        var result = new BrowserPackageMetadata(
+            packageId,
+            version,
+            targetFramework,
+            assemblies.ToArray(),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageMetadata);
+    }
+
+    // The metadata "container" view for a single .NET platform library. The runtime pseudo-
+    // package has no nupkg, so this acquires just the one runtime-pack assembly (session-cached)
+    // and describes it — mirroring QueryPlatformIntegrations/Performance.
+    [JSExport]
+    public static async Task<string> QueryPlatformMetadata(
+        string targetFramework,
+        string assemblyFileName,
+        string pack)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+
+        var assemblies = new List<BrowserAssemblyMetadata>();
+        var failures = new List<string>();
+        try
+        {
+            var described = DescribeAssemblyMetadata(fileName, $"{packId}/{version}/{fileName}", bytes);
+            if (described is not null)
+                assemblies.Add(described);
+        }
+        catch (Exception exception)
+        {
+            failures.Add($"{fileName}: {exception.Message}");
+        }
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageMetadata(
+            Path.GetFileNameWithoutExtension(fileName),
+            version,
+            tfm,
+            assemblies.ToArray(),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageMetadata);
+    }
+
+    // Projects one assembly's MetadataImageOverview onto the browser record. Returns null for
+    // an image with no metadata (a native or resource-only DLL) so the caller can skip it
+    // rather than surface an empty row. Shared by the NuGet-package and platform scans.
+    static BrowserAssemblyMetadata? DescribeAssemblyMetadata(string assemblyName, string provenance, byte[] image)
+    {
+        using var buffer = new MemoryStream(image, writable: false);
+        var reference = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(assemblyName, null, null, null),
+            null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(provenance));
+        using var inspection = AssemblyInspectionSession.Open(reference);
+        if (!inspection.HasMetadata)
+            return null;
+
+        var overview = inspection.MetadataImage();
+        if (overview is null)
+            return null;
+
+        var heaps = overview.Heaps
+            .Select(heap => new BrowserMetadataHeap(
+                heap.Heap.ToString(),
+                heap.SizeInBytes,
+                heap.Addressing.ToString(),
+                heap.MaxAddress))
+            .ToArray();
+
+        // Only tables that carry rows are interesting to a browser; an image models ~40+
+        // ECMA-335 tables and most are empty. Keep them in physical table order.
+        var tables = overview.Tables
+            .Where(table => table.RowCount > 0)
+            .Select(table => new BrowserMetadataTable(table.Name, table.RowCount, table.IsProjected, (int)table.Index))
+            .ToArray();
+
+        var cor = overview.Headers.Cor;
+        var headers = new BrowserMetadataHeaders(
+            overview.Headers.Machine.ToString(),
+            overview.Headers.Subsystem.ToString(),
+            overview.Headers.IsPE32Plus,
+            cor?.Flags.ToString(),
+            cor is null ? null : cor.MajorRuntimeVersion,
+            cor is null ? null : cor.MinorRuntimeVersion,
+            cor?.EntryPointToken);
+
+        return new BrowserAssemblyMetadata(
+            assemblyName,
+            provenance,
+            overview.MetadataVersion.ToString(),
+            overview.Kind.ToString(),
+            overview.IsAssembly,
+            overview.MetadataSize,
+            heaps,
+            tables,
+            overview.Tables.Length,
+            overview.Tables.Count(table => table.IsProjected && table.RowCount > 0),
+            headers);
+    }
+
+    // Windowed projection of one metadata table for the spatial explorer. Mirrors the
+    // acquisition of DescribeAssemblyMetadata (open a session over the PE bytes), then asks
+    // ILInspector.Metadata for a single table's row window and projects each typed cell onto
+    // the flat BrowserMetadataCell union. Never throws into the caller: a bad table index or a
+    // missing image yields a window carrying an Error rather than success-shaped empty rows.
+    static BrowserMetadataWindow BuildTableWindow(
+        byte[] image,
+        string assemblyName,
+        string provenance,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        if (!Enum.IsDefined(typeof(TableIndex), (byte)Math.Clamp(tableIndex, 0, 63)) || tableIndex is < 0 or > 63)
+            return EmptyWindow(assemblyName, tableIndex, $"Table index {tableIndex} is not a valid ECMA-335 table.");
+
+        var table = (TableIndex)tableIndex;
+        var start = Math.Max(1, startRowId);
+        var page = Math.Clamp(maxRows, 1, 500);
+
+        try
+        {
+            var reference = ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(provenance));
+            using var inspection = AssemblyInspectionSession.Open(reference);
+            if (!inspection.HasMetadata)
+                return EmptyWindow(assemblyName, tableIndex, "The image carries no metadata.");
+
+            var options = new MetadataProjectionOptions
+            {
+                Tables = ImmutableArray.Create(table),
+                StartRowId = start,
+                MaxRowsPerTable = page,
+            };
+            var projection = inspection.MetadataTables(options);
+            var view = projection.Tables.FirstOrDefault(t => (int)t.Index == tableIndex);
+            if (view is null)
+                return EmptyWindow(assemblyName, tableIndex, $"The {table} table is not modeled by the projection.");
+
+            var columns = view.Columns
+                .Select(column => new BrowserMetadataColumn(
+                    column.Name,
+                    column.Kind.ToString(),
+                    column.CandidateTargets.Select(candidate => (int)candidate).ToArray()))
+                .ToArray();
+
+            var rows = view.Rows
+                .Select(row => new BrowserMetadataRow(
+                    row.RowId,
+                    row.Token,
+                    row.Cells.Select(ProjectMetadataCell).ToArray()))
+                .ToArray();
+
+            return new BrowserMetadataWindow(
+                assemblyName,
+                (int)view.Index,
+                view.Name,
+                view.RowCount,
+                columns,
+                rows,
+                start,
+                view.Truncation is not null,
+                null);
+        }
+        catch (Exception exception)
+        {
+            return EmptyWindow(assemblyName, tableIndex, exception.Message);
+        }
+
+        static BrowserMetadataWindow EmptyWindow(string assembly, int index, string error) =>
+            new(assembly, index, index >= 0 && index <= 63 ? ((TableIndex)index).ToString() : $"#{index}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false, error);
+    }
+
+    static BrowserMetadataCell ProjectMetadataCell(MetadataValue value) => value switch
+    {
+        MetadataValue.Nil => new BrowserMetadataCell("nil"),
+        MetadataValue.Scalar scalar => new BrowserMetadataCell("scalar", Raw: scalar.Raw, Display: scalar.Display),
+        MetadataValue.Flags flags => new BrowserMetadataCell("flags", Raw: flags.Raw, Decoded: flags.Decoded),
+        MetadataValue.HeapReference heap => new BrowserMetadataCell(
+            "heap",
+            Heap: heap.Heap.ToString(),
+            Offset: heap.Offset,
+            Length: heap.Length,
+            Text: heap.Text?.ToString(),
+            Preview: heap.Preview.ToString(),
+            Truncated: heap.Truncated),
+        MetadataValue.Handle handle => new BrowserMetadataCell(
+            "handle",
+            TargetTable: (int)handle.Reference.TargetTable,
+            TargetRowId: handle.Reference.TargetRowId,
+            Token: handle.Reference.Token,
+            Display: handle.Reference.Display?.ToString(),
+            Truncated: handle.Reference.Display?.IsTruncated ?? false),
+        MetadataValue.Range range => new BrowserMetadataCell(
+            "range",
+            TargetTable: (int)range.Reference.TargetTable,
+            StartRowId: range.Reference.StartRowId,
+            EndRowId: range.Reference.EndRowId,
+            Count: range.Reference.Count),
+        MetadataValue.Malformed malformed => new BrowserMetadataCell("malformed", Detail: malformed.Detail.ToString()),
+        _ => new BrowserMetadataCell("nil"),
+    };
+
+    // ECMA-335 stream name for a heap, matching how the product spells them (mdi/--heap).
+    static string HeapStreamName(HeapKind heap) => heap switch
+    {
+        HeapKind.String => "#Strings",
+        HeapKind.Blob => "#Blob",
+        HeapKind.Guid => "#GUID",
+        HeapKind.UserString => "#US",
+        _ => $"#{heap}",
+    };
+
+    // Lists one heap's entries via ILInspector.Metadata.MetadataHeapEntries, projecting each
+    // entry's value onto the same flat cell union the table windows use. Coverage, size, and both
+    // truncation flags travel with the result so a referenced-only or bounded listing is never
+    // read as a whole heap. Never throws into the caller: a bad heap name or missing image yields
+    // a listing carrying an Error rather than success-shaped empty entries.
+    static BrowserHeapListing BuildHeapListing(
+        byte[] image,
+        string assemblyName,
+        string provenance,
+        string heapName)
+    {
+        if (!Enum.TryParse<HeapKind>(heapName, ignoreCase: true, out var heap))
+            return EmptyHeap(assemblyName, heapName, $"'{heapName}' is not a metadata heap.");
+
+        try
+        {
+            var reference = ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(provenance));
+            using var inspection = AssemblyInspectionSession.Open(reference);
+            if (!inspection.HasMetadata)
+                return EmptyHeap(assemblyName, heapName, "The image carries no metadata.");
+
+            var set = inspection.MetadataHeapEntries(heap);
+            if (set is null)
+                return EmptyHeap(assemblyName, heapName, "The image carries no metadata.");
+
+            var entries = set.Entries
+                .Select(entry => new BrowserHeapEntry(entry.Offset, entry.ReferenceCount, ProjectMetadataCell(entry.Value)))
+                .ToArray();
+
+            return new BrowserHeapListing(
+                assemblyName,
+                set.Heap.ToString(),
+                HeapStreamName(set.Heap),
+                set.SizeInBytes,
+                set.Coverage.ToString(),
+                entries,
+                set.EntriesTruncated,
+                set.RowsTruncated,
+                null);
+        }
+        catch (Exception exception)
+        {
+            return EmptyHeap(assemblyName, heapName, exception.Message);
+        }
+
+        static BrowserHeapListing EmptyHeap(string assembly, string name, string error) =>
+            new(assembly, name,
+                Enum.TryParse<HeapKind>(name, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{name}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false, error);
+    }
+
+    // One NuGet-package assembly's table window. Re-acquires the package (session-cached) and
+    // reads the named product-selected compile assembly, then projects the requested table page.
+    [JSExport]
+    public static async Task<string> QueryPackageMetadataTable(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        byte[]? image = ReadSelectedPackageAssembly(
+            packageBytes,
+            packageId,
+            targetFramework,
+            assemblyFileName)?.Image;
+
+        BrowserMetadataWindow window = image is null
+            ? new BrowserMetadataWindow(assemblyFileName, tableIndex,
+                tableIndex is >= 0 and <= 63 ? ((TableIndex)tableIndex).ToString() : $"#{tableIndex}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false,
+                $"Could not find {assemblyFileName} in the selected compile set for {targetFramework}.")
+            : BuildTableWindow(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", tableIndex, startRowId, maxRows);
+
+        return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
+    }
+
+    // One .NET platform library's table window (runtime pseudo-package: no nupkg).
+    [JSExport]
+    public static async Task<string> QueryPlatformMetadataTable(
+        string targetFramework,
+        string assemblyFileName,
+        string pack,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName);
+
+        BrowserMetadataWindow window = bytes is null
+            ? new BrowserMetadataWindow(fileName, tableIndex,
+                tableIndex is >= 0 and <= 63 ? ((TableIndex)tableIndex).ToString() : $"#{tableIndex}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false,
+                $"Could not acquire {fileName} from {packId} {version}.")
+            : BuildTableWindow(bytes, fileName, $"{packId}/{version}/{fileName}", tableIndex, startRowId, maxRows);
+
+        return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
+    }
+
+    // One NuGet-package assembly's heap listing. Acquires the selected compile assembly bytes
+    // exactly as QueryPackageMetadataTable does, then lists the named heap's entries.
+    [JSExport]
+    public static async Task<string> QueryPackageHeapEntries(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        string heap)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        byte[]? image = ReadSelectedPackageAssembly(
+            packageBytes,
+            packageId,
+            targetFramework,
+            assemblyFileName)?.Image;
+
+        BrowserHeapListing listing = image is null
+            ? new BrowserHeapListing(assemblyFileName, heap,
+                Enum.TryParse<HeapKind>(heap, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{heap}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false,
+                $"Could not find {assemblyFileName} in the selected compile set for {targetFramework}.")
+            : BuildHeapListing(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", heap);
+
+        return JsonSerializer.Serialize(listing, BrowserJsonContext.Default.BrowserHeapListing);
+    }
+
+    // One .NET platform library's heap listing (runtime pseudo-package: no nupkg).
+    [JSExport]
+    public static async Task<string> QueryPlatformHeapEntries(
+        string targetFramework,
+        string assemblyFileName,
+        string pack,
+        string heap)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName);
+
+        BrowserHeapListing listing = bytes is null
+            ? new BrowserHeapListing(fileName, heap,
+                Enum.TryParse<HeapKind>(heap, ignoreCase: true, out var kind) ? HeapStreamName(kind) : $"#{heap}",
+                0, "NotEnumerable", Array.Empty<BrowserHeapEntry>(), false, false,
+                $"Could not acquire {fileName} from {packId} {version}.")
+            : BuildHeapListing(bytes, fileName, $"{packId}/{version}/{fileName}", heap);
+
+        return JsonSerializer.Serialize(listing, BrowserJsonContext.Default.BrowserHeapListing);
+    }
+
+    private static int RankConfidence(string confidence) => confidence?.ToLowerInvariant() switch
+    {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0
+    };
+
+    // Collapses long .NET framework monikers (".NETStandard,Version=v2.0") to the short
+    // folder form the lib/ layout and the UI use ("netstandard2.0"); short forms pass
+    // through unchanged.
+    private static string NormalizeFrameworkMoniker(string moniker)
+    {
+        if (string.IsNullOrWhiteSpace(moniker) || !moniker.StartsWith('.'))
+            return moniker;
+
+        // Two long forms appear in nuspec groups: the comma form
+        // (".NETFramework,Version=v4.6.2") and the compact form (".NETFramework4.6.2").
+        string family;
+        string version;
+        var comma = moniker.IndexOf(',');
+        if (comma >= 0)
+        {
+            family = moniker[..comma];
+            var versionMarker = moniker.IndexOf("Version=v", comma, StringComparison.OrdinalIgnoreCase);
+            version = versionMarker < 0 ? "" : moniker[(versionMarker + "Version=v".Length)..];
+        }
+        else
+        {
+            var firstDigit = -1;
+            for (var index = 0; index < moniker.Length; index++)
+            {
+                if (char.IsDigit(moniker[index])) { firstDigit = index; break; }
+            }
+            if (firstDigit < 0)
+                return moniker;
+            family = moniker[..firstDigit];
+            version = moniker[firstDigit..];
+        }
+
+        var prefix = family switch
+        {
+            ".NETStandard" => "netstandard",
+            ".NETCoreApp" => "net",
+            ".NETFramework" => "net",
+            _ => null
+        };
+        if (prefix is null)
+            return moniker;
+
+        if (family == ".NETFramework")
+            version = version.Replace(".", "");
+        else if (!version.Contains('.'))
+            version += ".0";
+
+        return prefix + version;
+    }
+
+    // Decompiles a member the caller only knows by declaring type and name — used by the
+    // call graph, whose compact node labels reach non-public members that never appear on
+    // the public API surface. Resolution uses the full surface (includeAll) so private,
+    // internal, and implementation-detail members of a loaded assembly are navigable, while
+    // the public type list stays public-only.
+    [JSExport]
+    public static async Task<string> QueryTypeMemberSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeName,
+        string memberName,
+        string styleOptionsJson)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var surface = inspection.ApiSurface(includeAll: true);
+            bool DeclaresMember(ApiType candidate) =>
+                candidate.Members.Any(m => m.Name.Equals(memberName, StringComparison.Ordinal));
+            // The compact call-graph label strips generic arity, so a caller may pass
+            // "JsonTypeInfo" for a node whose real declaring type is the generic
+            // "JsonTypeInfo`1"; that simple name also collides with a same-named
+            // non-generic type. Match on the full name, the simple name, and their
+            // arity-stripped forms, then prefer the candidate that actually declares the
+            // member so the arity collision resolves to the type that owns it.
+            var candidates = surface.Types.Where(candidate =>
+                candidate.FullName.Equals(typeName, StringComparison.Ordinal)
+                || candidate.Name.Equals(typeName, StringComparison.Ordinal)
+                || StripGenericArity(candidate.FullName).Equals(typeName, StringComparison.Ordinal)
+                || StripGenericArity(candidate.Name).Equals(typeName, StringComparison.Ordinal)).ToArray();
+            var type = candidates.FirstOrDefault(DeclaresMember)
+                ?? candidates.FirstOrDefault()
+                ?? throw new InvalidOperationException($"Type '{typeName}' is not in {assemblyName}.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Member '{memberName}' was not found on '{type.FullName}'.");
+
+            if (File.Exists(pdbPath)
+                && member.MetadataToken is int token
+                && await TryGetAuthoredSourceAsync(implementationPath, type, member, token) is { } authored)
+            {
+                return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
+            }
+
+            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
+            if (decompiled.Text is not { Length: > 0 } text)
+                throw new InvalidOperationException("Decompilation did not produce source for the selected member.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "decompiled",
+                    text,
+                    null,
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [JSExport]
+    public static async Task<string> QueryTypeSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string styleOptionsJson)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+
+            var listing = MemberBodyProducer.Project(
+                type,
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null,
+                printerOptions: BuildPrinterOptions(styleOptionsJson));
+            if (listing.Output is not { Length: > 0 } text)
+                throw new InvalidOperationException("Whole-type decompilation did not produce source.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "decompiled",
+                    text,
+                    null,
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [JSExport]
+    public static async Task<string> QueryMemberCallGraph(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature,
+        string workspaceJson)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-graph-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var workspace = JsonSerializer.Deserialize(
+                    workspaceJson,
+                    BrowserJsonContext.Default.BrowserWorkspacePackageArray)
+                ?? [];
+            if (!workspace.Any(package =>
+                package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)))
+            {
+                workspace =
+                [
+                    .. workspace,
+                    new BrowserWorkspacePackage(packageId, version, targetFramework)
+                ];
+            }
+
+            var workspaceAssemblies = new List<(
+                string Package,
+                string Version,
+                string Framework,
+                string Path)>();
+            string? implementationPath = null;
+            for (int packageIndex = 0; packageIndex < workspace.Length; packageIndex++)
+            {
+                var package = workspace[packageIndex];
+                var bytes = package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                    && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                    ? packageBytes
+                    : await GetPackageBytesAsync(
+                        package.Package.ToLowerInvariant(),
+                        package.Version.ToLowerInvariant());
+                var packageDirectory = Path.Combine(tempRoot, $"package-{packageIndex}");
+                Directory.CreateDirectory(packageDirectory);
+                using var packageStream = new MemoryStream(bytes, writable: false);
+                using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+                string? preferredAssemblyName =
+                    package.Package.Equals(
+                        packageId,
+                        StringComparison.OrdinalIgnoreCase)
+                    && package.Version.Equals(
+                        version,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? assemblyName
+                        : null;
+                ZipArchiveEntry[] implementationEntries =
+                    GetDirectPackageAssemblyEntries(
+                        archive,
+                        package.Framework,
+                        preferredAssemblyName);
+                foreach (ZipArchiveEntry entry in implementationEntries)
+                {
+                    var path = Path.Combine(packageDirectory, entry.Name);
+                    await WriteEntryAsync(entry, path);
+                    workspaceAssemblies.Add((
+                        package.Package,
+                        package.Version,
+                        package.Framework,
+                        path));
+                    if (package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                        && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                        && (entry.Name.Equals(
+                                assemblyName,
+                                StringComparison.Ordinal)
+                            || (implementationPath is null
+                                && entry.Name.Equals(
+                                    assemblyName,
+                                    StringComparison.OrdinalIgnoreCase))))
+                    {
+                        implementationPath = path;
+                    }
+                }
+            }
+
+            if (implementationPath is null || !File.Exists(implementationPath))
+                throw new InvalidOperationException($"No implementation asset for {assemblyName} at {targetFramework}.");
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected member has no method body identity.");
+
+            // Abstract and interface methods declare no IL body, so there is nothing to graph.
+            // Building the tree anyway yields a lone "<unsupported: method token …>" root; return
+            // a well-formed empty graph flagged NoBody so the client shows a clean explanation.
+            if (member.IsAbstract)
+            {
+                var emptyNode = new BrowserCallGraphNode(
+                    member.Signature ?? member.Name, "target", false, null, [],
+                    assemblyName, type.FullName, member.Name, member.Signature ?? "");
+                return JsonSerializer.Serialize(
+                    new BrowserCallGraph(
+                        "",
+                        emptyNode,
+                        emptyNode,
+                        new BrowserCallGraphScope(workspace.Length, workspaceAssemblies.Count, 1, assemblyName),
+                        NoBody: true),
+                    BrowserJsonContext.Default.BrowserCallGraph);
+            }
+
+            string[] corpusPaths =
+            [
+                .. workspaceAssemblies.Select(assembly => assembly.Path),
+            ];
+            string fullImplementationPath = Path.GetFullPath(implementationPath);
+            var callGraphEntries = workspaceAssemblies
+                .Select(assembly =>
+                {
+                    var bodyIndex = Analysis.LibraryBodyIndex.Open(
+                        assembly.Path,
+                        Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+                    ResolvedAssemblyReference descriptor =
+                        ResolvedAssemblyReference.CreateFromPath(
+                            assembly.Path,
+                            AssemblyResolutionProvenance.Package(
+                                assembly.Package,
+                                assembly.Version,
+                                assembly.Framework,
+                                rid: null));
+                    var resolver = new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(assembly.Path)
+                        {
+                            CorpusAssemblyPaths = corpusPaths,
+                            TargetFramework = assembly.Framework,
+                            PreferImplementationAssemblies = true,
+                            AllowPlatformAssemblyVersionRollForward = true,
+                        });
+                    return (
+                        Index: bodyIndex,
+                        Assembly: descriptor,
+                        Policy: (IAssemblyBindingPolicy)resolver);
+                })
+                .GroupBy(entry => (
+                    entry.Assembly.Identity,
+                    entry.Index.DeclaredMethods.FirstOrDefault()
+                        ?.ModuleVersionId ?? Guid.Empty))
+                .Select(group => group
+                    .OrderByDescending(entry =>
+                        Path.GetFullPath(entry.Index.Path).Equals(
+                            fullImplementationPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    .First())
+                .ToArray();
+            var index = callGraphEntries.First(entry =>
+                Path.GetFullPath(entry.Index.Path).Equals(
+                    fullImplementationPath,
+                    StringComparison.OrdinalIgnoreCase)).Index;
+            var callers = index.BuildCallerTree(token, maxDepth: 2, maxNodes: 30);
+            if (callGraphEntries.Length > 1)
+            {
+                var bindingPolicy =
+                    new SourceRelativeAssemblyGroupBindingPolicy(
+                        callGraphEntries.Select(entry =>
+                            (entry.Assembly, entry.Policy)));
+                using var scope = new Analysis.CatalogCallGraphScope(
+                    bindingPolicy,
+                    callGraphEntries.Select(entry =>
+                        new Analysis.CatalogCallGraphParticipant(
+                            entry.Index,
+                            entry.Assembly)));
+                callers = index.BuildCallerTree(
+                    token,
+                    scope,
+                    maxDepth: 2,
+                    maxNodes: 30);
+            }
+            var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
+            var result = new BrowserCallGraph(
+                CallGraphMermaid.Render(
+                    callers,
+                    callees,
+                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
+                ToBrowserCallNode(callers),
+                ToBrowserCallNode(callees),
+                new BrowserCallGraphScope(
+                    workspace.Length,
+                    workspaceAssemblies.Count,
+                    callGraphEntries.Length,
+                    assemblyName));
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [JSExport]
+    public static async Task<string> QueryMemberFacts(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-facts-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                AssemblyResolutionProvenance.Local($"lib/{targetFramework}/{assemblyName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected member has no method body identity.");
+
+            var index = Analysis.LibraryBodyIndex.Open(
+                implementationPath,
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+                bodyScope: new HashSet<int> { token });
+            var signals = index.GetMethodSignals().GetValueOrDefault(token, Analysis.MethodSignals.None);
+            index.GetAllocationOccurrences().TryGetValue(token, out var allocations);
+            index.GetDirectCallsByCaller().TryGetValue(token, out var calls);
+            index.GetUnsafetyOccurrences().TryGetValue(token, out var unsafeOperations);
+            index.GetUnsafeEvidenceByMember().TryGetValue(token, out var unsafeEvidence);
+
+            using var context = PdbContext.Open(implementationPath);
+            var regions = context.ResolveExceptionRegions(token, out var regionError);
+            if (regionError is not null && regions.Count == 0
+                && index.Methods.Any(method => method.MetadataToken == token))
+            {
+                throw new InvalidOperationException(regionError);
+            }
+
+            var result = new BrowserMemberFacts(
+                new BrowserMethodSignals(
+                    signals.Allocations,
+                    signals.Copies,
+                    signals.Unsafe,
+                    signals.Reflection,
+                    signals.Throws,
+                    signals.Catches,
+                    signals.Finallys,
+                    signals.AllocInLoop,
+                    signals.Evidence.Select(FormatOffset).ToArray(),
+                    signals.ExceptionTypes.ToArray()),
+                (allocations.IsDefault ? [] : allocations)
+                    .Select(allocation => new BrowserAllocationFact(
+                        allocation.Kind.ToString(),
+                        allocation.AllocatedType?.ToDisplayString() ?? allocation.RuntimeAllocationType,
+                        FormatOffset(allocation.ILOffset),
+                        allocation.Frequency.ToString(),
+                        allocation.Multiplicity.ToString(),
+                        allocation.PathContext.ToString(),
+                        allocation.EscapeKind != Analysis.AllocationEscapeKind.None
+                            ? allocation.EscapeKind.ToString()
+                            : allocation.Escape.ToString(),
+                        allocation.InLoop,
+                        allocation.EstimatedSizeBytes,
+                        allocation.Detail))
+                    .ToArray(),
+                (calls.IsDefault ? [] : calls)
+                    .Select(call => new BrowserCallFact(
+                        $"{call.Callee.DeclaringType.ToDisplayString()}.{call.Callee.Name}" +
+                        $"({string.Join(", ", call.Callee.ParameterTypes.Select(parameter => parameter.ToDisplayString()))})",
+                        FormatOffset(call.ILOffset),
+                        string.IsNullOrEmpty(call.Opcode) ? FormatCallKind(call.Kind) : call.Opcode,
+                        call.Kind.ToString(),
+                        call.Multiplicity.ToString(),
+                        call.InLoop,
+                        call.ExactTarget))
+                    .ToArray(),
+                [
+                    .. (unsafeOperations.IsDefault ? [] : unsafeOperations)
+                        .Select(operation => new BrowserSafetyFact(
+                            operation.Kind.ToString(),
+                            FormatOffset(operation.ILOffset),
+                            operation.Detail ?? "Unsafe IL operation")),
+                    .. (unsafeEvidence.IsDefault ? [] : unsafeEvidence)
+                        .Select(evidence => new BrowserSafetyFact(
+                            evidence.Kind,
+                            evidence.ILOffset is int offset ? FormatOffset(offset) : null,
+                            $"{evidence.Reason}: {evidence.Detail}"))
+                ],
+                regions.Select(region => new BrowserExceptionRegion(
+                    region.Region,
+                    region.Clause,
+                    FormatRange(region.TryStart, region.TryEnd),
+                    FormatRange(region.HandlerStart, region.HandlerEnd),
+                    region.FilterStart is int filterStart && region.FilterEnd is int filterEnd
+                        ? FormatRange(filterStart, filterEnd)
+                        : null,
+                    region.CaughtType)).ToArray(),
+                index.OptimizationOpportunities
+                    .Where(opportunity => opportunity.Method.MetadataToken == token)
+                    .Select(opportunity => new BrowserPerformanceOpportunity(
+                        opportunity.Shape,
+                        opportunity.Evidence,
+                        opportunity.SafeFixDirection,
+                        opportunity.Confidence,
+                        opportunity.ILOffset is int offset ? FormatOffset(offset) : null,
+                        opportunity.InLoop,
+                        opportunity.Caveat,
+                        opportunity.SourceFinding,
+                        opportunity.Provenance.ToString().ToLowerInvariant()))
+                    .ToArray());
+
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserMemberFacts);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    static string FormatOffset(int offset) => $"IL_{offset:X4}";
+    static string FormatRange(int start, int end) => $"{FormatOffset(start)}..{FormatOffset(end)}";
+    static string FormatCallKind(Analysis.CallKind kind) => kind switch
+    {
+        Analysis.CallKind.Call => "call",
+        Analysis.CallKind.CallVirtual => "callvirt",
+        Analysis.CallKind.NewObject => "newobj",
+        Analysis.CallKind.LoadFunction => "ldftn",
+        Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
+        _ => "calli",
+    };
+
+    static string StripGenericArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick < 0 ? name : name[..tick];
+    }
+
+    static BrowserCallGraphNode ToBrowserCallNode(Analysis.CallTreeNode node)
+    {
+        var definition = RootDefinition(node.Member.DeclaringType);
+        var typeFullName = definition.Namespace.Length == 0
+            ? definition.Name
+            : $"{definition.Namespace}.{definition.Name}";
+        return new(
+            $"{node.Member.DeclaringType.ToDisplayString()}.{node.Member.Name}" +
+            $"({string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString()))})",
+            node.Status.ToString(),
+            node.Perf?.InLoop ?? false,
+            node.Perf?.Source,
+            node.Children.Select(ToBrowserCallNode).ToArray(),
+            definition.Assembly,
+            typeFullName,
+            node.Member.Name,
+            string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+    }
+
+    // The declaring type of a callee may be a constructed generic instance or an array/
+    // by-ref wrapper; unwrap to the underlying named definition so identity fields carry
+    // the assembly + metadata full name (namespace.Name`arity) a platform resolver keys on.
+    static Analysis.TypeRef RootDefinition(Analysis.TypeRef type)
+        => type.Kind == Analysis.TypeRefKind.Definition
+            ? type
+            : type.ElementType is { } element
+                ? RootDefinition(element)
+                : type;
+
+    static async Task<BrowserMemberSource?> TryGetAuthoredSourceAsync(
+        string assemblyPath,
+        ApiType type,
+        ApiMember member,
+        int metadataToken)
+    {
+        try
+        {
+            using var source = SourceLinkService.Open(assemblyPath);
+            if (!source.HasPdb)
+                return null;
+
+            var sameName = type.Members
+                .Where(candidate => candidate.Name == member.Name && candidate.Kind == member.Kind)
+                .ToArray();
+            var overloadIndex = Array.IndexOf(sameName, member);
+            var mapping = source.ResolveMethodSource(type.FullName, member.Name, Math.Max(0, overloadIndex), publicOnly: false);
+            if (mapping?.SourceUrl is not { Length: > 0 } url)
+                return null;
+
+            var bytes = await Http.GetByteArrayAsync(url);
+            if (!ChecksumMatches(mapping.ChecksumAlgorithm, mapping.Checksum, bytes))
+                return null;
+
+            var text = BodySlicer.ExtractMethodBody(
+                Encoding.UTF8.GetString(bytes),
+                mapping.StartLine,
+                mapping.EndLine,
+                member.Name);
+            if (text is null)
+                return null;
+            return new BrowserMemberSource(
+                "original",
+                text,
+                url,
+                $"Checksum-verified SourceLink source for metadata token 0x{metadataToken:x8}");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static bool ChecksumMatches(string? algorithm, byte[]? expected, byte[] content)
+    {
+        if (expected is not { Length: > 0 })
+            return false;
+        byte[] actual = algorithm?.ToUpperInvariant() switch
+        {
+            "SHA1" or "SHA-1" => SHA1.HashData(content),
+            "SHA256" or "SHA-256" => SHA256.HashData(content),
+            _ => []
+        };
+        return actual.Length > 0 && CryptographicOperations.FixedTimeEquals(actual, expected);
+    }
+
+    // WASM PDB-acquisition policy: NuGet .snupkg only.
+    //
+    // This runs inside the browser, so every fetch is subject to CORS. NuGet's
+    // symbol-package endpoint (globalcdn.nuget.org/symbol-packages) is CORS-open
+    // and works for packages that publish symbols. Packages that ship no snupkg
+    // (e.g. Microsoft runtime libraries like System.Text.Json) simply 404 here and
+    // we fall back to decompiling with pdb=null — that is expected, not an error.
+    //
+    // Do NOT add the Microsoft symbol server (MSDL) as a fallback in this engine.
+    // MSDL answers with a cross-origin 302 to an Azure blob (SAS-signed, expiring,
+    // non-guessable URL) and the 302 itself carries no Access-Control-Allow-Origin
+    // header, so a browser fetch in cors mode aborts with "Failed to fetch" before
+    // it ever reaches the blob (verified). MSDL-backed PDBs must instead be
+    // precomputed at build/publish time and shipped as same-origin static assets.
+    static async Task TryAcquirePackagePdbAsync(
+        string symbolPackageUrl,
+        string targetFramework,
+        string assemblyName,
+        string destination)
+    {
+        try
+        {
+            using var response = await Http.GetAsync(symbolPackageUrl);
+            if (!response.IsSuccessStatusCode)
+                return;
+            var bytes = await response.Content.ReadAsByteArrayAsync();
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+            var pdbName = Path.ChangeExtension(assemblyName, ".pdb");
+            var entry = archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.Equals($"lib/{targetFramework}/{pdbName}", StringComparison.OrdinalIgnoreCase))
+                ?? archive.Entries.FirstOrDefault(candidate =>
+                    candidate.Name.Equals(pdbName, StringComparison.OrdinalIgnoreCase));
+            if (entry is not null)
+                await WriteEntryAsync(entry, destination);
+        }
+        catch
+        {
+        }
+    }
+
+    static async Task WriteEntryAsync(ZipArchiveEntry entry, string path)
+    {
+        await using var input = entry.Open();
+        await using var output = File.Create(path);
+        await input.CopyToAsync(output);
+    }
+
+    static SelectedPackageAssembly[] ReadSelectedPackageAssemblies(
+        byte[] packageBytes,
+        string packageId,
+        string targetFramework)
+    {
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            fromCache: false,
+            producerKey: "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework);
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoCompileAssets)
+        {
+            throw new InvalidOperationException(
+                "The package has no compile-time assemblies.");
+        }
+
+        if (selection.Status
+            == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            throw new InvalidOperationException(
+                $"Framework '{targetFramework}' is not present.");
+        }
+
+        var assemblies = new List<SelectedPackageAssembly>(
+            selection.Assets.Count);
+        foreach (PackageCompileAsset asset in selection.Assets)
+        {
+            if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+            {
+                throw new InvalidOperationException(
+                    $"Selected package asset '{asset.Id}' is no longer available.");
+            }
+
+            using (stream)
+            using (var buffer = new MemoryStream())
+            {
+                stream.CopyTo(buffer);
+                assemblies.Add(
+                    new SelectedPackageAssembly(
+                        asset,
+                        buffer.ToArray()));
+            }
+        }
+
+        return [.. assemblies];
+    }
+
+    static SelectedPackageAssembly? FindSelectedPackageAssembly(
+        IEnumerable<SelectedPackageAssembly> assemblies,
+        string assemblyName)
+        => assemblies.FirstOrDefault(assembly =>
+                assembly.Asset.AssemblyName.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? assemblies.FirstOrDefault(assembly =>
+                assembly.Asset.AssemblyName.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase));
+
+    static SelectedPackageAssembly? ReadSelectedPackageAssembly(
+        byte[] packageBytes,
+        string packageId,
+        string targetFramework,
+        string assemblyName)
+    {
+        var content = new InMemoryPackageContent(
+            packageBytes,
+            fromCache: false,
+            producerKey: "nuget.org");
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework);
+        PackageCompileAsset? asset =
+            selection.Status
+                == PackageCompileAssetSelectionStatus.Selected
+                ? selection.Assets.FirstOrDefault(candidate =>
+                        candidate.AssemblyName.Equals(
+                            assemblyName,
+                            StringComparison.Ordinal))
+                    ?? selection.Assets.FirstOrDefault(candidate =>
+                        candidate.AssemblyName.Equals(
+                            assemblyName,
+                            StringComparison.OrdinalIgnoreCase))
+                : null;
+        if (asset is null)
+            return null;
+        if (!content.TryOpenEntry(asset.Path, out Stream? stream))
+        {
+            throw new InvalidOperationException(
+                $"Selected package asset '{asset.Id}' is no longer available.");
+        }
+
+        using (stream)
+        using (var buffer = new MemoryStream())
+        {
+            stream.CopyTo(buffer);
+            return new SelectedPackageAssembly(
+                asset,
+                buffer.ToArray());
+        }
+    }
+
+    static ZipArchiveEntry[] GetDirectPackageAssemblyEntries(
+        ZipArchive archive,
+        string targetFramework,
+        string? preferredAssemblyName = null,
+        string root = "lib")
+    {
+        return
+        [
+            .. archive.Entries
+                .Where(entry =>
+                {
+                    string[] parts = entry.FullName.Split('/');
+                    return parts.Length == 3
+                        && parts[0].Equals(
+                            root,
+                            StringComparison.OrdinalIgnoreCase)
+                        && parts[1].Equals(
+                            targetFramework,
+                            StringComparison.OrdinalIgnoreCase)
+                        && parts[2].EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase);
+                })
+                .GroupBy(
+                    entry => entry.FullName,
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(group =>
+                    group
+                        .Where(entry =>
+                            preferredAssemblyName is not null
+                            && entry.Name.Equals(
+                                preferredAssemblyName,
+                                StringComparison.Ordinal))
+                        .OrderBy(
+                            entry => entry.FullName,
+                            StringComparer.Ordinal)
+                        .FirstOrDefault()
+                    ?? group
+                        .OrderBy(
+                            entry => entry.FullName,
+                            StringComparer.Ordinal)
+                        .First())
+                .OrderBy(
+                    entry => entry.FullName,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    entry => entry.FullName,
+                    StringComparer.Ordinal),
+        ];
+    }
+
+    static ZipArchiveEntry? FindDirectPackageAssemblyEntry(
+        ZipArchive archive,
+        string targetFramework,
+        string assemblyName,
+        string root = "lib")
+    {
+        ZipArchiveEntry[] entries = GetDirectPackageAssemblyEntries(
+            archive,
+            targetFramework,
+            assemblyName,
+            root);
+        return entries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? entries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Descends the call graph one hop into a platform (BCL) method by acquiring its
+    // implementation assembly from the CoreCLR runtime pack. RID is irrelevant here — we
+    // only read metadata/IL, never execute — so linux-x64 stands in for the eventual
+    // CoreCLR-wasm pack (dotnet/runtime #131420). Bodies are what a ref pack lacks, so a
+    // ref pack would leave every BCL call a dead leaf; the runtime pack carries IL.
+    const string PlatformRuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
+
+    // The ASP.NET Core shared framework ships as its own runtime pack, layered on top of the
+    // CoreCLR pack: RouteBuilder, endpoint routing, MVC, SignalR host types, and the
+    // Microsoft.Extensions.* hosting surface live here, not in microsoft.netcore.app. Descent
+    // into a Microsoft.AspNetCore.* callee must fetch from this pack (same runtimes/ layout).
+    const string AspNetCoreRuntimePackId = "microsoft.aspnetcore.app.runtime.linux-x64";
+
+    // Picks the runtime pack that carries a platform callee's implementation. The callee's
+    // TypeRef assembly (or, as a fallback, its namespace) distinguishes the ASP.NET Core
+    // shared framework from the base CoreCLR pack; everything else resolves against CoreCLR.
+    static string SelectRuntimePackId(string? assembly, string typeFullName) =>
+        (assembly?.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase) == true
+            || typeFullName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+            ? AspNetCoreRuntimePackId
+            : PlatformRuntimePackId;
+
+    // Display id of the runtime pseudo-package the client adds to its workspace when the
+    // user requests the platform pack from Spotlight. Its normalized form is the marker the
+    // shared image resolver keys on to fetch from the runtime pack rather than a lib/ layout.
+    const string RuntimePackDisplayId = "Microsoft.NETCore.App";
+    const string RuntimePackPackageId = "microsoft.netcore.app";
+
+    // The single assembly loaded eagerly when the runtime pack is requested: it carries the
+    // overwhelming majority of BCL surface (String, TextWriter, collections, Volatile,
+    // Unsafe, …). Sibling pack assemblies load lazily as navigation reaches them.
+    const string RuntimeCoreAssembly = "System.Private.CoreLib.dll";
+
+    // Session cache of runtime-pack file bytes keyed by "version/fileName" so repeat
+    // navigation into the pack does not re-range-fetch the same assembly.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> RuntimeFileCache = new();
+
+    // Records which shared-framework runtime pack a resident pseudo-package assembly came
+    // from (lower-cased file name -> pack id), populated by LoadRuntimePackAssembly. The
+    // Platform surface presents the CoreCLR and ASP.NET Core packs as one pseudo-package, so
+    // later per-type/member queries carry only an assembly name; this map lets the
+    // materializer route each assembly to the pack that actually ships it instead of an
+    // assembly-name prefix heuristic (which would miss non-"Microsoft.AspNetCore.*" ASP.NET
+    // Core assemblies) or a wasteful cross-pack probe (which would download a full pack on a
+    // miss). Anything unrecorded defaults to the CoreCLR pack.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> RuntimeAssemblyPack = new();
+
+    // Maps the client's platform-index pack token ("netcore.app" | "aspnetcore.app") to the
+    // concrete runtime pack id. Unknown tokens fall back to the CoreCLR pack.
+    static string RuntimePackIdForToken(string? pack) =>
+        pack is not null && pack.StartsWith("aspnetcore", StringComparison.OrdinalIgnoreCase)
+            ? AspNetCoreRuntimePackId
+            : PlatformRuntimePackId;
+
+    // Eagerly loads the runtime pack's core assembly (System.Private.CoreLib) for the
+    // workspace TFM and returns it as a package-shaped surface the client treats as a
+    // resident package: its types become searchable in Spotlight and browsable in the type
+    // nav, and per-type views resolve through the shared image seam. Latest pack version per
+    // TFM major is resolved from the flat container.
+    [JSExport]
+    public static async Task<string> LoadRuntimePack(string targetFramework)
+    {
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
+        var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, version, RuntimeCoreAssembly)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {RuntimeCoreAssembly} from {PlatformRuntimePackId} {version}.");
+
+        using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(RuntimeCoreAssembly), null, null, null),
+            null,
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local($"runtime-pack/{PlatformRuntimePackId}/{RuntimeCoreAssembly}")));
+        if (!inspection.HasMetadata)
+            throw new InvalidOperationException($"{RuntimeCoreAssembly} has no metadata.");
+
+        var assemblyTypes = inspection.ApiSurface().Types
+            .Select(type => ToBrowserType(type, RuntimeCoreAssembly))
+            .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageSurface(
+            RuntimePackDisplayId,
+            version,
+            [tfm],
+            tfm,
+            $"platform:{RuntimeCoreAssembly}",
+            [
+                new BrowserAssemblySurface(
+                    $"platform:{RuntimeCoreAssembly}",
+                    RuntimeCoreAssembly,
+                    $"runtimes/*/lib/{tfm}/{RuntimeCoreAssembly}",
+                    assemblyTypes.Length,
+                    assemblyTypes.Sum(type => type.Members)),
+            ],
+            assemblyTypes,
+            assemblyTypes.Sum(type => type.Members),
+            []);
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    // Loads ONE named assembly from a shared-framework runtime pack (CoreCLR by default, or
+    // the ASP.NET Core pack when pack == "aspnetcore.app") — e.g. System.Text.Json.dll,
+    // Microsoft.AspNetCore.Routing.dll — and returns its full type surface as a
+    // package-shaped payload the client merges into the resident runtime pseudo-package. This
+    // backs the index-first Platform scope: selecting Platform lists the library roster from
+    // the static index with no download, and drilling into a specific library fetches just
+    // that assembly here. The pack the assembly came from is recorded so later per-type/member
+    // queries (which carry only the assembly name) materialize from the right pack.
+    [JSExport]
+    public static async Task<string> LoadRuntimePackAssembly(string targetFramework, string assemblyFileName, string pack)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        var fileName = assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyFileName
+            : assemblyFileName + ".dll";
+
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {packId} {version}.");
+        RuntimeAssemblyPack[fileName.ToLowerInvariant()] = packId;
+
+        using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(fileName), null, null, null),
+            null,
+            () => new MemoryStream(bytes, writable: false),
+            AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{fileName}")));
+        if (!inspection.HasMetadata)
+            throw new InvalidOperationException($"{fileName} has no metadata.");
+
+        var assemblyTypes = inspection.ApiSurface().Types
+            .Select(type => ToBrowserType(type, fileName))
+            .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageSurface(
+            RuntimePackDisplayId,
+            version,
+            [tfm],
+            tfm,
+            $"platform:{fileName}",
+            [
+                new BrowserAssemblySurface(
+                    $"platform:{fileName}",
+                    fileName,
+                    $"runtimes/*/lib/{tfm}/{fileName}",
+                    assemblyTypes.Length,
+                    assemblyTypes.Sum(type => type.Members)),
+            ],
+            assemblyTypes,
+            assemblyTypes.Sum(type => type.Members),
+            []);
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    // Materializes the implementation assembly for a per-type/member query into tempRoot and
+    // returns its path. For the runtime pseudo-package it range-extracts from the CoreCLR
+    // runtime pack's runtimes/ layout (session-cached); for ordinary packages it uses the
+    // lib/{tfm}/{assembly} asset (with an optional ref/ fallback), copying sibling lib
+    // assemblies alongside for the reference resolver.
+    static async Task<string> MaterializeImplementationAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string targetFramework,
+        string assemblyName,
+        string tempRoot,
+        bool allowRefFallback)
+    {
+        if (normalizedId.Equals(RuntimePackPackageId, StringComparison.OrdinalIgnoreCase))
+        {
+            // The resident runtime pseudo-package spans the CoreCLR and ASP.NET Core packs;
+            // route each assembly to the pack that shipped it (recorded when the library was
+            // loaded, defaulting to CoreCLR), resolving that pack's version for the framework
+            // rather than trusting the pseudo-package's single recorded version.
+            var packId = RuntimeAssemblyPack.GetValueOrDefault(assemblyName.ToLowerInvariant(), PlatformRuntimePackId);
+            var packVersion = await ResolveRuntimePackVersionAsync(packId, ParseTfmMajor(targetFramework));
+            var bytes = await AcquireRuntimeFileAsync(packId, packVersion, assemblyName)
+                ?? throw new InvalidOperationException(
+                    $"No runtime-pack asset for {assemblyName} in {packId} {packVersion}.");
+            var runtimePath = Path.Combine(tempRoot, assemblyName);
+            await File.WriteAllBytesAsync(runtimePath, bytes);
+            return runtimePath;
+        }
+
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        using var stream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        ZipArchiveEntry[] implementationEntries =
+            GetDirectPackageAssemblyEntries(
+                archive,
+                targetFramework,
+                assemblyName);
+        var implementation = implementationEntries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.Ordinal))
+            ?? implementationEntries.FirstOrDefault(entry =>
+                entry.Name.Equals(
+                    assemblyName,
+                    StringComparison.OrdinalIgnoreCase))
+            ?? (allowRefFallback
+                ? FindDirectPackageAssemblyEntry(
+                    archive,
+                    targetFramework,
+                    assemblyName,
+                    root: "ref")
+                : null)
+            ?? throw new InvalidOperationException(
+                $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+        foreach (ZipArchiveEntry entry in implementationEntries)
+        {
+            await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+        }
+
+        var implementationPath = Path.Combine(tempRoot, implementation.Name);
+        if (!File.Exists(implementationPath))
+            await WriteEntryAsync(implementation, implementationPath);
+        return implementationPath;
+    }
+
+    static async Task<string> MaterializeSelectedCompileAssemblyAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string packageId,
+        string targetFramework,
+        string assemblyName,
+        string tempRoot)
+    {
+        if (normalizedId.Equals(
+            RuntimePackPackageId,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return await MaterializeImplementationAsync(
+                normalizedId,
+                normalizedVersion,
+                targetFramework,
+                assemblyName,
+                tempRoot,
+                allowRefFallback: false);
+        }
+
+        var packageBytes = await GetPackageBytesAsync(
+            normalizedId,
+            normalizedVersion);
+        SelectedPackageAssembly[] assemblies =
+            ReadSelectedPackageAssemblies(
+                packageBytes,
+                packageId,
+                targetFramework);
+        SelectedPackageAssembly selected =
+            FindSelectedPackageAssembly(
+                assemblies,
+                assemblyName)
+            ?? throw new InvalidOperationException(
+                $"No selected compile asset for {assemblyName} at {targetFramework}.");
+
+        foreach (SelectedPackageAssembly assembly in assemblies)
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(
+                    tempRoot,
+                    assembly.Asset.AssemblyName),
+                assembly.Image);
+        }
+
+        return Path.Combine(
+            tempRoot,
+            selected.Asset.AssemblyName);
+    }
+
+    // Fetches one file from a runtime pack (runtimes/.../<file>), range-extracting just that
+    // entry from the multi-MB nupkg with a full-download fallback, and caches the bytes for
+    // the session. packId selects the CoreCLR or ASP.NET Core pack.
+    static async Task<byte[]?> AcquireRuntimeFileAsync(string packId, string version, string fileName)
+    {
+        var cacheKey = $"{packId}/{version}/{fileName}";
+        if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var nupkgUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/" +
+            $"{Uri.EscapeDataString(version)}/" +
+            $"{Uri.EscapeDataString(packId)}.{Uri.EscapeDataString(version)}.nupkg";
+        bool IsWanted(string entryName) =>
+            entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
+            && Path.GetFileName(entryName).Equals(fileName, StringComparison.OrdinalIgnoreCase);
+
+        byte[]? bytes = null;
+        try { bytes = await RangeExtractEntryAsync(nupkgUrl, IsWanted); }
+        catch { bytes = null; }
+        if (bytes is null)
+        {
+            var fullPack = await GetPackageBytesAsync(packId, version);
+            bytes = ExtractEntryFromArchive(fullPack, IsWanted);
+        }
+        if (bytes is not null)
+            RuntimeFileCache[cacheKey] = bytes;
+        return bytes;
+    }
+
+    [JSExport]
+    public static async Task<string> ExpandPlatformCallGraph(
+        string targetFramework,
+        string assembly,
+        string typeFullName,
+        string memberName,
+        string paramSig)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+
+        var major = ParseTfmMajor(targetFramework);
+        var packId = SelectRuntimePackId(assembly, typeFullName);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        // TypeRef.Assembly canonicalizes the corelib facades (System.Private.CoreLib,
+        // System.Runtime, mscorlib, netstandard) to "corelib"; those all implement in
+        // System.Private.CoreLib.dll in the runtime pack.
+        var startFile = assembly is "corelib" or "" or null
+            ? "System.Private.CoreLib.dll"
+            : assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? assembly : assembly + ".dll";
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-plat-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var acquired = await AcquirePlatformAssemblyAsync(packId, version, startFile, typeFullName)
+                ?? throw new InvalidOperationException(
+                    $"Could not acquire an implementation assembly for '{typeFullName}' from {packId} {version}.");
+            var path = Path.Combine(tempRoot, acquired.FileName);
+            await File.WriteAllBytesAsync(path, acquired.Bytes);
+
+            using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(acquired.FileName), null, null, null),
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{acquired.FileName}")));
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException(
+                    $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
+            var member = SelectPlatformMember(type, memberName, paramSig);
+            // Call-graph rows spell property/event accessors by their IL method name
+            // (get_Foo, set_Foo, add_Bar, remove_Bar); ApiSurface exposes the owning
+            // property/event instead, carrying the accessor's MethodDef token. Fall back to
+            // that token so descent into an accessor callee (e.g. RouteBuilder.get_ServiceProvider)
+            // resolves instead of reporting the member missing.
+            var token = member?.MetadataToken ?? ResolveAccessorToken(type, memberName);
+            if (token is not int methodToken)
+                throw new InvalidOperationException(member is null
+                    ? $"Member '{memberName}' was not found on '{typeFullName}'."
+                    : "The selected platform member has no method body identity.");
+
+            var index = Analysis.LibraryBodyIndex.Open(
+                path,
+                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+            var callees = index.BuildCallTree(methodToken, maxDepth: 2, maxNodes: 30);
+            var calleeNode = ToBrowserCallNode(callees);
+            var result = new BrowserCallGraph(
+                CallGraphMermaid.Render(
+                    null,
+                    callees,
+                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
+                calleeNode with { Children = [] },
+                calleeNode,
+                new BrowserCallGraphScope(0, 1, 0, acquired.FileName));
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    static int ParseTfmMajor(string? targetFramework)
+    {
+        if (string.IsNullOrEmpty(targetFramework))
+            return 10;
+        int start = 0;
+        while (start < targetFramework.Length && !char.IsDigit(targetFramework[start]))
+            start++;
+        int end = start;
+        while (end < targetFramework.Length && char.IsDigit(targetFramework[end]))
+            end++;
+        return start < end && int.TryParse(targetFramework[start..end], out var major) ? major : 10;
+    }
+
+    static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
+    {
+        var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
+        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        using var document = JsonDocument.Parse(indexBytes);
+        var versions = document.RootElement.GetProperty("versions")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray();
+        var prefix = $"{major}.";
+        return versions.LastOrDefault(candidate => candidate.StartsWith(prefix, StringComparison.Ordinal) && !candidate.Contains('-'))
+            ?? versions.LastOrDefault(candidate => candidate.StartsWith(prefix, StringComparison.Ordinal))
+            ?? versions.LastOrDefault(candidate => !candidate.Contains('-'))
+            ?? throw new InvalidOperationException($"Runtime pack '{packId}' has no published version.");
+    }
+
+    // Fetches a single implementation assembly from the runtime pack, following ECMA-335
+    // type-forwards (a facade like System.Runtime.dll forwards its public surface to
+    // System.Private.CoreLib.dll) up to a bounded number of hops.
+    static async Task<(byte[] Bytes, string FileName)?> AcquirePlatformAssemblyAsync(
+        string packId,
+        string version,
+        string startFile,
+        string typeFullName)
+    {
+        var (ns, name) = SplitTypeName(typeFullName);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = startFile;
+        for (int hop = 0; hop < 5 && visited.Add(current); hop++)
+        {
+            // Range-extract (and session-cache) just this assembly from the pack.
+            var bytes = await AcquireRuntimeFileAsync(packId, version, current);
+            if (bytes is null)
+                return null;
+
+            var forward = FindForwardTarget(bytes, ns, name);
+            if (forward is null)
+                return (bytes, current);
+            current = forward.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? forward : forward + ".dll";
+        }
+        return null;
+    }
+
+    static byte[]? ExtractEntryFromArchive(byte[] packBytes, Func<string, bool> match)
+    {
+        using var stream = new MemoryStream(packBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var entry = archive.Entries.FirstOrDefault(candidate => match(candidate.FullName));
+        if (entry is null)
+            return null;
+        using var entryStream = entry.Open();
+        using var output = new MemoryStream();
+        entryStream.CopyTo(output);
+        return output.ToArray();
+    }
+
+    // Extracts one zip entry's bytes using HTTP range requests: a suffix range for the
+    // tail (End Of Central Directory), then absolute ranges for the central directory and
+    // the target entry's local header + compressed data. Only response bodies are read,
+    // so the CORS expose-headers restriction on Content-Range does not matter. Returns
+    // null (caller falls back to a full download) for zip64 or an unsupported method.
+    static async Task<byte[]?> RangeExtractEntryAsync(string url, Func<string, bool> match)
+    {
+        var tail = await RangeGetAsync(url, suffix: 65536);
+        int eocd = -1;
+        for (int i = tail.Length - 22; i >= 0; i--)
+        {
+            if (tail[i] == 0x50 && tail[i + 1] == 0x4b && tail[i + 2] == 0x05 && tail[i + 3] == 0x06)
+            {
+                eocd = i;
+                break;
+            }
+        }
+        if (eocd < 0)
+            return null;
+        uint cdSize = BitConverter.ToUInt32(tail, eocd + 12);
+        uint cdOffset = BitConverter.ToUInt32(tail, eocd + 16);
+        if (cdOffset == 0xFFFFFFFF || cdSize == 0xFFFFFFFF)
+            return null;
+
+        var cd = await RangeGetAsync(url, from: cdOffset, length: cdSize);
+        int p = 0;
+        while (p + 46 <= cd.Length && BitConverter.ToUInt32(cd, p) == 0x02014b50)
+        {
+            ushort method = BitConverter.ToUInt16(cd, p + 10);
+            uint compressedSize = BitConverter.ToUInt32(cd, p + 20);
+            ushort nameLength = BitConverter.ToUInt16(cd, p + 28);
+            ushort extraLength = BitConverter.ToUInt16(cd, p + 30);
+            ushort commentLength = BitConverter.ToUInt16(cd, p + 32);
+            uint localHeaderOffset = BitConverter.ToUInt32(cd, p + 42);
+            string entryName = Encoding.UTF8.GetString(cd, p + 46, nameLength);
+            if (match(entryName))
+            {
+                if (compressedSize == 0xFFFFFFFF || localHeaderOffset == 0xFFFFFFFF)
+                    return null;
+                var localHeader = await RangeGetAsync(url, from: localHeaderOffset, length: 30);
+                ushort localNameLength = BitConverter.ToUInt16(localHeader, 26);
+                ushort localExtraLength = BitConverter.ToUInt16(localHeader, 28);
+                long dataStart = localHeaderOffset + 30L + localNameLength + localExtraLength;
+                var data = await RangeGetAsync(url, from: dataStart, length: compressedSize);
+                if (method == 0)
+                    return data;
+                if (method == 8)
+                {
+                    using var input = new MemoryStream(data, writable: false);
+                    using var inflate = new DeflateStream(input, CompressionMode.Decompress);
+                    using var output = new MemoryStream();
+                    await inflate.CopyToAsync(output);
+                    return output.ToArray();
+                }
+                return null;
+            }
+            p += 46 + nameLength + extraLength + commentLength;
+        }
+        return null;
+    }
+
+    static async Task<byte[]> RangeGetAsync(string url, long? from = null, long? length = null, long? suffix = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Range = suffix is { } tailLength
+            ? new RangeHeaderValue(null, tailLength)
+            : new RangeHeaderValue(from, from + length - 1);
+        using var response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
+    // Returns the target assembly simple name when the requested type is an ECMA-335
+    // exported-type forward in this assembly; null when the type is defined here (a
+    // TypeDef) or absent (the caller then validates against the acquired assembly).
+    static string? FindForwardTarget(byte[] assemblyBytes, string ns, string name)
+    {
+        using var peReader = new PEReader(new MemoryStream(assemblyBytes, writable: false));
+        if (!peReader.HasMetadata)
+            return null;
+        var reader = peReader.GetMetadataReader();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if (reader.GetString(definition.Name) == name && reader.GetString(definition.Namespace) == ns)
+                return null;
+        }
+        foreach (var handle in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(handle);
+            if (reader.GetString(exported.Name) != name || reader.GetString(exported.Namespace) != ns)
+                continue;
+            if (exported.Implementation.Kind == HandleKind.AssemblyReference)
+            {
+                var assemblyReference = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
+                return reader.GetString(assemblyReference.Name);
+            }
+        }
+        return null;
+    }
+
+    static (string Namespace, string Name) SplitTypeName(string fullName)
+    {
+        int dot = fullName.LastIndexOf('.');
+        return dot < 0 ? ("", fullName) : (fullName[..dot], fullName[(dot + 1)..]);
+    }
+
+    static ApiMember? SelectPlatformMember(ApiType type, string memberName, string paramSig)
+    {
+        var named = type.Members
+            .Where(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal))
+            .ToArray();
+        if (named.Length <= 1)
+            return named.FirstOrDefault();
+        int wantArity = string.IsNullOrEmpty(paramSig) ? 0 : paramSig.Split(',').Length;
+        var byArity = named
+            .Where(candidate => (candidate.SignatureModel?.Parameters.Count ?? -1) == wantArity)
+            .ToArray();
+        var pool = byArity.Length > 0 ? byArity : named;
+        var wantKey = SimpleParamKey(paramSig);
+        return pool.FirstOrDefault(candidate => MemberParamKey(candidate) == wantKey) ?? pool[0];
+    }
+
+    // Maps an accessor's IL method name (get_/set_/add_/remove_) back to the MethodDef token
+    // ApiSurface records on the owning property or event, so descent into an accessor callee
+    // that ApiSurface does not expose as a standalone method still finds a body to graph.
+    static int? ResolveAccessorToken(ApiType type, string memberName)
+    {
+        (string Prefix, Func<ApiMember, int?> Pick)[] accessors =
+        [
+            ("get_", member => member.GetterToken),
+            ("set_", member => member.SetterToken),
+            ("add_", member => member.AdderToken),
+            ("remove_", member => member.RemoverToken),
+        ];
+        foreach (var (prefix, pick) in accessors)
+        {
+            if (!memberName.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+            var ownerName = memberName[prefix.Length..];
+            foreach (var member in type.Members)
+            {
+                if (string.Equals(member.Name, ownerName, StringComparison.Ordinal) && pick(member) is int token)
+                    return token;
+            }
+        }
+        return null;
+    }
+
+    static string MemberParamKey(ApiMember member)
+        => string.Join(",", (member.SignatureModel?.Parameters ?? [])
+            .Select(parameter => SimpleTypeName(parameter.TypeWithModifier)));
+
+    static string SimpleParamKey(string paramSig)
+        => string.IsNullOrEmpty(paramSig)
+            ? ""
+            : string.Join(",", paramSig.Split(',').Select(part => SimpleTypeName(part.Trim())));
+
+    static string SimpleTypeName(string type)
+    {
+        type = type.Trim();
+        int generic = type.IndexOf('<');
+        if (generic >= 0)
+            type = type[..generic];
+        int array = type.IndexOf('[');
+        string suffix = array >= 0 ? type[array..] : "";
+        if (array >= 0)
+            type = type[..array];
+        int dot = type.LastIndexOf('.');
+        if (dot >= 0)
+            type = type[(dot + 1)..];
+        return (type + suffix).ToLowerInvariant();
+    }
+
+
+    static async Task<byte[]> GetPackageBytesAsync(string normalizedId, string normalizedVersion)
+    {
+        var key = $"{normalizedId}@{normalizedVersion}";
+        lock (PackageCacheLock)
+        {
+            if (PackageCache.TryGetValue(key, out var cached))
+            {
+                PackageCache[key] = cached with { LastAccess = ++_packageCacheClock };
+                return cached.Bytes;
+            }
+        }
+
+        var packageUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/" +
+            $"{Uri.EscapeDataString(normalizedVersion)}/" +
+            $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.nupkg";
+        var bytes = await Http.GetByteArrayAsync(packageUrl);
+        lock (PackageCacheLock)
+        {
+            DownloadedPackages.Add(key);
+        }
+        if (bytes.LongLength > MaxCachedPackageBytes)
+            return bytes;
+
+        lock (PackageCacheLock)
+        {
+            while (PackageCache.Count >= MaxCachedPackages
+                || PackageCache.Values.Sum(entry => entry.Bytes.LongLength) + bytes.LongLength
+                    > MaxCachedPackageBytes)
+            {
+                var oldestKey = PackageCache
+                    .OrderBy(entry => entry.Value.LastAccess)
+                    .Select(entry => entry.Key)
+                    .FirstOrDefault();
+                if (oldestKey is null)
+                    break;
+                PackageCache.Remove(oldestKey);
+            }
+            PackageCache[key] = new PackageCacheEntry(bytes, ++_packageCacheClock);
+        }
+        return bytes;
+    }
+
+    static BrowserTypeSurface ToBrowserType(ApiType type, string assembly)
+    {
+        // C#-spelled name for display (List<T>, Dictionary<TKey, TValue>) using real generic
+        // parameter names when the surface carries them, else placeholders — never the raw
+        // `List`1` reflection arity form. Identity (Id/Name) stays the metadata form so
+        // deep-links, search, and tab matching remain stable.
+        var displayName = MetadataTypeNameFormatter.FormatGenericTypeName(type.Name, type.TypeParameters);
+        var accessibility = string.IsNullOrWhiteSpace(type.Accessibility) ? "public" : type.Accessibility;
+        var modifiers = new List<string> { accessibility };
+        if (type.IsStatic)
+            modifiers.Add("static");
+        else
+        {
+            if (type.IsAbstract && type.Kind == "class")
+                modifiers.Add("abstract");
+            if (type.IsSealed && type.Kind == "class")
+                modifiers.Add("sealed");
+            if (type.IsReadOnly && type.Kind == "struct")
+                modifiers.Add("readonly");
+            if (type.IsByRefLike && type.Kind == "struct")
+                modifiers.Add("ref");
+        }
+        modifiers.Add(type.Kind);
+        modifiers.Add(displayName);
+
+        var members = type.Members.Select(member =>
+        {
+            var documentationId = GetDocumentationId(type, member);
+            var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+            return new BrowserMemberSurface(
+                member.Name,
+                member.Kind,
+                member.Signature ?? member.Name,
+                member.MetadataToken,
+                member.SignatureModel?.ReturnType ?? member.ReturnType,
+                member.SignatureModel?.Parameters.Select(parameter => new BrowserParameterSurface(
+                    parameter.Name,
+                    parameter.Type,
+                    parameter.Modifier,
+                    parameter.HasDefault,
+                    parameter.DefaultValueText,
+                    null)).ToArray() ?? [],
+                documentationId,
+                null,
+                null,
+                [],
+                anchor.StableSelector,
+                anchor.Fingerprint,
+                anchor.CanonicalSignature);
+        }).ToArray();
+
+        return new BrowserTypeSurface(
+            type.FullName,
+            type.Name,
+            displayName,
+            type.Namespace ?? "",
+            string.Join(' ', modifiers.Skip(1).SkipLast(1)),
+            accessibility,
+            assembly,
+            members.Length,
+            string.Join(' ', modifiers),
+            members);
+    }
+
+    [JSExport]
+    public static async Task<string> QueryMemberDocumentation(
+        string packageId,
+        string version,
+        string framework,
+        string assemblyName,
+        string documentationId)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var bytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var documentation = LoadMemberDocumentation(
+            archive,
+            framework,
+            Path.GetFileNameWithoutExtension(assemblyName),
+            documentationId)
+            ?? new BrowserMemberDocumentation(null, null, new Dictionary<string, string>(), []);
+        return JsonSerializer.Serialize(
+            documentation,
+            BrowserJsonContext.Default.BrowserMemberDocumentation);
+    }
+
+    static BrowserMemberDocumentation? LoadMemberDocumentation(
+        ZipArchive archive,
+        string framework,
+        string assemblyName,
+        string documentationId)
+    {
+        var fileName = $"{assemblyName}.xml";
+        var entry = archive.Entries.FirstOrDefault(candidate =>
+            candidate.FullName.Equals($"lib/{framework}/{fileName}", StringComparison.OrdinalIgnoreCase))
+            ?? archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.Equals($"ref/{framework}/{fileName}", StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+            return null;
+
+        try
+        {
+            using var stream = entry.Open();
+            var document = XDocument.Load(stream, LoadOptions.None);
+            var element = document.Descendants("member").FirstOrDefault(candidate =>
+                candidate.Attribute("name")?.Value == documentationId);
+            return element is null
+                ? null
+                : new BrowserMemberDocumentation(
+                    FormatDocElement(element.Element("summary")),
+                    FormatDocElement(element.Element("returns")),
+                    element.Elements("param")
+                        .Where(parameter => parameter.Attribute("name") is not null)
+                        .ToDictionary(
+                            parameter => parameter.Attribute("name")!.Value,
+                            parameter => FormatDocElement(parameter) ?? "",
+                            StringComparer.Ordinal),
+                    element.Elements("exception")
+                        .Select(exception => new BrowserExceptionSurface(
+                            NormalizeDocReference(exception.Attribute("cref")?.Value),
+                            FormatDocElement(exception) ?? ""))
+                        .ToArray());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static string? GetDocumentationId(ApiType type, ApiMember member)
+    {
+        if (!ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity))
+            return null;
+        var key = identity.LookupKey;
+        if (identity.NormalizedParameters.Count > 0)
+            key += $"({string.Join(",", identity.NormalizedParameters)})";
+        if (identity.NormalizedReturnType is { Length: > 0 } returnType)
+            key += $"~{returnType}";
+        return key;
+    }
+
+    static string? FormatDocElement(XElement? element)
+    {
+        if (element is null)
+            return null;
+        var builder = new StringBuilder();
+        foreach (var node in element.Nodes())
+            AppendDocNode(builder, node);
+        return string.Join(
+            " ",
+            builder.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    static void AppendDocNode(StringBuilder builder, XNode node)
+    {
+        if (node is XText text)
+        {
+            builder.Append(text.Value);
+            return;
+        }
+        if (node is not XElement element)
+            return;
+        builder.Append(element.Name.LocalName switch
+        {
+            "see" => element.Attribute("langword")?.Value
+                ?? NormalizeDocReference(element.Attribute("cref")?.Value),
+            "paramref" or "typeparamref" => element.Attribute("name")?.Value,
+            _ => null
+        });
+        foreach (var child in element.Nodes())
+            AppendDocNode(builder, child);
+    }
+
+    static string NormalizeDocReference(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+            return "";
+        var value = reference.Length > 2 && reference[1] == ':' ? reference[2..] : reference;
+        return value.Replace('#', '.');
+    }
+
+}
