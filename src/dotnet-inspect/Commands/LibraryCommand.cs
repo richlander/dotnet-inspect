@@ -221,7 +221,7 @@ public class LibraryCommand
             if (selectResult.Sections.Overlaps(ILCoordinateSections)
                 && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
             {
-                if (!HasExactILCoordinateSelection(options.Select))
+                if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
                 {
                     var count = selectResult.Sections.Count;
                     selectResult.Sections.ExceptWith(ILCoordinateSections);
@@ -239,9 +239,10 @@ public class LibraryCommand
             {
                 // Same discipline as the IL coordinate sections above: reached through the
                 // @Metadata door the section is simply dropped, because a category selection is a
-                // request for whatever applies; named exactly it is an error, because the caller
-                // asked for a specific section that cannot exist without its coordinate.
-                if (!HasExactSelection(options.Select, MetadataSectionNames.Heap))
+                // request for whatever applies; reached by an exact name or compatible alias it is
+                // an error, because the caller asked for a specific section that cannot exist
+                // without its coordinate.
+                if (!selectResult.ExactSections.Contains(MetadataSectionNames.Heap))
                 {
                     removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
                 }
@@ -1118,27 +1119,6 @@ public class LibraryCommand
     private static bool HasHeapCoordinate(LibraryOptions options)
         => !string.IsNullOrWhiteSpace(options.HeapParameter);
 
-    /// <summary>
-    /// True when <paramref name="select"/> names <paramref name="section"/> exactly, as opposed to
-    /// reaching it through an <c>@Category</c>. The distinction decides whether a coordinate
-    /// section with no coordinate is an error or is simply dropped.
-    /// </summary>
-    private static bool HasExactSelection(string[]? select, string section)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (value.Trim().Equals(section, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
-
     private static LibraryOptions NormalizeReferenceProjection(LibraryOptions options)
     {
         if (options.Discover != null)
@@ -1302,23 +1282,6 @@ public class LibraryCommand
                 inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
                 return 0;
         }
-    }
-
-    private static bool HasExactILCoordinateSelection(string[]? select)
-    {
-        if (select is not { Length: > 0 })
-            return false;
-
-        foreach (var value in select)
-        {
-            if (value.StartsWith('@'))
-                continue;
-            if (ILCoordinateSections.Contains(value, StringComparer.OrdinalIgnoreCase)
-                || value.Equals("IL Offset", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
     }
 
     private static async Task<int> PopulateILOffsetIfRequestedAsync(
@@ -2186,7 +2149,6 @@ public class LibraryCommand
 
             emptySection ??= empty[0];
         }
-        if (emptySection is null)
         if (emptySection is null)
             return false;
 

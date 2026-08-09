@@ -10316,6 +10316,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_LegacyCoordinateAliasInMixedSelection_RequiresFlagParameter()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "Member Context,Library Info", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("IL coordinate sections require --il-offset", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_CoordinateWildcardInMixedSelection_IsOmitted()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json",
+            "-S", "Context: Mem*,Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Library Info", output);
+        Assert.DoesNotContain("## Context: Member", output);
+        Assert.DoesNotContain("IL coordinate sections require --il-offset", error);
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetDiscovery_IsCoordinateScoped()
     {
         var (withoutExit, withoutOutput, withoutError) = await RunAppAsync(
