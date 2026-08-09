@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -76,6 +77,51 @@ public sealed record RoundTripCompilationResult<TArtifact>(
 /// </summary>
 public static class RoundTripCompilationEngine
 {
+    sealed record FrozenReferenceContent(
+        string Path,
+        string Sha256,
+        Guid? ModuleVersionId);
+
+    static readonly ConditionalWeakTable<
+        MetadataReference,
+        FrozenReferenceContent> _frozenReferences = new();
+
+    /// <summary>
+    /// Creates a Roslyn reference and records provenance from the same image
+    /// rather than reopening <paramref name="path"/> during compilation.
+    /// </summary>
+    public static MetadataReference CreateFrozenReference(
+        byte[] image,
+        string path)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var content = ImmutableArray.Create(image);
+        Guid? mvid = null;
+        using (var pe = new PEReader(content))
+        {
+            if (!pe.HasMetadata)
+                throw new BadImageFormatException(
+                    "The selected image has no managed metadata.");
+            var reader = pe.GetMetadataReader();
+            mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        }
+
+        MetadataReference reference =
+            MetadataReference.CreateFromImage(
+                content,
+                filePath: path);
+        _frozenReferences.Add(
+            reference,
+            new FrozenReferenceContent(
+                Path.GetFullPath(path),
+                Convert.ToHexString(SHA256.HashData(image))
+                    .ToLowerInvariant(),
+                mvid));
+        return reference;
+    }
+
     public static RoundTripCompilationResult<TArtifact> Compile<TArtifact>(
         Func<TArtifact> compose,
         Func<TArtifact, string> source,
@@ -195,7 +241,15 @@ public static class RoundTripCompilationEngine
             string? hash = null;
             Guid? mvid = null;
             MetadataReference frozenReference = reference;
-            if (path is { Length: > 0 } && File.Exists(path))
+            if (_frozenReferences.TryGetValue(
+                    reference,
+                    out FrozenReferenceContent? content))
+            {
+                path = content.Path;
+                hash = content.Sha256;
+                mvid = content.ModuleVersionId;
+            }
+            else if (path is { Length: > 0 } && File.Exists(path))
             {
                 byte[] image = File.ReadAllBytes(path);
                 hash = Convert.ToHexString(SHA256.HashData(image)).ToLowerInvariant();
