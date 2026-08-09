@@ -15,7 +15,9 @@ public static class BodySlicer
     /// <para>
     /// Returns <see langword="null"/> when the index cannot vouch for the selected span, when the
     /// range maps to a type or namespace rather than an authored member declaration, or when a
-    /// constructor's flattened range does not identify a constructor at either boundary.
+    /// member shares a line boundary with its declaring type. A line-only span cannot remove the
+    /// type prefix or suffix without guessing. The method also returns <see langword="null"/> when
+    /// a constructor's flattened range does not identify a constructor at either boundary.
     /// Positional-record members, primary constructors, and constructors synthesized from field
     /// initializers can all have no declaration that this range can isolate.
     /// </para>
@@ -40,7 +42,7 @@ public static class BodySlicer
             ? FindConstructorAtRangeBoundary(index, startLine, endLine)
             : index.FindByLine(startLine);
 
-        if (row is null || IsTypeOrNamespace(row.Kind))
+        if (row is null || IsTypeOrNamespace(row.Kind) || SharesBoundaryWithParentType(index, row))
             return null;
 
         int from = row.SignatureStartLine - 1;
@@ -87,6 +89,16 @@ public static class BodySlicer
             || methodName.Equals("#ctor", StringComparison.OrdinalIgnoreCase)
             || methodName.Equals(".cctor", StringComparison.OrdinalIgnoreCase);
 
+    private static bool SharesBoundaryWithParentType(
+        DeclarationIndex index,
+        DeclarationSpan declaration)
+    {
+        var parent = index.ParentOf(declaration);
+        return parent is { IsType: true }
+            && (declaration.SignatureStartLine == parent.BodyStartLine
+                || declaration.EndLine == parent.EndLine);
+    }
+
     private static DeclarationSpan? FindConstructorAtRangeBoundary(
         DeclarationIndex index,
         int startLine,
@@ -113,6 +125,19 @@ public static class BodySlicer
             return null;
 
         var match = index.Declarations[matchIndex];
+        for (int i = 0; i < index.Declarations.Length; i++)
+        {
+            var declaration = index.Declarations[i];
+            if (i != matchIndex
+                && declaration.SpanKnown
+                && declaration.ParentIndex == match.ParentIndex
+                && (declaration.Contains(match.SignatureStartLine)
+                    || declaration.Contains(match.EndLine)))
+            {
+                return null;
+            }
+        }
+
         // A sibling type closing on the constructor's signature line leaves its "}" before the
         // constructor text. With line-only spans that prefix cannot be removed safely, so retain
         // the prior conservative absence for this shape.

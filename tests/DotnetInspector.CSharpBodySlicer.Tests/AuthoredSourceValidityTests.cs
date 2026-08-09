@@ -94,10 +94,25 @@ public class AuthoredSourceValidityTests
         return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
     }
 
+    private static bool ParsesAsTypeDeclaration(string text)
+    {
+        var tree = CSharpSyntaxTree.ParseText(
+            $"class __Shell {{\n{text}\n}}",
+            new CSharpParseOptions(LanguageVersion.Preview));
+        if (tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error))
+            return false;
+
+        var shell = tree.GetCompilationUnitRoot().Members.OfType<ClassDeclarationSyntax>().Single();
+        return shell.Members.FirstOrDefault() is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax;
+    }
+
     private static SliceOutcome Classify(string? text, string memberName = "")
     {
         if (text is null)
             return SliceOutcome.NotSliceable;
+
+        if (ParsesAsTypeDeclaration(text))
+            return SliceOutcome.TypeHeader;
 
         if (ParsesAsMember(text))
         {
@@ -334,14 +349,8 @@ public class AuthoredSourceValidityTests
     /// 0.42% and 0.10%, so the whole population could return before it failed.
     /// <para>
     /// Locating declarations over the index rather than recovering each boundary from the capture
-    /// is what emptied them. The non-empty not-sliceable population below is the control: the
-    /// defects cannot be traded away by refusing every slice.
-    /// </para>
-    /// <para>
-    /// Not-sliceable is asserted non-empty by
-    /// <see cref="MembersWithNoAuthoredDeclaration_ReportAbsentSource_NotATruncatedTypeHeader"/>,
-    /// so this test
-    /// cannot pass by slicing nothing.
+    /// is what emptied them. The successful-population floor below is the control: the defects
+    /// cannot be traded away by refusing every slice.
     /// </para>
     /// </summary>
     [Fact]
@@ -357,6 +366,9 @@ public class AuthoredSourceValidityTests
             "\n",
             counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
 
+        Assert.True(
+            Count(SliceOutcome.WellFormed) >= 2500,
+            $"only {Count(SliceOutcome.WellFormed)} well-formed slices remain; refusal has gutted the successful population:\n{summary}");
         Assert.True(Count(SliceOutcome.UnderCapture) == 0, $"under-capture returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
         Assert.True(Count(SliceOutcome.Malformed) == 0, $"malformed slices returned:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
         Assert.True(
@@ -619,12 +631,9 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// A constructor may share its line with anything that can precede it. Asking only about
-    /// the start of the line, and then only about the text after the line's first brace,
-    /// reported such constructors absent (adversarial review, MAI-Code and Gemini): a brace
-    /// inside a comment or a literal was taken for the type's, and an earlier member on the
-    /// line was never stepped over. A member begins at the start of the line or just past a
-    /// brace or semicolon, and every such position is now asked.
+    /// A constructor sharing the declaring type's opening or closing line cannot be isolated
+    /// from line-only evidence. Comments, literals, and earlier members make textual trimming
+    /// especially unsafe, so these shapes report absence rather than the enclosing type.
     /// </summary>
     [Theory]
     [InlineData("public class C { C() { } }")]
@@ -634,21 +643,23 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C { int X; C() { } }")]
     [InlineData("class C { string s = \"{\"; C() { } }")]
     [InlineData("public class C { void M() { } C() { } }")]
-    public void ConstructorRecovery_FindsAConstructorSharingItsLine(string header)
+    public void ConstructorSharingItsDeclaringTypesLine_ReportsAbsent(string header)
     {
-        Assert.Equal(header, BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
-    /// The type's block may open on a line below its header, and a constructor may follow it
-    /// on that same line.
+    /// Moving the type's opening brace below its header does not make a constructor on that same
+    /// line isolatable: the returned line would still begin with the type's brace.
     /// </summary>
     [Fact]
-    public void ConstructorRecovery_FindsAConstructorAfterAnOpeningBraceBelowTheHeader()
+    public void ConstructorAfterItsDeclaringTypesOpeningBrace_ReportsAbsent()
     {
-        Assert.Equal(
-            "{ C() { } }",
-            BodySlicer.ExtractMethodBody("class C\n{ C() { } }", startLine: 2, endLine: 2, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(
+            "class C\n{ C() { } }",
+            startLine: 2,
+            endLine: 2,
+            methodName: ".ctor"));
     }
 
     /// <summary>
@@ -722,13 +733,17 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Retiring a closed type must not retire the one that declares the target. A type whose
-    /// body opens and closes on the constructor's own line still encloses it.
+    /// A constructor that shares both boundaries with its declaring type cannot be isolated from
+    /// line-only evidence. Returning the row would return the whole type as constructor source.
     /// </summary>
     [Fact]
-    public void ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine()
+    public void ConstructorSharingBothTypeBoundaries_ReportsAbsent()
     {
-        Assert.Equal("class C { C() { } }", BodySlicer.ExtractMethodBody("class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(
+            "class C { C() { } }",
+            startLine: 1,
+            endLine: 1,
+            methodName: ".ctor"));
     }
 
     /// <summary>
@@ -905,19 +920,16 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Characterization, and a limit of the design rather than a defect in it. Spans are
-    /// line-granular, matching the PDB sequence points that drive selection, so when a type and
-    /// every member it declares share one line there is no span that distinguishes them and a
-    /// real constructor request returns that line. An initializer-only range is deliberately not
-    /// included: constructor identity now rejects a field or property row even when it shares the
-    /// line, because well-formed unrelated source is worse than honest absence.
+    /// Spans are line-granular, matching the PDB sequence points that drive selection. When a type
+    /// and every member it declares share one line there is no span that distinguishes them, so
+    /// honest absence is safer than returning the enclosing type as constructor source.
     /// </summary>
     [Theory]
     [InlineData("public class C { class D { D() { } } }")]
     [InlineData("class A { } class B { B() { } }")]
-    public void EverythingOnOneLine_SlicesThatLine(string source)
+    public void EverythingOnOneLine_ReportsAbsent(string source)
     {
-        Assert.Equal(source, BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>

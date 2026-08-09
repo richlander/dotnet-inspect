@@ -1070,6 +1070,33 @@ public class DeclarationIndexTests
     }
 
     /// <summary>
+    /// A conditional attribute can attach to an unconditional declaration, making that
+    /// declaration's attribute set unknown. Its unconditional terminator still consumes the
+    /// complete declaration in every build, so the next header starts clean.
+    /// </summary>
+    [Fact]
+    public void AConditionalAttributeConsumedByAnUnconditionalDeclaration_DoesNotPoisonTheFollowingRow()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+            #if FEATURE
+                [Obsolete]
+            #endif
+                int Field;
+                void Always() { }
+            }
+            """);
+
+        var field = Assert.Single(index.Declarations, row => row.Name == "Field");
+        Assert.False(field.SpanKnown);
+
+        var always = Assert.Single(index.Declarations, row => row.Name == "Always");
+        Assert.True(always.SpanKnown);
+        Assert.Equal(always, index.FindByLine(7));
+    }
+
+    /// <summary>
     /// The positive case above is safe only when the attribute and declaration are consumed
     /// together. If another branch consumes the attribute, one build still carries it to the
     /// declaration after <c>#endif</c>, so that declaration must remain unknown.

@@ -219,7 +219,7 @@ internal static class DeclarationIndexBuilder
             triviaKnown = true;
 
             if (terminator.DepthKnown)
-                headerKnown = !crossesABranch;
+                headerKnown = true;
             else
                 headerKnown &= !crossesABranch;
 

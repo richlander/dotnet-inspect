@@ -400,6 +400,23 @@ public class ExtractMethodBodyTests
     }
 
     /// <summary>
+    /// Line-only spans cannot remove a declaring type's prefix or suffix when a member shares the
+    /// type's opening or closing line. Returning the row would present the whole or a fragment of
+    /// the type as the member's authored source.
+    /// </summary>
+    [Theory]
+    [InlineData("class C { void M() { } }", 1, 1)]
+    [InlineData("class C { void M()\n{\n}\n}", 2, 3)]
+    [InlineData("class C\n{\nvoid M()\n{ } }", 3, 4)]
+    public void MemberSharingATypeBoundaryLine_ReportsAbsent(
+        string source,
+        int startLine,
+        int endLine)
+    {
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine, endLine, "M"));
+    }
+
+    /// <summary>
     /// A block-bodied property's accessor has no declaration of its own, so its sequence points
     /// select the property — and the whole property is what gets sliced.
     /// <para>
@@ -1325,6 +1342,23 @@ public class ExtractMethodBodyTests
             "}");                                       // 8
 
         Assert.Null(BodySlicer.ExtractMethodBody(source, 3, 7, ".ctor"));
+    }
+
+    /// <summary>
+    /// A primary constructor range can end on an initializer that shares its line with a
+    /// secondary constructor. The line identifies both declarations, so the secondary
+    /// constructor is not evidence for the primary constructor request.
+    /// </summary>
+    [Fact]
+    public void PrimaryConstructorRangeEndingOnAnotherConstructorLine_ReportsAbsent()
+    {
+        var source = Lines(
+            "class C(int value)",                       // 1  <- StartLine
+            "{",                                        // 2
+            "    int Field = value; C() : this(0) { }", // 3  <- EndLine
+            "}");                                       // 4
+
+        Assert.Null(BodySlicer.ExtractMethodBody(source, 1, 3, ".ctor"));
     }
 
     /// <summary>
