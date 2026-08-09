@@ -480,6 +480,21 @@ public partial class CommandExecutionTests
         Assert.Equal(2, rows.Length - 1);
     }
 
+    [Fact]
+    public async Task MetadataLens_PlainTextHonorsRowWindow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: AssemblyRef",
+            "--plaintext", "--rows", "1..2", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Metadata: AssemblyRef", output, StringComparison.Ordinal);
+        int dataRows = output.Split('\n')
+            .Count(line => line.TrimStart().StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.Equal(2, dataRows);
+    }
+
     /// <summary>
     /// A column name absent from the schema is rejected rather than silently ignored, and the
     /// remedy the error names resolves to a real column list.
