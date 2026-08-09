@@ -25,12 +25,18 @@ namespace DotnetInspector.Views;
 [MarkoutSerializable(TitleProperty = nameof(Name))]
 public class AggregatedSectionView
 {
+    private string _name = "";
+
     /// <summary>
     /// The section heading. Ignored as a field so it drives only the heading rather than also
     /// appearing as a row.
     /// </summary>
     [MarkoutIgnore]
-    public string Name { get; set; } = "";
+    public string Name
+    {
+        get => LibraryViewText.Contain(_name);
+        set => _name = value;
+    }
 
     /// <summary>The pooled rows. Ignored in table context because a shape cannot be a cell.</summary>
     [MarkoutIgnoreInTable]
