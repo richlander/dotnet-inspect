@@ -17,7 +17,7 @@ namespace ILInspector.Metadata;
 /// This guard walks the blob *iteratively* (an explicit heap work-stack, never the native stack),
 /// computing the maximum type-nesting depth, and reports whether it exceeds a safe limit or leaves
 /// unconsumed bytes so the caller can fail closed with an explicit rejection instead of crashing
-/// or accepting two byte-distinct malformed signatures as the same shape.
+/// or accepting an unrecognized trailing suffix as part of the same shape.
 /// A raw blob-length cap is deliberately avoided: a legitimately <i>wide</i> method signature (many
 /// parameters or generic arguments) is long but structurally shallow, so length would false-reject
 /// real code. Depth does not.
@@ -108,6 +108,16 @@ public static class SignatureBlobGuard
                     if (SkipArrayShape(ref blob))
                         return true;
                     break;
+
+                case Op.EndMethod:
+                    if (item.AllowsTrailingSentinel
+                        && blob.RemainingBytes > 0)
+                    {
+                        int offset = blob.Offset;
+                        if (blob.ReadByte() != ElementTypeSentinel)
+                            blob.Offset = offset;
+                    }
+                    break;
             }
         }
 
@@ -149,27 +159,40 @@ public static class SignatureBlobGuard
             }
 
             case Kind.Method:
-                return SeedMethodRoots(ref blob, work, depth: 1);
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth: 1,
+                    allowTerminalSentinel: true);
 
             default:
                 return false;
         }
     }
 
-    static bool SeedMethodRoots(ref BlobReader blob, Stack<WorkItem> work, int depth)
+    static bool SeedMethodRoots(
+        ref BlobReader blob,
+        Stack<WorkItem> work,
+        int depth,
+        bool allowTerminalSentinel)
     {
         var header = blob.ReadSignatureHeader();
         if (header.IsGeneric)
             blob.ReadCompressedInteger(); // generic parameter count
         int paramCount = blob.ReadCompressedInteger();
         // Return type + each parameter are Type slots (leading modifiers / by-ref / typedbyref /
-        // sentinel are handled inside ReadType). Ordering among siblings does not affect the maximum
-        // depth. Bound paramCount + 1 (the return type) against the remaining blob before pushing.
+        // sentinel are handled inside ReadType). An empty optional vararg partition is encoded by a
+        // terminal sentinel, so retain the method boundary to consume that marker without treating
+        // arbitrary trailing bytes as part of the signature.
         if (paramCount < 0 || (long)paramCount + 1 > blob.RemainingBytes)
             return true;
-        work.Push(WorkItem.Type(depth)); // return type
+        work.Push(WorkItem.EndMethod(
+            allowTerminalSentinel
+                && AllowsTerminalSentinel(
+                    header.CallingConvention)));
         for (int i = 0; i < paramCount; i++)
             work.Push(WorkItem.Type(depth));
+        work.Push(WorkItem.Type(depth)); // return type
         return false;
     }
 
@@ -218,7 +241,11 @@ public static class SignatureBlobGuard
 
             case ElementTypeFnPtr:
                 // FNPTR MethodSig: its return type and parameters are the children.
-                return SeedMethodRoots(ref blob, work, depth + 1);
+                return SeedMethodRoots(
+                    ref blob,
+                    work,
+                    depth + 1,
+                    allowTerminalSentinel: false);
 
             case ElementTypeClass:
             case ElementTypeValueType:
@@ -235,7 +262,17 @@ public static class SignatureBlobGuard
                 // a leaf that consumes no further bytes here.
                 return false;
         }
+
     }
+
+    static bool AllowsTerminalSentinel(
+        SignatureCallingConvention callingConvention)
+        => callingConvention
+            is SignatureCallingConvention.CDecl
+            or SignatureCallingConvention.StdCall
+            or SignatureCallingConvention.ThisCall
+            or SignatureCallingConvention.FastCall
+            or SignatureCallingConvention.VarArgs;
 
     /// <summary>Skips an ArrayShape (rank, sizes, lower bounds). Returns true (unsafe) if either
     /// count exceeds the remaining blob: SRM's array decoder pre-allocates a builder from these
@@ -274,14 +311,29 @@ public static class SignatureBlobGuard
     const byte ElementTypeSentinel = 0x41;    // ELEMENT_TYPE_SENTINEL
     const byte ElementTypePinned = 0x45;      // ELEMENT_TYPE_PINNED
 
-    enum Op : byte { Type, ArrayShape }
+    enum Op : byte { Type, ArrayShape, EndMethod }
 
     readonly struct WorkItem
     {
         public Op Op { get; }
         public int Depth { get; }
-        WorkItem(Op op, int depth) { Op = op; Depth = depth; }
+        public bool AllowsTrailingSentinel { get; }
+        WorkItem(
+            Op op,
+            int depth,
+            bool allowsTrailingSentinel = false)
+        {
+            Op = op;
+            Depth = depth;
+            AllowsTrailingSentinel = allowsTrailingSentinel;
+        }
         public static WorkItem Type(int depth) => new(Op.Type, depth);
         public static WorkItem ArrayShape() => new(Op.ArrayShape, 0);
+        public static WorkItem EndMethod(
+            bool allowsTrailingSentinel)
+            => new(
+                Op.EndMethod,
+                0,
+                allowsTrailingSentinel);
     }
 }
