@@ -168,7 +168,8 @@ public class LibraryBodyIndexTests
             string namedPath = Path.Combine(frameworkDir, referencedName + ".dll");
 
             // Only a TypeRef whose named assembly forwards rather than defines exercises the hop.
-            if (!File.Exists(namedPath) || !TypeForwardResolver.ForwardsType(namedPath, fullTypeName))
+            if (!File.Exists(namedPath)
+                || !AssemblyForwardsType(namedPath, ns, name))
                 continue;
 
             var definition = builder.TryResolveExternalTypeDefinition(handle);
@@ -198,7 +199,7 @@ public class LibraryBodyIndexTests
         string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         string facade = Path.Combine(frameworkDir, "netstandard.dll");
         Assert.True(File.Exists(facade));
-        Assert.True(TypeForwardResolver.ForwardsType(facade, "System.Object"));
+        Assert.True(AssemblyForwardsType(facade, "System", "Object"));
 
         string targetPath = typeof(Console).Assembly.Location;
         using var stream = File.OpenRead(targetPath);
@@ -263,9 +264,9 @@ public class LibraryBodyIndexTests
 
     /// <summary>
     /// A chain that starts Platform-scoped stays Platform-scoped for every hop. This gates the
-    /// non-downgrade half of <see cref="LibraryBodyIndex.IndexBuilder.NextHopScope"/> against a
-    /// real framework forwarder chain; it does NOT gate tightening, because a framework TypeRef
-    /// makes <c>ScopeForReference</c> return Platform at hop 0 and the chain never starts at Any.
+    /// structured resolution engine's non-downgrade rule against a real framework forwarder
+    /// chain; it does NOT gate tightening, because a framework TypeRef starts at Platform and
+    /// the chain never begins at Any.
     /// <see cref="ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope"/> is the
     /// tightening gate.
     /// </summary>
@@ -297,9 +298,8 @@ public class LibraryBodyIndexTests
     }
 
     /// <summary>
-    /// The tightening gate, and the only test that fails if the <c>scope = NextHopScope(...)</c>
-    /// call is deleted from the forwarder loop: the unit tests below cover the function in
-    /// isolation and would all still pass with the wiring removed.
+    /// The tightening gate: the unit tests for scope classification would still pass if the
+    /// structured resolution engine stopped applying the forwarded target's scope at the hop.
     ///
     /// The chain is synthetic because no natural artifact pairs an Any-scoped TypeRef with a
     /// framework-signed forwarder target -- a real framework TypeRef is already Platform at hop 0.
@@ -389,6 +389,26 @@ public class LibraryBodyIndexTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    static bool AssemblyForwardsType(
+        string path,
+        string @namespace,
+        string name)
+    {
+        MetadataTypeDefinitionName structuredName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [name]))
+            .Name;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return peReader.HasMetadata
+            && MetadataTypeDeclarationProbe.Probe(
+                peReader.GetMetadataReader(),
+                structuredName)
+            is TypeDeclarationResult.Forwarded;
     }
 
     /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
