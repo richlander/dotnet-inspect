@@ -60,6 +60,15 @@ internal static class SourceEnricher
         ApiType apiType, string typeName, string dllPath,
         ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
+        // Documentation enrichment keeps platform targets local; direct source-info callers have
+        // explicitly authorized PDB acquisition and must not be redirected to XML docs.
+        if (!string.IsNullOrEmpty(options.PlatformAssembly)
+            && (options.UseLocalDocs || options.ShowDocs))
+        {
+            EnrichFromXmlDocFile(apiType, typeName, options, logger);
+            return;
+        }
+
         if (options.ShowSamples || options.Verbosity >= Verbosity.Detailed)
             await EnrichTypeWithSourceInfoAsync(apiType, typeName, dllPath, options, logger, httpClient);
         else if (options.ShowDocs && options.Verbosity >= Verbosity.Normal)
@@ -99,12 +108,6 @@ internal static class SourceEnricher
 
     internal static async Task EnrichTypeWithSourceInfoAsync(ApiType apiType, string typeName, string dllPath, ApiOptions options, VerboseLogger logger, HttpClient httpClient)
     {
-        if (!string.IsNullOrEmpty(options.PlatformAssembly) && (options.UseLocalDocs || options.ShowDocs))
-        {
-            EnrichFromXmlDocFile(apiType, typeName, options, logger);
-            return;
-        }
-
         try
         {
             using var service = SourceLinkService.Open(dllPath, logger.Log);
