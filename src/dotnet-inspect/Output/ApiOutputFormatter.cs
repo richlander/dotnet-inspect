@@ -366,7 +366,8 @@ public static class ApiOutputFormatter
             var writer = new MarkoutWriter(Console.Out, new MarkdownFormatter());
             writer.WriteTree([.. view.Members]);
         }
-        else if (kindFilter?.Count > 0 || memberFilter.Count > 0)
+        else if ((kindFilter?.Count > 0 || memberFilter.Count > 0)
+                 && memberLimit is null or > 0)
         {
             var filterDesc = kindFilter?.Count > 0
                 ? string.Join(", ", kindFilter)
@@ -549,7 +550,7 @@ public static class ApiOutputFormatter
         List<TreeNode> nodes = [];
 
         // Group members by kind
-        bool hasMemberNodes = false;
+        bool filtersMatchedMembers = false;
         if (type.Members.Count > 0)
         {
             var members = type.Members.Where(m => !IsCompilerGenerated(m.Name));
@@ -565,17 +566,24 @@ public static class ApiOutputFormatter
             }
 
             var memberList = members.ToList();
+            filtersMatchedMembers = memberList.Count > 0;
             if (memberLimit.HasValue)
             {
                 var displayEntries = memberList
                     .GroupBy(m => m.Kind)
                     .OrderBy(g => GetTreeKindOrder(g.Key))
                     .SelectMany(group =>
-                        expandOverloads || !IsOverloadGroupedKind(group.Key)
+                        !IsOverloadGroupedKind(group.Key)
                             ? group
                                 .OrderBy(m => m.Name, StringComparer.Ordinal)
-                                .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                                 .Select(member => new List<ApiMember> { member })
+                            : expandOverloads
+                                ? group
+                                    .GroupBy(m => m.Name)
+                                    .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
+                                    .SelectMany(overloads => overloads
+                                        .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
+                                        .Select(member => new List<ApiMember> { member }))
                             : group
                                 .GroupBy(m => m.Name)
                                 .OrderBy(g => OperatorNames.FormatDisplayName(g.Key), StringComparer.Ordinal)
@@ -597,8 +605,6 @@ public static class ApiOutputFormatter
                 .GroupBy(m => m.Kind)
                 .OrderBy(g => GetTreeKindOrder(g.Key))
                 .ToList();
-
-            hasMemberNodes = membersByKind.Count > 0;
 
             foreach (var group in membersByKind)
             {
@@ -700,7 +706,7 @@ public static class ApiOutputFormatter
         }
 
         // Structural nodes (suppress when a filter is active but matched nothing)
-        if (!hasFilter || hasMemberNodes)
+        if (!hasFilter || filtersMatchedMembers)
         {
             // Inheritance
             if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")

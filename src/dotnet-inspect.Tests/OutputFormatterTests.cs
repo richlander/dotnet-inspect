@@ -838,6 +838,34 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void BuildShapeView_ExpandedOperatorLimitUsesDisplayOrder()
+    {
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "operator", Name = "op_Addition", Signature = "Widget op_Addition(Widget left, Widget right)" },
+                new() { Kind = "operator", Name = "op_Explicit", Signature = "Widget op_Explicit(int value)" },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: [],
+            verbosity: Verbosity.Normal,
+            memberLimit: 1);
+
+        var operators = Assert.Single(view.Members);
+        var child = Assert.Single(operators.Children!);
+        Assert.Equal("Widget op_Explicit(int value)", child.Text);
+    }
+
+    [Fact]
     public void GetMemberSignatureSortKey_StripsMethodGenericListOnly()
     {
         var member = new ApiMember

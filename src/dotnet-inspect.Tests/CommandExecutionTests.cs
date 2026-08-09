@@ -1858,6 +1858,44 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_ZeroMemberLimitKeepsStructuralShape()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            BaseType = "Example.Base",
+            Members =
+            [
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            KindFilter = ["method"],
+            Limit = 0
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Inherits", output);
+        Assert.Contains("Example.Base", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
