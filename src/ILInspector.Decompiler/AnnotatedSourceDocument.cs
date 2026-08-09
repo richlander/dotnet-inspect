@@ -3,43 +3,217 @@ using ILInspector.Decompiler.Annotations;
 namespace ILInspector.Decompiler;
 
 /// <summary>
-/// One span of text structure in an <see cref="AnnotatedSourceDocument"/>'s
-/// coordinate space.
+/// One contiguous run of characters in an <see cref="AnnotatedSourceDocument"/>'s
+/// text buffer.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Coordinates are <em>absolute</em> and end-exclusive: <c>[Start, Start + Length)</c>
+/// indexes <see cref="AnnotatedSourceDocument.Text"/> directly, with no line or
+/// column indirection and no medium-local rebasing. This is the same currency a
+/// text editor or compiler uses over a text buffer — Roslyn's <c>TextSpan</c>
+/// over <c>SourceText</c> — and it is the document's only coordinate system.
+/// </para>
+/// <para>
+/// The unit is the UTF-16 code unit, counted over the <em>decoded</em> text. A
+/// transport that escapes the text — JSON's <c>\n</c> or <c>\uXXXX</c> — changes
+/// the bytes on the wire, not the coordinates: a consumer applies these offsets
+/// after deserialization, to the .NET or JavaScript string it decoded, where one
+/// code unit is one index. The text itself is well-formed UTF-16, so no offset
+/// can land inside a code unit that failed to survive the encode; a malformed
+/// producer value arrives already contained as a visible ASCII <c>\uXXXX</c>
+/// spelling, which these coordinates address like any other characters.
+/// </para>
+/// </remarks>
+/// <param name="Start">0-based index of the span's first UTF-16 code unit in the document text.</param>
+/// <param name="Length">The span's length in UTF-16 code units. Always positive in a validated document; a coordinate that selects nothing is not recorded.</param>
+public readonly record struct AnnotatedSourceSpan(int Start, int Length);
+
+/// <summary>
+/// One piece of text structure in an <see cref="AnnotatedSourceDocument"/>,
+/// named by the characters it occupies.
+/// </summary>
+/// <remarks>
+/// <para>
 /// A node is text structure, not an observation: it says "these characters are a
 /// <c>NewObject</c>", and it exists whether or not any fact was ever found about
 /// it. That independence is the point of the separate list — the same shape
-/// carries C# syntax today and is the slot future producers fill with original
-/// source syntax, comments, XML documentation, and SourceLink or lexer-derived
-/// spans, none of which are facts.
+/// carries C# syntax and IL instructions today, and is the slot future producers
+/// fill with original source syntax, comments, XML documentation, and SourceLink
+/// or lexer-derived spans, none of which are facts.
+/// </para>
+/// <para>
+/// <see cref="Spans"/> is a list rather than a single span because the document
+/// text interleaves two media. A C# construct printed across several lines with
+/// IL woven between them is <em>discontinuous</em> in the rendered text, so its
+/// exact characters are a set of runs; a single span would either understate the
+/// construct or swallow the IL printed inside it.
+/// </para>
+/// <para>
+/// One kind is reserved: <see cref="Kind"/> is <see cref="InstructionKind"/>
+/// exactly when the node is <see cref="SourceLineKind.Il"/> text carrying the
+/// <see cref="IlOffset"/> it disassembles. The constructor enforces both
+/// directions, so a structural IL node — a block, say — keeps a null offset and
+/// a different kind, and neither a C# node nor an offsetless node can claim to
+/// be an instruction a fact could be anchored to.
+/// </para>
 /// </remarks>
-/// <param name="Id">This node's identity within its document: contiguous from <c>0</c> in list order.</param>
-/// <param name="Kind">The structure kind these characters are, e.g. <c>NewObject</c>.</param>
-/// <param name="Medium">The language these characters belong to. Every node produced today is <see cref="SourceLineKind.CSharp"/>; the field is explicit so an original-source or lexer producer can add nodes in another medium without a shape change.</param>
-/// <param name="Extent">
-/// The exact characters, in <em>medium-local</em> line coordinates: line numbers
-/// index the document's <see cref="AnnotatedSourceDocument.Lines"/> filtered to
-/// <paramref name="Medium"/>, in order, not the interleaved stream. A contiguous
-/// C# extent therefore stays exact even where IL lines are interleaved through
-/// it, which rebasing into stream coordinates would not — a two-line C# node
-/// would silently enclose every IL line printed between those two lines.
-/// </param>
-public readonly record struct AnnotatedSourceNode(
-    int Id,
-    string Kind,
-    SourceLineKind Medium,
-    PrintedExtent Extent);
+public sealed record AnnotatedSourceNode
+{
+    /// <summary>
+    /// The kind every exact-offset IL instruction node carries, and no other node
+    /// may: <c>Kind == "Instruction"</c> holds exactly when the node is
+    /// <see cref="SourceLineKind.Il"/> text with a non-null <see cref="IlOffset"/>.
+    /// </summary>
+    public const string InstructionKind = "Instruction";
+
+    /// <summary>Creates one node of text structure.</summary>
+    /// <param name="Id">This node's identity within its document: contiguous from <c>0</c> in list order.</param>
+    /// <param name="Kind">The structure kind these characters are, e.g. <c>NewObject</c> for C# or <see cref="InstructionKind"/> for IL.</param>
+    /// <param name="Medium">The language these characters belong to.</param>
+    /// <param name="Spans">The node's exact characters: one or more absolute spans, in increasing order and never overlapping. More than one means the node is discontinuous in the rendered text.</param>
+    /// <param name="IlOffset">The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <paramref name="Kind"/> is <see cref="InstructionKind"/>.</param>
+    public AnnotatedSourceNode(
+        int Id,
+        string Kind,
+        SourceLineKind Medium,
+        IReadOnlyList<AnnotatedSourceSpan> Spans,
+        int? IlOffset = null)
+    {
+        ArgumentNullException.ThrowIfNull(Kind);
+        ArgumentNullException.ThrowIfNull(Spans);
+        ArgumentOutOfRangeException.ThrowIfNegative(Id);
+        if (!Enum.IsDefined(Medium))
+            throw new ArgumentException($"Unknown node medium: {Medium}.", nameof(Medium));
+        if (IlOffset is { } offset)
+            ArgumentOutOfRangeException.ThrowIfNegative(offset, nameof(IlOffset));
+
+        // "Instruction" is not a label a producer picks: it is the claim that
+        // these characters disassemble one IL instruction, so it holds exactly
+        // when the node is IL text carrying that instruction's offset. Enforcing
+        // both directions is what lets a consumer -- and target validation --
+        // read either the kind or the offset and trust the other.
+        bool instruction = string.Equals(Kind, InstructionKind, StringComparison.Ordinal);
+        if (instruction && Medium != SourceLineKind.Il)
+        {
+            throw new ArgumentException(
+                $"Node {Id} is {Medium}, so it cannot be an {InstructionKind}; only IL text disassembles an instruction.",
+                nameof(Medium));
+        }
+        if (instruction && IlOffset is null)
+        {
+            throw new ArgumentException(
+                $"Node {Id} is an {InstructionKind}, so it must carry the IL offset it disassembles.",
+                nameof(IlOffset));
+        }
+        if (!instruction && IlOffset is not null)
+        {
+            throw new ArgumentException(
+                $"Node {Id} is {Kind}, not an {InstructionKind}, so it cannot carry an IL offset.",
+                nameof(IlOffset));
+        }
+
+        this.Id = Id;
+        this.Kind = Kind;
+        this.Medium = Medium;
+        this.Spans = AnnotatedSourceSpans.Snapshot(Spans, nameof(Spans));
+        this.IlOffset = IlOffset;
+    }
+
+    /// <summary>This node's identity within its document: contiguous from <c>0</c> in list order.</summary>
+    public int Id { get; }
+
+    /// <summary>The structure kind these characters are, e.g. <c>NewObject</c> for C# or <see cref="InstructionKind"/> for IL.</summary>
+    public string Kind { get; }
+
+    /// <summary>The language these characters belong to.</summary>
+    public SourceLineKind Medium { get; }
+
+    /// <summary>The node's exact characters, as absolute spans in increasing, non-overlapping order.</summary>
+    public IReadOnlyList<AnnotatedSourceSpan> Spans { get; }
+
+    /// <summary>The IL offset these characters disassemble, or <see langword="null"/> when the node is not an IL instruction. Non-null exactly on <see cref="SourceLineKind.Il"/> nodes whose <see cref="Kind"/> is <see cref="InstructionKind"/>.</summary>
+    public int? IlOffset { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceNode? other)
+        => other is not null
+            && Id == other.Id
+            && Kind == other.Kind
+            && Medium == other.Medium
+            && IlOffset == other.IlOffset
+            && Spans.SequenceEqual(other.Spans);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Id);
+        hash.Add(Kind);
+        hash.Add(Medium);
+        hash.Add(IlOffset);
+        foreach (var span in Spans)
+            hash.Add(span);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// A named syntactic part of a compound construct, named by the characters it
+/// occupies.
+/// </summary>
+/// <remarks>
+/// Regions stay a separate plane from <see cref="AnnotatedSourceNode"/> because a
+/// region names a <em>part</em> of a construct — its header, its body, an
+/// <c>else</c> clause — rather than a thing a fact is ever stated about. They
+/// carry the same absolute span currency, so both planes are resolved against
+/// <see cref="AnnotatedSourceDocument.Text"/> the same way.
+/// </remarks>
+public sealed record AnnotatedSourceRegion
+{
+    /// <summary>Creates one named region.</summary>
+    /// <param name="Role">The region's role within its enclosing construct.</param>
+    /// <param name="Spans">The region's exact characters: one or more absolute spans, in increasing order and never overlapping.</param>
+    public AnnotatedSourceRegion(PrintedRegionRole Role, IReadOnlyList<AnnotatedSourceSpan> Spans)
+    {
+        ArgumentNullException.ThrowIfNull(Spans);
+        if (!Enum.IsDefined(Role))
+            throw new ArgumentException($"Unknown printed region role: {Role}.", nameof(Role));
+
+        this.Role = Role;
+        this.Spans = AnnotatedSourceSpans.Snapshot(Spans, nameof(Spans));
+    }
+
+    /// <summary>The region's role within its enclosing construct.</summary>
+    public PrintedRegionRole Role { get; }
+
+    /// <summary>The region's exact characters, as absolute spans in increasing, non-overlapping order.</summary>
+    public IReadOnlyList<AnnotatedSourceSpan> Spans { get; }
+
+    /// <inheritdoc/>
+    public bool Equals(AnnotatedSourceRegion? other)
+        => other is not null && Role == other.Role && Spans.SequenceEqual(other.Spans);
+
+    /// <inheritdoc/>
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Role);
+        foreach (var span in Spans)
+            hash.Add(span);
+        return hash.ToHashCode();
+    }
+}
 
 /// <summary>Which plane of the member a fact was observed on.</summary>
 public enum AnnotatedSourceFactOrigin
 {
-    /// <summary>Observed about the member's body, so a body placement is possible in principle.</summary>
+    /// <summary>Observed about the member's body, so targeting a node is possible in principle.</summary>
     Body,
 
     /// <summary>
     /// Observed about the member as a whole rather than any part of its body,
-    /// so it has no body placement by definition.
+    /// so it targets nothing by definition.
     /// </summary>
     MemberHeader,
 }
@@ -50,8 +224,8 @@ public enum AnnotatedSourceFactOrigin
 /// </summary>
 /// <remarks>
 /// A fact carries no coordinates. Where it is shown is the separate concern of
-/// <see cref="AnnotatedSourcePlacement"/>, which is what lets a single fact be
-/// placed on a C# node <em>and</em> its exact-offset IL line without the payload
+/// <see cref="AnnotatedSourceTarget"/>, which is what lets a single fact target a
+/// C# node <em>and</em> its exact-offset IL instruction node without the payload
 /// stating it twice and leaving a consumer to guess whether the two rows are one
 /// observation or two.
 /// </remarks>
@@ -71,233 +245,220 @@ public readonly record struct AnnotatedSourceFact(
     int SourceOffset,
     AnnotatedSourceFactOrigin Origin);
 
-/// <summary>What an <see cref="AnnotatedSourcePlacement"/> points at.</summary>
-public enum AnnotatedSourcePlacementTarget
-{
-    /// <summary>An <see cref="AnnotatedSourceNode"/>, named by its id.</summary>
-    Node,
-
-    /// <summary>An <see cref="AnnotatedSourceLine"/>, named by its id.</summary>
-    Line,
-
-    /// <summary>Nothing: the fact is real but no medium emitted a place to show it.</summary>
-    Unplaced,
-}
-
 /// <summary>
-/// One place a fact can be shown: the join between a semantic observation and
-/// the text structure it is about.
-/// </summary>
-/// <param name="FactId">The <see cref="AnnotatedSourceFact.Id"/> being placed.</param>
-/// <param name="Target">Which kind of thing <paramref name="TargetId"/> names.</param>
-/// <param name="TargetId">
-/// The <see cref="AnnotatedSourceNode.Id"/> or <see cref="AnnotatedSourceLine.Id"/>
-/// this placement points at, or <see langword="null"/> for
-/// <see cref="AnnotatedSourcePlacementTarget.Unplaced"/>.
-/// </param>
-public readonly record struct AnnotatedSourcePlacement(
-    int FactId,
-    AnnotatedSourcePlacementTarget Target,
-    int? TargetId);
-
-/// <summary>
-/// Portable annotated source for one member: an interleaved C#/IL line stream,
-/// the text structure over it, the facts observed about it, and where each fact
-/// can be shown.
+/// The join between a semantic observation and the text structure it is about.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The document is normalized on explicit, payload-scoped integer ids.
-/// <see cref="Lines"/>, <see cref="Nodes"/>, and <see cref="Facts"/> each number
-/// their rows contiguously from <c>0</c> in list order, and
-/// <see cref="Placements"/> is the only place the three planes meet. Nothing is
-/// joined by re-matching coordinates or comparing repeated text, so a fact that
-/// appears on both a C# node and an IL line is one row in <see cref="Facts"/>
-/// with two rows in <see cref="Placements"/> — unambiguously one observation.
-/// The ids mean nothing outside the document that minted them.
+/// This is the <em>only</em> join in the document, and it has exactly one shape:
+/// fact → node. Reaching text from a fact is therefore always the same walk —
+/// target, then <see cref="AnnotatedSourceNode.Spans"/>, then
+/// <see cref="AnnotatedSourceDocument.Text"/> — with no polymorphic target kind
+/// to switch on and no second coordinate space to reconcile.
+/// </para>
+/// <para>
+/// A fact with no target is an ordinary, explicitly unanchored fact rather than a
+/// missing row: nothing in the text was the right thing to point at.
+/// </para>
+/// </remarks>
+/// <param name="FactId">The <see cref="AnnotatedSourceFact.Id"/> being anchored.</param>
+/// <param name="NodeId">The <see cref="AnnotatedSourceNode.Id"/> it is anchored to.</param>
+public readonly record struct AnnotatedSourceTarget(int FactId, int NodeId);
+
+/// <summary>
+/// Portable annotated source for one member: the rendered text, the structure
+/// over it, the facts observed about it, and which structure each fact is about.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The document is a <em>text buffer</em> plus overlays, the way an editor or a
+/// compiler models a file. <see cref="Text"/> is the canonical artifact: the
+/// exact interleaved C#/IL rendering, newline-separated. Lines and columns are
+/// not stored, because they are derived — count newlines. Nothing in the payload
+/// is identified by a line, so nothing has to be renumbered when the interleave
+/// changes.
+/// </para>
+/// <para>
+/// <see cref="Text"/> must be well-formed UTF-16, and the constructor rejects a
+/// lone high or low surrogate rather than repairing one. Spans index the
+/// <em>decoded</em> text, and an unpaired code unit has no UTF-8 form:
+/// <c>System.Text.Json</c> writes U+FFFD in its place, so the document that
+/// replays is a different string and every span past the substitution names
+/// characters it was not minted for. Malformed producer input never reaches this
+/// buffer as a raw code unit — IL string operands and portable fact text are
+/// contained upstream as a visible ASCII <c>\uXXXX</c> spelling, which is
+/// ordinary text a reader can see and a span can address.
+/// </para>
+/// <para>
+/// Every coordinate is an absolute <see cref="AnnotatedSourceSpan"/> over that
+/// text. One currency for both structural planes means a C# node, an IL
+/// instruction node, and a region are all resolved by the same slice, and a
+/// consumer needs no per-medium filtering step to read a coordinate.
 /// </para>
 /// <para>
 /// <see cref="Nodes"/> is text structure and <see cref="Facts"/> is semantic
-/// observation, so neither implies the other: a node with no fact is ordinary,
-/// and a fact whose node could not be placed is kept with an
-/// <see cref="AnnotatedSourcePlacementTarget.Unplaced"/> placement rather than
-/// dropped or given an invented coordinate. Facts with
+/// observation, so neither implies the other: a node with no fact is ordinary
+/// (most nodes have none), and a fact with no target is the explicit unanchored
+/// case rather than a dropped observation. Facts with
 /// <see cref="AnnotatedSourceFactOrigin.MemberHeader"/> are about the member
-/// rather than its body and are always unplaced.
+/// rather than its body, carry <c>SourceOffset = -1</c>, and never target
+/// anything.
 /// </para>
 /// <para>
-/// <see cref="Regions"/> stays a separate list because a region names a
-/// syntactic <em>part</em> of a construct (its header, its body, an
-/// <c>else</c> clause) rather than a thing a fact is ever placed on. It shares
-/// the laminar family with <see cref="Nodes"/>, which is enforced here.
-/// </para>
-/// <para>
-/// The two planes use <em>different coordinate spaces, on purpose</em>.
-/// <see cref="Lines"/> ids — and therefore every
-/// <see cref="AnnotatedSourcePlacementTarget.Line"/> placement — are global
-/// positions in the interleaved stream. Structural extents on
-/// <see cref="Nodes"/> and <see cref="Regions"/> are <em>medium-local</em>:
-/// their line numbers index <see cref="Lines"/> filtered to that medium, in
-/// order. Resolve one by filtering <see cref="Lines"/> on
-/// <see cref="AnnotatedSourceLine.Kind"/> and indexing the result. Structure is
-/// a property of one medium's text, so rebasing it into the interleaved stream
-/// would make a multi-line C# extent enclose the IL lines printed between its
-/// lines, contradicting the exact-characters contract; the interleave is a
-/// presentation choice and must not change what a node's characters are.
+/// <see cref="Targets"/> is the only place the planes meet, so a fact observed on
+/// both a C# node and its IL instruction is one row in <see cref="Facts"/> with
+/// two rows in <see cref="Targets"/> — unambiguously one observation. Ids are
+/// contiguous from <c>0</c> in list order and mean nothing outside the document
+/// that minted them.
 /// </para>
 /// </remarks>
 public sealed record AnnotatedSourceDocument
 {
     /// <summary>Creates and validates a portable annotated source document.</summary>
-    /// <param name="Lines">The interleaved C#/IL stream, ids contiguous from <c>0</c> in list order.</param>
-    /// <param name="Nodes">Text structure in medium-local line coordinates, ids contiguous from <c>0</c> in list order.</param>
-    /// <param name="Regions">C# region extents in C#-local line coordinates.</param>
+    /// <param name="Text">The rendered interleaved C#/IL text, newline-separated, and the coordinate space every span indexes. Must be well-formed UTF-16: every high surrogate followed by a low surrogate, and no lone surrogate of either half.</param>
+    /// <param name="Nodes">Text structure over <paramref name="Text"/>, ids contiguous from <c>0</c> in list order.</param>
+    /// <param name="Regions">Named construct and clause regions over <paramref name="Text"/>.</param>
     /// <param name="Facts">Every distinct observation about the member, ids contiguous from <c>0</c> in list order.</param>
-    /// <param name="Placements">Where each fact can be shown.</param>
+    /// <param name="Targets">Which node each fact is about; a fact with none is unanchored.</param>
     public AnnotatedSourceDocument(
-        IReadOnlyList<AnnotatedSourceLine> Lines,
+        string Text,
         IReadOnlyList<AnnotatedSourceNode> Nodes,
-        IReadOnlyList<PrintedRegion> Regions,
+        IReadOnlyList<AnnotatedSourceRegion> Regions,
         IReadOnlyList<AnnotatedSourceFact> Facts,
-        IReadOnlyList<AnnotatedSourcePlacement> Placements)
+        IReadOnlyList<AnnotatedSourceTarget> Targets)
     {
-        ArgumentNullException.ThrowIfNull(Lines);
+        ArgumentNullException.ThrowIfNull(Text);
         ArgumentNullException.ThrowIfNull(Nodes);
         ArgumentNullException.ThrowIfNull(Regions);
         ArgumentNullException.ThrowIfNull(Facts);
-        ArgumentNullException.ThrowIfNull(Placements);
+        ArgumentNullException.ThrowIfNull(Targets);
 
-        var lines = Lines.ToArray();
-        if (lines.Any(line => line is null))
-            throw new ArgumentException("Lines cannot contain null.", nameof(Lines));
+        ValidateText(Text);
+
         var nodes = Nodes.ToArray();
+        if (nodes.Any(node => node is null))
+            throw new ArgumentException("Nodes cannot contain null.", nameof(Nodes));
+        var regions = Regions.ToArray();
+        if (regions.Any(region => region is null))
+            throw new ArgumentException("Regions cannot contain null.", nameof(Regions));
         var facts = Facts.ToArray();
-        var placements = Placements.ToArray();
+        var targets = Targets.ToArray();
 
-        ValidateLines(lines);
-
-        for (int index = 0; index < nodes.Length; index++)
-        {
-            var node = nodes[index];
-            if (node.Kind is null)
-                throw new ArgumentException("Node kinds cannot be null.", nameof(Nodes));
-            if (!Enum.IsDefined(node.Medium))
-                throw new ArgumentException($"Unknown node medium: {node.Medium}.", nameof(Nodes));
-            if (node.Id != index)
-            {
-                throw new ArgumentException(
-                    $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
-                    nameof(Nodes));
-            }
-        }
-
-        // Structural extents are medium-local, so each group is validated
-        // against its own medium's text rather than the interleaved stream: an
-        // IL line printed between two C# lines is not part of the C# node that
-        // spans them, and validating in stream coordinates would say it is.
-        //
-        // The laminar family, extent bounds, and canonical region order are all
-        // the printer projection's rules; validating through it keeps one
-        // implementation of them rather than a drifting second copy. Regions are
-        // C# and every node produced today is C#, so the C# plane is the one
-        // joint family. Node ids are re-slotted per medium only because the
-        // projection numbers its own list; document ids are checked above.
-        var structure = new PrintedBodyMap(
-            MediumText(lines, SourceLineKind.CSharp),
-            [.. nodes
-                .Where(node => node.Medium == SourceLineKind.CSharp)
-                .Select((node, slot) => new PrintedNodeSpan(slot, node.Kind, node.Extent))],
-            Regions,
-            []);
-
-        // Any future non-C# node group is checked for bounds and laminar
-        // behaviour on its own, without mixing coordinate spaces with the C#
-        // family — two media's extents are not comparable, so containment
-        // between them is not a question that has an answer.
-        foreach (var group in nodes
-            .Where(node => node.Medium != SourceLineKind.CSharp)
-            .GroupBy(node => node.Medium))
-        {
-            _ = new PrintedBodyMap(
-                MediumText(lines, group.Key),
-                [.. group.Select((node, slot) => new PrintedNodeSpan(slot, node.Kind, node.Extent))],
-                [],
-                []);
-        }
-
+        ValidateNodes(nodes, Text);
+        foreach (var region in regions)
+            AnnotatedSourceSpans.ValidateBounds(region.Spans, Text, nameof(Regions));
         ValidateFacts(facts);
-        ValidatePlacements(placements, facts, nodes, lines);
+        ValidateTargets(targets, facts, nodes);
 
-        this.Lines = Array.AsReadOnly(lines);
+        this.Text = Text;
         this.Nodes = Array.AsReadOnly(nodes);
-        this.Regions = structure.Regions;
+        this.Regions = Array.AsReadOnly(regions);
         this.Facts = Array.AsReadOnly(facts);
-        this.Placements = Array.AsReadOnly(placements);
+        this.Targets = Array.AsReadOnly(targets);
     }
 
-    /// <summary>The interleaved C#/IL stream.</summary>
-    public IReadOnlyList<AnnotatedSourceLine> Lines { get; }
+    /// <summary>The rendered interleaved C#/IL text: the canonical artifact every span indexes. Always well-formed UTF-16.</summary>
+    public string Text { get; }
 
-    /// <summary>Text structure in medium-local line coordinates: line numbers index <see cref="Lines"/> filtered to the node's <see cref="AnnotatedSourceNode.Medium"/>.</summary>
+    /// <summary>Text structure over <see cref="Text"/>, ids contiguous from <c>0</c> in list order.</summary>
     public IReadOnlyList<AnnotatedSourceNode> Nodes { get; }
 
-    /// <summary>C# region extents in C#-local line coordinates: line numbers index <see cref="Lines"/> filtered to <see cref="SourceLineKind.CSharp"/>.</summary>
-    public IReadOnlyList<PrintedRegion> Regions { get; }
+    /// <summary>Named construct and clause regions over <see cref="Text"/>.</summary>
+    public IReadOnlyList<AnnotatedSourceRegion> Regions { get; }
 
     /// <summary>Every distinct observation about the member.</summary>
     public IReadOnlyList<AnnotatedSourceFact> Facts { get; }
 
-    /// <summary>Where each fact can be shown.</summary>
-    public IReadOnlyList<AnnotatedSourcePlacement> Placements { get; }
+    /// <summary>Which node each fact is about; a fact with no row here is unanchored.</summary>
+    public IReadOnlyList<AnnotatedSourceTarget> Targets { get; }
 
     /// <summary>An empty annotated source document.</summary>
-    public static AnnotatedSourceDocument Empty { get; } = new([], [], [], [], []);
+    public static AnnotatedSourceDocument Empty { get; } = new("", [], [], [], []);
 
     /// <inheritdoc/>
     public bool Equals(AnnotatedSourceDocument? other)
         => other is not null
-            && Lines.SequenceEqual(other.Lines)
+            && Text == other.Text
             && Nodes.SequenceEqual(other.Nodes)
             && Regions.SequenceEqual(other.Regions)
             && Facts.SequenceEqual(other.Facts)
-            && Placements.SequenceEqual(other.Placements);
+            && Targets.SequenceEqual(other.Targets);
 
     /// <inheritdoc/>
     public override int GetHashCode()
     {
         var hash = new HashCode();
-        foreach (var line in Lines)
-            hash.Add(line);
+        hash.Add(Text);
         foreach (var node in Nodes)
             hash.Add(node);
         foreach (var region in Regions)
             hash.Add(region);
         foreach (var fact in Facts)
             hash.Add(fact);
-        foreach (var placement in Placements)
-            hash.Add(placement);
+        foreach (var target in Targets)
+            hash.Add(target);
         return hash.ToHashCode();
     }
 
-    static void ValidateLines(AnnotatedSourceLine[] lines)
+    static void ValidateText(string text)
+    {
+        // Spans index the decoded UTF-16 text, and a document is only useful if
+        // it replays: a lone surrogate has no UTF-8 form, so System.Text.Json
+        // writes U+FFFD in its place and the round trip comes back a different
+        // string -- unequal to the original, and with every absolute span after
+        // the substitution now naming characters it was not minted for.
+        // Producers already contain this before a document exists: ILStringEscaper
+        // spells an unpaired code unit as visible ASCII \uXXXX, and the portable
+        // fact escaping does the same, so malformed producer input reaches the
+        // buffer as text a reader can see rather than a code unit that cannot
+        // survive the wire.
+        for (int index = 0; index < text.Length; index++)
+        {
+            char c = text[index];
+            if (!char.IsSurrogate(c))
+                continue;
+            if (char.IsHighSurrogate(c)
+                && index + 1 < text.Length
+                && char.IsLowSurrogate(text[index + 1]))
+            {
+                index++;
+                continue;
+            }
+
+            string half = char.IsHighSurrogate(c) ? "high" : "low";
+            throw new ArgumentException(
+                $"Text must be well-formed UTF-16, but carries an unpaired {half} surrogate U+{(int)c:X4} at index {index}; "
+                    + "spans index the decoded text and exact JSON replay would substitute U+FFFD for it.",
+                "Text");
+        }
+    }
+
+    static void ValidateNodes(AnnotatedSourceNode[] nodes, string text)
     {
         int previousIlOffset = -1;
-        for (int index = 0; index < lines.Length; index++)
+        for (int index = 0; index < nodes.Length; index++)
         {
-            var line = lines[index];
-            if (line.Id != index)
+            var node = nodes[index];
+            if (node.Id != index)
             {
                 throw new ArgumentException(
-                    $"Line ids must be contiguous from 0 in list order; slot {index} carries id {line.Id}.",
-                    "Lines");
+                    $"Node ids must be contiguous from 0 in list order; slot {index} carries id {node.Id}.",
+                    "Nodes");
             }
-            if (line.Kind != SourceLineKind.Il)
+            AnnotatedSourceSpans.ValidateBounds(node.Spans, text, "Nodes");
+
+            // Only the offset-bearing nodes are ordered, and only against each
+            // other: a future structural IL node carries no offset and must not
+            // have to invent one to sit between two instructions.
+            if (node.IlOffset is not { } offset)
                 continue;
-            if (line.Offset < 0)
-                throw new ArgumentException("IL lines must carry a non-negative offset.", "Lines");
-            if (line.Offset <= previousIlOffset)
-                throw new ArgumentException("IL line offsets must be strictly increasing.", "Lines");
-            previousIlOffset = line.Offset;
+            if (offset <= previousIlOffset)
+            {
+                throw new ArgumentException(
+                    $"IL offsets must be unique and strictly increasing in node order; node {index} carries offset {offset} after {previousIlOffset}.",
+                    "Nodes");
+            }
+            previousIlOffset = offset;
         }
     }
 
@@ -352,119 +513,137 @@ public sealed record AnnotatedSourceDocument
                     fact.Origin)))
             {
                 throw new ArgumentException(
-                    $"Fact {fact.Descriptor} is stated more than once; facts are deduplicated and placed instead.",
+                    $"Fact {fact.Descriptor} is stated more than once; facts are deduplicated and targeted instead.",
                     "Facts");
             }
         }
     }
 
-    static void ValidatePlacements(
-        AnnotatedSourcePlacement[] placements,
+    static void ValidateTargets(
+        AnnotatedSourceTarget[] targets,
         AnnotatedSourceFact[] facts,
-        AnnotatedSourceNode[] nodes,
-        AnnotatedSourceLine[] lines)
+        AnnotatedSourceNode[] nodes)
     {
-        var seen = new HashSet<(int FactId, AnnotatedSourcePlacementTarget Target, int? TargetId)>();
-        var placed = new int[facts.Length];
-        var unplaced = new bool[facts.Length];
-        foreach (var placement in placements)
+        var seen = new HashSet<AnnotatedSourceTarget>();
+        foreach (var target in targets)
         {
-            if (!Enum.IsDefined(placement.Target))
-                throw new ArgumentException($"Unknown placement target: {placement.Target}.", "Placements");
-            if (placement.FactId < 0 || placement.FactId >= facts.Length)
+            if (target.FactId < 0 || target.FactId >= facts.Length)
             {
                 throw new ArgumentException(
-                    $"Placement names fact {placement.FactId}, which does not exist.",
-                    "Placements");
+                    $"Target names fact {target.FactId}, which does not exist.",
+                    "Targets");
             }
-            if (!seen.Add((placement.FactId, placement.Target, placement.TargetId)))
+            if (target.NodeId < 0 || target.NodeId >= nodes.Length)
             {
                 throw new ArgumentException(
-                    $"Fact {placement.FactId} is placed on the same target twice.",
-                    "Placements");
+                    $"Target names node {target.NodeId}, which does not exist.",
+                    "Targets");
             }
-
-            var fact = facts[placement.FactId];
-            switch (placement.Target)
-            {
-                case AnnotatedSourcePlacementTarget.Node:
-                    RequireBodyOrigin(fact, placement.Target);
-                    if (placement.TargetId is not { } nodeId || nodeId < 0 || nodeId >= nodes.Length)
-                    {
-                        throw new ArgumentException(
-                            $"Fact {fact.Descriptor} claims a node placement without naming an existing node.",
-                            "Placements");
-                    }
-                    break;
-
-                case AnnotatedSourcePlacementTarget.Line:
-                    RequireBodyOrigin(fact, placement.Target);
-                    if (placement.TargetId is not { } lineId || lineId < 0 || lineId >= lines.Length)
-                    {
-                        throw new ArgumentException(
-                            $"Fact {fact.Descriptor} claims a line placement without naming an existing line.",
-                            "Placements");
-                    }
-                    var line = lines[lineId];
-                    if (line.Kind != SourceLineKind.Il)
-                    {
-                        throw new ArgumentException(
-                            $"Fact {fact.Descriptor} is placed on line {lineId}, which is not an IL line; C# facts are placed on nodes.",
-                            "Placements");
-                    }
-                    if (fact.SourceOffset < 0 || line.Offset != fact.SourceOffset)
-                    {
-                        throw new ArgumentException(
-                            $"Fact {fact.Descriptor} is placed on the IL line at offset {line.Offset}, which is not its own offset {fact.SourceOffset}.",
-                            "Placements");
-                    }
-                    break;
-
-                default:
-                    if (placement.TargetId is not null)
-                    {
-                        throw new ArgumentException(
-                            $"Fact {fact.Descriptor} is unplaced, so it cannot name a target.",
-                            "Placements");
-                    }
-                    unplaced[placement.FactId] = true;
-                    break;
-            }
-
-            placed[placement.FactId]++;
-        }
-
-        for (int id = 0; id < facts.Length; id++)
-        {
-            if (placed[id] == 0)
+            if (!seen.Add(target))
             {
                 throw new ArgumentException(
-                    $"Fact {facts[id].Descriptor} has no placement; a fact with nowhere to show is recorded as unplaced, not omitted.",
-                    "Placements");
+                    $"Fact {target.FactId} targets node {target.NodeId} twice.",
+                    "Targets");
             }
 
-            // "Unplaced" is a claim that no medium emitted anywhere to show this
-            // fact. A second placement makes that claim false, and a consumer
-            // filtering on it would report a placed fact as missing.
-            if (unplaced[id] && placed[id] > 1)
+            var fact = facts[target.FactId];
+            if (fact.Origin != AnnotatedSourceFactOrigin.Body)
             {
                 throw new ArgumentException(
-                    $"Fact {facts[id].Descriptor} is both placed and unplaced.",
-                    "Placements");
+                    $"Fact {fact.Descriptor} has origin {fact.Origin}, which is about the member rather than its body, so it cannot target a node.",
+                    "Targets");
+            }
+
+            // An IL node is an exact-offset disassembly of one instruction, so
+            // targeting it claims the fact is about that instruction. A claim
+            // the offsets contradict is worse than no target at all. The node
+            // invariant makes kind and offset agree, so the offset alone settles
+            // whether this IL node is an instruction.
+            var node = nodes[target.NodeId];
+            if (node.Medium != SourceLineKind.Il)
+                continue;
+            if (node.IlOffset is not { } offset)
+            {
+                throw new ArgumentException(
+                    $"Fact {fact.Descriptor} targets IL node {target.NodeId}, which is {node.Kind}, not an instruction.",
+                    "Targets");
+            }
+            if (fact.SourceOffset < 0 || offset != fact.SourceOffset)
+            {
+                throw new ArgumentException(
+                    $"Fact {fact.Descriptor} targets the IL instruction at offset {offset}, which is not its own offset {fact.SourceOffset}.",
+                    "Targets");
             }
         }
     }
+}
 
-    static void RequireBodyOrigin(AnnotatedSourceFact fact, AnnotatedSourcePlacementTarget target)
+/// <summary>
+/// The span rules both structural planes share: a coordinate that selects
+/// nothing, runs backwards, doubles back, or leaves the text is not a coordinate.
+/// </summary>
+static class AnnotatedSourceSpans
+{
+    internal static IReadOnlyList<AnnotatedSourceSpan> Snapshot(
+        IReadOnlyList<AnnotatedSourceSpan> spans,
+        string parameterName)
     {
-        if (fact.Origin != AnnotatedSourceFactOrigin.Body)
+        var snapshot = spans.ToArray();
+        if (snapshot.Length == 0)
         {
             throw new ArgumentException(
-                $"Fact {fact.Descriptor} has origin {fact.Origin}, which has no body placement, so it cannot claim a {target} placement.",
-                "Placements");
+                "Structure names the characters it occupies, so it must carry at least one span.",
+                parameterName);
         }
+
+        long previousEnd = 0;
+        for (int index = 0; index < snapshot.Length; index++)
+        {
+            var span = snapshot[index];
+            if (span.Length <= 0)
+                throw new ArgumentException("Spans must select at least one character.", parameterName);
+            if (span.Start < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName,
+                    span.Start,
+                    "Spans must start at a non-negative offset.");
+            }
+            if (index > 0 && span.Start < previousEnd)
+            {
+                throw new ArgumentException(
+                    $"Spans must be strictly ordered and non-overlapping; span {index} starts at {span.Start}, inside the run ending at {previousEnd}.",
+                    parameterName);
+            }
+
+            // Widened, never added in 32 bits: a hostile Start + Length wraps
+            // negative and would make the next span look ordered when it is not.
+            previousEnd = (long)span.Start + span.Length;
+        }
+
+        return Array.AsReadOnly(snapshot);
     }
 
-    static string[] MediumText(AnnotatedSourceLine[] lines, SourceLineKind medium)
-        => [.. lines.Where(line => line.Kind == medium).Select(line => line.Text)];
+    internal static void ValidateBounds(
+        IReadOnlyList<AnnotatedSourceSpan> spans,
+        string text,
+        string parameterName)
+    {
+        foreach (var span in spans)
+        {
+            // Spans reach here already snapshot-validated, so Start is
+            // non-negative and Length positive. The bound is still checked by
+            // subtraction rather than by comparing Start + Length: that sum
+            // overflows int for a hostile span and wraps negative, which would
+            // read as comfortably inside the buffer and leave the failure to a
+            // consumer's slice.
+            if (span.Start > text.Length || span.Length > text.Length - span.Start)
+            {
+                throw new ArgumentOutOfRangeException(
+                    parameterName,
+                    span,
+                    $"Span [{span.Start}..{(long)span.Start + span.Length}) is outside {text.Length} characters of text.");
+            }
+        }
+    }
 }

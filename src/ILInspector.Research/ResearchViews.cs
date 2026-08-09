@@ -530,13 +530,25 @@ public static partial class ResearchViews
 
     /// <summary>
     /// Folds the correlated stream, the printer's body-local projection, and the
-    /// member-header facts into the normalized portable document.
+    /// member-header facts into the portable document.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The three planes are built independently and joined only through ids.
-    /// Nodes keep the ids the printer projection minted while
-    /// <c>IrNode</c> identity was still alive, so a C# placement is the node id
+    /// The rendered stream is flattened into one text buffer, and every
+    /// coordinate the document carries is an absolute span over it. The printer
+    /// works in C#-local line/column coordinates, so each extent is rebased here:
+    /// every covered C# line is mapped to the interleaved line it actually
+    /// became, and consecutive lines are merged into one span only while the
+    /// interleave leaves them adjacent. An IL line woven into the middle of a
+    /// construct therefore splits it into several spans rather than being
+    /// swallowed by one — the exact characters stay exact, and no consumer has to
+    /// filter a medium before reading a coordinate.
+    /// </para>
+    /// <para>
+    /// Every IL line becomes an <c>Instruction</c> node carrying its own offset,
+    /// because a fact anchors to structure and the interleaved line is no longer
+    /// an addressable thing. C# nodes keep the ids the printer projection minted
+    /// while <c>IrNode</c> identity was still alive, so a C# target is the node
     /// the fact was actually anchored to rather than a coordinate re-match that
     /// would be ambiguous whenever two nodes print the same characters.
     /// </para>
@@ -545,14 +557,9 @@ public static partial class ResearchViews
     /// after portable escaping — escaping first, because two descriptors that
     /// differ only in an unpaired surrogate must not merge after they are
     /// encoded the same way. One fact observed in both media therefore becomes
-    /// one fact row with a node placement and a line placement, which is what
-    /// makes "this is one observation" readable from the payload.
-    /// </para>
-    /// <para>
-    /// Line placements name global stream ids, because a line <em>is</em> a row
-    /// of the interleave. Node and region extents stay in the printer's C#-local
-    /// coordinates, because structure is a property of the C# text rather than
-    /// of the order the two media were woven in.
+    /// one fact row targeting a C# node and an instruction node, which is what
+    /// makes "this is one observation" readable from the payload. A fact neither
+    /// medium could anchor simply has no target.
     /// </para>
     /// </remarks>
     static AnnotatedSourceDocument MakeDocument(
@@ -567,55 +574,72 @@ public static partial class ResearchViews
                 $"The correlated stream has {csharpLineCount} C# lines but the printed map has {csharpMap.Lines.Count}.");
         }
 
-        var lines = new AnnotatedSourceLine[stream.Count];
-        for (int i = 0; i < stream.Count; i++)
+        string text = string.Join('\n', stream.Select(line => line.Text));
+
+        // One pass fixes the whole coordinate space: where each rendered line
+        // starts in the buffer, and which rendered line each C#-local line became.
+        var lineStarts = new int[stream.Count];
+        var csharpLines = new int[csharpLineCount];
+        int start = 0;
+        int csharpLine = 0;
+        for (int index = 0; index < stream.Count; index++)
         {
-            var line = stream[i];
-            lines[i] = new AnnotatedSourceLine(i, line.Text, line.Offset, line.Kind);
+            lineStarts[index] = start;
+            start += stream[index].Text.Length + 1;
+            if (stream[index].Kind == SourceLineKind.CSharp)
+                csharpLines[csharpLine++] = index;
         }
 
-        // Structural extents stay in the printer's C#-local coordinates. They
-        // are deliberately not rebased onto stream line ids: interleaving is a
-        // presentation choice, and a two-line C# node rebased through it would
-        // enclose every IL line printed between those lines, so a payload
-        // promising exact characters would hand back a mixed-medium blob.
-        var nodes = csharpMap.Nodes
-            .Select(node => new AnnotatedSourceNode(
-                node.Id,
-                node.Kind,
-                SourceLineKind.CSharp,
-                node.Extent))
+        var nodes = new List<AnnotatedSourceNode>(csharpMap.Nodes.Count + stream.Count - csharpLineCount);
+        foreach (var node in csharpMap.Nodes)
+            nodes.Add(new AnnotatedSourceNode(node.Id, node.Kind, SourceLineKind.CSharp, ToSpans(node.Extent)));
+
+        var instructionNodes = new Dictionary<int, int>(stream.Count - csharpLineCount);
+        for (int index = 0; index < stream.Count; index++)
+        {
+            var line = stream[index];
+            if (line.Kind != SourceLineKind.Il || line.Text.Length == 0)
+                continue;
+            instructionNodes[index] = nodes.Count;
+            nodes.Add(new AnnotatedSourceNode(
+                nodes.Count,
+                AnnotatedSourceNode.InstructionKind,
+                SourceLineKind.Il,
+                [new AnnotatedSourceSpan(lineStarts[index], line.Text.Length)],
+                line.Offset));
+        }
+
+        var regions = csharpMap.Regions
+            .Select(region => new AnnotatedSourceRegion(region.Role, ToSpans(region.Extent)))
             .ToArray();
-        var regions = csharpMap.Regions.ToArray();
 
         // Keyed by semantic identity so the same observation seen on a C# node
-        // and on its IL line collapses to one definition carrying both places.
-        var collected = new Dictionary<FactIdentity, HashSet<(AnnotatedSourcePlacementTarget Target, int? TargetId)>>();
-        HashSet<(AnnotatedSourcePlacementTarget, int?)> Places(FactIdentity identity)
+        // and on its instruction collapses to one fact carrying both targets.
+        var collected = new Dictionary<FactIdentity, SortedSet<int>>();
+        SortedSet<int> Anchors(FactIdentity identity)
         {
-            if (!collected.TryGetValue(identity, out var places))
-                collected[identity] = places = [];
-            return places;
+            if (!collected.TryGetValue(identity, out var anchors))
+                collected[identity] = anchors = [];
+            return anchors;
         }
 
         foreach (var annotation in csharpMap.Annotations)
         {
             var identity = FactIdentity.From(MakePortable(annotation), AnnotatedSourceFactOrigin.Body);
-            var places = Places(identity);
+            var anchors = Anchors(identity);
 
-            // An unplaced C# fact contributes nothing yet: the IL plane may still
-            // place it, and deciding that here would make the outcome depend on
-            // which medium was folded first.
+            // An unanchored C# fact contributes nothing yet: the IL plane may
+            // still anchor it, and deciding that here would make the outcome
+            // depend on which medium was folded first.
             if (annotation.NodeId is { } nodeId)
-                places.Add((AnnotatedSourcePlacementTarget.Node, nodeId));
+                anchors.Add(nodeId);
         }
 
-        for (int streamLine = 0; streamLine < stream.Count; streamLine++)
+        for (int index = 0; index < stream.Count; index++)
         {
-            var line = stream[streamLine];
-            if (line.Kind != SourceLineKind.Il)
+            if (!instructionNodes.TryGetValue(index, out int nodeId))
                 continue;
-            foreach (var annotation in line.Annotations)
+            foreach (var annotation in stream[index].Annotations)
             {
                 var identity = new FactIdentity(
                     MakePortableText(annotation.Descriptor.Id),
@@ -624,7 +648,7 @@ public static partial class ResearchViews
                     annotation.Detail is null ? null : MakePortableText(annotation.Detail),
                     annotation.SourceOffset,
                     AnnotatedSourceFactOrigin.Body);
-                Places(identity).Add((AnnotatedSourcePlacementTarget.Line, streamLine));
+                Anchors(identity).Add(nodeId);
             }
         }
 
@@ -637,14 +661,17 @@ public static partial class ResearchViews
                 fact.Detail is null ? null : MakePortableText(fact.Detail),
                 SourceOffset: -1,
                 AnnotatedSourceFactOrigin.MemberHeader);
-            Places(identity).Add((AnnotatedSourcePlacementTarget.Unplaced, null));
+
+            // A header fact is about the member, so it is stated and left
+            // unanchored rather than given somewhere in the body to point at.
+            Anchors(identity);
         }
 
         var ordered = collected.Keys.ToList();
         ordered.Sort(CompareFactIdentities);
 
         var facts = new AnnotatedSourceFact[ordered.Count];
-        var placements = new List<AnnotatedSourcePlacement>(ordered.Count);
+        var targets = new List<AnnotatedSourceTarget>(ordered.Count);
         for (int id = 0; id < ordered.Count; id++)
         {
             var identity = ordered[id];
@@ -657,22 +684,74 @@ public static partial class ResearchViews
                 identity.SourceOffset,
                 identity.Origin);
 
-            var places = collected[identity];
-            if (places.Count == 0)
-                places.Add((AnnotatedSourcePlacementTarget.Unplaced, null));
-            foreach (var (target, targetId) in places)
-                placements.Add(new AnnotatedSourcePlacement(id, target, targetId));
+            foreach (int nodeId in collected[identity])
+                targets.Add(new AnnotatedSourceTarget(id, nodeId));
         }
 
-        placements.Sort(static (a, b) =>
+        targets.Sort(static (a, b) =>
         {
             int c = a.FactId.CompareTo(b.FactId);
-            if (c != 0) return c;
-            c = a.Target.CompareTo(b.Target);
-            return c != 0 ? c : Nullable.Compare(a.TargetId, b.TargetId);
+            return c != 0 ? c : a.NodeId.CompareTo(b.NodeId);
         });
 
-        return new AnnotatedSourceDocument(lines, nodes, regions, facts, placements);
+        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets);
+
+        IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
+        {
+            var spans = new List<AnnotatedSourceSpan>();
+            int runStart = 0;
+            int runEnd = 0;
+            int previousLine = -1;
+            bool previousRanToEnd = false;
+            for (int line = extent.StartLine; line <= extent.EndLine; line++)
+            {
+                int streamLine = csharpLines[line];
+                string lineText = stream[streamLine].Text;
+
+                // The rendered stream trims trailing whitespace off each printed
+                // line, so a column past its end selects nothing here instead of
+                // running off the buffer.
+                int from = Math.Min(line == extent.StartLine ? extent.StartColumn : 0, lineText.Length);
+                int through = Math.Max(
+                    from,
+                    Math.Min(line == extent.EndLine ? extent.EndColumn : lineText.Length, lineText.Length));
+
+                // The line break after a C# line is the construct's own text
+                // whenever the construct continues onto a later C# line. IL woven
+                // in ends the run here, but it must not eat that newline: without
+                // it the runs concatenate `for (...)` straight onto `{`, and the
+                // reconstructed C# is not the C# that was printed. Exactly the
+                // one rendered newline, never a character of the IL that follows.
+                bool ranToEnd = through == lineText.Length;
+                int runThrough = lineStarts[streamLine] + through + (ranToEnd && line < extent.EndLine ? 1 : 0);
+
+                // Adjacent rendered lines are one run of text, newline included.
+                // An IL line woven between them is exactly what ends a run.
+                if (previousLine >= 0 && streamLine == previousLine + 1 && previousRanToEnd && from == 0)
+                {
+                    runEnd = runThrough;
+                }
+                else
+                {
+                    if (runEnd > runStart)
+                        spans.Add(new AnnotatedSourceSpan(runStart, runEnd - runStart));
+                    runStart = lineStarts[streamLine] + from;
+                    runEnd = runThrough;
+                }
+
+                previousLine = streamLine;
+                previousRanToEnd = ranToEnd;
+            }
+
+            if (runEnd > runStart)
+                spans.Add(new AnnotatedSourceSpan(runStart, runEnd - runStart));
+            if (spans.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Printed extent {extent} selects no characters of the rendered text.");
+            }
+            return spans;
+        }
     }
 
     static int CompareFactIdentities(FactIdentity left, FactIdentity right)
@@ -727,7 +806,7 @@ public static partial class ResearchViews
     /// <summary>
     /// Everything that distinguishes one observation from another. Deliberately
     /// excludes coordinates and node kinds: those describe where a fact is shown,
-    /// which is the placement's business, and folding them in here would split
+    /// which is the target's business, and folding them in here would split
     /// one cross-medium observation into two.
     /// </summary>
     readonly record struct FactIdentity(

@@ -259,7 +259,7 @@ internal static class MemberCodeProvider
             var sourceDocumentFailure = request.SourceDocument
                 ? researchProjection?.SourceDocumentFailure
                 : null;
-            if (sourceDocument?.Lines.Count > 0)
+            if (sourceDocument?.Text.Length > 0)
                 styledProjectionProduced = true;
 
             Decompiler.DecompilerResult? costOverlayResult = null;

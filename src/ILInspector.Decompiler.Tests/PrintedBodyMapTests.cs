@@ -230,261 +230,212 @@ public class PrintedBodyMapTests
         Assert.Equal(0, Assert.Single(map.Annotations).NodeId);
     }
 
-    [Fact]
-    public void PortableAnnotatedLineIsScalarAndReplays()
-    {
-        var line = new AnnotatedSourceLine(4, "IL_000C: box int32", 12, SourceLineKind.Il);
+    // The portable document is a text buffer plus overlays: one string, and
+    // absolute UTF-16 spans into it. These pin the buffer's invariants, since a
+    // consumer holding only this payload slices text by those spans and has
+    // nothing else to check them against.
+    const string DocumentInstruction = "IL_0000: newobj instance void object::.ctor()";
 
-        Assert.Equal(4, line.Id);
-        Assert.DoesNotContain("alloc.box", line.Text);
+    static readonly string DocumentText = $"return new object();\n{DocumentInstruction}";
 
-        string json = JsonSerializer.Serialize(line);
-        var replayed = JsonSerializer.Deserialize<AnnotatedSourceLine>(json);
-        Assert.Equal(line, replayed);
-        Assert.Equal(line.GetHashCode(), replayed!.GetHashCode());
+    static AnnotatedSourceNode AllocationNode() =>
+        new(0, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(7, 12)]);
 
-        // A line is text structure only. Facts live in the document's Facts list
-        // and reach a line through a placement, so the same observation seen in
-        // two media is one fact rather than two copies on two lines.
-        Type[] portablePropertyTypes =
-        [
-            typeof(int),
-            typeof(string),
-            typeof(SourceLineKind),
-        ];
-        foreach (var property in typeof(AnnotatedSourceLine).GetProperties())
-            Assert.Contains(property.PropertyType, portablePropertyTypes);
-    }
+    static AnnotatedSourceNode InstructionNode() => new(
+        1,
+        "Instruction",
+        SourceLineKind.Il,
+        [new AnnotatedSourceSpan(21, DocumentInstruction.Length)],
+        IlOffset: 0);
 
-    [Fact]
-    public void PortableAnnotatedLineRejectsInvalidConstruction()
-    {
-        Assert.Throws<ArgumentNullException>(
-            () => new AnnotatedSourceLine(0, null!, 0, SourceLineKind.CSharp));
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => new AnnotatedSourceLine(-1, "", 0, SourceLineKind.CSharp));
-        Assert.Throws<ArgumentOutOfRangeException>(
-            () => new AnnotatedSourceLine(0, "", -2, SourceLineKind.CSharp));
-        Assert.Throws<ArgumentException>(
-            () => new AnnotatedSourceLine(0, "", 0, (SourceLineKind)42));
-    }
+    static AnnotatedSourceFact AllocationFact() => new(
+        0,
+        "alloc.new",
+        "Allocation",
+        AnnotationConditionality.Always,
+        "object",
+        0,
+        AnnotatedSourceFactOrigin.Body);
 
     [Fact]
     public void AnnotatedSourceDocumentSnapshotsValidatesAndReplays()
     {
-        var lines = new List<AnnotatedSourceLine>
+        var nodes = new List<AnnotatedSourceNode> { AllocationNode(), InstructionNode() };
+        var regions = new List<AnnotatedSourceRegion>
         {
-            new(0, "return new object();", 0, SourceLineKind.CSharp),
-            new(1, "IL_0000: newobj ...", 0, SourceLineKind.Il),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(0, 20)]),
         };
-        var facts = new List<AnnotatedSourceFact>
-        {
-            new(
-                0,
-                "alloc.new",
-                "Allocation",
-                AnnotationConditionality.Always,
-                "object",
-                0,
-                AnnotatedSourceFactOrigin.Body),
-        };
-        var placements = new List<AnnotatedSourcePlacement>
-        {
-            new(0, AnnotatedSourcePlacementTarget.Node, 0),
-            new(0, AnnotatedSourcePlacementTarget.Line, 1),
-        };
-        var document = new AnnotatedSourceDocument(
-            lines,
-            [new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, new PrintedExtent(0, 7, 0, 19))],
-            [],
-            facts,
-            placements);
+        var facts = new List<AnnotatedSourceFact> { AllocationFact() };
+        var targets = new List<AnnotatedSourceTarget> { new(0, 0), new(0, 1) };
+        var document = new AnnotatedSourceDocument(DocumentText, nodes, regions, facts, targets);
 
-        lines.Clear();
+        nodes.Clear();
+        regions.Clear();
         facts.Clear();
-        placements.Clear();
-        Assert.Equal(2, document.Lines.Count);
+        targets.Clear();
+        Assert.Equal(2, document.Nodes.Count);
+        Assert.Single(document.Regions);
 
-        // One observation, two places: the whole point of the normalization.
+        // Fact -> target -> node -> span -> text is the only join, and it is the
+        // same walk in both media.
         var fact = Assert.Single(document.Facts);
-        Assert.Equal(2, document.Placements.Count);
-        Assert.All(document.Placements, placement => Assert.Equal(fact.Id, placement.FactId));
+        Assert.Equal(2, document.Targets.Count);
+        Assert.All(document.Targets, target => Assert.Equal(fact.Id, target.FactId));
+        Assert.Equal(
+            ["new object()", DocumentInstruction],
+            document.Targets.Select(target => Selected(document, document.Nodes[target.NodeId])));
 
         string json = JsonSerializer.Serialize(document);
         var replayed = JsonSerializer.Deserialize<AnnotatedSourceDocument>(json);
         Assert.NotNull(replayed);
         Assert.Equal(document, replayed);
         Assert.Equal(document.GetHashCode(), replayed!.GetHashCode());
-        Assert.Equal(document.Lines, replayed.Lines);
+        Assert.Equal(document.Text, replayed.Text);
         Assert.Equal(document.Nodes, replayed.Nodes);
         Assert.Equal(document.Regions, replayed.Regions);
         Assert.Equal(document.Facts, replayed.Facts);
-        Assert.Equal(document.Placements, replayed.Placements);
+        Assert.Equal(document.Targets, replayed.Targets);
+
+        // Structural equality reaches into the span lists, so a replayed node
+        // that selects different characters is a different node.
+        Assert.NotEqual(
+            document.Nodes[0],
+            new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(7, 11)]));
     }
 
     [Fact]
-    public void AnnotatedSourceDocumentAcceptsNodesWithNoFacts()
+    public void AnnotatedSourceDocumentAcceptsStructureWithNoFacts()
     {
         // Nodes are text structure, not evidence of an observation. A body with
         // no facts is the ordinary case, and future syntax, comment, and XML-doc
         // producers will only ever add nodes.
         var document = new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(0, "return new object();", 0, SourceLineKind.CSharp)],
-            [new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, new PrintedExtent(0, 7, 0, 19))],
+            DocumentText,
+            [AllocationNode(), InstructionNode()],
             [],
             [],
             []);
 
-        Assert.Single(document.Nodes);
+        Assert.Equal(2, document.Nodes.Count);
         Assert.Empty(document.Facts);
-        Assert.Empty(document.Placements);
+        Assert.Empty(document.Targets);
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentKeepsFactsThatTargetNothing()
+    {
+        // A fact with no target is the explicit unanchored case: the observation
+        // is real, and nothing in the text was the right thing to point at.
+        // Dropping it would lose the observation; inventing a span would turn
+        // absence of evidence into a confident, wrong coordinate.
+        var header = AllocationFact() with
+        {
+            Id = 1,
+            Descriptor = "cost.method",
+            Category = "Cost",
+            Detail = null,
+            SourceOffset = -1,
+            Origin = AnnotatedSourceFactOrigin.MemberHeader,
+        };
+        var document = new AnnotatedSourceDocument(
+            DocumentText,
+            [AllocationNode()],
+            [],
+            [AllocationFact() with { SourceOffset = -1 }, header],
+            []);
+
+        Assert.Empty(document.Targets);
+        Assert.Equal(
+            [AnnotatedSourceFactOrigin.Body, AnnotatedSourceFactOrigin.MemberHeader],
+            document.Facts.Select(fact => fact.Origin));
     }
 
     [Fact]
     public void AnnotatedSourceDocumentRejectsBrokenIdentity()
     {
-        AnnotatedSourceLine[] Lines() =>
-        [
-            new(0, "return new object();", 0, SourceLineKind.CSharp),
-            new(1, "IL_0000: newobj ...", 0, SourceLineKind.Il),
-        ];
-        var node = new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, new PrintedExtent(0, 7, 0, 19));
-        var fact = new AnnotatedSourceFact(
-            0,
-            "alloc.new",
-            "Allocation",
-            AnnotationConditionality.Always,
-            "object",
-            0,
-            AnnotatedSourceFactOrigin.Body);
-        AnnotatedSourcePlacement Node() => new(0, AnnotatedSourcePlacementTarget.Node, 0);
+        var node = AllocationNode();
+        var fact = AllocationFact();
 
-        // Contiguous ids in list order, on every plane.
+        // Contiguous ids in list order, on both planes.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(1, "x", 0, SourceLineKind.CSharp)],
-            [],
+            DocumentText,
+            [new AnnotatedSourceNode(3, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(7, 12)])],
             [],
             [],
             []));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node with { Id = 3 }],
-            [],
-            [],
-            []));
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact with { Id = 5 }],
-            [new AnnotatedSourcePlacement(5, AnnotatedSourcePlacementTarget.Node, 0)]));
+            [new AnnotatedSourceTarget(5, 0)]));
 
         // Facts are deduplicated, so restating one makes "how many times" unanswerable.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact, fact with { Id = 1 }],
-            [Node(), new AnnotatedSourcePlacement(1, AnnotatedSourcePlacementTarget.Node, 0)]));
+            []));
 
-        // ... and so is restating a placement.
+        // ... and so is restating a target.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact],
-            [Node(), Node()]));
+            [new AnnotatedSourceTarget(0, 0), new AnnotatedSourceTarget(0, 0)]));
 
         // Dangling ids on either side of the join.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact],
-            [new AnnotatedSourcePlacement(4, AnnotatedSourcePlacementTarget.Node, 0)]));
+            [new AnnotatedSourceTarget(4, 0)]));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Node, 9)]));
+            [new AnnotatedSourceTarget(0, 9)]));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
+            DocumentText,
             [node],
             [],
             [fact],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Line, 9)]));
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
-            [],
-            [fact],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Node, null)]));
-
-        // A fact with no placement at all is a silently dropped observation.
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
-            [],
-            [fact],
-            []));
+            [new AnnotatedSourceTarget(0, -1)]));
     }
 
     [Fact]
-    public void AnnotatedSourceDocumentRejectsFalsePlacementClaims()
+    public void AnnotatedSourceDocumentRejectsFalseTargetClaims()
     {
-        AnnotatedSourceLine[] Lines() =>
-        [
-            new(0, "return new object();", 0, SourceLineKind.CSharp),
-            new(1, "IL_0000: newobj ...", 0, SourceLineKind.Il),
-        ];
-        var node = new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, new PrintedExtent(0, 7, 0, 19));
-        var fact = new AnnotatedSourceFact(
-            0,
-            "alloc.new",
-            "Allocation",
-            AnnotationConditionality.Always,
-            "object",
-            0,
-            AnnotatedSourceFactOrigin.Body);
+        var fact = AllocationFact();
 
-        // A line placement names an IL line at the fact's own offset. Anything
-        // else claims an offset correspondence the payload cannot support.
+        // Targeting an instruction claims the fact is about that instruction, so
+        // the offsets have to agree.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
-            [],
-            [fact],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Line, 0)]));
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
+            DocumentText,
+            [AllocationNode(), InstructionNode()],
             [],
             [fact with { SourceOffset = 7 }],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Line, 1)]));
+            [new AnnotatedSourceTarget(0, 1)]));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
+            DocumentText,
+            [AllocationNode(), InstructionNode()],
             [],
             [fact with { SourceOffset = -1 }],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Line, 1)]));
+            [new AnnotatedSourceTarget(0, 1)]));
 
-        // Unplaced means nowhere, so it neither names a target nor coexists with one.
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
+        // A C# node carries no offset to agree with, so a body fact may target
+        // it whatever its own offset is.
+        var document = new AnnotatedSourceDocument(
+            DocumentText,
+            [AllocationNode(), InstructionNode()],
             [],
-            [fact],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Unplaced, 0)]));
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
-            [],
-            [fact],
-            [
-                new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Node, 0),
-                new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Unplaced, null),
-            ]));
+            [fact with { SourceOffset = -1 }],
+            [new AnnotatedSourceTarget(0, 0)]);
+        Assert.Equal(0, Assert.Single(document.Targets).NodeId);
 
         // A member-header fact is about the member, not a part of its body.
         var header = fact with
@@ -494,116 +445,321 @@ public class PrintedBodyMapTests
             Origin = AnnotatedSourceFactOrigin.MemberHeader,
         };
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
+            DocumentText,
+            [AllocationNode()],
             [],
             [header],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Node, 0)]));
+            [new AnnotatedSourceTarget(0, 0)]));
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            Lines(),
-            [node],
+            DocumentText,
+            [AllocationNode()],
             [],
             [header with { SourceOffset = 0 }],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Unplaced, null)]));
+            []));
 
-        var document = new AnnotatedSourceDocument(
-            Lines(),
-            [node],
-            [],
-            [header],
-            [new AnnotatedSourcePlacement(0, AnnotatedSourcePlacementTarget.Unplaced, null)]);
-        Assert.Equal(AnnotatedSourceFactOrigin.MemberHeader, Assert.Single(document.Facts).Origin);
+        var headerOnly = new AnnotatedSourceDocument(DocumentText, [AllocationNode()], [], [header], []);
+        Assert.Equal(AnnotatedSourceFactOrigin.MemberHeader, Assert.Single(headerOnly.Facts).Origin);
+        Assert.Empty(headerOnly.Targets);
     }
 
     [Fact]
-    public void AnnotatedSourceDocumentRejectsStructureOffItsMedium()
+    public void AnnotatedSourceDocumentRejectsSpansThatAreNotCoordinates()
     {
+        // A span that selects nothing, runs backwards, doubles back over its
+        // predecessor, or leaves the buffer is not a coordinate: a consumer
+        // slicing text by it would throw, or worse, select the wrong characters.
+        Assert.Throws<ArgumentException>(
+            () => new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, []));
+        Assert.Throws<ArgumentException>(
+            () => new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(7, 0)]));
+        Assert.Throws<ArgumentException>(
+            () => new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(7, -3)]));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new AnnotatedSourceNode(0, "NewObject", SourceLineKind.CSharp, [new AnnotatedSourceSpan(-1, 4)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "NewObject",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(7, 12), new AnnotatedSourceSpan(0, 3)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "NewObject",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(0, 12), new AnnotatedSourceSpan(7, 3)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceRegion(PrintedRegionRole.Body, []));
+
+        // Bounds are the document's, because only the document holds the text.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
+            DocumentText,
+            [new AnnotatedSourceNode(
+                0,
+                "NewObject",
+                SourceLineKind.CSharp,
+                [new AnnotatedSourceSpan(DocumentText.Length - 2, 8)])],
+            [],
+            [],
+            []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
+            "",
+            [],
+            [new AnnotatedSourceRegion(PrintedRegionRole.Body, [new AnnotatedSourceSpan(0, 4)])],
+            [],
+            []));
+
+        // A span whose end overflows int is the hostile case: computed as
+        // Start + Length it wraps negative and reads as comfortably inside the
+        // buffer, so the document would be accepted and the failure deferred to
+        // whichever consumer sliced by it. Bounds are checked by subtraction, so
+        // it is rejected here.
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
+            DocumentText,
+            [new AnnotatedSourceNode(
+                0,
+                "NewObject",
+                SourceLineKind.CSharp,
+                [new AnnotatedSourceSpan(int.MaxValue, 1)])],
+            [],
+            [],
+            []));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
+            DocumentText,
+            [],
+            [new AnnotatedSourceRegion(
+                PrintedRegionRole.Body,
+                [new AnnotatedSourceSpan(0, int.MaxValue)])],
+            [],
+            []));
+
+        // Ordering is decided against the same widened end, so a wrapped
+        // predecessor cannot make an overlapping successor look ordered.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "NewObject",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(int.MaxValue - 1, 2), new AnnotatedSourceSpan(0, 3)]));
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentRejectsTextThatIsNotWellFormedUtf16()
+    {
+        // A lone surrogate has no UTF-8 form, so System.Text.Json writes U+FFFD
+        // for it: the document that replays is a different string, and every
+        // absolute span past the substitution names characters it was not minted
+        // for. Producers contain the hazard as a visible ASCII \uXXXX before a
+        // document exists, so a raw unpaired code unit here is a producer bug --
+        // rejected, never repaired, because repairing it would silently move the
+        // coordinates the caller already computed.
+        static AnnotatedSourceDocument Make(string text) => new(text, [], [], [], []);
+
+        var lone = Assert.Throws<ArgumentException>(() => Make("return \ud800;"));
+        Assert.Equal("Text", lone.ParamName);
+        Assert.Contains("index 7", lone.Message, StringComparison.Ordinal);
+        Assert.Contains("U+D800", lone.Message, StringComparison.Ordinal);
+
+        var low = Assert.Throws<ArgumentException>(() => Make("return \udc00;"));
+        Assert.Equal("Text", low.ParamName);
+        Assert.Contains("index 7", low.Message, StringComparison.Ordinal);
+        Assert.Contains("U+DC00", low.Message, StringComparison.Ordinal);
+
+        // A high surrogate in the last slot has nothing after it to pair with,
+        // which is the case a lookahead written without a bounds check misses.
+        var terminal = Assert.Throws<ArgumentException>(() => Make("return;\ud83d"));
+        Assert.Equal("Text", terminal.ParamName);
+        Assert.Contains("index 7", terminal.Message, StringComparison.Ordinal);
+
+        // A pair in the wrong order is two lone halves, not a scalar.
+        Assert.Throws<ArgumentException>(() => Make("\udc00\ud800"));
+
+        // The rejection is the buffer's, not the span's: the text is refused
+        // before any overlay is even consulted.
         Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            [
-                new AnnotatedSourceLine(0, "IL_0002", 2, SourceLineKind.Il),
-                new AnnotatedSourceLine(1, "IL_0001", 1, SourceLineKind.Il),
-            ],
-            [],
-            [],
-            [],
-            []));
-
-        // A C# extent is resolved against the C# lines only, so a document with
-        // none of them has nowhere for a C# node or region to land -- however
-        // many IL lines it carries.
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(0, "IL_0002", 2, SourceLineKind.Il)],
-            [new AnnotatedSourceNode(0, "Bad", SourceLineKind.CSharp, new PrintedExtent(0, 0, 0, 7))],
-            [],
-            [],
-            []));
-
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(0, "IL_0002", 2, SourceLineKind.Il)],
-            [],
-            [new PrintedRegion(PrintedRegionRole.Construct, new PrintedExtent(0, 0, 0, 7))],
-            [],
-            []));
-
-        // Medium-local means medium-local both ways: an extent numbered in
-        // interleaved coordinates runs off the end of the C# text it is
-        // measured against.
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
-            [
-                new AnnotatedSourceLine(0, "int x = 1;", -1, SourceLineKind.CSharp),
-                new AnnotatedSourceLine(1, "IL_0000: ldc.i4.1", 0, SourceLineKind.Il),
-                new AnnotatedSourceLine(2, "return x;", -1, SourceLineKind.CSharp),
-            ],
-            [new AnnotatedSourceNode(0, "Block", SourceLineKind.CSharp, new PrintedExtent(0, 0, 2, 9))],
-            [],
-            [],
-            []));
-
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(0, "x", 0, SourceLineKind.CSharp)],
-            [new AnnotatedSourceNode(0, "Bad", SourceLineKind.CSharp, new PrintedExtent(0, -1, 0, 1))],
-            [],
-            [],
-            []));
-
-        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
-            [new AnnotatedSourceLine(0, "x", -1, SourceLineKind.Il)],
-            [],
+            $"{DocumentText}\ud800",
+            [AllocationNode(), InstructionNode()],
             [],
             [],
             []));
     }
 
     [Fact]
-    public void AnnotatedSourceDocumentKeepsMultiLineCSharpStructureOffTheInterleave()
+    public void AnnotatedSourceDocumentKeepsSupplementaryCharactersExact()
     {
-        // The regression: a C# node spanning two C# lines that have IL printed
-        // between them. Its extent is C#-local, so the characters it selects are
-        // the two C# lines and nothing else. Rebased into stream coordinates the
-        // same node would run 0..2 and swallow the IL line, which is what the
-        // exact-characters contract forbids.
+        // Well-formed is the rule, not "ASCII only": a paired surrogate is one
+        // scalar the encode round-trips, so it stays raw. It still costs two
+        // code units, and the span currency counts code units, so the
+        // coordinates on either side of it must account for both.
+        const string Emoji = "\U0001F600";
+        string text = $"return \"{Emoji}\";\n{DocumentInstruction}";
+        int literalStart = text.IndexOf('"');
+        int instructionStart = text.IndexOf('\n') + 1;
+        Assert.Equal(2, Emoji.Length);
+
         var document = new AnnotatedSourceDocument(
+            text,
             [
-                new AnnotatedSourceLine(0, "int x = 1;", -1, SourceLineKind.CSharp),
-                new AnnotatedSourceLine(1, "IL_0000: ldc.i4.1", 0, SourceLineKind.Il),
-                new AnnotatedSourceLine(2, "return x;", -1, SourceLineKind.CSharp),
+                new AnnotatedSourceNode(0, "String", SourceLineKind.CSharp, [new AnnotatedSourceSpan(literalStart, Emoji.Length + 2)]),
+                new AnnotatedSourceNode(
+                    1,
+                    "Instruction",
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(instructionStart, DocumentInstruction.Length)],
+                    IlOffset: 0),
             ],
-            [new AnnotatedSourceNode(0, "Block", SourceLineKind.CSharp, new PrintedExtent(0, 0, 1, 9))],
-            [new PrintedRegion(PrintedRegionRole.Body, new PrintedExtent(0, 0, 1, 9))],
+            [new AnnotatedSourceRegion(PrintedRegionRole.Body, [new AnnotatedSourceSpan(0, text.Length)])],
+            [AllocationFact()],
+            [new AnnotatedSourceTarget(0, 0), new AnnotatedSourceTarget(0, 1)]);
+
+        Assert.Equal($"\"{Emoji}\"", Selected(document, document.Nodes[0]));
+        Assert.Equal(DocumentInstruction, Selected(document, document.Nodes[1]));
+
+        // The instruction span sits after the pair, so it is only right if both
+        // of its code units were counted: the literal's four, then `;` and the
+        // line break.
+        Assert.Equal(instructionStart, literalStart + Emoji.Length + 2 + 2);
+
+        string json = JsonSerializer.Serialize(document);
+        var replayed = JsonSerializer.Deserialize<AnnotatedSourceDocument>(json);
+        Assert.NotNull(replayed);
+        Assert.Equal(document, replayed);
+        Assert.Equal(text, replayed!.Text);
+        Assert.DoesNotContain('\uFFFD', replayed.Text);
+        Assert.Equal(
+            [$"\"{Emoji}\"", DocumentInstruction],
+            replayed.Nodes.Select(node => Selected(replayed, node)));
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentRejectsMisplacedIlOffsets()
+    {
+        // The offset is what makes an instruction node addressable by a fact, so
+        // it belongs to IL text only and orders the instruction stream.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "NewObject",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(7, 12)],
+            IlOffset: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AnnotatedSourceNode(
+            0,
+            "Instruction",
+            SourceLineKind.Il,
+            [new AnnotatedSourceSpan(21, 4)],
+            IlOffset: -1));
+
+        // "Instruction" is a claim, not a label: it holds exactly when the node
+        // is IL text carrying the offset it disassembles. An offset-bearing
+        // Block would let a fact anchor to something that is not one
+        // instruction; an offsetless Instruction claims to be one and gives a
+        // consumer nothing to resolve; and a C# Instruction claims C# text
+        // disassembles.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "Block",
+            SourceLineKind.Il,
+            [new AnnotatedSourceSpan(21, 4)],
+            IlOffset: 0));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "Instruction",
+            SourceLineKind.Il,
+            [new AnnotatedSourceSpan(21, 4)]));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "Instruction",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(7, 12)],
+            IlOffset: 0));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "Instruction",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(7, 12)]));
+
+        // The kind is matched ordinally, so a case variant is a different kind
+        // and follows the ordinary offsetless rule.
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceNode(
+            0,
+            "instruction",
+            SourceLineKind.Il,
+            [new AnnotatedSourceSpan(21, 4)],
+            IlOffset: 0));
+
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
+            DocumentText,
+            [
+                new AnnotatedSourceNode(0, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(21, 8)], 4),
+                new AnnotatedSourceNode(1, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(30, 8)], 4),
+            ],
+            [],
+            [],
+            []));
+        Assert.Throws<ArgumentException>(() => new AnnotatedSourceDocument(
+            DocumentText,
+            [
+                new AnnotatedSourceNode(0, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(21, 8)], 4),
+                new AnnotatedSourceNode(1, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(30, 8)], 2),
+            ],
+            [],
+            [],
+            []));
+
+        // A future structural IL node carries no offset, and must not have to
+        // invent one to sit between two instructions.
+        var document = new AnnotatedSourceDocument(
+            DocumentText,
+            [
+                new AnnotatedSourceNode(0, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(21, 8)], 0),
+                new AnnotatedSourceNode(1, "Block", SourceLineKind.Il, [new AnnotatedSourceSpan(30, 8)]),
+                new AnnotatedSourceNode(2, "Instruction", SourceLineKind.Il, [new AnnotatedSourceSpan(39, 5)], 5),
+            ],
+            [],
+            [],
+            []);
+        Assert.Equal([0, null, 5], document.Nodes.Select(node => node.IlOffset));
+        Assert.Equal("Instruction", AnnotatedSourceNode.InstructionKind);
+    }
+
+    [Fact]
+    public void AnnotatedSourceDocumentSplitsStructureAroundInterleavedIl()
+    {
+        // The reason spans are a list. This C# construct is printed across two
+        // lines with an IL line woven between them, so its exact characters are
+        // two runs of the buffer. One span from the first character to the last
+        // would swallow the instruction, which is text the construct does not
+        // contain.
+        const string text = "int x = 1;\nIL_0000: ldc.i4.1\nreturn x;";
+        var document = new AnnotatedSourceDocument(
+            text,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "Block",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, 10), new AnnotatedSourceSpan(29, 9)]),
+                new AnnotatedSourceNode(
+                    1,
+                    "Instruction",
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(11, 17)],
+                    IlOffset: 0),
+            ],
+            [
+                new AnnotatedSourceRegion(
+                    PrintedRegionRole.Body,
+                    [new AnnotatedSourceSpan(0, 10), new AnnotatedSourceSpan(29, 9)]),
+            ],
             [],
             []);
 
-        string[] csharp =
-        [
-            .. document.Lines
-                .Where(line => line.Kind == SourceLineKind.CSharp)
-                .Select(line => line.Text),
-        ];
-        var extent = Assert.Single(document.Nodes).Extent;
-        Assert.Equal("int x = 1;\nreturn x;", Text(csharp, extent));
-        Assert.Equal(extent, Assert.Single(document.Regions).Extent);
-        Assert.DoesNotContain("IL_0000", Text(csharp, extent), StringComparison.Ordinal);
+        var block = document.Nodes[0];
+        Assert.Equal(2, block.Spans.Count);
+        Assert.Equal("int x = 1;return x;", Selected(document, block));
+        Assert.DoesNotContain("IL_0000", Selected(document, block), StringComparison.Ordinal);
+        Assert.Equal("IL_0000: ldc.i4.1", Selected(document, document.Nodes[1]));
+        Assert.Equal(block.Spans, Assert.Single(document.Regions).Spans);
     }
+
+    static string Selected(AnnotatedSourceDocument document, AnnotatedSourceNode node) => string.Concat(
+        node.Spans.Select(span => document.Text.Substring(span.Start, span.Length)));
 
     [Fact]
     public void SurvivesSerialisationAndReplays()

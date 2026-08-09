@@ -6853,94 +6853,91 @@ public partial class CommandExecutionTests
 
         using var document = JsonDocument.Parse(output);
         var root = document.RootElement;
-        var lines = root.GetProperty("lines").EnumerateArray().ToArray();
-        Assert.NotEmpty(lines);
-        Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "CSharp");
-        Assert.Contains(lines, line => line.GetProperty("kind").GetString() == "Il");
 
-        // Lines are text structure only; facts reach them through placements.
-        Assert.All(lines, line => Assert.False(line.TryGetProperty("annotations", out _)));
+        // The document is a text buffer plus overlays: one canonical rendering,
+        // and absolute spans into it. Lines and line ids are derived, not stored.
+        string text = root.GetProperty("text").GetString()!;
+        Assert.NotEmpty(text);
+        Assert.False(root.TryGetProperty("lines", out _));
+        Assert.False(root.TryGetProperty("placements", out _));
         Assert.False(root.TryGetProperty("unplaced_annotations", out _));
 
         var nodes = root.GetProperty("nodes").EnumerateArray().ToArray();
+        var regions = root.GetProperty("regions").EnumerateArray().ToArray();
         Assert.NotEmpty(nodes);
-        Assert.True(root.GetProperty("regions").GetArrayLength() > 0);
-        Assert.All(nodes, node => Assert.Equal("CSharp", node.GetProperty("medium").GetString()));
+        Assert.NotEmpty(regions);
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "CSharp");
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "Il");
 
-        // Structural extents are medium-local: they index the C# lines, in
-        // order, not the interleaved stream. A payload that rebased them would
-        // put them out of range of the C# text they describe.
-        string[] csharpText =
-        [
-            .. lines
-                .Where(line => line.GetProperty("kind").GetString() == "CSharp")
-                .Select(line => line.GetProperty("text").GetString()!),
-        ];
-        Assert.True(csharpText.Length < lines.Length);
-        foreach (var extent in nodes
-            .Select(node => node.GetProperty("extent"))
-            .Concat(root.GetProperty("regions").EnumerateArray().Select(region => region.GetProperty("extent"))))
+        // Every coordinate is an absolute, end-exclusive UTF-16 span into that
+        // text, so a consumer slices it directly -- no medium filter, no
+        // line/column indirection, and multiple spans where the interleave
+        // splits a construct.
+        foreach (var element in nodes.Concat(regions))
         {
-            int startLine = extent.GetProperty("start_line").GetInt32();
-            int endLine = extent.GetProperty("end_line").GetInt32();
-            Assert.InRange(startLine, 0, csharpText.Length - 1);
-            Assert.InRange(endLine, 0, csharpText.Length - 1);
-            Assert.InRange(extent.GetProperty("start_column").GetInt32(), 0, csharpText[startLine].Length);
-            Assert.InRange(extent.GetProperty("end_column").GetInt32(), 0, csharpText[endLine].Length);
+            var spans = element.GetProperty("spans").EnumerateArray().ToArray();
+            Assert.NotEmpty(spans);
+            int previousEnd = 0;
+            foreach (var span in spans)
+            {
+                int start = span.GetProperty("start").GetInt32();
+                int length = span.GetProperty("length").GetInt32();
+                Assert.True(length > 0);
+                Assert.InRange(start, previousEnd, text.Length - length);
+                previousEnd = start + length;
+            }
         }
+        Assert.Contains(nodes, node => node.GetProperty("spans").GetArrayLength() > 1);
+
+        // An IL node is an exact-offset instruction; a C# node has no offset to
+        // carry, so the property is absent rather than a sentinel.
+        var instructions = nodes
+            .Where(node => node.GetProperty("medium").GetString() == "Il")
+            .ToArray();
+        Assert.NotEmpty(instructions);
+        Assert.All(instructions, node => Assert.Equal("Instruction", node.GetProperty("kind").GetString()));
+        var ilOffsets = instructions
+            .Select(node => node.GetProperty("il_offset").GetInt32())
+            .ToArray();
+        Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
+        Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
+        Assert.All(
+            nodes.Where(node => node.GetProperty("medium").GetString() == "CSharp"),
+            node => Assert.False(node.TryGetProperty("il_offset", out _)));
 
         var facts = root.GetProperty("facts").EnumerateArray().ToArray();
-        var placements = root.GetProperty("placements").EnumerateArray().ToArray();
+        var targets = root.GetProperty("targets").EnumerateArray().ToArray();
         Assert.NotEmpty(facts);
-        Assert.NotEmpty(placements);
+        Assert.NotEmpty(targets);
 
         // Ids are the join, so they must be contiguous from 0 in list order on
-        // every plane and must resolve from every placement.
-        Assert.Equal(
-            Enumerable.Range(0, lines.Length),
-            lines.Select(line => line.GetProperty("id").GetInt32()));
+        // both planes and must resolve from every target.
         Assert.Equal(
             Enumerable.Range(0, nodes.Length),
             nodes.Select(node => node.GetProperty("id").GetInt32()));
         Assert.Equal(
             Enumerable.Range(0, facts.Length),
             facts.Select(fact => fact.GetProperty("id").GetInt32()));
-        Assert.All(placements, placement =>
+        Assert.All(targets, target =>
         {
-            Assert.InRange(placement.GetProperty("fact_id").GetInt32(), 0, facts.Length - 1);
-            int limit = placement.GetProperty("target").GetString() switch
-            {
-                "Node" => nodes.Length,
-                "Line" => lines.Length,
-                _ => 0,
-            };
-            if (limit == 0)
-                Assert.False(placement.TryGetProperty("target_id", out _));
-            else
-                Assert.InRange(placement.GetProperty("target_id").GetInt32(), 0, limit - 1);
+            Assert.InRange(target.GetProperty("fact_id").GetInt32(), 0, facts.Length - 1);
+            Assert.InRange(target.GetProperty("node_id").GetInt32(), 0, nodes.Length - 1);
         });
 
-        var csharpFacts = placements
-            .Where(placement => placement.GetProperty("target").GetString() == "Node")
-            .Select(placement => FactIdentity(facts[placement.GetProperty("fact_id").GetInt32()]))
-            .Distinct()
-            .Order()
-            .ToArray();
-        var ilFacts = placements
-            .Where(placement => placement.GetProperty("target").GetString() == "Line")
-            .Select(placement => FactIdentity(facts[placement.GetProperty("fact_id").GetInt32()]))
-            .Distinct()
-            .Order()
-            .ToArray();
+        var csharpFacts = MediumFacts("CSharp");
+        var ilFacts = MediumFacts("Il");
         Assert.NotEmpty(csharpFacts);
         Assert.Equal(csharpFacts, ilFacts);
 
-        var ilOffsets = lines
-            .Where(line => line.GetProperty("kind").GetString() == "Il")
-            .Select(line => line.GetProperty("offset").GetInt32())
-            .ToArray();
-        Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
-        Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
+        string[] MediumFacts(string medium) =>
+        [
+            .. targets
+                .Where(target => nodes[target.GetProperty("node_id").GetInt32()]
+                    .GetProperty("medium").GetString() == medium)
+                .Select(target => FactIdentity(facts[target.GetProperty("fact_id").GetInt32()]))
+                .Distinct()
+                .Order(),
+        ];
 
         static string FactIdentity(JsonElement fact) => string.Join(
             "|",
@@ -6977,7 +6974,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
-        Assert.True(document.RootElement.TryGetProperty("lines", out _));
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
         Assert.False(document.RootElement.TryGetProperty("namespace", out _));
     }
 
@@ -6996,7 +6993,7 @@ public partial class CommandExecutionTests
         using var document = JsonDocument.Parse(output);
         Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
         Assert.True(document.RootElement.TryGetProperty("namespace", out _));
-        Assert.False(document.RootElement.TryGetProperty("lines", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
     }
 
     [Fact]

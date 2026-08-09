@@ -24,36 +24,37 @@ public class AnnotatedSourceDocumentProjectionTests
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
-        Assert.Contains(document.Lines, line => line.Kind == SourceLineKind.CSharp);
-        Assert.Contains(document.Lines, line => line.Kind == SourceLineKind.Il);
-        Assert.DoesNotContain(
-            document.Lines,
-            line => line.Text.Contains("alloc.", StringComparison.Ordinal));
+        // The text buffer is the artifact: the exact interleaved rendering, with
+        // the facts kept out of it so a consumer can show clean source.
+        Assert.NotEmpty(document.Text);
+        Assert.DoesNotContain("alloc.", document.Text, StringComparison.Ordinal);
+        Assert.Contains(document.Nodes, node => node.Medium == SourceLineKind.CSharp);
+        Assert.Contains(document.Nodes, node => node.Medium == SourceLineKind.Il);
 
         var csharpFacts = Facts(document, SourceLineKind.CSharp);
         var ilFacts = Facts(document, SourceLineKind.Il);
         Assert.NotEmpty(csharpFacts);
         Assert.Equal(csharpFacts, ilFacts);
 
-        // The same observation in both media is one fact with two placements,
-        // not two facts a consumer has to guess are the same.
+        // The same observation in both media is one fact with two targets, not
+        // two facts a consumer has to guess are the same.
         var box = Assert.Single(document.Facts, fact => fact.Descriptor == "alloc.box");
-        var boxPlacements = Placements(document, box);
-        Assert.Contains(boxPlacements, placement => placement.Target == AnnotatedSourcePlacementTarget.Node);
-        Assert.Contains(boxPlacements, placement => placement.Target == AnnotatedSourcePlacementTarget.Line);
-
-        var boxNode = Node(document, boxPlacements.Single(
-            placement => placement.Target == AnnotatedSourcePlacementTarget.Node));
-        Assert.Equal(SourceLineKind.CSharp, boxNode.Medium);
-        var boxExtent = boxNode.Extent;
-        Assert.Equal(boxExtent.StartLine, boxExtent.EndLine);
-
-        // Node extents are C#-local: resolve them against the C# lines, in
-        // order, not against the interleaved stream.
+        var boxNodes = Targets(document, box).Select(target => document.Nodes[target.NodeId]).ToArray();
         Assert.Equal(
-            "value",
-            MediumLines(document, SourceLineKind.CSharp)[boxExtent.StartLine][
-                boxExtent.StartColumn..boxExtent.EndColumn]);
+            [SourceLineKind.CSharp, SourceLineKind.Il],
+            boxNodes.Select(node => node.Medium).Order());
+
+        // Fact -> target -> node -> spans -> text is the whole join, and it lands
+        // on the exact sub-line characters in C# and the whole rendered
+        // instruction in IL.
+        var boxCSharp = Assert.Single(boxNodes, node => node.Medium == SourceLineKind.CSharp);
+        Assert.Equal("value", Selected(document, boxCSharp));
+        Assert.Single(boxCSharp.Spans);
+
+        var boxIl = Assert.Single(boxNodes, node => node.Medium == SourceLineKind.Il);
+        Assert.Equal("Instruction", boxIl.Kind);
+        Assert.Equal(box.SourceOffset, boxIl.IlOffset);
+        Assert.Contains(Lines(document), line => line.Il && line.Text == Selected(document, boxIl));
 
         var expected = ResearchViews.CollectFacts(
                 source,
@@ -65,10 +66,8 @@ public class AnnotatedSourceDocumentProjectionTests
             .ToArray();
         Assert.Equal(expected, ilFacts);
 
-        var ilOffsets = document.Lines
-            .Where(line => line.Kind == SourceLineKind.Il)
-            .Select(line => line.Offset)
-            .ToArray();
+        var ilOffsets = Instructions(document).Select(node => node.IlOffset!.Value).ToArray();
+        Assert.NotEmpty(ilOffsets);
         Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
         Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
 
@@ -81,19 +80,46 @@ public class AnnotatedSourceDocumentProjectionTests
         var document = Document(nameof(AnnotatedTasteFixture.AllocateAndRead), options: null);
 
         Assert.NotEmpty(document.Nodes);
-        Assert.All(document.Nodes, node => Assert.Equal(SourceLineKind.CSharp, node.Medium));
         Assert.Equal(
             Enumerable.Range(0, document.Nodes.Count),
             document.Nodes.Select(node => node.Id));
 
         // Most nodes carry no fact at all. Nodes exist because the text has
         // structure, not because something was observed about it.
-        var placedNodes = document.Placements
-            .Where(placement => placement.Target == AnnotatedSourcePlacementTarget.Node)
-            .Select(placement => placement.TargetId)
-            .ToHashSet();
-        Assert.NotEmpty(placedNodes);
-        Assert.Contains(document.Nodes, node => !placedNodes.Contains(node.Id));
+        var targeted = document.Targets.Select(target => target.NodeId).ToHashSet();
+        Assert.NotEmpty(targeted);
+        Assert.Contains(document.Nodes, node => !targeted.Contains(node.Id));
+        Assert.Contains(
+            document.Nodes,
+            node => node.Medium == SourceLineKind.CSharp && !targeted.Contains(node.Id));
+
+        AssertNormalized(document);
+    }
+
+    [Fact]
+    public void CSharpNodesKeepThePrinterIdsAndInstructionsFollowThem()
+    {
+        var document = Document(nameof(AnnotatedTasteFixture.AllocateAndRead), options: null);
+
+        // C# ids are the printer projection's, minted while IrNode identity was
+        // alive; instruction nodes are appended after them, in IL order. A
+        // consumer joining on an id therefore reaches the node the fact was
+        // actually anchored to.
+        var csharp = document.Nodes.TakeWhile(node => node.Medium == SourceLineKind.CSharp).ToArray();
+        var instructions = document.Nodes.Skip(csharp.Length).ToArray();
+        Assert.NotEmpty(csharp);
+        Assert.NotEmpty(instructions);
+        Assert.All(instructions, node => Assert.Equal(SourceLineKind.Il, node.Medium));
+        Assert.All(instructions, node => Assert.Equal("Instruction", node.Kind));
+        Assert.All(instructions, node => Assert.Single(node.Spans));
+        Assert.All(csharp, node => Assert.Null(node.IlOffset));
+
+        // Each instruction node covers its whole rendered line, so a consumer
+        // rendering a caret under one selects the instruction and nothing else.
+        var lines = Lines(document);
+        Assert.Equal(
+            [.. lines.Where(line => line.Il).Select(line => line.Text)],
+            [.. instructions.Select(node => Selected(document, node))]);
     }
 
     [Fact]
@@ -147,8 +173,8 @@ public class AnnotatedSourceDocumentProjectionTests
         var withDocument = Project(sourceDocument: true);
         var document = Assert.IsType<AnnotatedSourceDocument>(withDocument.SourceDocument);
 
-        Assert.Contains("return a ? b : c;", CSharpText(document));
-        Assert.DoesNotContain(document.Lines, line => line.Kind == SourceLineKind.Il);
+        Assert.Contains("return a ? b : c;", document.Text);
+        Assert.DoesNotContain(document.Nodes, node => node.Medium == SourceLineKind.Il);
         Assert.Contains(AllFacts(document), fact => fact.Descriptor == "cost.document-test");
         Assert.Equal(overlaysOnly.CostOverlay?.Body.Output, withDocument.CostOverlay?.Body.Output);
         Assert.Equal(overlaysOnly.SemanticsOverlay?.Output, withDocument.SemanticsOverlay?.Output);
@@ -194,13 +220,7 @@ public class AnnotatedSourceDocumentProjectionTests
     [Fact]
     public void LoopFixturePinsNodeKindsAndRegionRoles()
     {
-        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
-            source,
-            typeof(ResearchFixture).FullName!,
-            nameof(ResearchFixture.AllocInLoopCallee),
-            SourceDocument: true));
-        var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
+        var document = LoopDocument();
 
         Assert.Equal(
             [
@@ -214,72 +234,77 @@ public class AnnotatedSourceDocumentProjectionTests
                 "Return",
                 "StoreLocal",
             ],
-            document.Nodes.Select(node => node.Kind).Distinct().Order());
+            document.Nodes
+                .Where(node => node.Medium == SourceLineKind.CSharp)
+                .Select(node => node.Kind)
+                .Distinct()
+                .Order());
+        Assert.Equal(
+            ["Instruction"],
+            document.Nodes
+                .Where(node => node.Medium == SourceLineKind.Il)
+                .Select(node => node.Kind)
+                .Distinct());
         Assert.Equal(
             [PrintedRegionRole.Construct, PrintedRegionRole.Header, PrintedRegionRole.Body],
             document.Regions.Select(region => region.Role).Distinct().Order());
 
         var construct = Assert.Single(document.Regions, region => region.Role == PrintedRegionRole.Construct);
         foreach (var region in document.Regions.Where(region => region.Role != PrintedRegionRole.Construct))
-            Assert.True(Contains(construct.Extent, region.Extent));
+            Assert.True(Covers(construct.Spans, region.Spans));
     }
 
     [Fact]
-    public void MultiLineCSharpStructureDoesNotAbsorbInterleavedIl()
+    public void MultiLineCSharpStructureIsSpannedAroundTheInterleavedIl()
     {
-        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
-        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
-            source,
-            typeof(ResearchFixture).FullName!,
-            nameof(ResearchFixture.AllocInLoopCallee),
-            SourceDocument: true));
-        var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
-
-        var csharp = MediumLines(document, SourceLineKind.CSharp);
-        int[] streamIds =
-        [
-            .. document.Lines
-                .Where(line => line.Kind == SourceLineKind.CSharp)
-                .Select(line => line.Id),
-        ];
+        var document = LoopDocument();
 
         var loop = Assert.Single(document.Nodes, node => node.Kind == "ForLoop");
         var body = Assert.Single(document.Regions, region => region.Role == PrintedRegionRole.Body);
-        Assert.True(loop.Extent.StartLine < loop.Extent.EndLine);
-        Assert.True(body.Extent.StartLine < body.Extent.EndLine);
 
-        // Non-vacuity: IL really is printed between this node's first and last
-        // C# lines, so an extent rebased onto stream ids would have enclosed it.
-        foreach (var extent in new[] { loop.Extent, body.Extent })
-        {
-            int first = streamIds[extent.StartLine];
-            int last = streamIds[extent.EndLine];
-            Assert.True(last - first > extent.EndLine - extent.StartLine);
-            Assert.Contains(
-                document.Lines.Skip(first).Take(last - first + 1),
-                line => line.Kind == SourceLineKind.Il);
-        }
+        // A construct printed across lines with IL woven between them is
+        // discontinuous in the rendered text, so its exact characters are
+        // several runs. One span would have swallowed the instructions.
+        Assert.True(loop.Spans.Count > 1);
+        Assert.True(body.Spans.Count > 1);
 
-        // The contract: the exact selected characters come from the C#-filtered
-        // lines, and are C# only.
-        string selected = SelectText(csharp, loop.Extent);
+        // Non-vacuity: instructions really are printed inside the loop's range.
+        var inside = Instructions(document)
+            .SelectMany(node => node.Spans)
+            .Where(span => span.Start > loop.Spans[0].Start && span.Start < End(loop.Spans[^1]))
+            .ToArray();
+        Assert.NotEmpty(inside);
+
+        string selected = Selected(document, loop);
         Assert.StartsWith("for (", selected.TrimStart(), StringComparison.Ordinal);
         Assert.Contains("new object()", selected, StringComparison.Ordinal);
-        Assert.Equal(
-            loop.Extent.EndLine - loop.Extent.StartLine + 1,
-            selected.Split('\n').Length);
-        foreach (var extent in new[] { loop.Extent, body.Extent })
-        {
-            Assert.All(
-                SelectText(csharp, extent).Split('\n'),
-                line => Assert.DoesNotContain("IL_", line, StringComparison.Ordinal));
-        }
+        Assert.DoesNotContain("IL_", selected, StringComparison.Ordinal);
+        Assert.DoesNotContain("IL_", SelectedText(document, body.Spans), StringComparison.Ordinal);
+
+        // The spans are exactly the text between the instructions, so the loop's
+        // own line breaks survive inside a span while an instruction ends one.
+        Assert.Contains('\n', selected);
+
+        // A line break the construct printed is the construct's text, even where
+        // an instruction is printed straight after it. Losing it would collapse
+        // `for (...)` onto `{` and `...;` onto `}`, so the runs would concatenate
+        // to C# that was never printed.
+        Assert.DoesNotContain("){", selected, StringComparison.Ordinal);
+        Assert.DoesNotContain(";}", selected, StringComparison.Ordinal);
+        Assert.DoesNotContain(";}", SelectedText(document, body.Spans), StringComparison.Ordinal);
+
+        // The strong form of the same claim: concatenating the runs reproduces a
+        // verbatim stretch of the C# the document rendered, breaks included.
+        string csharp = CSharpText(document);
+        Assert.Contains(selected, csharp, StringComparison.Ordinal);
+        Assert.Contains(SelectedText(document, body.Spans), csharp, StringComparison.Ordinal);
+        Assert.True(selected.Split('\n').Length > 2);
 
         AssertNormalized(document);
     }
 
     [Fact]
-    public void FactsWithoutCSharpPlacementRemainOnTheirExactIlLines()
+    public void FactsWithoutCSharpAnchorsRemainOnTheirExactInstructions()
     {
         using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
         var ilLines = IlProjection.RenderIlBodyLines(
@@ -305,26 +330,27 @@ public class AnnotatedSourceDocumentProjectionTests
         var il = Facts(document, SourceLineKind.Il);
         Assert.Equal(markers.Length, il.Length);
         Assert.True(csharp.Length < il.Length);
-        Assert.Empty(Unplaced(document));
+        Assert.Empty(Untargeted(document));
 
-        foreach (var placement in document.Placements
-            .Where(placement => placement.Target == AnnotatedSourcePlacementTarget.Line))
+        // An instruction target is an exact-offset claim, so the node's offset is
+        // the fact's own.
+        foreach (var target in document.Targets)
         {
-            Assert.Equal(
-                document.Lines[placement.TargetId!.Value].Offset,
-                document.Facts[placement.FactId].SourceOffset);
+            var node = document.Nodes[target.NodeId];
+            if (node.Medium != SourceLineKind.Il)
+                continue;
+            Assert.Equal(document.Facts[target.FactId].SourceOffset, node.IlOffset);
         }
         Assert.All(
             il.Except(csharp),
             missing => Assert.Contains(
-                document.Placements,
-                placement => placement.Target == AnnotatedSourcePlacementTarget.Line
-                    && FactKey.From(document.Facts[placement.FactId]) == missing
-                    && document.Lines[placement.TargetId!.Value].Offset == missing.SourceOffset));
+                document.Targets,
+                target => FactKey.From(document.Facts[target.FactId]) == missing
+                    && document.Nodes[target.NodeId].IlOffset == missing.SourceOffset));
     }
 
     [Fact]
-    public void FactWithNoEmittedPlacementRemainsExplicitlyUnplaced()
+    public void FactWithNothingToAnchorToSimplyHasNoTarget()
     {
         var marker = new Annotation(
             new AnnotationDescriptor("test.unplaced", AnnotationCategory.Cost, "unplaced marker"),
@@ -338,15 +364,16 @@ public class AnnotatedSourceDocumentProjectionTests
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
+        // Unanchored is the absence of a target, not a third kind of row: the
+        // observation is kept, and nothing invents a coordinate for it.
         var fact = Assert.Single(document.Facts, fact => fact.Descriptor == "test.unplaced");
         Assert.Equal(AnnotatedSourceFactOrigin.Body, fact.Origin);
-        var placement = Assert.Single(Placements(document, fact));
-        Assert.Equal(AnnotatedSourcePlacementTarget.Unplaced, placement.Target);
-        Assert.Null(placement.TargetId);
+        Assert.Empty(Targets(document, fact));
+        Assert.Contains(Untargeted(document), untargeted => untargeted.Id == fact.Id);
     }
 
     [Fact]
-    public void MemberHeaderFactsCarryHeaderOriginAndRemainUnplaced()
+    public void MemberHeaderFactsCarryHeaderOriginAndTargetNothing()
     {
         using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
         var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
@@ -361,8 +388,7 @@ public class AnnotatedSourceDocumentProjectionTests
             candidate => candidate.Descriptor == "cost.method"
                 && candidate.Origin == AnnotatedSourceFactOrigin.MemberHeader);
         Assert.Equal(-1, fact.SourceOffset);
-        var placement = Assert.Single(Placements(document, fact));
-        Assert.Equal(AnnotatedSourcePlacementTarget.Unplaced, placement.Target);
+        Assert.Empty(Targets(document, fact));
     }
 
     [Fact]
@@ -377,9 +403,9 @@ public class AnnotatedSourceDocumentProjectionTests
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
-        var unplaced = Unplaced(document);
+        var untargeted = Untargeted(document);
         Assert.Contains(
-            unplaced,
+            untargeted,
             fact => fact.Descriptor == "test.body.\\uD800"
                 && fact.Detail == "body.\U0001F600\\uDC00");
         Assert.Contains(
@@ -388,25 +414,28 @@ public class AnnotatedSourceDocumentProjectionTests
                 && fact.Detail == "header.\\uD800"
                 && fact.Origin == AnnotatedSourceFactOrigin.MemberHeader);
         Assert.Contains(
-            unplaced,
+            untargeted,
             fact => fact.Descriptor == "test.body.\\\\uD800"
                 && fact.Detail == "literal.\\\\uD800");
         Assert.Equal(
-            unplaced.Length,
-            unplaced.Select(fact => (fact.Descriptor, fact.Detail)).Distinct().Count());
+            untargeted.Length,
+            untargeted.Select(fact => (fact.Descriptor, fact.Detail)).Distinct().Count());
 
-        // Escaping happens before identity, so the one observation with
-        // placements in both media stays a single fact rather than splitting on
-        // the medium-specific kind it used to carry.
+        // Escaping happens before identity, so the one observation targeted in
+        // both media stays a single fact rather than splitting on the medium.
         var placed = Assert.Single(document.Facts, fact => fact.Descriptor == "test.placed.\\uD800");
         Assert.Equal("placed.\U0001F600\\uDC00", placed.Detail);
         Assert.Equal(
-            [AnnotatedSourcePlacementTarget.Node, AnnotatedSourcePlacementTarget.Line],
-            Placements(document, placed).Select(placement => placement.Target).Order());
+            [SourceLineKind.CSharp, SourceLineKind.Il],
+            Targets(document, placed).Select(target => document.Nodes[target.NodeId].Medium).Order());
 
         string json = JsonSerializer.Serialize(document);
         var replayed = JsonSerializer.Deserialize<AnnotatedSourceDocument>(json);
         Assert.Equal(document, replayed);
+        Assert.Equal(document.GetHashCode(), replayed!.GetHashCode());
+        Assert.Equal(document.Text, replayed.Text);
+        Assert.Equal(document.Nodes, replayed.Nodes);
+        Assert.Equal(document.Targets, replayed.Targets);
     }
 
     [Fact]
@@ -414,7 +443,7 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         // Fact ids are cut from a sort over dictionary keys, so a comparison that
         // stopped short of a total order would renumber the whole payload between
-        // two runs over identical input -- and every placement with it.
+        // two runs over identical input -- and every target with it.
         string Serialized() => JsonSerializer.Serialize(
             Document(nameof(AnnotatedTasteFixture.AllocateAndRead), options: null));
 
@@ -426,14 +455,15 @@ public class AnnotatedSourceDocumentProjectionTests
     {
         var document = Document(nameof(AnnotatedTasteFixture.Noop), options: null);
 
-        var line = Assert.Single(document.Lines);
-        Assert.Equal(SourceLineKind.Il, line.Kind);
-        Assert.Equal(0, line.Id);
-        Assert.Contains("ret", line.Text, StringComparison.Ordinal);
-        Assert.Empty(document.Nodes);
+        var node = Assert.Single(document.Nodes);
+        Assert.Equal(SourceLineKind.Il, node.Medium);
+        Assert.Equal("Instruction", node.Kind);
+        Assert.Equal(0, node.IlOffset);
+        Assert.Contains("ret", document.Text, StringComparison.Ordinal);
+        Assert.Equal(document.Text, Selected(document, node));
         Assert.Empty(document.Regions);
         Assert.Empty(document.Facts);
-        Assert.Empty(document.Placements);
+        Assert.Empty(document.Targets);
     }
 
     [Fact]
@@ -448,13 +478,12 @@ public class AnnotatedSourceDocumentProjectionTests
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
-        Assert.DoesNotContain(document.Lines, line => line.Kind == SourceLineKind.CSharp);
-        Assert.NotEmpty(document.Lines);
+        Assert.DoesNotContain(document.Nodes, node => node.Medium == SourceLineKind.CSharp);
+        Assert.NotEmpty(Instructions(document));
         var allocation = Assert.Single(document.Facts, fact => fact.Descriptor == "alloc.new");
-        var placement = Assert.Single(Placements(document, allocation));
-        Assert.Equal(AnnotatedSourcePlacementTarget.Line, placement.Target);
-        Assert.Equal(allocation.SourceOffset, document.Lines[placement.TargetId!.Value].Offset);
-        Assert.Empty(Unplaced(document));
+        var target = Assert.Single(Targets(document, allocation));
+        Assert.Equal(allocation.SourceOffset, document.Nodes[target.NodeId].IlOffset);
+        Assert.Empty(Untargeted(document));
     }
 
     [Fact]
@@ -560,13 +589,11 @@ public class AnnotatedSourceDocumentProjectionTests
             SourceDocument: true));
         var document = Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
 
-        int firstCSharp = document.Lines
-            .First(line => line.Kind == SourceLineKind.CSharp)
-            .Id;
-        var prologue = document.Lines.Take(firstCSharp).ToArray();
+        var lines = Lines(document);
+        var prologue = lines.TakeWhile(line => line.Il).ToArray();
         Assert.NotEmpty(prologue);
-        Assert.All(prologue, line => Assert.Equal(SourceLineKind.Il, line.Kind));
         Assert.Contains(prologue, line => line.Text.Contains("::.ctor", StringComparison.Ordinal));
+        Assert.Contains(lines, line => !line.Il);
     }
 
     static AnnotatedSourceDocument Document(string method, PrinterOptions? options)
@@ -581,97 +608,125 @@ public class AnnotatedSourceDocumentProjectionTests
         return Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
     }
 
-    static string CSharpText(AnnotatedSourceDocument document) => string.Join(
-        "\n",
-        document.Lines
-            .Where(line => line.Kind == SourceLineKind.CSharp)
-            .Select(line => line.Text));
-
-    static AnnotatedSourceNode Node(AnnotatedSourceDocument document, AnnotatedSourcePlacement placement)
-        => document.Nodes[placement.TargetId!.Value];
-
-    static AnnotatedSourcePlacement[] Placements(
-        AnnotatedSourceDocument document,
-        AnnotatedSourceFact fact) =>
-        [.. document.Placements.Where(placement => placement.FactId == fact.Id)];
-
-    /// <summary>
-    /// The facts a medium actually shows, derived by joining placements back to
-    /// their targets rather than reading an embedded per-line list. Facts are
-    /// deduplicated, so an observation seen in both media contributes one row to
-    /// each medium's set -- which is exactly the agreement being asserted.
-    /// </summary>
-    static FactKey[] Facts(AnnotatedSourceDocument document, SourceLineKind kind)
+    static AnnotatedSourceDocument LoopDocument()
     {
-        var wanted = kind == SourceLineKind.Il
-            ? AnnotatedSourcePlacementTarget.Line
-            : AnnotatedSourcePlacementTarget.Node;
-        return [.. document.Placements
-            .Where(placement => placement.Target == wanted)
-            .Select(placement => FactKey.From(document.Facts[placement.FactId]))
-            .Distinct()
-            .Order()];
+        using var source = MetadataSource.Open(typeof(ResearchFixture).Assembly.Location);
+        var projection = ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+            source,
+            typeof(ResearchFixture).FullName!,
+            nameof(ResearchFixture.AllocInLoopCallee),
+            SourceDocument: true));
+        return Assert.IsType<AnnotatedSourceDocument>(projection.SourceDocument);
     }
 
-    static AnnotatedSourceFact[] Unplaced(AnnotatedSourceDocument document) =>
-        [.. document.Placements
-            .Where(placement => placement.Target == AnnotatedSourcePlacementTarget.Unplaced)
-            .Select(placement => document.Facts[placement.FactId])];
+    static AnnotatedSourceNode[] Instructions(AnnotatedSourceDocument document) =>
+        [.. document.Nodes.Where(node => node.IlOffset is not null)];
+
+    static int End(AnnotatedSourceSpan span) => span.Start + span.Length;
+
+    static string Selected(AnnotatedSourceDocument document, AnnotatedSourceNode node)
+        => SelectedText(document, node.Spans);
+
+    static string SelectedText(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<AnnotatedSourceSpan> spans) => string.Concat(
+            spans.Select(span => document.Text.Substring(span.Start, span.Length)));
+
+    /// <summary>
+    /// The rendered lines, derived the way the payload says they are: split the
+    /// text on newlines, and read the medium off the instruction nodes rather
+    /// than off an identity the document no longer carries.
+    /// </summary>
+    static (string Text, bool Il)[] Lines(AnnotatedSourceDocument document)
+    {
+        var instructionStarts = Instructions(document)
+            .Select(node => node.Spans[0].Start)
+            .ToHashSet();
+        var lines = new List<(string Text, bool Il)>();
+        int start = 0;
+        foreach (string line in document.Text.Split('\n'))
+        {
+            lines.Add((line, instructionStarts.Contains(start)));
+            start += line.Length + 1;
+        }
+        return [.. lines];
+    }
+
+    static string CSharpText(AnnotatedSourceDocument document) => string.Join(
+        '\n',
+        Lines(document).Where(line => !line.Il).Select(line => line.Text));
+
+    static AnnotatedSourceTarget[] Targets(AnnotatedSourceDocument document, AnnotatedSourceFact fact) =>
+        [.. document.Targets.Where(target => target.FactId == fact.Id)];
+
+    /// <summary>
+    /// The facts a medium actually shows, derived by joining targets back to
+    /// their nodes. Facts are deduplicated, so an observation seen in both media
+    /// contributes one row to each medium's set -- which is exactly the
+    /// agreement being asserted.
+    /// </summary>
+    static FactKey[] Facts(AnnotatedSourceDocument document, SourceLineKind medium) =>
+        [.. document.Targets
+            .Where(target => document.Nodes[target.NodeId].Medium == medium)
+            .Select(target => FactKey.From(document.Facts[target.FactId]))
+            .Distinct()
+            .Order()];
+
+    static AnnotatedSourceFact[] Untargeted(AnnotatedSourceDocument document)
+    {
+        var targeted = document.Targets.Select(target => target.FactId).ToHashSet();
+        return [.. document.Facts.Where(fact => !targeted.Contains(fact.Id))];
+    }
 
     static FactKey[] AllFacts(AnnotatedSourceDocument document) =>
         [.. document.Facts.Select(FactKey.From).Order()];
 
     static void AssertNormalized(AnnotatedSourceDocument document)
     {
-        Assert.Equal(Enumerable.Range(0, document.Lines.Count), document.Lines.Select(line => line.Id));
         Assert.Equal(Enumerable.Range(0, document.Nodes.Count), document.Nodes.Select(node => node.Id));
         Assert.Equal(Enumerable.Range(0, document.Facts.Count), document.Facts.Select(fact => fact.Id));
 
-        // Structural extents live in their own medium's line space, so they are
-        // bounds-checked against that medium's lines, not the whole stream.
-        var csharp = MediumLines(document, SourceLineKind.CSharp);
-        foreach (var extent in document.Nodes
-            .Where(node => node.Medium == SourceLineKind.CSharp)
-            .Select(node => node.Extent)
-            .Concat(document.Regions.Select(region => region.Extent)))
+        // Spans are the only coordinate currency, so each set is ordered,
+        // non-overlapping, non-empty, and inside the buffer.
+        foreach (var spans in document.Nodes
+            .Select(node => node.Spans)
+            .Concat(document.Regions.Select(region => region.Spans)))
         {
-            Assert.InRange(extent.StartLine, 0, csharp.Length - 1);
-            Assert.InRange(extent.EndLine, 0, csharp.Length - 1);
-            Assert.InRange(extent.StartColumn, 0, csharp[extent.StartLine].Length);
-            Assert.InRange(extent.EndColumn, 0, csharp[extent.EndLine].Length);
-            Assert.True(
-                extent.StartLine < extent.EndLine
-                || extent.StartColumn < extent.EndColumn);
+            Assert.NotEmpty(spans);
+            int previousEnd = 0;
+            foreach (var span in spans)
+            {
+                Assert.True(span.Length > 0);
+                Assert.True(span.Start >= previousEnd);
+                Assert.True(End(span) <= document.Text.Length);
+                previousEnd = End(span);
+            }
         }
 
-        Assert.All(document.Facts, fact => Assert.NotEmpty(Placements(document, fact)));
-        Assert.Equal(document.Placements.Count, document.Placements.Distinct().Count());
+        // No node selects another medium's characters: the instructions woven
+        // into a C# construct are outside every one of its spans.
+        var instructionSpans = Instructions(document).SelectMany(node => node.Spans).ToArray();
+        foreach (var span in document.Nodes
+            .Where(node => node.Medium == SourceLineKind.CSharp)
+            .SelectMany(node => node.Spans))
+        {
+            Assert.DoesNotContain(
+                instructionSpans,
+                instruction => instruction.Start < End(span) && span.Start < End(instruction));
+        }
+
+        Assert.All(document.Targets, target =>
+        {
+            Assert.InRange(target.FactId, 0, document.Facts.Count - 1);
+            Assert.InRange(target.NodeId, 0, document.Nodes.Count - 1);
+        });
+        Assert.Equal(document.Targets.Count, document.Targets.Distinct().Count());
     }
 
-    static string[] MediumLines(AnnotatedSourceDocument document, SourceLineKind kind) =>
-        [.. document.Lines.Where(line => line.Kind == kind).Select(line => line.Text)];
-
-    static string SelectText(string[] lines, PrintedExtent extent)
-    {
-        if (extent.StartLine == extent.EndLine)
-            return lines[extent.StartLine][extent.StartColumn..extent.EndColumn];
-
-        var selected = new List<string> { lines[extent.StartLine][extent.StartColumn..] };
-        for (int line = extent.StartLine + 1; line < extent.EndLine; line++)
-            selected.Add(lines[line]);
-        selected.Add(lines[extent.EndLine][..extent.EndColumn]);
-        return string.Join('\n', selected);
-    }
-
-    static bool Contains(PrintedExtent outer, PrintedExtent inner)
-        => Compare(outer.StartLine, outer.StartColumn, inner.StartLine, inner.StartColumn) <= 0
-           && Compare(inner.EndLine, inner.EndColumn, outer.EndLine, outer.EndColumn) <= 0;
-
-    static int Compare(int line, int column, int otherLine, int otherColumn)
-    {
-        int c = line.CompareTo(otherLine);
-        return c != 0 ? c : column.CompareTo(otherColumn);
-    }
+    static bool Covers(
+        IReadOnlyList<AnnotatedSourceSpan> outer,
+        IReadOnlyList<AnnotatedSourceSpan> inner) => inner.All(
+            span => outer.Any(candidate => candidate.Start <= span.Start && End(span) <= End(candidate)));
 
     readonly record struct FactKey(
         string Descriptor,
