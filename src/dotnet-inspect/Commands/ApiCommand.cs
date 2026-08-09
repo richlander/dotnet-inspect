@@ -739,10 +739,10 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
             if (!TryReportEmptyProjection(markdown, options))
                 return 1;
-            markdown = OutputFormatter.ApplyRowLimit(markdown, options.Rows);
             CountOutput.WriteCountFromMarkdown(markdown);
         }
         else if (options.Tabular)
@@ -793,10 +793,14 @@ public class ApiCommand
             }
             else
             {
-                var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+                var markdownWriter = new StringWriter { NewLine = "\n" };
+                MarkoutSerializer.Serialize(
+                    view, markdownWriter, new MarkdownFormatter(), ApiViewContext.Default, writerOptions);
+                var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
-                OutputFormatter.WriteLimitedMarkdown(Console.Out, markdown, options.Rows);
+                OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
 
@@ -1321,13 +1325,14 @@ public class ApiCommand
         if (options.Count)
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
+            writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
             var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
             writer.Flush();
-            CountOutput.WriteCountFromMarkdown(OutputFormatter.ApplyRowLimit(sw.ToString(), options.Rows));
+            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }
@@ -1386,6 +1391,18 @@ public class ApiCommand
             }
             else
             {
+                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.GetAllSelectorSections(type);
+                }
+                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
+                {
+                    var pipeline = ApiMemberSectionPipelines.Create(options);
+                    writerOptions.SectionOrder = pipeline.InfoSectionNames;
+                }
+
+                writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
                 var sw = new StringWriter { NewLine = "\n" };
                 var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
@@ -1393,17 +1410,7 @@ public class ApiCommand
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
-                if (SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(type));
-                }
-                else if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections))
-                {
-                    var pipeline = ApiMemberSectionPipelines.Create(options);
-                    markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
-                }
-                OutputFormatter.WriteLfLine(sink, OutputFormatter.ApplyRowLimit(markdown, options.Rows));
+                OutputFormatter.WriteLfLine(sink, markdown);
             }
         }
         ApiOutputFormatter.WriteSignatureDecodeWarning(view);
