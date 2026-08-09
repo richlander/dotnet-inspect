@@ -52,14 +52,18 @@ the ownership boundaries below, not the project count.
 ## Implementation status
 
 `DotnetInspector.Queries` now implements metadata-image, direct-reference,
-extension-method, custom-attribute, SourceLink audit, and assembly-context
-Integrations slices. The library CLI executes metadata-image, direct
-assembly-reference, extension-method, and custom-attribute queries through a
-typed, content-shaped registry over a host-owned `AssemblyInspectionSession`.
-The `References`, `Extension Methods`, `Custom Attributes`, and `Library Info`
-sections bind to concrete query definitions rather than string scanner keys,
-and the CLI and package convenience route lower section selection into that
-same registry. Library and package SourceLink sections
+extension-method, custom-attribute, SourceLink audit, assembly-context
+Integrations, and progressive member call-graph slices. The call-graph seam
+composes Analysis indexes and one catalog generation over workspace-owned
+immutable snapshots; it returns typed roots and diagnostics without choosing a
+renderer or graph format.
+The library CLI executes metadata-image, direct assembly-reference, and
+extension-method and custom-attribute queries through a typed, content-shaped
+registry over a host-owned `AssemblyInspectionSession`. The `References`,
+`Extension Methods`, `Custom Attributes`, and `Library Info` sections bind to
+concrete query definitions rather than string scanner keys, and the CLI and
+package convenience route lower section selection into that same registry.
+Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
 `--all-libraries` route focused Integrations demand through the first workspace
