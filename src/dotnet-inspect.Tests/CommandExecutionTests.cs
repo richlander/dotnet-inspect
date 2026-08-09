@@ -19,6 +19,8 @@ using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.Analysis;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Markout;
@@ -12472,6 +12474,47 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
+    {
+        LibraryInspection FailedInspection(string tfm)
+        {
+            var subject = new FindingSubject("fixture", "fixture");
+            return new LibraryInspection
+            {
+                FileName = "Lib.dll",
+                Tfm = tfm,
+                ResourceLifecycleInspection =
+                    new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                        new InspectionError(
+                            subject,
+                            AnalysisFindings.ResourceLifecycleDescriptor,
+                            "fixture failure"))
+            };
+        }
+
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.ArrayPoolEscapes]
+        };
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedInspection("net8.0"), FailedInspection("net9.0")],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Contains(
+            "Lib.dll (net8.0): Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Contains(
+            "Lib.dll (net9.0): Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Equal(2, error.Split("fixture failure", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]

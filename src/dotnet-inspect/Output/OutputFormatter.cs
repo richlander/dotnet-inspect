@@ -592,11 +592,11 @@ public static class OutputFormatter
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var title = GetLibraryDocumentTitle(inspection);
+                var title = LibraryViewText.DocumentTitle(inspection);
                 var body = RemovePlainTextDocumentTitle(
                     SerializeLibraryPlainText(
                         auditView, inspection, WriterOptions(inspection)),
-                    GetLibraryDocumentTitle(auditView));
+                    LibraryViewText.DocumentTitle(auditView));
                 return body.Length == 0 ? title : title + "\n\n" + body;
             }));
             WriteLfLine(Console.Out, string.Join("\n\n", documents));
@@ -612,7 +612,7 @@ public static class OutputFormatter
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var title = GetLibraryDocumentTitle(inspection);
+                var title = LibraryViewText.DocumentTitle(inspection);
                 var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
                     auditView, inspection, WriterOptions(inspection), pipeline));
                 body = ShiftMarkdownHeadingLevels(body, 2);
@@ -637,19 +637,6 @@ public static class OutputFormatter
             }
         }
     }
-
-    private static string GetLibraryDocumentTitle(LibraryInspection inspection)
-    {
-        var fileName = LibraryViewText.Contain(inspection.FileName) ?? string.Empty;
-        return LibraryViewText.Contain(inspection.Tfm) is { Length: > 0 } tfm
-            ? $"{fileName} ({tfm})"
-            : fileName;
-    }
-
-    private static string GetLibraryDocumentTitle(LibraryInspectionView auditView) =>
-        auditView.Tfm is { Length: > 0 } tfm
-            ? $"{auditView.FileName} ({tfm})"
-            : auditView.FileName;
 
     private static string RenderMarkdownHeading(int level, string title)
     {

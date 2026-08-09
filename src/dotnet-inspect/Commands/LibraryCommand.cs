@@ -2133,7 +2133,7 @@ public class LibraryCommand
         SectionPipeline<LibraryInspection> pipeline) =>
         WarnEmptySections([inspection], options, pipeline);
 
-    private static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
+    internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count)
@@ -2151,22 +2151,24 @@ public class LibraryCommand
                 result => result.Empty.Contains(section, StringComparer.OrdinalIgnoreCase)))
             .ToList();
         var requested = emptyResults[0].RequestedCount;
-        List<LibraryInspectionFailureJson> relevantFailures = inspections
+        var relevantFailures = inspections
             .Zip(emptyResults)
             .SelectMany(pair => (pair.First.InspectionFailures ?? [])
                 .Where(failure => pair.Second.Empty.Any(
-                    section => FailureAffectsSection(failure.Section, section))))
-            .DistinctBy(failure => (failure.Section, failure.Finding, failure.Reason))
+                    section => FailureAffectsSection(failure.Section, section)))
+                .Select(failure => (Inspection: pair.First, Failure: failure)))
+            .DistinctBy(entry => (entry.Inspection, entry.Failure))
             .ToList();
-        foreach (var failure in relevantFailures)
+        foreach (var (inspection, failure) in relevantFailures)
         {
             CommandError.WriteWarning(
-                $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
+                $"{LibraryViewText.DocumentTitle(inspection)}: "
+                + $"{failure.Section} inspection failed ({failure.Finding}): {failure.Reason}");
         }
 
         var unexplained = empty
             .Where(section => !relevantFailures.Any(
-                failure => FailureAffectsSection(failure.Section, section)))
+                entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
         if (unexplained.Count > 0 && empty.Count == requested)
         {
