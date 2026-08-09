@@ -46,8 +46,10 @@ Distinct from *fetching* source (the `sourcelink` skill), `-S @SourceLink`
 groups the provenance sections: `SourceLink: Availability` (is it wired up),
 `SourceLink: Integrity` (do the documents validate), and `SourceLink: Missing
 Files` (gaps). The same sections work on `library` and aggregate selected
-libraries on `package`. The integrity pass fetches and hashes source content,
-so request it explicitly.
+libraries on `package`. Availability and missing-file checks may send HEAD
+requests for uncached SourceLink URLs. The integrity pass fetches and hashes
+fetchable, non-embedded compiler-source documents, so request these networked
+checks explicitly.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink

@@ -6,12 +6,14 @@ description: Output formats, -D/-S section discovery and selection, value projec
 
 # dotnet-inspect: query and output system
 
-The query system is like Go templates, without a DSL: every command emits the
-same structured sections, and you discover, select, and project them with the
-same cross-command flags — on `find`, `type`, `member`, `package`, `project`,
-`library`, and `diff`. `timeline` supports section selection and projection but
-not `-D` discovery. Relationship commands render fixed output without `-D` or
-`-S`. Discover the shape first where available, then select and project.
+The query system is like Go templates, without a DSL: inspection commands emit
+structured sections, with the broadest shared query surface on `type`, `member`,
+`package`, `project`, and `library`. `find` supports `-D` discovery and
+field/column projection but not `-S` selection. `diff` supports `-D` and `-S`
+but not field/column projection. `timeline` supports section selection and
+projection but not `-D` discovery. Relationship commands render fixed output
+without `-D` or `-S`. Discover the shape first where available, then select and
+project.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -54,14 +56,20 @@ homogeneous family; `Performance:*` flattens with a leading `Kind` column.
 
 ## Filter and order performance rows
 
-On `Performance:*` and `Performance Triage`, use `--where` with a discovered
-field name and repeat it to combine predicates. Use
-`--order-by "Field desc,Other asc"` before applying output limits.
+On type/member `Performance Triage` or one concrete library
+`Performance: <Kind>` section, use `--where` with a discovered field name and
+repeat it to combine predicates. Use `--order-by "Field desc,Other asc"` before
+applying output limits.
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance: Arrays" \
   --where "Finding=analysis.allocation" --order-by "RootReach desc" --jsonl
 ```
+
+`Performance:*` orders within each `Kind` group before flattening, while
+`--rows` caps the flattened sequence. Do not combine those flags expecting a
+global field-ranked prefix; use `--top N` for the curated global rank, or
+select one concrete kind when a specific field controls the order.
 
 ## Limit output
 

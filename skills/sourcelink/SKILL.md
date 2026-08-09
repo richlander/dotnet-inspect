@@ -7,10 +7,11 @@ description: Find SourceLink-mapped original source through PDB data — map fil
 # dotnet-inspect: SourceLink and original source
 
 Use this skill to get the original source mapped by the PDB. dotnet-inspect
-verifies local files and committed blobs read through `--repo` against the PDB
-checksum. A network `Original Source` fetch follows the SourceLink URL without
-performing that checksum check; use `library -S "SourceLink: Integrity"` for
-opt-in content verification of every mapped file. Without a usable PDB,
+verifies local files and GitHub committed blobs read through `--repo` against
+the PDB checksum. A network `Original Source` fetch follows the SourceLink URL
+without performing that checksum check; use
+`library -S "SourceLink: Integrity"` for opt-in content verification of
+fetchable, non-embedded compiler-source documents. Without a usable PDB,
 SourceLink map, or matching source, use the always-local `decompiler` skill.
 
 ```bash
@@ -47,7 +48,9 @@ dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Se
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --json-array
 ```
 
-`--repo` requires a fully qualified clone path.
+`--repo` requires a fully qualified clone path and applies only to
+`raw.githubusercontent.com` SourceLink URLs. It is consulted before fetching
+the source body remotely; package or PDB acquisition may still use the network.
 
 ## URL forms
 
