@@ -169,10 +169,8 @@ internal static class TypeParameterKindClassifier
             _context = context;
         }
 
-        internal ConstraintClass Classify(
-            MetadataReader reader,
+        internal TypeResolutionRequest? Project(
             TypeReferenceHandle handle,
-            int? genericArgumentCount = null,
             EntityHandle subject = default)
         {
             if (!_projectedRequests.TryGetValue(
@@ -182,7 +180,7 @@ internal static class TypeParameterKindClassifier
                 if (_requestBudgetExhausted)
                 {
                     RecordRequestBudgetFailure(subject);
-                    return ConstraintClass.Unreadable;
+                    return null;
                 }
 
                 request = CreateRequest(reader, source, handle);
@@ -191,14 +189,11 @@ internal static class TypeParameterKindClassifier
             }
 
             if (request is null)
-            {
-                return ConstraintClass.Unreadable;
-            }
+                return null;
 
-            if (_context is null)
+            if (_context is null
+                && !_requests.Contains(request))
             {
-                if (_requests.Contains(request))
-                    return ConstraintClass.Unreadable;
                 if (_requests.Count < _maxTypeResolutionRequests
                     && _requests.Add(request))
                 {
@@ -208,7 +203,26 @@ internal static class TypeParameterKindClassifier
                 {
                     _requestBudgetExhausted = true;
                     RecordRequestBudgetFailure(subject);
+                    return null;
                 }
+            }
+
+            return request;
+        }
+
+        internal ConstraintClass Classify(
+            MetadataReader reader,
+            TypeReferenceHandle handle,
+            int? genericArgumentCount = null,
+            EntityHandle subject = default)
+        {
+            if (Project(handle, subject) is not { } request)
+            {
+                return ConstraintClass.Unreadable;
+            }
+
+            if (_context is null)
+            {
                 return ConstraintClass.Unreadable;
             }
 

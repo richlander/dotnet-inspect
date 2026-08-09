@@ -1,4 +1,6 @@
 using ILInspector.DecompilerHarness;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -153,6 +155,163 @@ public class SkeletonEmitTests
                 result.Status == FidelityCheck.CompileBackStatus.Exact,
                 $"{typeName}.{result.Method} did not retain its external base context: "
                 + $"{result.Status} / {result.Detail}"));
+    }
+
+    [Fact]
+    public void SkeletonRetainsCrossAssemblyBaseForAccessorOnlySelection()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyAccessorCompileBackFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyAccessorCompileBackFixture",
+            method => method.Method == "get_Value"));
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            result.Status);
+    }
+
+    [Fact]
+    public void SkeletonKeepsExtensionMethodOnItsDeclaringType()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyCompileBackExtensions).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyCompileBackExtensions",
+            method => method.Method == "Twice"));
+
+        Assert.False(
+            result.Status is FidelityCheck.CompileBackStatus.RecompileFail
+                or FidelityCheck.CompileBackStatus.ContextFail,
+            $"Extension target used its receiver's base type: "
+                + $"{result.Status} / {result.Detail}");
+    }
+
+    [Fact]
+    public void SkeletonOmitsUnconstructibleExternalBaseForPlainMethod()
+    {
+        var result = Assert.Single(FidelityCheck.Evaluate(
+            typeof(CrossAssemblyNeedsArgumentCompileBackFixture).Assembly.Location,
+            type => type ==
+                "ILInspector.Decompiler.Tests.CrossAssemblyNeedsArgumentCompileBackFixture",
+            method => method.Method == "Sum"));
+
+        Assert.Equal(
+            FidelityCheck.CompileBackStatus.Exact,
+            result.Status);
+    }
+
+    [Fact]
+    public void SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-identity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string goodPath = Path.Combine(root, "Good.dll");
+        string wrongPath = Path.Combine(root, "Wrong.dll");
+        string targetPath = Path.Combine(root, "IdentityTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                goodPath,
+                "Good",
+                """
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 1;
+                }
+                """);
+            EmitLibrary(
+                wrongPath,
+                "Wrong",
+                """
+                namespace N;
+                public class Base
+                {
+                    public int Value => 2;
+                    public virtual int M() => 2;
+                }
+                """);
+
+            MetadataReference good =
+                MetadataReference.CreateFromFile(goodPath);
+            MetadataReference wrong =
+                MetadataReference.CreateFromFile(
+                    wrongPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases:
+                            System.Collections.Immutable.ImmutableArray
+                                .Create("wrong")));
+            EmitLibrary(
+                targetPath,
+                "IdentityTarget",
+                """
+                extern alias wrong;
+                namespace IdentityTarget;
+                public sealed class Derived : N.Base
+                {
+                    public override int M() => 42;
+                    public static int TouchWrong(wrong::N.Base value) => value.Value;
+                }
+                """,
+                [good, wrong]);
+
+            File.Delete(goodPath);
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "IdentityTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    static void EmitLibrary(
+        string path,
+        string assemblyName,
+        string source,
+        IReadOnlyList<MetadataReference>? additionalReferences = null)
+    {
+        List<MetadataReference> references = (AppContext.GetData(
+                "TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+            .Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => MetadataReference.CreateFromFile(path))
+            .Cast<MetadataReference>()
+            .ToList();
+        if (additionalReferences is not null)
+            references.AddRange(additionalReferences);
+
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        using FileStream stream = File.Create(path);
+        var emit = compilation.Emit(stream);
+        Assert.True(
+            emit.Success,
+            string.Join(
+                Environment.NewLine,
+                emit.Diagnostics.Where(
+                    diagnostic =>
+                        diagnostic.Severity == DiagnosticSeverity.Error)));
     }
 
     static string CreateAssemblyWithDuplicateUnrelatedType()

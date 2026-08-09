@@ -304,10 +304,11 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
-**Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
-wide platform type browse, and direct Research API comparison use the Metadata-owned
-type-resolution catalog when API extraction encounters a named generic
-constraint outside the selected image. Extraction records requests only for surfaced
+**Cross-assembly constraint and base bridge.** Type/member extraction,
+assembly-set diff endpoints, wide platform type browse, and direct Research API
+comparison use the Metadata-owned type-resolution catalog when API extraction
+encounters a named generic constraint or requests an external base outside the
+selected image. Extraction records requests only for surfaced
 generic-parameter groups, freezes one resolution generation, and then materializes the
 reference/value/neither classification onto the API model while the source reader remains
 alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
@@ -380,6 +381,18 @@ the defining image.
 Resolution-aware classification does not infer core-type semantics from a platform-looking
 reference: the reference must bind through policy, as gated by
 `MissingCoreBindingDoesNotProveConstraintKind`.
+
+External base-definition facts are a separate, explicit extraction option used by
+compile-back. The same frozen resolution generation authenticates the defining assembly
+identity and copies only public accessibility and accessible-parameterless-constructor facts
+onto transient `ApiBaseTypeResolution`; it does not export catalog keys or metadata handles.
+Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
+same-named type from another assembly. `DirectDefinition_CarriesAccessibilityAndConstructorFacts`
+gates the copied declaration facts, while
+`SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly` and
+`SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gate fail-closed compile-back
+consumption.
+
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
 (`TypeRequestBudget_RejectsExcessManifestRequests`). Row rollback also releases provisional

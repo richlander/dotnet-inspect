@@ -93,6 +93,43 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void DirectDefinition_CarriesAccessibilityAndConstructorFacts()
+    {
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                typeof(TypeResolutionContextTests).Assembly.Location,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        DirectDefinition_CarriesAccessibilityAndConstructorFacts)));
+        MetadataTypeDefinitionName typeName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "ILInspector.Metadata.Tests",
+                    [nameof(TypeResolutionContextTests)]))
+                .Name;
+        TypeResolutionRequest request =
+            TypeResolutionRequest.FromAssembly(
+                assembly,
+                AssemblyResolutionScope.Any,
+                typeName);
+
+        using TypeResolutionContext context =
+            TypeResolutionContext.Create(
+                new RecordingPolicy(
+                    _ => AssemblyBindingSelection.NotFound()),
+                [assembly],
+                [request]);
+        ResolvedTypeDefinition definition =
+            Assert.IsType<TypeResolutionOutcome.Resolved>(
+                context.Resolve(request))
+                .Definition;
+
+        Assert.True(definition.IsPubliclyAccessible);
+        Assert.True(
+            definition.HasAccessibleParameterlessConstructor);
+    }
+
+    [Fact]
     public void DefinitionCorrespondence_IsCatalogOwnedAndTokenExact()
     {
         byte[] image = BuildAssembly(

@@ -246,17 +246,17 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             budget: null,
-            constraintResolution: null);
+            resolution: null);
 
     /// <summary>
-    /// Extracts an API surface and classifies external named generic constraints
-    /// through one frozen type-resolution generation.
+    /// Extracts an API surface, classifies external named generic constraints,
+    /// and optionally resolves external base facts through one frozen
+    /// type-resolution generation.
     /// </summary>
     /// <remarks>
-    /// The first pass records requests only for generic-parameter groups that the
-    /// selected surface actually materialized. The resolved pass rereads those groups
-    /// while <paramref name="peReader"/> remains alive and stores only
-    /// <see cref="TypeParameterTypeKind"/> on the result; no generation-scoped
+    /// The first pass records requests only for materialized generic-parameter
+    /// groups and, when requested, their external bases. The resolved pass stores
+    /// only durable classification and declaration facts; no generation-scoped
     /// resolution currency escapes with the surface.
     /// </remarks>
     internal static ApiSurface Extract(
@@ -266,18 +266,20 @@ public static class ApiSurfaceExtractor
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll = false,
         bool typesOnly = false,
-        bool includeCompilerGenerated = false)
+        bool includeCompilerGenerated = false,
+        bool resolveBaseTypes = false)
     {
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
 
-        var constraintResolution =
-            new TypeParameterConstraintResolution(
+        var resolution =
+            new ApiSurfaceResolution(
                 peReader.GetMetadataReader(),
                 source,
-                catalog.MaxTypeResolutionRequests);
+                catalog.MaxTypeResolutionRequests,
+                resolveBaseTypes);
         ApiSurface surface = Extract(
             peReader,
             includeAll
@@ -286,12 +288,12 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             budget: null,
-            constraintResolution);
-        if (constraintResolution.Requests.Count == 0)
+            resolution);
+        if (resolution.Requests.Count == 0)
         {
             AddConstraintResolutionFailure(
                 surface,
-                constraintResolution,
+                resolution,
                 source.Identity);
             return surface;
         }
@@ -300,22 +302,22 @@ public static class ApiSurfaceExtractor
             catalog.CreateApiSurfaceContext(
                 bindingPolicy,
                 [source],
-                constraintResolution.Requests);
-        constraintResolution.Apply(context);
+                resolution.Requests);
+        resolution.Apply(context);
         AddConstraintResolutionFailure(
             surface,
-            constraintResolution,
+            resolution,
             source.Identity);
         return surface;
     }
 
     static void AddConstraintResolutionFailure(
         ApiSurface surface,
-        TypeParameterConstraintResolution constraintResolution,
+        ApiSurfaceResolution resolution,
         AssemblyReferenceIdentity subjectAssembly)
     {
         foreach (MetadataTypeNameFailure budgetFailure
-            in constraintResolution.Plan.RequestBudgetFailures)
+            in resolution.Plan.RequestBudgetFailures)
         {
             TrackConstraintResolutionFailure(
                 surface,
@@ -325,7 +327,7 @@ public static class ApiSurfaceExtractor
 
         foreach (TypeParameterKindClassifier.ResolutionPlan
             .ResolutionFailureEntry resolutionFailure
-            in constraintResolution.Plan.ResolutionFailureEntries)
+            in resolution.Plan.ResolutionFailureEntries)
         {
             TrackConstraintResolutionFailure(
                 surface,
@@ -407,7 +409,7 @@ public static class ApiSurfaceExtractor
         bool typesOnly,
         bool includeCompilerGenerated,
         ExtractionBudget? budget,
-        TypeParameterConstraintResolution? constraintResolution)
+        ApiSurfaceResolution? resolution)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -423,9 +425,9 @@ public static class ApiSurfaceExtractor
             int publicPropertyCount = surface.PublicPropertyCount;
             int publicEventCount = surface.PublicEventCount;
             int publicFieldCount = surface.PublicFieldCount;
-            TypeParameterConstraintResolution.Checkpoint?
+            ApiSurfaceResolution.Checkpoint?
                 constraintCheckpoint =
-                    constraintResolution?.CreateCheckpoint();
+                    resolution?.CreateCheckpoint();
             try
             {
             var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -501,6 +503,13 @@ public static class ApiSurfaceExtractor
                     typeDef.GetCustomAttributes(),
                     GenericContext.ForType(reader, typeDef),
                     baseTypeName);
+                if (typeDef.BaseType.Kind == HandleKind.TypeReference)
+                {
+                    resolution?.TrackBase(
+                        apiType,
+                        (TypeReferenceHandle)typeDef.BaseType,
+                        typeDefHandle);
+                }
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -544,7 +553,7 @@ public static class ApiSurfaceExtractor
                 typeNullableContext,
                 includeVariance: true,
                 typeDefHandle,
-                constraintResolution);
+                resolution);
 
             // Get interfaces
             var interfaces = typeDef.GetInterfaceImplementations();
@@ -614,7 +623,7 @@ public static class ApiSurfaceExtractor
                     methodHandle,
                     method,
                     typeNullableContext,
-                    constraintResolution);
+                    resolution);
                 var isOperator = IsOperatorMethodName(methodName);
                 var methodAttributes = method.Attributes;
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
@@ -1018,7 +1027,7 @@ public static class ApiSurfaceExtractor
             catch (MetadataRowRejectedException ex)
             {
                 if (constraintCheckpoint is { } checkpoint)
-                    constraintResolution!.Rollback(checkpoint);
+                    resolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1035,7 +1044,7 @@ public static class ApiSurfaceExtractor
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
             {
                 if (constraintCheckpoint is { } checkpoint)
-                    constraintResolution!.Rollback(checkpoint);
+                    resolution!.Rollback(checkpoint);
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1278,7 +1287,7 @@ public static class ApiSurfaceExtractor
         byte nullableContext,
         bool includeVariance,
         EntityHandle subject,
-        TypeParameterConstraintResolution? constraintResolution = null)
+        ApiSurfaceResolution? resolution = null)
     {
         var parameters = new List<TypeParameter>();
         var tracked =
@@ -1288,7 +1297,7 @@ public static class ApiSurfaceExtractor
         // each parameter from scratch would rewalk the chain's whole tail, which is
         // quadratic in the number of parameters.
         var chain = new TypeParameterKindClassifier.ChainState(
-            constraintResolution?.Plan,
+            resolution?.Plan,
             subject);
         foreach (var paramHandle in handles)
         {
@@ -1349,7 +1358,7 @@ public static class ApiSurfaceExtractor
             tracked.Add((paramHandle, typeParam));
         }
 
-        constraintResolution?.Track(subject, tracked);
+        resolution?.Track(subject, tracked);
         return parameters;
     }
 
@@ -2166,7 +2175,7 @@ public static class ApiSurfaceExtractor
         MethodDefinitionHandle methodHandle,
         MethodDefinition method,
         byte typeNullableContext,
-        TypeParameterConstraintResolution? constraintResolution = null)
+        ApiSurfaceResolution? resolution = null)
     {
         string name = reader.GetString(method.Name);
         var context = GenericContext.ForMethod(reader, typeDef, method);
@@ -2263,7 +2272,7 @@ public static class ApiSurfaceExtractor
             nullableDefault,
             includeVariance: false,
             methodHandle,
-            constraintResolution);
+            resolution);
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
@@ -3174,17 +3183,25 @@ public static class ApiSurfaceExtractor
         _ => null // Public
     };
 
-    sealed class TypeParameterConstraintResolution
+    sealed class ApiSurfaceResolution
     {
         readonly MetadataReader _reader;
+        readonly bool _resolveBaseTypes;
         readonly List<Group> _groups = [];
+        readonly List<(
+            ApiType Type,
+            TypeResolutionRequest Request,
+            EntityHandle Subject)>
+            _baseTypes = [];
 
-        internal TypeParameterConstraintResolution(
+        internal ApiSurfaceResolution(
             MetadataReader reader,
             ResolvedAssemblyReference source,
-            int maxTypeResolutionRequests)
+            int maxTypeResolutionRequests,
+            bool resolveBaseTypes)
         {
             _reader = reader;
+            _resolveBaseTypes = resolveBaseTypes;
             Plan = new TypeParameterKindClassifier.ResolutionPlan(
                 reader,
                 source,
@@ -3197,7 +3214,10 @@ public static class ApiSurfaceExtractor
             Plan.Requests;
 
         internal Checkpoint CreateCheckpoint() =>
-            new(_groups.Count, Plan.Checkpoint());
+            new(
+                _groups.Count,
+                _baseTypes.Count,
+                Plan.Checkpoint());
 
         internal void Rollback(Checkpoint checkpoint)
         {
@@ -3211,6 +3231,9 @@ public static class ApiSurfaceExtractor
             _groups.RemoveRange(
                 checkpoint.GroupCount,
                 _groups.Count - checkpoint.GroupCount);
+            _baseTypes.RemoveRange(
+                checkpoint.BaseTypeCount,
+                _baseTypes.Count - checkpoint.BaseTypeCount);
             Plan.Rollback(checkpoint.RequestCheckpoint);
         }
 
@@ -3221,6 +3244,17 @@ public static class ApiSurfaceExtractor
         {
             if (group.Count != 0)
                 _groups.Add(new Group(subject, group));
+        }
+
+        internal void TrackBase(
+            ApiType type,
+            TypeReferenceHandle handle,
+            EntityHandle subject)
+        {
+            if (!_resolveBaseTypes)
+                return;
+            if (Plan.Project(handle, subject) is { } request)
+                _baseTypes.Add((type, request, subject));
         }
 
         internal void Apply(TypeResolutionContext context)
@@ -3253,10 +3287,27 @@ public static class ApiSurfaceExtractor
                             chain);
                 }
             }
+
+            foreach (var (type, request, _) in _baseTypes)
+            {
+                if (context.Resolve(request)
+                    is TypeResolutionOutcome.Resolved resolved)
+                {
+                    ResolvedTypeDefinition definition =
+                        resolved.Definition;
+                    type.BaseTypeResolution =
+                        new ApiBaseTypeResolution(
+                            definition.Assembly.Assembly.Identity,
+                            definition.IsPubliclyAccessible,
+                            definition
+                                .HasAccessibleParameterlessConstructor);
+                }
+            }
         }
 
         internal readonly record struct Checkpoint(
             int GroupCount,
+            int BaseTypeCount,
             TypeParameterKindClassifier.ResolutionPlan.RequestCheckpoint
                 RequestCheckpoint);
 

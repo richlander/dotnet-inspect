@@ -667,6 +667,20 @@ public class ApiType
     public bool IsReadOnly { get; set; }
 
     public string? BaseType { get; set; }
+
+    /// <summary>
+    /// Resolution evidence for an external base type. This is transient
+    /// inspection currency: serialized API surfaces retain the display spelling
+    /// but do not claim that its defining assembly was resolved.
+    /// </summary>
+    /// <remarks>
+    /// <c>DirectDefinition_CarriesAccessibilityAndConstructorFacts</c> gates the
+    /// resolved facts; compile-back consumption is gated by the cross-assembly
+    /// cases in <c>SkeletonEmitTests</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public ApiBaseTypeResolution? BaseTypeResolution { get; set; }
+
     public List<string> Interfaces { get; set; } = [];
 
     /// <summary>
@@ -731,6 +745,15 @@ public class ApiType
     // Documentation (populated with --docs)
     public DocComment Documentation { get; set; } = new();
 }
+
+/// <summary>
+/// Durable facts collected from the exact resolved definition of an external
+/// base type.
+/// </summary>
+public sealed record ApiBaseTypeResolution(
+    AssemblyReferenceIdentity Assembly,
+    bool IsPubliclyAccessible,
+    bool HasAccessibleParameterlessConstructor);
 
 public class ApiMember
 {

@@ -2,6 +2,30 @@ using DotnetInspector.Fixtures;
 
 namespace ILInspector.Decompiler.Tests;
 
+public static class CrossAssemblyCompileBackExtensions
+{
+    public static int Twice(
+        this CrossAssemblyAccessorCompileBackFixture value) =>
+        value.Value * 2;
+}
+
+public sealed class CrossAssemblyAccessorCompileBackFixture
+    : CrossAssemblyAccessorBase
+{
+    public override int Value => base.Value + 1;
+}
+
+public sealed class CrossAssemblyNeedsArgumentCompileBackFixture
+    : CrossAssemblyNeedsArgumentBase
+{
+    public CrossAssemblyNeedsArgumentCompileBackFixture(int value)
+        : base(value)
+    {
+    }
+
+    public int Sum(int left, int right) => left + right;
+}
+
 public sealed class CrossAssemblyCompileBackFixture
     : CrossAssemblyConstraintBase
 {

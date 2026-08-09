@@ -2962,28 +2962,31 @@ static class FidelityCheck
             var baseDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeDef.BaseType);
             if (baseDef.GetGenericParameters().Count != 0)
                 return "";
+            string baseName = FullName(reader, baseDef);
+            return baseName is "System.Object"
+                ? ""
+                : $" : {Clean(baseName)}";
         }
         else if (typeDef.BaseType.Kind == HandleKind.TypeSpecification)
         {
             return GenericBaseClause(reader, typeDef.BaseType);
         }
         else if (typeDef.BaseType.Kind == HandleKind.TypeReference
-                 && targetApiType?.BaseType is { } resolvedBaseType)
+                 && targetApiType is
+                 {
+                     BaseType: { } resolvedBaseType,
+                     BaseTypeResolution:
+                     {
+                         IsPubliclyAccessible: true,
+                         HasAccessibleParameterlessConstructor: true
+                     }
+                 })
         {
             return resolvedBaseType is "System.Object" or "object"
                 ? ""
                 : $" : {Clean(resolvedBaseType)}";
         }
-        else if (typeDef.BaseType.Kind != HandleKind.TypeReference
-            || BaseTypeName(reader, typeDef.BaseType) is not ("System.Attribute" or "System.Exception"))
-        {
-            return ""; // most TypeReference bases — not reliably spellable
-        }
-
-        string baseName = BaseTypeName(reader, typeDef.BaseType);
-        if (baseName is "System.Object")
-            return "";
-        return $" : global::{Clean(baseName)}";
+        return ""; // external bases need exact, accessible, constructible resolution evidence
     }
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
@@ -4050,8 +4053,22 @@ static class FidelityCheck
         {
             foreach (var member in type.Members)
             {
-                if (member.MetadataToken is { } token)
+                if (member.Kind != "extension-method"
+                    && member.MetadataToken is { } token)
+                {
                     index[token] = (type, member);
+                }
+
+                AddAccessor(member.GetterToken);
+                AddAccessor(member.SetterToken);
+                AddAccessor(member.AdderToken);
+                AddAccessor(member.RemoverToken);
+
+                void AddAccessor(int? token)
+                {
+                    if (token is { } value)
+                        index[value] = (type, member);
+                }
             }
         }
 
@@ -5123,7 +5140,8 @@ static class FidelityCheck
             catalog.ExtractApiSurface(
                 source,
                 policy,
-                includeAll: true);
+                includeAll: true,
+                resolveBaseTypes: true);
         return outcome is ResolutionAwareApiSurfaceOutcome.Read read
             ? (BuildTargetApiIndex(read.Surface), true)
             : (TargetApiIndex(target), false);

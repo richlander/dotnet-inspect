@@ -97,17 +97,24 @@ public abstract class TypeDeclarationCandidate
             TypeDefinitionToken token,
             MetadataTypeDefinitionKind kind,
             int genericParameterCount,
+            bool isPubliclyAccessible,
+            bool hasAccessibleParameterlessConstructor,
             DefinitionKindDependency? kindDependency = null)
         {
             Token = token;
             Kind = kind;
             GenericParameterCount = genericParameterCount;
+            IsPubliclyAccessible = isPubliclyAccessible;
+            HasAccessibleParameterlessConstructor =
+                hasAccessibleParameterlessConstructor;
             KindDependency = kindDependency;
         }
 
         public TypeDefinitionToken Token { get; }
         public MetadataTypeDefinitionKind Kind { get; }
         internal int GenericParameterCount { get; }
+        public bool IsPubliclyAccessible { get; }
+        public bool HasAccessibleParameterlessConstructor { get; }
         internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;
@@ -158,6 +165,8 @@ public abstract class TypeDeclarationResult
             MetadataTypeDefinitionKind kind,
             bool declaringAssemblyDefinesCoreLibraryRoot,
             int genericParameterCount,
+            bool isPubliclyAccessible,
+            bool hasAccessibleParameterlessConstructor,
             DefinitionKindDependency? kindDependency = null)
         {
             Definition = definition;
@@ -165,6 +174,9 @@ public abstract class TypeDeclarationResult
             DeclaringAssemblyDefinesCoreLibraryRoot =
                 declaringAssemblyDefinesCoreLibraryRoot;
             GenericParameterCount = genericParameterCount;
+            IsPubliclyAccessible = isPubliclyAccessible;
+            HasAccessibleParameterlessConstructor =
+                hasAccessibleParameterlessConstructor;
             KindDependency = kindDependency;
         }
 
@@ -177,6 +189,8 @@ public abstract class TypeDeclarationResult
         public bool IsValueType =>
             Kind == MetadataTypeDefinitionKind.ValueType;
         public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
+        public bool IsPubliclyAccessible { get; }
+        public bool HasAccessibleParameterlessConstructor { get; }
     }
 
     public sealed class Forwarded : TypeDeclarationResult

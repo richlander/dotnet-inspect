@@ -117,19 +117,27 @@ public sealed class AssemblyInspectionSession : IDisposable
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
 
+    /// <summary>
+    /// The API surface with external named generic constraints classified and,
+    /// when requested, external base facts resolved through one frozen
+    /// type-resolution generation.
+    /// </summary>
     internal ApiSurface ApiSurface(
         ResolvedAssemblyReference source,
         TypeResolutionCatalog catalog,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll,
-        bool typesOnly) =>
+        bool typesOnly,
+        bool resolveBaseTypes) =>
         ApiSurfaceExtractor.Extract(
             _image.PEReader,
             source,
             catalog,
             bindingPolicy,
             includeAll,
-            typesOnly);
+            typesOnly,
+            includeCompilerGenerated: false,
+            resolveBaseTypes);
 
     /// <summary>The API surface at one explicit extraction scope.</summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
