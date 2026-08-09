@@ -82,6 +82,39 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
+    public void AuthoredBody_PreservesTheFinalRtsAssemblyIdentity()
+    {
+        using var fixture = FidelityFixture.Create(
+            """
+            public class Class1
+            {
+                public int M() { return Secret.Value; }
+            }
+            """,
+            rejectedBody: "return Secret.Value + 1;",
+            authoredBody: "return Secret.Value;",
+            friendDependencySource:
+                """
+                using System.Runtime.CompilerServices;
+
+                [assembly: InternalsVisibleTo("Fixture")]
+                [assembly: InternalsVisibleTo("return-to-sender")]
+
+                internal static class Secret
+                {
+                    internal static int Value => 42;
+                }
+                """);
+
+        var result = fixture.Isolate();
+
+        Assert.NotNull(result);
+        Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
+        Assert.Contains("reproduced the original IL", result.Detail);
+    }
+
+    [Fact]
     public void AuthoredConstructorBody_PreservesTheFinalRtsConstructorChain()
     {
         using var fixture = FidelityFixture.Create(
@@ -219,6 +252,7 @@ public sealed class ValidDifferentFaultIsolationTests
         readonly MetadataContext _metadata;
         readonly MetadataSource _source;
         readonly PEReader _pe;
+        readonly MetadataReference[] _references;
 
         FidelityFixture(
             string directory,
@@ -230,7 +264,8 @@ public sealed class ValidDifferentFaultIsolationTests
             MethodDefinitionHandle method,
             ArtifactRequest request,
             ReturnToSender.RequestedTarget target,
-            ReturnToSenderSourceIndex sourceIndex)
+            ReturnToSenderSourceIndex sourceIndex,
+            MetadataReference[] references)
         {
             _directory = directory;
             AssemblyPath = assemblyPath;
@@ -242,6 +277,7 @@ public sealed class ValidDifferentFaultIsolationTests
             Request = request;
             Target = target;
             SourceIndex = sourceIndex;
+            _references = references;
         }
 
         public string AssemblyPath { get; }
@@ -257,16 +293,28 @@ public sealed class ValidDifferentFaultIsolationTests
             string? authoredBody,
             string fullType = "Class1",
             string methodName = "M",
-            string? constructorChain = null)
+            string? constructorChain = null,
+            string? friendDependencySource = null)
         {
             string directory = Path.Combine(Path.GetTempPath(), $"rts-fidelity-{Guid.NewGuid():N}");
             Directory.CreateDirectory(directory);
+            var metadataPaths = new List<string>();
+            var references = RoslynTestReferences.TrustedPlatform.ToList();
+            if (friendDependencySource is not null)
+            {
+                string dependencyPath = Path.Combine(directory, "FriendDependency.dll");
+                Compile(friendDependencySource, dependencyPath);
+                metadataPaths.Add(dependencyPath);
+                references.Add(MetadataReference.CreateFromFile(dependencyPath));
+            }
+
             string assemblyPath = Path.Combine(directory, "Fixture.dll");
-            Compile(assemblySource, assemblyPath);
+            Compile(assemblySource, assemblyPath, references);
+            metadataPaths.Insert(0, assemblyPath);
 
             var pe = new PEReader(File.OpenRead(assemblyPath));
             var reader = pe.GetMetadataReader();
-            var metadata = CorpusMetadata.Create([assemblyPath]);
+            var metadata = CorpusMetadata.Create(metadataPaths);
             var source = MetadataSource.Open(assemblyPath, context: metadata);
             var (typeHandle, methodHandle) = FindMethod(reader, fullType, methodName);
             var function = IrImporter.Import(source, fullType, methodName, 0)
@@ -311,7 +359,8 @@ public sealed class ValidDifferentFaultIsolationTests
                 methodHandle,
                 request,
                 target,
-                sourceIndex);
+                sourceIndex,
+                references.ToArray());
         }
 
         public ReturnToSender.FaultIsolationResult? Isolate()
@@ -331,7 +380,7 @@ public sealed class ValidDifferentFaultIsolationTests
                 SourceIndex,
                 parseOptions,
                 compileOptions,
-                RoslynTestReferences.TrustedPlatform.ToArray());
+                _references);
         }
 
         public void Dispose()
@@ -351,12 +400,15 @@ public sealed class ValidDifferentFaultIsolationTests
             }
         }
 
-        static void Compile(string source, string assemblyPath)
+        static void Compile(
+            string source,
+            string assemblyPath,
+            IReadOnlyList<MetadataReference>? references = null)
         {
             var compilation = CSharpCompilation.Create(
                 Path.GetFileNameWithoutExtension(assemblyPath),
                 [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
-                RoslynTestReferences.TrustedPlatform,
+                references ?? RoslynTestReferences.TrustedPlatform,
                 new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Release));

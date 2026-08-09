@@ -27,6 +27,8 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class ReturnToSender
 {
+    const string CompilationAssemblyName = "return-to-sender";
+
     public enum FaultIsolationKind
     {
         BodyDefect,
@@ -1731,7 +1733,7 @@ static class ReturnToSender
             },
             new RoundTripCompilationOptions
             {
-                AssemblyName = "return-to-sender",
+                AssemblyName = CompilationAssemblyName,
                 MaxIterations = 80,
             });
 
@@ -2484,7 +2486,7 @@ static class ReturnToSender
                 WithTargetBody(request, authoredTargetBody));
             var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
             var compilation = CSharpCompilation.Create(
-                "return-to-sender-source-oracle",
+                CompilationAssemblyName,
                 [tree],
                 references,
                 compileOptions);
