@@ -232,6 +232,17 @@ public partial class SourceLinkResolver
 
                 string remainder = path[entry.PathPrefix.Length..];
                 string substituted = SubstituteUrl(entry, remainder, out int offset, out int length);
+
+                // The entry-level probe proves that ordinary substitutions reach a content
+                // selector, but the concrete remainder can be empty or decode as blank. That can
+                // change Azure's selector binding, so validate the actual request before this
+                // specific match is allowed to outrank a less-specific entry.
+                if (!SourceLinkProvenance.CanSelectContent(
+                        substituted, offset, length, out _))
+                {
+                    continue;
+                }
+
                 resolution = new SourceLinkResolution(
                     remainder, substituted, IsPrefixMatch: true, offset, length);
                 return true;
@@ -410,9 +421,41 @@ public partial class SourceLinkResolver
         if (!ProducesAFetchableRequest(url[..urlStar], urlSuffix))
             return false;
 
+        if (!SubstitutionCanSelectContent(url[..urlStar], urlSuffix))
+            return false;
+
         entry = new Entry(normalizedKey, isPrefix, url[..urlStar], urlSuffix);
         return true;
     }
+
+    /// <summary>
+    /// Whether a wildcard entry's substitution lands somewhere its host actually reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="ProducesAFetchableRequest"/> establishes that the document changes the request;
+    /// this establishes that the change can matter. The two are separate because the second one
+    /// is not decidable without knowing the host, which is why it defers to
+    /// <see cref="SourceLinkProvenance"/> where the host grammars are written down. Issue #3599
+    /// ruled out answering it here with a host-agnostic rule: a wildcard confined to the query is
+    /// the documented Azure Repos form and a one-file-for-everything map on GitHub, so the same
+    /// shape has to be read against the host rather than by itself.
+    /// </para>
+    /// <para>
+    /// This probe decides whether an ordinary substitution can reach a content selector. The
+    /// concrete resolved URL is checked again in <see cref="TryResolve"/>, because an empty or
+    /// whitespace-only remainder can decode as blank and change Azure's selector binding.
+    /// <see cref="EscapePathSegments"/> otherwise percent-encodes every character that could end
+    /// a component — <c>?</c>, <c>&amp;</c> and <c>#</c> — leaving only <c>/</c>, which is legal
+    /// inside both a path and a query value.
+    /// </para>
+    /// </remarks>
+    private static bool SubstitutionCanSelectContent(string urlPrefix, string urlSuffix) =>
+        SourceLinkProvenance.CanSelectContent(
+            urlPrefix + "a" + urlSuffix,
+            offset: urlPrefix.Length,
+            length: 1,
+            out _);
 
     /// <summary>
     /// Whether an entry can produce a request that actually retrieves the document it matched:
@@ -475,21 +518,27 @@ public partial class SourceLinkResolver
     /// query all return the same bytes). Refusing the shape <em>here</em> would break every
     /// Azure Repos assembly, which is the bug this matcher was collapsed to fix. Deciding it
     /// needs a per-host content selector, which belongs with the host grammars in
-    /// <c>SourceLinkProvenance</c> rather than in this host-agnostic matcher, and is tracked by
+    /// <c>SourceLinkProvenance</c> rather than in this host-agnostic matcher, and was tracked by
     /// issue #3599.
     /// </para>
     /// <para>
     /// That selector now exists on the provenance side, for both hosts this reader knows:
     /// <c>raw.githubusercontent.com</c> refuses a query outright, and every host requires the
-    /// substituted document text to land in the component that actually selects content. So a map
-    /// may still point every document at one file, but it can no longer report an origin while
-    /// doing so. An earlier version of this note said
-    /// provenance stayed correct in that case, because the origin it reports is genuinely where
-    /// the content is served from. That is true of the origin and beside the point for the user,
-    /// who was shown one file as the source of every document under a clean attribution — review
-    /// found it exactly that way, once per host, in consecutive rounds. What is left to
-    /// #3599 is the <em>resolution</em> half: such a map still fetches and displays that one
-    /// file, now unattributed.
+    /// substituted document text to land in the component that actually selects content. An
+    /// earlier version of this note said provenance stayed correct in that case, because the
+    /// origin it reports is genuinely where the content is served from. That is true of the
+    /// origin and beside the point for the user, who was shown one file as the source of every
+    /// document under a clean attribution — review found it exactly that way, once per host, in
+    /// consecutive rounds.
+    /// </para>
+    /// <para>
+    /// #3599's <em>resolution</em> half is closed by <see cref="SubstitutionCanSelectContent"/>,
+    /// which is called just below this check and refuses such an entry outright, so a map like
+    /// that no longer fetches and displays the one file it would have shown. Note that the two
+    /// halves are different predicates rather than one applied twice: attribution refuses several
+    /// shapes that fetch exactly the right file, so resolution asks the narrower question. The
+    /// distinction is gated by
+    /// <c>SourceLinkMapConformanceTests.OnlyAnEntryThatCannotSelectContent_IsRefusedResolution</c>.
     /// </para>
     /// <para>
     /// Restricting the scheme rather than only requiring an absolute URI is deliberate, and is

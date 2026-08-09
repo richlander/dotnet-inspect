@@ -27,6 +27,12 @@ namespace ILInspector.Metadata.Tests;
 public class SourceLinkMapConformanceTests
 {
     /// <summary>
+    /// A commit hash, so that a GitHub row's revision/path boundary is determinable and each row
+    /// below is refused or accepted for the reason it names rather than for an incidental one.
+    /// </summary>
+    private const string ConformanceSha = "0123456789012345678901234567890123456789";
+
+    /// <summary>
     /// The nine inputs measured across the two replaced implementations, each paired with the
     /// URL the specification requires. <see cref="EveryRow_IsOneTheReplacedImplementationsGot"/>
     /// keeps this table honest: a row on which both replaced matchers already produced the
@@ -502,17 +508,24 @@ public class SourceLinkMapConformanceTests
     /// the deferral was too generous: with the wildcard confined to the query, provenance
     /// <em>established</em> an origin for a map where every document fetches one file, so the
     /// correspondence gap was visible to the user as a clean attribution. Provenance therefore
-    /// refuses a <c>raw.githubusercontent.com</c> URL carrying a query at all, and the last
-    /// assertions here pin that split: the matcher still accepts the shape, and provenance
-    /// declines to attribute it. A later round found the Azure spelling of the same defect — a
-    /// substitution in <c>api-version</c>, which varies the request without varying the file — so
-    /// provenance now also requires the substituted text to land in the component that selects
-    /// content. Issue #3599 stays open for the <em>resolution</em> half: such a map still fetches
-    /// and displays that one file, now unattributed.
+    /// refuses a <c>raw.githubusercontent.com</c> URL carrying a query at all, and it also
+    /// requires the substituted text to land in the component that selects content, which is the
+    /// Azure spelling of the same defect — a substitution in <c>api-version</c> varies the
+    /// request without varying the file.
+    /// </para>
+    /// <para>
+    /// Issue #3599's <em>resolution</em> half is now closed too, and this test was renamed for
+    /// it: the matcher no longer accepts a shape whose substitution the host cannot read, so such
+    /// a map fetches nothing rather than fetching one file unattributed. The deferral in the
+    /// paragraph above still stands and is still the point — the matcher does not decide this by
+    /// itself, it asks <c>SourceLinkProvenance</c> which component the host reads. That is why
+    /// the Azure rows below keep working while the GitHub row is refused, and it is why the
+    /// refusal is a <em>rejected key</em> rather than a resolution failure: a rejected entry
+    /// stops shadowing the valid fallback, so the documents below now resolve to their own files.
     /// </para>
     /// </remarks>
     [Fact]
-    public void AWildcardConfinedToTheQuery_IsAcceptedBecauseOnlyTheHostKnowsWhetherItSelects()
+    public void AWildcardConfinedToTheQuery_IsRefusedOnlyOnAHostKnownNotToReadIt()
     {
         const string Sha = "0123456789012345678901234567890123456789";
         const string Raw = "https://raw.githubusercontent.com/o/r/" + Sha + "/";
@@ -522,9 +535,12 @@ public class SourceLinkMapConformanceTests
             "\"/_/src/*\":\"" + Raw + "One.cs?document=*\"," +
             "\"/_/*\":\"" + Raw + "*\"}}");
 
-        Assert.Empty(map.RejectedKeys);
-        Assert.Equal(Raw + "One.cs?document=One.cs", map.ResolveUrl("/_/src/One.cs"));
-        Assert.Equal(Raw + "One.cs?document=Two.cs", map.ResolveUrl("/_/src/Two.cs"));
+        Assert.Equal(["/_/src/*"], map.RejectedKeys);
+
+        // The refused entry no longer shadows the valid fallback, so each document resolves to
+        // its own file instead of all of them resolving to One.cs.
+        Assert.Equal(Raw + "src/One.cs", map.ResolveUrl("/_/src/One.cs"));
+        Assert.Equal(Raw + "src/Two.cs", map.ResolveUrl("/_/src/Two.cs"));
 
         // The real Azure Repos shape is the same shape, and must keep working.
         var azure = SLF.SourceLinkResolver.Parse(
@@ -533,15 +549,219 @@ public class SourceLinkMapConformanceTests
 
         Assert.Empty(azure.RejectedKeys);
 
-        // The matcher accepts the shape; provenance is what refuses it, on the host whose query
-        // semantics this reader knows. Both halves are asserted, because the value here is the
-        // split: moving the refusal into the matcher would break the Azure map above.
+        // The matcher refuses only where the host is known not to read the substitution, so the
+        // GitHub map above now attributes cleanly rather than being refused: what it resolves to
+        // is no longer one file for every document.
         var provenance = SLF.SourceLinkProvenance.Determine(map, ["/_/src/One.cs", "/_/src/Two.cs"]);
-        Assert.False(provenance.IsEstablished);
-        Assert.Contains("ignores the query", provenance.Reason, StringComparison.Ordinal);
+        Assert.True(provenance.IsEstablished, provenance.Reason);
 
         var azureProvenance = SLF.SourceLinkProvenance.Determine(azure, ["/_/src/One.cs"]);
         Assert.True(azureProvenance.IsEstablished, azureProvenance.Reason);
+    }
+
+    /// <summary>
+    /// The resolution half of issue #3599: an entry is refused when, and only when, the host is
+    /// one this reader can speak for and the substitution lands where that host will not read it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rows are the discriminator, not the refusal. The obvious reading of #3599 — refuse to
+    /// resolve wherever provenance refuses to attribute — passes the two refuse rows and breaks
+    /// three of the four accept rows, so a fix built that way would look correct against the
+    /// defect and silently stop resolving source for correct maps. Each accept row is therefore a
+    /// shape that is <em>unattributable and still fetches the right file</em>:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>a GitHub path wildcard with an inert query beside it — the query is ignored, which
+    ///   is exactly why the path still selects;</item>
+    ///   <item>a branch-based GitHub map — unattributable only because the revision/path boundary
+    ///   is not determinable, which has no bearing on what is fetched;</item>
+    ///   <item>a self-hosted host — unattributable because its grammar is unknown, and refusing it
+    ///   would strand every SourceLink deployment outside the two hosts written down here.</item>
+    /// </list>
+    /// <para>
+    /// The last of those is the one that makes this a gate rather than a comment: it is the row
+    /// that fails loudly if the two predicates are ever collapsed into one.
+    /// </para>
+    /// <para>
+    /// The last two refuse rows are the two bypasses adversarial review found in the first
+    /// version of this rule, and they are here rather than only in their own tests because a
+    /// later relaxation of the discriminator has to keep failing them. Both worked by spelling a
+    /// component so that this reader and the host disagreed about what it said: a fully-qualified
+    /// host name, and a percent-encoded parameter name.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    // Refused: the substitution cannot select content on a host whose grammar is known.
+    [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=*"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=/One.cs",
+        false)]
+    // Refused: a trailing dot is the DNS root label, so this names the host above and is served
+    // by it. Reading the two spellings as different hosts reopened #3599 exactly.
+    [InlineData("https://raw.githubusercontent.com./o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData(
+        "https://dev.azure.com./org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&inert=*",
+        false)]
+    // Refused: a Unicode full stop is a label separator the request folds to '.', so these are
+    // the same host again. Measured: GitHub returns byte-identical content for all of them.
+    [InlineData("https://raw.githubusercontent.com\u3002/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData("https://raw.githubusercontent.com\uFF0E/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    [InlineData("https://raw.githubusercontent.com\uFF61/o/r/" + ConformanceSha + "/One.cs?document=*", false)]
+    // Refused: the host decodes parameter names, so '%70ath' is a 'path' that is served in
+    // preference to the later one carrying the substitution.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&%70ath=/One.cs&path=/*",
+        false)]
+    // Accepted but unattributable: the first '?' is URI syntax; the second belongs to the first
+    // parameter name. Azure ignores '?versionType' and defaults the version to a branch, but
+    // 'path' still selects the requested document, so the resolution predicate must not strand it.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items??versionType=commit"
+        + "&version=" + ConformanceSha + "&path=/*",
+        true)]
+    // Refused: a valueless pair still binds the name, and it is the occurrence the host serves,
+    // so the wildcard in the later pair is never read.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path&path=/*",
+        false)]
+    // Refused: the host's model binder reads 'path[]' as 'path', so the bracketed pair binds and
+    // is served, and the wildcard in the later pair is never read. Brackets bind on either side
+    // and repeat, so one trailing group is not the rule.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[]=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[][]=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&[]path=/One.cs&path=/*",
+        false)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path%5B%5D=/One.cs&path=/*",
+        false)]
+    // Refused: the empty group is deleted wherever it sits, not only at the ends.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&p[]ath=/One.cs&path=/*",
+        false)]
+    // Refused: 'ſ' upper-cases to 'S' under the invariant culture, so a Unicode fold would have
+    // this reader find a wildcard in a parameter the host does not have, while the real
+    // 'scopePath' beside it serves one file for every document.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&\u017FcopePath=/*&scopePath=/One.cs",
+        false)]
+    // Accepted: unattributable, yet each fetches the document it matched.
+    [InlineData("https://raw.githubusercontent.com/o/r/" + ConformanceSha + "/*?foo=bar", true)]
+    [InlineData("https://raw.githubusercontent.com/o/r/main/*", true)]
+    [InlineData("https://srclink.contoso.test/raw/*", true)]
+    // Accepted: the fully-qualified and Unicode-separator spellings of a correct map are still
+    // correct maps, so the canonicalization above cannot be a blanket refusal of the spelling.
+    [InlineData("https://raw.githubusercontent.com./o/r/" + ConformanceSha + "/*", true)]
+    [InlineData("https://raw.githubusercontent.com\u3002/o/r/" + ConformanceSha + "/*", true)]
+    // Accepted: a valueless pair that is not a content selector says nothing about the wildcard.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&download&path=/*",
+        true)]
+    // Accepted: an indexed suffix is measured to be ignored by the host, so folding it would
+    // strand a map that resolves correctly. This is the close negative for the rows above.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[0]=/One.cs&path=/*",
+        true)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&[0]path=/One.cs&path=/*",
+        true)]
+    // Accepted: the brackets are not themselves disqualifying when they carry the wildcard.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path[]=/*",
+        true)]
+    // Accepted: an empty 'path' is not a selection, so the host falls through to 'scopePath' and
+    // reads the wildcard there. Measured: this shape serves the requested file, and 404s for one
+    // that is missing. Refusing it was over-refusal, which this predicate must not do.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path&scopePath=/*",
+        true)]
+    // Accepted: blank is decided after decoding, so a whitespace value falls through the same way
+    // an absent one does. Measured; refusing it was over-refusal.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=%20&scopePath=/*",
+        true)]
+    // Accepted: when both selectors are valued, Azure returns 400 regardless of which carries the
+    // wildcard. Neither form can serve one fixed file, so resolution must treat them symmetrically.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=/One.cs&scopePath=/*",
+        true)]
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&scopePath=/One.cs&path=/*",
+        true)]
+    // Accepted: a nested spelling is not deleted, because the host makes a single pass and does
+    // not rescan. This is the close negative for the middle-bracket row above.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&p[[]]ath=/One.cs&path=/*",
+        true)]
+    // Accepted: the host ignores the Unicode fold, so a map carrying one still resolves.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&\u017FcopePath=/One.cs&path=/*",
+        true)]
+    // Accepted and attributable: the shape Microsoft.SourceLink.AzureRepos.Git generates.
+    [InlineData(
+        "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+        + "&versionType=commit&version=" + ConformanceSha + "&path=/*",
+        true)]
+    public void OnlyAnEntryThatCannotSelectContent_IsRefusedResolution(string url, bool resolves)
+    {
+        var map = SLF.SourceLinkResolver.Parse(
+            "{\"documents\":{\"/_/*\":\"" + url + "\"}}");
+
+        Assert.Equal(resolves, map.ResolveUrl("/_/src/Program.cs") is not null);
+        Assert.Equal(resolves, map.RejectedKeys.Count == 0);
+    }
+
+    /// <summary>
+    /// An empty or whitespace-only concrete substitution can make one of two Azure selectors
+    /// blank, so a map that always failed under the parser's nonblank probe can serve the other,
+    /// fixed selector for that document. The unsafe specific match must yield to the valid
+    /// fallback, while a nonblank substitution keeps the host's visible 400 response.
+    /// </summary>
+    [Theory]
+    [InlineData("path=/README.md&scopePath=*")]
+    [InlineData("scopePath=/README.md&path=*")]
+    public void AConcreteBlankSelector_DoesNotServeTheOtherFixedSelector(string specific)
+    {
+        const string root =
+            "https://dev.azure.com/org/proj/_apis/git/repositories/repo/items?api-version=1.0"
+            + "&versionType=commit&version=" + ConformanceSha + "&";
+
+        string mapText =
+            "{\"documents\":{\"/_/A.cs*\":\"" + root + specific
+            + "\",\"/_/*\":\"" + root + "path=/*\"}}";
+        var map = SLF.SourceLinkResolver.Parse(mapText);
+
+        Assert.Empty(map.RejectedKeys);
+        Assert.Equal(root + "path=/A.cs", map.ResolveUrl("/_/A.cs"));
+        Assert.Equal(root + "path=/A.cs%20", map.ResolveUrl("/_/A.cs "));
+        Assert.Equal(
+            root + specific.Replace("*", "/B.cs", StringComparison.Ordinal),
+            map.ResolveUrl("/_/A.cs/B.cs"));
     }
 
     /// <summary>
