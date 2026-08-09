@@ -20,7 +20,8 @@ bound.
 Point `INSPECT` at the published NativeAOT executable and validate the apphost:
 
 ```bash
-export INSPECT=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+export INSPECT="${DOTNET_INSPECT_WORKFLOW_BINARY:-$(command -v dotnet-inspect)}"
+test -n "$INSPECT"
 test -x "$INSPECT"
 export DOTNET_INSPECT_ISOLATED=perf-queries
 ```
@@ -264,9 +265,6 @@ grep 'not found'
 > subsequent bare-name command is measured warm and should reuse the cached
 > candidate metadata and package payload. Its warm target is ≤ 1250ms for five
 > invocations (≤ 250ms each).
->
-> **Known issue:** #3923 also affects this type-list path. Keep the warm routing
-> target failing until the shared type-list regression is fixed.
 
 ```bash
 "$INSPECT" cache clear

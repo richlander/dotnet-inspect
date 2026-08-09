@@ -18,7 +18,8 @@ Validate the published NativeAOT executable, then build the test assembly used
 by the demo scenarios.
 
 ```bash
-export INSPECT=/tmp/dotnet-inspect-workflow-aot/dotnet-inspect
+export INSPECT="${DOTNET_INSPECT_WORKFLOW_BINARY:-$(command -v dotnet-inspect)}"
+test -n "$INSPECT"
 test -x "$INSPECT"
 export COORD_WORKFLOW="$PWD/artifacts/workflows/il-coordinate-artifacts"
 rm -rf "$COORD_WORKFLOW"
