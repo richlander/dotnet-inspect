@@ -123,6 +123,90 @@ public class StackSlotLiveRangeCrossBlockTests
         return function;
     }
 
+    public enum NestedTryOwner
+    {
+        Catch,
+        Finally,
+        Loop,
+        Try,
+    }
+
+    static IrFunction BuildNestedTryCandidate(NestedTryOwner owner)
+    {
+        var candidateTryBody = new BlockContainer();
+        var candidateBlock = ReusedSlotBlock();
+        candidateBlock.Add(new Return(null));
+        candidateTryBody.Add(candidateBlock);
+
+        var candidateCatchBody = new BlockContainer();
+        var candidateCatchBlock = new Block(100);
+        candidateCatchBlock.Add(new Return(null));
+        candidateCatchBody.Add(candidateCatchBlock);
+        var candidateTry = new TryCatch(candidateTryBody, [new CatchClause(Exception, candidateCatchBody)]);
+
+        var rootBlock = new Block(400);
+        switch (owner)
+        {
+            case NestedTryOwner.Catch:
+            {
+                var outerTryBody = ReturnContainer(200);
+                var outerCatchBody = new BlockContainer();
+                var outerCatchBlock = new Block(300);
+                outerCatchBlock.Add(candidateTry);
+                outerCatchBlock.Add(new Return(null));
+                outerCatchBody.Add(outerCatchBlock);
+                rootBlock.Add(new TryCatch(outerTryBody, [new CatchClause(Exception, outerCatchBody)]));
+                break;
+            }
+            case NestedTryOwner.Finally:
+            {
+                var finallyBody = new BlockContainer();
+                var finallyBlock = new Block(300);
+                finallyBlock.Add(candidateTry);
+                finallyBlock.Add(new Return(null));
+                finallyBody.Add(finallyBlock);
+                rootBlock.Add(new TryFinally(ReturnContainer(200), finallyBody));
+                break;
+            }
+            case NestedTryOwner.Loop:
+            {
+                var loopBody = new Block(300);
+                loopBody.Add(candidateTry);
+                loopBody.Add(new Return(null));
+                rootBlock.Add(new WhileLoop(new Constant(true, Boolean), loopBody));
+                break;
+            }
+            case NestedTryOwner.Try:
+            {
+                var outerTryBody = new BlockContainer();
+                var outerTryBlock = new Block(300);
+                outerTryBlock.Add(candidateTry);
+                outerTryBlock.Add(new Return(null));
+                outerTryBody.Add(outerTryBlock);
+                rootBlock.Add(new TryCatch(outerTryBody, [new CatchClause(Exception, ReturnContainer(200))]));
+                break;
+            }
+        }
+        rootBlock.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(rootBlock);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", Owner, signature, [Int32, String], body);
+        new StackSlotLiveRangePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static BlockContainer ReturnContainer(int offset)
+    {
+        var container = new BlockContainer();
+        var block = new Block(offset);
+        block.Add(new Return(null));
+        container.Add(block);
+        return container;
+    }
+
     static IrFunction BuildReadBeforeWrite()
     {
         var rebuilt = BuildStructuredEhWithReadBeforeWrite();
@@ -217,6 +301,16 @@ public class StackSlotLiveRangeCrossBlockTests
     public void FinallyBodyStraightLineRange_StaysUnsplit()
     {
         Assert.False(Split(BuildHandlerCandidate(inFinally: true)));
+    }
+
+    [Theory]
+    [InlineData(NestedTryOwner.Catch)]
+    [InlineData(NestedTryOwner.Finally)]
+    [InlineData(NestedTryOwner.Loop)]
+    [InlineData(NestedTryOwner.Try)]
+    public void NestedTryBodyRange_StaysUnsplit(NestedTryOwner owner)
+    {
+        Assert.False(Split(BuildNestedTryCandidate(owner)));
     }
 
     [Fact]

@@ -115,8 +115,10 @@ their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
 loads reached before the next write to the same slot. Its linear scan requires
 block-local loads; when structured EH is present, the stronger admission proof
 requires every reference to that slot to belong to a top-level statement in one
-direct try-body block and excludes a same-slot read nested under a same-slot
-store. Nested control flow, handlers or filters, and sibling blocks decline.
+direct try-body block whose owning try is itself a top-level function-body
+statement, and excludes a same-slot read nested under a same-slot store. Nested
+control flow, handlers or filters, nested exception regions, and sibling blocks
+decline.
 `StackSlotReuseRenderingTests` pins the positive and near-miss cases: bool
 materialization and object/list/count reuse split when needed, while subtype
 stores loaded through a common supertype remain one variable.

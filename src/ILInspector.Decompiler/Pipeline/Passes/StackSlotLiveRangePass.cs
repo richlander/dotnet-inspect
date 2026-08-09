@@ -40,7 +40,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 // from another block may be live-out and would be left on the old
                 // slot. Structured EH needs the stronger proof: later rewrites can
                 // reshape its regions, so every reference must belong to a top-level
-                // statement in one direct try-body block, with no read-before-write
+                // statement in one top-level try-body block, with no read-before-write
                 // hidden under a same-slot store.
                 if (hasStructuredEh
                     ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
@@ -65,7 +65,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
     static bool ReferencesAreStraightLineInBlock(IrFunction function, int slot, Block block)
     {
-        if (!IsDirectTryBodyBlock(block))
+        if (!IsTopLevelTryBodyBlock(block))
             return false;
 
         foreach (var node in function.Descendants)
@@ -94,17 +94,21 @@ public sealed class StackSlotLiveRangePass : IIrPass
         return true;
     }
 
-    static bool IsDirectTryBodyBlock(Block block)
+    static bool IsTopLevelTryBodyBlock(Block block)
     {
         if (block.Parent is not BlockContainer container)
             return false;
 
-        return container.Parent switch
+        IrNode? owner = container.Parent switch
         {
-            TryCatch tryCatch => ReferenceEquals(tryCatch.TryBody, container),
-            TryFinally tryFinally => ReferenceEquals(tryFinally.TryBody, container),
-            _ => false,
+            TryCatch tryCatch when ReferenceEquals(tryCatch.TryBody, container) => tryCatch,
+            TryFinally tryFinally when ReferenceEquals(tryFinally.TryBody, container) => tryFinally,
+            _ => null,
         };
+
+        return owner?.Parent is Block containingBlock
+            && containingBlock.Parent is BlockContainer functionBody
+            && functionBody.Parent is IrFunction;
     }
 
     static TypeRef? PreviousSlotType(Block block, int beforeChild, int slot)
