@@ -57,27 +57,30 @@ internal static class SwitchTypeFacts
         if (type is null)
             return null;
         if (function.TypeShapes.GetValueOrDefault(type) == TypeShape.Enum)
-            return ElementLoadMatchesBacking(function, value, type) ? type : null;
-        var unresolved = type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
+            return type;
+        return type is { Kind: TypeRefKind.Definition, Name: not ("Boolean" or "String") }
             && function.TypeShapes.GetValueOrDefault(type) == TypeShape.Unknown
             && !TypeFamilies.IsNumericPrimitive(type)
             ? type
             : null;
-        return unresolved is not null && ElementLoadMatchesBacking(function, value, unresolved)
-            ? unresolved
-            : null;
     }
 
-    static bool ElementLoadMatchesBacking(IrFunction function, IrExpression value, TypeRef enumType)
+    /// <summary>
+    /// True when a storage-typed load preserves the enum backing's width and
+    /// signedness. Direct enum values carry no separate storage opcode.
+    /// </summary>
+    public static bool StorageMatchesBacking(IrExpression value, TypeRef enumType, TypeRef underlying)
     {
-        if (value is not LoadElement load)
-            return true;
-        if (load.ElementType is not { } storageType)
+        var storageType = value switch
+        {
+            LoadElement load => load.ElementType,
+            LoadIndirect load => load.Type,
+            _ => enumType,
+        };
+        if (storageType is null)
             return false;
         if (storageType.Equals(enumType))
             return true;
-        if (function.EnumUnderlyingTypes.GetValueOrDefault(enumType) is not { } underlying)
-            return false;
         var expectedStorage = underlying.Name == "Char"
             ? TypeRef.CoreLib("System", "UInt16")
             : underlying;

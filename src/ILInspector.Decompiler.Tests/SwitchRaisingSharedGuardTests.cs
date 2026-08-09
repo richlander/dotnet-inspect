@@ -372,6 +372,63 @@ public class SwitchRaisingSharedGuardTests
     }
 
     [Fact]
+    public void EnumIndirectLoadWithMismatchedStorageOpcode_RemainsOnArithmeticSelector()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteIndirectAlgorithm");
+        var indirect = new LoadIndirect(
+            TypeRef.CoreLib("System", "SByte"),
+            new LoadArgument(0, "value", TypeRef.ByRef(enumType)));
+        var function = BuildSharedGuardSwitch(enumType, switchOffset: 252, switchValue: indirect);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        var selector = Assert.IsType<Binary>(node.Value);
+        Assert.IsType<LoadIndirect>(selector.Left);
+        Assert.Equal([0, 1, 2, 3], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void ExternalEnumArrayLabelsRemainEnumTyped()
+    {
+        var enumType = TypeRef.Definition("External", "Synthetic", "UnknownAlgorithm");
+        var sectionBody = new BlockContainer();
+        var returnBlock = new Block();
+        returnBlock.Add(new Return(null));
+        sectionBody.Add(returnBlock);
+        var body = new BlockContainer();
+        var entry = new Block();
+        entry.Add(new Switch(
+            new LoadElement(
+                s_int,
+                new LoadArgument(0, "values", TypeRef.SzArray(enumType)),
+                new Constant(0, s_int)),
+            [new SwitchSection([new Constant(1, s_int)], isDefault: false, sectionBody)]));
+        body.Add(entry);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("values", TypeRef.SzArray(enumType))],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("case (UnknownAlgorithm)1:", output);
+        Assert.DoesNotContain("case 1:", output);
+    }
+
+    [Fact]
     public void PrecedingGuardAndCasesSharingContinuation_RaisesToSwitch()
     {
         var function = BuildSharedGuardSwitch();
