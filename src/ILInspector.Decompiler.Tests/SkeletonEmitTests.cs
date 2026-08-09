@@ -13,6 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Trait("Area", "Fidelity")]
+[Collection(FidelityGateCollection.Name)]
 public class SkeletonEmitTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.SkeletonEmitFixture";
@@ -20,8 +21,10 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonCompilesPastExplicitImplAndConstEnum()
     {
-        var sum = FidelityCheck.Evaluate(typeof(SkeletonEmitFixture).Assembly.Location, type => type == FixtureType)
-            .Single(r => r.Type == FixtureType && r.Method == "Sum");
+        var sum = Assert.Single(FidelityCheck.Evaluate(
+            typeof(SkeletonEmitFixture).Assembly.Location,
+            type => type == FixtureType,
+            method => method.Method == "Sum"));
 
         // The point is that the whole-module skeleton compiles: an unhandled
         // explicit impl (CS0106) or const enum (CS0266) would surface here as a
@@ -30,6 +33,22 @@ public class SkeletonEmitTests
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton failed to compile for {FixtureType}.Sum: {sum.Status} / {sum.Detail}");
         Assert.Equal(FidelityCheck.CompileBackStatus.Exact, sum.Status);
+
+        string path = CreateAssemblyWithDuplicateUnrelatedType();
+        try
+        {
+            var duplicateType = Assert.Single(FidelityCheck.Evaluate(
+                path,
+                type => type == FixtureType,
+                method => method.Method == "Sum"));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, duplicateType.Status);
+            Assert.Contains("CS0101", duplicateType.Detail);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
@@ -43,8 +62,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(CfgSampleClass).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.CfgSampleClass")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.CfgSampleClass" && r.Method == method);
+                type => type == "ILInspector.Decompiler.Tests.CfgSampleClass",
+                candidate => candidate.Method == method)
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -57,8 +77,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(EmbeddedAttributeSkeletonFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture" && r.Method == "Value");
+                type => type == "ILInspector.Decompiler.Tests.EmbeddedAttributeSkeletonFixture",
+                method => method.Method == "Value")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -70,8 +91,9 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(FixedBufferSkeletonFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture" && r.Method == "Value");
+                type => type == "ILInspector.Decompiler.Tests.FixedBufferSkeletonFixture",
+                method => method.Method == "Value")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -87,8 +109,9 @@ public class SkeletonEmitTests
         // CS0305. Only the own (zero) parameters may be restated.
         var result = FidelityCheck.Evaluate(
                 typeof(GenericNestedHolder<>).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.GenericNestedUser")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.GenericNestedUser" && r.Method == "UseNested");
+                type => type == "ILInspector.Decompiler.Tests.GenericNestedUser",
+                method => method.Method == "UseNested")
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
@@ -105,11 +128,40 @@ public class SkeletonEmitTests
     {
         var result = FidelityCheck.Evaluate(
                 typeof(ConstraintFixture).Assembly.Location,
-                type => type == "ILInspector.Decompiler.Tests.ConstraintFixture")
-            .Single(r => r.Type == "ILInspector.Decompiler.Tests.ConstraintFixture" && r.Method == method);
+                type => type == "ILInspector.Decompiler.Tests.ConstraintFixture",
+                candidate => candidate.Method == method)
+            .Single();
 
         Assert.False(result.Status is FidelityCheck.CompileBackStatus.RecompileFail
             or FidelityCheck.CompileBackStatus.ContextFail,
             $"Skeleton dropped the generic constraint on {method}: {result.Status} / {result.Detail}");
     }
+
+    static string CreateAssemblyWithDuplicateUnrelatedType()
+    {
+        byte[] bytes = File.ReadAllBytes(typeof(SkeletonEmitFixture).Assembly.Location);
+        byte[] original = "WholeModuleHazardBravo\0"u8.ToArray();
+        byte[] replacement = "WholeModuleHazardAlpha\0"u8.ToArray();
+        Assert.Equal(original.Length, replacement.Length);
+
+        int replacements = 0;
+        int searchStart = 0;
+        while (bytes.AsSpan(searchStart).IndexOf(original) is var relative && relative >= 0)
+        {
+            int match = searchStart + relative;
+            replacement.CopyTo(bytes, match);
+            replacements++;
+            searchStart = match + original.Length;
+        }
+        Assert.True(replacements > 0, "Expected the unrelated hazard type name in the assembly metadata.");
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
 }
+
+public sealed class WholeModuleHazardAlpha;
+public sealed class WholeModuleHazardBravo;

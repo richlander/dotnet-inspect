@@ -67,6 +67,16 @@ internal static class LibraryMetadataService
                     ? SourceLinkService.Open(path, logger.Log)
                     : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
+            var sourceLinkQueryContext = new SourceLinkQueryContext(
+                service,
+                FindingSubjectFor(path),
+                httpClient,
+                DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                CoreSourceLinkQueryCache.Instance,
+                logger.Log);
 
             if (!pdbContext.HasMetadata)
             {
@@ -91,17 +101,18 @@ internal static class LibraryMetadataService
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
+                        SourceLinkContext = sourceLinkQueryContext,
                         BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.None,
                         Trace = trace,
                     };
-                    RunTypedQueries(
+                    await RunTypedQueriesAsync(
                         path,
                         nativeAudit,
                         logger,
                         queryRegistry,
                         requiredQueries,
                         queryContext,
-                        trace);
+                        trace).ConfigureAwait(false);
                 }
 
                 return nativeAudit;
@@ -200,20 +211,21 @@ internal static class LibraryMetadataService
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
+                    SourceLinkContext = sourceLinkQueryContext,
                     BodyAnalysisFeatures = bodyAnalysisFeatures,
                     Trace = trace,
                 };
 
                 if (queryRegistry is not null && requiredQueries is not null)
                 {
-                    RunTypedQueries(
+                    await RunTypedQueriesAsync(
                         path,
                         inspection,
                         logger,
                         queryRegistry,
                         requiredQueries,
                         scannerContext,
-                        trace);
+                        trace).ConfigureAwait(false);
                 }
 
                 scannerRegistry?.RunScanners(requiredScanners ?? [], scannerContext);
@@ -295,6 +307,8 @@ internal static class LibraryMetadataService
             }
 
             var sourcePlan = LibrarySourcePlans.For(options);
+            bool sourceQueryCheckedPdb =
+                requiredQueries?.Contains(SourceLinkDocumentsQuery.Definition) == true;
 
             await AuditAsync(
                 service,
@@ -305,11 +319,12 @@ internal static class LibraryMetadataService
                 logger,
                 httpClient,
                 isPlatformAssembly,
-                allowPdbDownload: sourcePlan.AllowPdbDownload,
+                allowPdbDownload: sourcePlan.AllowPdbDownload && !sourceQueryCheckedPdb,
+                pdbAcquisitionAttempted: sourceQueryCheckedPdb,
                 readCachedPdb: sourcePlan.ReadCachedPdb);
 
             var sourceSubject = FindingSubjectFor(path);
-            inspection.SourceDocumentInspection = SourceLinkFindings.InspectSourceDocuments(
+            inspection.SourceDocumentInspection ??= SourceLinkFindings.InspectSourceDocuments(
                 service,
                 sourceSubject);
             inspection.CompilationOptionInspection = MetadataFindings.InspectCompilationOptions(
@@ -321,29 +336,6 @@ internal static class LibraryMetadataService
 
             if (needsAuditSignals)
                 AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
-
-            if (sourcePlan.RunHeadAudit && service.HasSourceLink && pdbContext.HasPdb)
-            {
-                // SourceLink URLs are untrusted: probe them with the SSRF-hardened client, not the
-                // shared client used for trusted NuGet/symbol endpoints.
-                await SourceAuditService.PopulateAsync(
-                    inspection.SourceDocumentInspection,
-                    inspection,
-                    DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch,
-                    logger);
-                if (needsAuditSignals)
-                    AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
-            }
-
-            if (sourcePlan.RunIntegrity && service.HasSourceLink && pdbContext.HasPdb)
-            {
-                await SourceIntegrityService.PopulateAsync(
-                    inspection.SourceDocumentInspection,
-                    inspection,
-                    logger);
-                if (needsAuditSignals)
-                    AuditSignalBuilder.RefreshLibraryAudit(path, inspection, logger);
-            }
 
             if (sourcePlan.CollectSourceFiles)
             {
@@ -409,6 +401,7 @@ internal static class LibraryMetadataService
         HttpClient httpClient,
         bool isPlatformAssembly = false,
         bool allowPdbDownload = false,
+        bool pdbAcquisitionAttempted = false,
         bool readCachedPdb = false)
     {
         var pdbContext = service.Context;
@@ -417,6 +410,7 @@ internal static class LibraryMetadataService
         {
             inspection.PdbFormat = pdbContext.PdbFormat;
             inspection.PdbLocation = pdbContext.PdbLocation;
+            inspection.SymbolServer = pdbContext.SymbolServer;
             inspection.HasSourceLink = service.HasSourceLink;
             inspection.SourceLinkJson = service.SourceLinkJson;
         }
@@ -483,7 +477,10 @@ internal static class LibraryMetadataService
             {
                 inspection.SourceLinkUnavailableReason = "Windows PDB";
             }
-            else if (!pdbContext.HasPdb && !allowPdbDownload && inspection.PdbPath != null)
+            else if (!pdbContext.HasPdb
+                     && !allowPdbDownload
+                     && !pdbAcquisitionAttempted
+                     && inspection.PdbPath != null)
             {
                 inspection.SourceLinkUnavailableReason = "PDB not checked";
             }
@@ -1859,6 +1856,96 @@ internal static class LibraryMetadataService
         {
             ApplyAssemblyReferencesResult(path, inspection, logger, references);
         }
+
+        if (results.TryGet(
+                SourceLinkDocumentsQuery.Definition,
+                out SourceLinkDocumentsResult? sourceDocuments))
+        {
+            inspection.SourceDocumentInspection = sourceDocuments.Inspection;
+        }
+
+        if (results.TryGet(
+                SourceAvailabilityQuery.Definition,
+                out SourceAvailabilityResult? availability))
+        {
+            ApplySourceAvailabilityResult(path, inspection, logger, availability);
+        }
+
+        if (results.TryGet(
+                SourceIntegrityQuery.Definition,
+                out SourceIntegrityResult? integrity))
+        {
+            ApplySourceIntegrityResult(path, inspection, logger, integrity);
+        }
+    }
+
+    private static void ApplySourceAvailabilityResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        SourceAvailabilityResult result)
+    {
+        inspection.SourceAvailabilityQueryResult = result;
+        switch (result)
+        {
+            case SourceAvailabilityResult.Available available:
+                inspection.TotalSourceFiles = available.Summary.TotalSourceFiles;
+                inspection.AccessibleSourceFiles = available.Summary.AccessibleSourceFiles;
+                inspection.EmbeddedSourceFiles = available.Summary.EmbeddedSourceFiles;
+                inspection.MissingSourceFiles = available.Summary.MissingSourceFiles.IsEmpty
+                    ? null
+                    : [.. available.Summary.MissingSourceFiles];
+                inspection.AllSourcesAccessible = available.Summary.AllSourcesAccessible;
+                break;
+
+            case SourceAvailabilityResult.Absent:
+                break;
+
+            case SourceAvailabilityResult.Failed failed:
+                logger.LogWarning(
+                    $"Error auditing SourceLink availability of {path}: {failed.Reason}");
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown SourceLink availability result '{result.GetType().Name}'.");
+        }
+    }
+
+    private static void ApplySourceIntegrityResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        SourceIntegrityResult result)
+    {
+        inspection.SourceIntegrityQueryResult = result;
+        switch (result)
+        {
+            case SourceIntegrityResult.Available available:
+                inspection.SourceIntegrityChecked = true;
+                inspection.SourceIntegrityVerified = available.Summary.Verified;
+                inspection.SourceIntegrityMismatched = available.Summary.Mismatched;
+                inspection.SourceIntegrityLineEndingNormalized =
+                    available.Summary.LineEndingNormalized;
+                inspection.SourceIntegrityUnverifiable = available.Summary.Unverifiable;
+                inspection.SourceIntegrityMismatches =
+                    available.Summary.MismatchedFiles.IsEmpty
+                        ? null
+                        : [.. available.Summary.MismatchedFiles];
+                break;
+
+            case SourceIntegrityResult.Absent:
+                break;
+
+            case SourceIntegrityResult.Failed failed:
+                logger.LogWarning(
+                    $"Error auditing SourceLink integrity of {path}: {failed.Reason}");
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown SourceLink integrity result '{result.GetType().Name}'.");
+        }
     }
 
     private static void ApplyAssemblyReferencesResult(
@@ -1898,7 +1985,7 @@ internal static class LibraryMetadataService
         }
     }
 
-    private static void RunTypedQueries(
+    private static async Task RunTypedQueriesAsync(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
@@ -1913,10 +2000,10 @@ internal static class LibraryMetadataService
         InspectionQueryResults results;
         try
         {
-            results = queryRegistry.Run(
+            results = await queryRegistry.RunAsync(
                 requiredQueries,
                 scannerContext,
-                recordQuery);
+                recordQuery).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

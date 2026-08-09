@@ -45,12 +45,14 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
 Distinct from *fetching* source (the `sourcelink` skill), `-S @SourceLink`
 groups the provenance sections: `SourceLink: Availability` (is it wired up),
 `SourceLink: Integrity` (do the documents validate), and `SourceLink: Missing
-Files` (gaps). The integrity pass fetches and hashes source content, so request
-it explicitly.
+Files` (gaps). The same sections work on `library` and aggregate selected
+libraries on `package`. The integrity pass fetches and hashes source content,
+so request it explicitly.
 
 ```bash
 dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink
 dnx dotnet-inspect -y -- library System.Text.Json \
   -S "SourceLink: Availability,SourceLink: Missing Files"
 dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Integrity"
+dnx dotnet-inspect -y -- package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 ```
