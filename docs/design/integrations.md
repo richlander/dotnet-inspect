@@ -131,9 +131,10 @@ how to group or present it.
 
 Image acquisition rejection remains explicit beside available participant
 results, so a budget-limited group cannot look like a complete group with fewer
-integrations. Late malformed-metadata mapping and preflight metadata-overflow
-isolation are gated by the package command tests named below. The query reuses
-the workspace's immutable snapshots and does not reopen paths or streams.
+integrations. Late malformed-metadata mapping and preflight malformed-managed
+metadata isolation are gated by the package command tests named below. The
+query reuses the workspace's immutable snapshots and does not reopen paths or
+streams.
 `AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
 and
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
@@ -195,10 +196,13 @@ gates that status independently of later host inspection across Markdown,
 JSON, count, and tabular output.
 `PackageCommand_AllLibraries_BlankAssemblyNameDoesNotAbortHealthyParticipants`
 and
-`InspectionAcquisitionPlanTests.TryCreateFromPath_BlankAssemblyName_ReturnsFalse`
+`InspectionAcquisitionPlanTests.PathFactories_BlankAssemblyName_ReturnNoDescriptor`
 gate malformed participant isolation.
 `PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
 preflight decoder-failure isolation.
+`PackageCommand_AllLibraries_MalformedMetadataPreflightIsIncompleteAcrossOutputPaths`
+gates visible incomplete status for malformed managed metadata across Markdown,
+JSON, count, and tabular output.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsEntry_PopulatesFindings`
 and `GroupedEvidence_SuppliesIntegrationPresence` gate projection and
 duplicate-scan avoidance.
