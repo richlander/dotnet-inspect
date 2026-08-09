@@ -2085,6 +2085,80 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void DeclaredSimpleNameCollisionKeepsReferencedDeclarationQualified()
+    {
+        var user = CreateEmptyType("App", "User");
+        user.Members.Add(new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "N.Sub.Marker"
+        });
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(user),
+            new CSharpTypePrintRequest(CreateEmptyType("App", "Marker")),
+            new CSharpTypePrintRequest(CreateEmptyType("N.Sub", "Marker"))
+        ]);
+
+        Assert.DoesNotContain("using N.Sub;", result.Source, StringComparison.Ordinal);
+        Assert.Contains("public N.Sub.Marker Value;", result.Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericDeclaredSimpleNameCollisionKeepsReferenceQualified()
+    {
+        var user = CreateEmptyType("App", "User");
+        var getMarker = CreateMethod("GetMarker");
+        getMarker.SignatureModel!.ReturnType = "N.Sub.Marker<int>";
+        user.Members.Add(getMarker);
+        var genericMarker = CreateEmptyType("N.Sub", "Marker`1");
+        genericMarker.TypeParameters = [new TypeParameter { Name = "T" }];
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(user),
+            new CSharpTypePrintRequest(CreateEmptyType("App", "Marker")),
+            new CSharpTypePrintRequest(genericMarker)
+        ]);
+
+        Assert.DoesNotContain("using N.Sub;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public N.Sub.Marker<int> GetMarker();",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NestedDeclarationDoesNotAuthorizeContainingTypeUsing()
+    {
+        var user = CreateEmptyType("App", "User");
+        user.Members.Add(new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            ReturnType = "N.Container.Marker"
+        });
+        var container = CreateEmptyType("N", "Container");
+        var marker = CreateEmptyType("N", "Marker");
+
+        var result = _printer.PrintBatch(
+        [
+            new CSharpTypePrintRequest(user),
+            new CSharpTypePrintRequest(
+                container,
+                nestedTypes: [new CSharpTypePrintRequest(marker)])
+        ]);
+
+        Assert.DoesNotContain("using N.Container;", result.Source, StringComparison.Ordinal);
+        Assert.Contains(
+            "public N.Container.Marker Value;",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void QualifiedPolicyPlansTypeAndMemberAttributes()
     {
         var system = CreateEmptyType("Samples", "System");

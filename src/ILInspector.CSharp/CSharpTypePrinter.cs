@@ -200,18 +200,27 @@ public sealed class CSharpTypePrinter
         var scopes = new List<(
             ApiType Type,
             IEnumerable<ApiMember> Members,
-            IEnumerable<ApiParameter> AdditionalParameters)>();
-        void Flatten(PreparedType prepared)
+            IEnumerable<ApiParameter> AdditionalParameters,
+            string DeclaredTypeFullName,
+            bool CanImportDeclaringNamespace)>();
+        void Flatten(PreparedType prepared, string? parentPath)
         {
+            string name = CSharpFormatter.StripArity(prepared.Type.Name);
+            string path = parentPath is null ? name : $"{parentPath}.{name}";
+            string fullName = prepared.Namespace.Length == 0
+                ? path
+                : $"{prepared.Namespace}.{path}";
             scopes.Add((
                 prepared.Type,
                 prepared.Members.Select(member => member.Member),
-                prepared.PrimaryConstructorParameters));
+                prepared.PrimaryConstructorParameters,
+                fullName,
+                parentPath is null));
             foreach (var nested in prepared.NestedTypes)
-                Flatten(nested);
+                Flatten(nested, path);
         }
         foreach (var prepared in preparedTypes)
-            Flatten(prepared);
+            Flatten(prepared, parentPath: null);
 
         return CSharpDeclarationWriter.DeriveTypeNameContext(
             scopes,

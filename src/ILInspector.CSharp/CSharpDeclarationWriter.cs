@@ -364,7 +364,11 @@ internal static class CSharpDeclarationWriter
         return DeriveTypeNameContext(types.Select(type => (
             Type: type,
             Members: (IEnumerable<ApiMember>)type.Members,
-            AdditionalParameters: Enumerable.Empty<ApiParameter>())))
+            AdditionalParameters: Enumerable.Empty<ApiParameter>(),
+            DeclaredTypeFullName: string.IsNullOrWhiteSpace(type.Namespace)
+                ? CSharpFormatter.StripArity(type.Name)
+                : $"{type.Namespace}.{CSharpFormatter.StripArity(type.Name)}",
+            CanImportDeclaringNamespace: true)))
             .SafeUsings;
     }
 
@@ -375,7 +379,9 @@ internal static class CSharpDeclarationWriter
         IEnumerable<(
             ApiType Type,
             IEnumerable<ApiMember> Members,
-            IEnumerable<ApiParameter> AdditionalParameters)> scopes,
+            IEnumerable<ApiParameter> AdditionalParameters,
+            string DeclaredTypeFullName,
+            bool CanImportDeclaringNamespace)> scopes,
         IEnumerable<string>? contextualNamespaces = null,
         IEnumerable<string>? additionalAttributes = null)
     {
@@ -383,7 +389,9 @@ internal static class CSharpDeclarationWriter
             .Select(scope => (
                 scope.Type,
                 Members: scope.Members.ToList(),
-                AdditionalParameters: scope.AdditionalParameters.ToList()))
+                AdditionalParameters: scope.AdditionalParameters.ToList(),
+                scope.DeclaredTypeFullName,
+                scope.CanImportDeclaringNamespace))
             .ToList();
         var typeRefs = scopeList
             .SelectMany(scope => CollectTypeReferences(scope.Type)
@@ -433,8 +441,20 @@ internal static class CSharpDeclarationWriter
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var declaredTypeNames = new HashSet<string>(StringComparer.Ordinal);
-        var declaredTypeFullNames = scopeList
-            .Select(scope => scope.Type.FullName)
+        var uniquelyImportableDeclaredTypeFullNames = scopeList
+            .GroupBy(
+                scope => CSharpFormatter.StripArity(scope.Type.Name),
+                StringComparer.Ordinal)
+            .Where(group =>
+            {
+                var identities = group
+                    .Select(scope => scope.DeclaredTypeFullName)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+                return identities.Count == 1
+                    && group.All(scope => scope.CanImportDeclaringNamespace);
+            })
+            .Select(group => group.First().DeclaredTypeFullName)
             .ToHashSet(StringComparer.Ordinal);
         var shadowingNames = new HashSet<string>(StringComparer.Ordinal);
         var rootShadowingNames = new HashSet<string>(StringComparer.Ordinal);
@@ -510,7 +530,7 @@ internal static class CSharpDeclarationWriter
             collidingSimpleNames,
             rootShadowingNames,
             declaredTypeNames,
-            declaredTypeFullNames,
+            uniquelyImportableDeclaredTypeFullNames,
             typeRefs.Concat(attributeTypeRefs).ToList());
         unsafeNamespaces.UnionWith(unsafePrimaryAttributeNamespaces);
 
@@ -521,7 +541,7 @@ internal static class CSharpDeclarationWriter
             if (shadowingNames.Contains(group.Key))
                 continue;
             if (declaredTypeNames.Contains(group.Key)
-                && !declaredTypeFullNames.Contains(group.First().FullName))
+                && !uniquelyImportableDeclaredTypeFullNames.Contains(group.First().FullName))
                 continue;
             var ns = group.First().Namespace;
             if (unsafeNamespaces.Contains(ns))
@@ -794,16 +814,16 @@ internal static class CSharpDeclarationWriter
         IReadOnlySet<string> collidingSimpleNames,
         IReadOnlySet<string> rootShadowingNames,
         IReadOnlySet<string>? declaredTypeNames = null,
-        IReadOnlySet<string>? declaredTypeFullNames = null,
+        IReadOnlySet<string>? uniquelyImportableDeclaredTypeFullNames = null,
         IReadOnlyList<TypeRef>? bindingEvidence = null)
     {
         declaredTypeNames ??= new HashSet<string>(StringComparer.Ordinal);
-        declaredTypeFullNames ??= new HashSet<string>(StringComparer.Ordinal);
+        uniquelyImportableDeclaredTypeFullNames ??= new HashSet<string>(StringComparer.Ordinal);
         var unsafeNamespaces = typeRefs
             .Where(r => collidingSimpleNames.Contains(r.SimpleName)
                 || shadowingNames.Contains(r.SimpleName)
                 || (declaredTypeNames.Contains(r.SimpleName)
-                    && !declaredTypeFullNames.Contains(r.FullName))
+                    && !uniquelyImportableDeclaredTypeFullNames.Contains(r.FullName))
                 || rootShadowingNames.Contains(NamespaceRoot(r.Namespace)))
             .Select(r => r.Namespace)
             .ToHashSet(StringComparer.Ordinal);
