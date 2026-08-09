@@ -52,12 +52,11 @@ the ownership boundaries below, not the project count.
 ## Implementation status
 
 `DotnetInspector.Queries` now implements metadata-image, direct-reference,
-extension-method, custom-attribute, manifest-resource, SourceLink audit, and
+extension-method, custom-attribute, manifest-resource, SourceLink audit,
 assembly-context Integrations, and progressive member call-graph slices. The
-call-graph seam
-composes Analysis indexes and one catalog generation over workspace-owned
-immutable snapshots; it returns typed roots and diagnostics without choosing a
-renderer or graph format.
+call-graph seam composes Analysis indexes and one catalog generation over
+workspace-owned immutable snapshots; it returns typed roots and diagnostics
+without choosing a renderer or graph format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, and manifest-resource queries through a
 typed, content-shaped registry over a host-owned `AssemblyInspectionSession`.
