@@ -136,10 +136,10 @@ public class MethodBodyInspectionSessionTests
         Analysis.MethodIdentity method =
             target.BodyIndex.DeclaredMethods.Single(candidate =>
                 candidate.DeclaringType.Name
-                    == nameof(ProgressiveMemberCallGraph)
+                    == nameof(MethodBodyInspectionSession)
                 && candidate.Name
-                    == nameof(ProgressiveMemberCallGraph.Callees)
-                && candidate.ParameterTypes.Length == 0);
+                    == nameof(MethodBodyInspectionSession.CallerEdges)
+                && candidate.ParameterTypes.Length == 3);
 
         Analysis.CallTreeNode callerRoot =
             target.CallerTree(method.MetadataToken, [caller]);
