@@ -592,8 +592,12 @@ public static class OutputFormatter
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                return SerializeLibraryPlainText(
-                    auditView, inspection, WriterOptions(inspection));
+                var title = GetLibraryDocumentTitle(auditView);
+                var body = RemovePlainTextDocumentTitle(
+                    SerializeLibraryPlainText(
+                        auditView, inspection, WriterOptions(inspection)),
+                    title);
+                return body.Length == 0 ? title : title + "\n\n" + body;
             }));
             WriteLfLine(Console.Out, string.Join("\n\n", documents));
         }
@@ -608,9 +612,13 @@ public static class OutputFormatter
             documents.AddRange(inspections.Select(inspection =>
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var markdown = SerializeLibraryMarkdown(
-                    auditView, inspection, WriterOptions(inspection), pipeline);
-                return ShiftMarkdownHeadingLevels(markdown, 2);
+                var title = GetLibraryDocumentTitle(auditView);
+                var body = RemoveMarkdownDocumentTitle(SerializeLibraryMarkdown(
+                    auditView, inspection, WriterOptions(inspection), pipeline));
+                body = ShiftMarkdownHeadingLevels(body, 2);
+                return body.Length == 0
+                    ? "### " + title
+                    : "### " + title + "\n\n" + body;
             }));
             var markdown = string.Join("\n\n", documents);
             WriteLfLine(
@@ -627,6 +635,31 @@ public static class OutputFormatter
                 WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
+    }
+
+    private static string GetLibraryDocumentTitle(LibraryInspectionView auditView) =>
+        auditView.Tfm is { Length: > 0 } tfm
+            ? $"{auditView.FileName} ({tfm})"
+            : auditView.FileName;
+
+    private static string RemoveMarkdownDocumentTitle(string markdown)
+    {
+        if (!markdown.StartsWith("# ", StringComparison.Ordinal))
+            return markdown;
+
+        var lineEnd = markdown.IndexOf('\n');
+        return lineEnd < 0 ? string.Empty : markdown[(lineEnd + 1)..].TrimStart('\n');
+    }
+
+    private static string RemovePlainTextDocumentTitle(string plainText, string title)
+    {
+        if (plainText.Equals(title, StringComparison.Ordinal))
+            return string.Empty;
+
+        var prefix = title + "\n";
+        return plainText.StartsWith(prefix, StringComparison.Ordinal)
+            ? plainText[prefix.Length..].TrimStart('\n')
+            : plainText;
     }
 
     internal static string ShiftMarkdownHeadingLevels(string markdown, int offset)

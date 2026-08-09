@@ -684,7 +684,7 @@ public class LibraryCommand
                     return WriteLibraryShapeProjection(inspections[0], options);
                 if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
-                WarnEmptySections(inspections[0], options, pipeline);
+                WarnEmptySections(inspections, options, pipeline);
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
@@ -2130,16 +2130,34 @@ public class LibraryCommand
     }
 
     private static void WarnEmptySections(LibraryInspection inspection, LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline) =>
+        WarnEmptySections([inspection], options, pipeline);
+
+    private static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline)
     {
         if (options.Count)
             return;
 
-        var (empty, requested) = pipeline.GetEmptySections(inspection, options.Verbosity, options.IncludeSections);
-        var failures = inspection.InspectionFailures;
-        List<LibraryInspectionFailureJson> relevantFailures = failures?
-            .Where(failure => empty.Any(section => FailureAffectsSection(failure.Section, section)))
-            .ToList() ?? [];
+        var emptyResults = inspections
+            .Select(inspection => pipeline.GetEmptySections(
+                inspection, options.Verbosity, options.IncludeSections))
+            .ToList();
+        if (emptyResults.Count == 0)
+            return;
+
+        var empty = emptyResults[0].Empty
+            .Where(section => emptyResults.Skip(1).All(
+                result => result.Empty.Contains(section, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+        var requested = emptyResults[0].RequestedCount;
+        List<LibraryInspectionFailureJson> relevantFailures = inspections
+            .Zip(emptyResults)
+            .SelectMany(pair => (pair.First.InspectionFailures ?? [])
+                .Where(failure => pair.Second.Empty.Any(
+                    section => FailureAffectsSection(failure.Section, section))))
+            .DistinctBy(failure => (failure.Section, failure.Finding, failure.Reason))
+            .ToList();
         foreach (var failure in relevantFailures)
         {
             CommandError.WriteWarning(

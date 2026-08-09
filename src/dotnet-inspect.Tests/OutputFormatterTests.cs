@@ -1767,6 +1767,58 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public async Task MultiAssemblyReport_ProjectionPreservesAssemblyHeadings()
+    {
+        var inspections = CreateTestAudits("net9.0", "net8.0");
+        var pipeline = LibrarySections.CreatePipeline();
+        var columnOptions = new LibraryOptions
+        {
+            IncludeSections = ["Signals"],
+            Columns = ["Area"],
+            Format = OutputFormat.Markdown
+        };
+
+        var (columns, columnsError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, columnOptions, pipeline));
+
+        Assert.Empty(columnsError);
+        Assert.Equal(
+            2,
+            columns.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+        Assert.Equal(2, columns.Split("#### Signals", StringSplitOptions.None).Length - 1);
+
+        var fieldOptions = columnOptions with
+        {
+            IncludeSections = ["Library Info"],
+            Columns = null,
+            Fields = ["Name"]
+        };
+        var (fields, fieldsError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, fieldOptions, pipeline));
+
+        Assert.Empty(fieldsError);
+        Assert.Equal(
+            2,
+            fields.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("### Test.dll (net", StringComparison.Ordinal)));
+
+        var plainOptions = columnOptions with
+        {
+            Format = OutputFormat.PlainText,
+            PlainText = true
+        };
+        var (plain, plainError) = await ConsoleCapture.RunAsync(
+            () => OutputFormatter.WriteLibraryResults(inspections, plainOptions, pipeline));
+
+        Assert.Empty(plainError);
+        Assert.Equal(
+            2,
+            plain.ReplaceLineEndings("\n").Split('\n')
+                .Count(line => line.StartsWith("Test.dll (net", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public async Task MultiAssemblyReport_CountAggregatesChildSections()
     {
         var inspections = CreateTestAudits("net9.0", "net8.0");
