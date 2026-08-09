@@ -578,8 +578,12 @@ public class PackageCommand
                     target.OriginalArgument,
                     packageName,
                     version,
-                    nuspec?.PackageName ?? packageName,
-                    nuspec?.Version ?? version,
+                    AcquisitionIdentity(
+                        nuspec?.PackageName,
+                        packageName),
+                    AcquisitionIdentity(
+                        nuspec?.Version,
+                        version),
                     options);
             }
 
@@ -2622,6 +2626,13 @@ public class PackageCommand
         scannerRegistry
             .ExpandRequired(scanners)
             .Contains(LibrarySections.ScannerIntegrations);
+
+    static string AcquisitionIdentity(
+        string? nuspecValue,
+        string fallback) =>
+        string.IsNullOrWhiteSpace(nuspecValue)
+            ? fallback
+            : nuspecValue;
 
     private static LibraryOptions CreateLibraryOptions(string? assemblyName, string packageReference, InspectionOptions options)
         => new()

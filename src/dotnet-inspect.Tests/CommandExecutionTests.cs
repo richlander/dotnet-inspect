@@ -12476,6 +12476,54 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("", "1.0.0")]
+    [InlineData("Test.BlankIdentity", " ")]
+    public async Task PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack(
+        string packageId,
+        string packageVersion)
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(
+                       packagePath,
+                       ZipArchiveMode.Update))
+            {
+                ZipArchiveEntry entry =
+                    archive.CreateEntry("Test.BlankIdentity.nuspec");
+                await using Stream stream = entry.Open();
+                await using var writer = new StreamWriter(stream);
+                await writer.WriteAsync($$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package>
+                      <metadata>
+                        <id>{{packageId}}</id>
+                        <version>{{packageVersion}}</version>
+                      </metadata>
+                    </package>
+                    """);
+            }
+
+            var (exit, output, _) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "## Integration: Configuration",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageCommand_AllLibraries_TsvEmitsIntegrationRowsWithLibraryProvenance()
     {

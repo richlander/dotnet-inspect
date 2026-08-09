@@ -169,6 +169,8 @@ gates participant-at-a-time retention.
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
+`PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack` gates canonical
+package provenance fallback for malformed blank nuspec identity fields.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates projection and duplicate-scan avoidance. Existing
 `PackageCommand_AllLibraries_*` tests gate rendering compatibility.

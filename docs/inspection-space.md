@@ -323,6 +323,8 @@ gates streaming image release.
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
+`PackageCommand_AllLibraries_BlankNuspecIdentityFallsBack` gates canonical
+package provenance fallback for malformed blank nuspec identity fields.
 `PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
 gates the Finding projection and duplicate-scan boundary. Existing
 `PackageCommand_AllLibraries_*` tests gate Markdown and structured output
