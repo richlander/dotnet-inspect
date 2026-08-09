@@ -366,6 +366,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             string name = candidate.Name;
 
             RewriteSelfCalls(body, method, name);
+            if (body.Body.Blocks is [{ Children: [Return { Value: null } trailingReturn] }]
+                && IsVoid(body.Signature.ReturnType))
+            {
+                trailingReturn.Detach();
+            }
             // The environment parameter is the last one; drop it from the source signature.
             var parameters = environment is null
                 ? body.Signature.Parameters
@@ -590,14 +595,16 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
     static bool IsPrintableBody(IrFunction body, bool allowLocalStatements = false)
     {
-        if (body.Body.Blocks is not [{ Children: var statements }] || statements.Count == 0)
+        if (body.Body.Blocks is not [{ Children: var statements }])
             return false;
 
         for (int i = 0; i < statements.Count; i++)
         {
             var statement = statements[i];
-            if (statement is Return { Value: not null })
-                return i == statements.Count - 1;
+            if (statement is Return returnStatement)
+                return i == statements.Count - 1
+                    && (returnStatement.Value is not null
+                        || i == 0 && IsVoid(body.Signature.ReturnType));
             if (statement is ExpressionStatement)
                 continue;
             if (allowLocalStatements && statement is StoreLocal)
@@ -612,6 +619,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
 
         return false;
     }
+
+    static bool IsVoid(TypeRef type) => type is { Namespace: "System", Name: "Void" };
 
     static IEnumerable<IrNode> Self(IrNode node)
     {
