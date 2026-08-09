@@ -64,6 +64,15 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             constraintResolution);
+        if (constraintResolution.Plan.RequestBudgetFailure
+            is { } budgetFailure)
+        {
+            AddInspectionFailure(
+                surface,
+                "resolve generic parameter constraints",
+                default,
+                budgetFailure);
+        }
         if (constraintResolution.Requests.Count == 0)
             return surface;
 
@@ -2683,7 +2692,7 @@ public static class ApiSurfaceExtractor
             _groups.RemoveRange(
                 checkpoint.GroupCount,
                 _groups.Count - checkpoint.GroupCount);
-            Plan.Rollback(checkpoint.RequestCount);
+            Plan.Rollback(checkpoint.RequestCheckpoint);
         }
 
         internal void Track(
@@ -2726,6 +2735,7 @@ public static class ApiSurfaceExtractor
 
         internal readonly record struct Checkpoint(
             int GroupCount,
-            int RequestCount);
+            TypeParameterKindClassifier.ResolutionPlan.RequestCheckpoint
+                RequestCheckpoint);
     }
 }

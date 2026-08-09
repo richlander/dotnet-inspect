@@ -419,6 +419,7 @@ public static class MetadataTypeDeclarationProbe
                     definition.Token,
                     definition.Kind,
                     declaringAssemblyDefinesCoreLibraryRoot,
+                    definition.GenericParameterCount,
                     definition.KindDependency),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
@@ -461,9 +462,26 @@ public static class MetadataTypeDeclarationProbe
                     reader,
                     handle,
                     declaringAssemblyDefinesCoreLibraryRoot);
+            int genericParameterCount;
+            try
+            {
+                genericParameterCount =
+                    reader.GetTypeDefinition(handle)
+                        .GetGenericParameters()
+                        .Count;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException)
+            {
+                genericParameterCount = -1;
+                kind = MetadataTypeDefinitionKind.Unknown;
+            }
+
             return new TypeDeclarationCandidate.Definition(
                 token,
                 kind,
+                genericParameterCount,
                 kind == MetadataTypeDefinitionKind.Unknown
                     ? ReadDefinitionKindDependency(reader, handle)
                     : null);
@@ -704,7 +722,8 @@ public static class MetadataTypeDeclarationProbe
             return new DefinitionKindDependency(
                 reference,
                 scope,
-                named.Name);
+                named.Name,
+                root.GenericArgumentCount);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

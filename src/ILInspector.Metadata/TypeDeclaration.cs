@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 internal sealed record DefinitionKindDependency(
     AssemblyReferenceIdentity Reference,
     AssemblyResolutionScope Scope,
-    MetadataTypeDefinitionName Type);
+    MetadataTypeDefinitionName Type,
+    int GenericArgumentCount);
 
 /// <summary>Definition kind needed by consumers that cannot inspect the defining image.</summary>
 public enum MetadataTypeDefinitionKind
@@ -95,15 +96,18 @@ public abstract class TypeDeclarationCandidate
         internal Definition(
             TypeDefinitionToken token,
             MetadataTypeDefinitionKind kind,
+            int genericParameterCount,
             DefinitionKindDependency? kindDependency = null)
         {
             Token = token;
             Kind = kind;
+            GenericParameterCount = genericParameterCount;
             KindDependency = kindDependency;
         }
 
         public TypeDefinitionToken Token { get; }
         public MetadataTypeDefinitionKind Kind { get; }
+        internal int GenericParameterCount { get; }
         internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;
@@ -153,17 +157,20 @@ public abstract class TypeDeclarationResult
             TypeDefinitionToken definition,
             MetadataTypeDefinitionKind kind,
             bool declaringAssemblyDefinesCoreLibraryRoot,
+            int genericParameterCount,
             DefinitionKindDependency? kindDependency = null)
         {
             Definition = definition;
             Kind = kind;
             DeclaringAssemblyDefinesCoreLibraryRoot =
                 declaringAssemblyDefinesCoreLibraryRoot;
+            GenericParameterCount = genericParameterCount;
             KindDependency = kindDependency;
         }
 
         public TypeDefinitionToken Definition { get; }
         public MetadataTypeDefinitionKind Kind { get; }
+        internal int GenericParameterCount { get; }
         internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;

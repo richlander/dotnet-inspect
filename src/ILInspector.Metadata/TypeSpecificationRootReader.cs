@@ -15,6 +15,7 @@ internal readonly record struct TypeSpecificationRoot(
     TypeSpecificationRootKind Kind,
     EntityHandle Type,
     byte RawTypeKind,
+    int GenericArgumentCount,
     int GenericParameterIndex)
 {
     internal static bool TryRead(
@@ -45,9 +46,13 @@ internal readonly record struct TypeSpecificationRoot(
             if (code is 0x11 or 0x12) // VALUETYPE or CLASS
             {
                 int encoded = blob.ReadCompressedInteger();
+                int genericArgumentCount = isGenericInstantiation
+                    ? blob.ReadCompressedInteger()
+                    : 0;
                 if (!TryDecodeTypeDefOrRef(
                         encoded,
                         out EntityHandle type)
+                    || genericArgumentCount < 0
                     || (!isGenericInstantiation
                         && blob.RemainingBytes != 0))
                 {
@@ -58,6 +63,7 @@ internal readonly record struct TypeSpecificationRoot(
                     TypeSpecificationRootKind.NamedType,
                     type,
                     code,
+                    genericArgumentCount,
                     GenericParameterIndex: -1);
                 return true;
             }
@@ -75,6 +81,7 @@ internal readonly record struct TypeSpecificationRoot(
                         : TypeSpecificationRootKind.GenericMethodParameter,
                     default,
                     RawTypeKind: 0,
+                    GenericArgumentCount: 0,
                     index);
                 return true;
             }

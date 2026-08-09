@@ -298,12 +298,26 @@ leaf names once, and same-module definition kinds are memoized across a paramete
 `Session_DistinctDeclarationRequestsDoNotRescanTypeTable` and
 `Classify_ReusesSameModuleDefinitionKindAcrossConstraints` gate those bounded-work
 properties. External constructed-base markers are not trusted: the catalog resolves the
-copied base identity and accepts `Class` only from the defining image.
+copied base identity and accepts `Class` only from the defining image when the constructed
+argument count exactly matches the definition's generic-parameter count. Authentication
+walks hostile dependency graphs with an explicit worklist rather than process recursion.
 `Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
-`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles.
+`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles;
+`DeepConstructedBaseAuthenticationUsesBoundedStack` gates bounded native-stack use; and
+`ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
+Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
+hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
+gates both roots.
+Resolution-aware classification does not infer core-type semantics from a platform-looking
+reference: the reference must bind through policy, as gated by
+`MissingCoreBindingDoesNotProveConstraintKind`.
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
-(`TypeRequestBudget_RejectsExcessManifestRequests`). An extraction lease keeps retained
+(`TypeRequestBudget_RejectsExcessManifestRequests`). Discovery exhaustion is exposed through
+`ApiSurface.InspectionFailures` rather than silently returning a partial classification
+(`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
+non-cacheable rejection across catalog generations
+(`BudgetExhaustionIsNotPromotedAcrossGenerations`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

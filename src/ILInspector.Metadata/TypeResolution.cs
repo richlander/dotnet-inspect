@@ -811,7 +811,8 @@ public sealed class ResolvedTypeDefinition
         ResolvedAssemblyCandidate assembly,
         MetadataTypeDefinitionName type,
         MetadataTypeDefinitionKind kind,
-        bool declaringAssemblyDefinesCoreLibraryRoot)
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        int genericParameterCount)
     {
         Key = key;
         Address = address;
@@ -820,6 +821,7 @@ public sealed class ResolvedTypeDefinition
         Kind = kind;
         DeclaringAssemblyDefinesCoreLibraryRoot =
             declaringAssemblyDefinesCoreLibraryRoot;
+        GenericParameterCount = genericParameterCount;
     }
 
     public ResolvedTypeDefinitionKey Key { get; }
@@ -827,6 +829,7 @@ public sealed class ResolvedTypeDefinition
     public ResolvedAssemblyCandidate Assembly { get; }
     public MetadataTypeDefinitionName Type { get; }
     public MetadataTypeDefinitionKind Kind { get; }
+    internal int GenericParameterCount { get; }
     public bool IsInterface =>
         Kind == MetadataTypeDefinitionKind.Interface;
     public bool IsValueType =>

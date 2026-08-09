@@ -221,6 +221,7 @@ public class TypeParameterKindClassifierTests
             "N.First",
             Assert.Single(plan.Requests).Type.ToMetadataFullName());
         Assert.Equal(2, plan.ProjectedReferenceCount);
+        Assert.NotNull(plan.RequestBudgetFailure);
     }
 
     [Fact]

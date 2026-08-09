@@ -52,6 +52,7 @@ internal static class TypeParameterKindClassifier
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         bool _requestBudgetExhausted;
+        MetadataTypeNameFailure? _requestBudgetFailure;
 
         internal ResolutionPlan(
             MetadataReader reader,
@@ -74,27 +75,39 @@ internal static class TypeParameterKindClassifier
             _requests;
         internal int ProjectedReferenceCount =>
             _projectedRequests.Count;
+        internal MetadataTypeNameFailure? RequestBudgetFailure =>
+            _requestBudgetFailure;
 
-        internal int Checkpoint() => _requestOrder.Count;
+        internal RequestCheckpoint Checkpoint() =>
+            new(_requestOrder.Count, _requestBudgetFailure);
 
-        internal void Rollback(int checkpoint)
+        internal void Rollback(RequestCheckpoint checkpoint)
         {
-            if (checkpoint < 0 || checkpoint > _requestOrder.Count)
+            if (checkpoint.RequestCount < 0
+                || checkpoint.RequestCount > _requestOrder.Count)
+            {
                 throw new ArgumentOutOfRangeException(nameof(checkpoint));
+            }
 
             for (int i = _requestOrder.Count - 1;
-                i >= checkpoint;
+                i >= checkpoint.RequestCount;
                 i--)
             {
                 _requests.Remove(_requestOrder[i]);
             }
 
             _requestOrder.RemoveRange(
-                checkpoint,
-                _requestOrder.Count - checkpoint);
+                checkpoint.RequestCount,
+                _requestOrder.Count - checkpoint.RequestCount);
+            _requestBudgetFailure = checkpoint.BudgetFailure;
             _requestBudgetExhausted =
-                _requests.Count >= _maxTypeResolutionRequests;
+                _requestBudgetFailure is not null
+                || _requests.Count >= _maxTypeResolutionRequests;
         }
+
+        internal readonly record struct RequestCheckpoint(
+            int RequestCount,
+            MetadataTypeNameFailure? BudgetFailure);
 
         internal void Bind(TypeResolutionContext context)
         {
@@ -111,7 +124,10 @@ internal static class TypeParameterKindClassifier
                     out TypeResolutionRequest? request))
             {
                 if (_requestBudgetExhausted)
+                {
+                    RecordRequestBudgetFailure(handle);
                     return ConstraintClass.Unreadable;
+                }
 
                 request = CreateRequest(reader, source, handle);
                 _projectedRequests.Add(handle, request);
@@ -120,16 +136,6 @@ internal static class TypeParameterKindClassifier
             if (request is null)
             {
                 return ConstraintClass.Unreadable;
-            }
-
-            if (IsClassThatProvesNothing(
-                    request.Type.ToMetadataFullName())
-                && request.Start
-                    is TypeResolutionStart.Reference reference
-                && ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
-                    reference.Value))
-            {
-                return ConstraintClass.ProvesNothing;
             }
 
             if (_context is null)
@@ -144,6 +150,7 @@ internal static class TypeParameterKindClassifier
                 else
                 {
                     _requestBudgetExhausted = true;
+                    RecordRequestBudgetFailure(handle);
                 }
                 return ConstraintClass.Unreadable;
             }
@@ -182,6 +189,15 @@ internal static class TypeParameterKindClassifier
             _resolvedClasses.Add(handle, result);
             return result;
         }
+
+        void RecordRequestBudgetFailure(TypeReferenceHandle handle) =>
+            _requestBudgetFailure ??=
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    "Type-resolution request discovery exceeded "
+                        + $"the configured budget of "
+                        + $"{_maxTypeResolutionRequests}.");
 
         TypeResolutionRequest? CreateRequest(
             MetadataReader reader,
