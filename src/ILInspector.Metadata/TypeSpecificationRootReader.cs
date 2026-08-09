@@ -27,24 +27,29 @@ internal readonly record struct TypeSpecificationRoot(
         {
             BlobHandle signature =
                 reader.GetTypeSpecification(handle).Signature;
-            if (!TypeSpecificationShapeValidator.IsWellFormed(
-                    reader,
-                    handle))
-            {
-                return false;
-            }
-
             BlobReader blob = reader.GetBlobReader(signature);
             byte code = blob.ReadByte();
-            if (code == 0x15) // GENERICINST
+            bool isGenericInstantiation = code == 0x15; // GENERICINST
+            if (isGenericInstantiation)
+            {
+                if (!TypeSpecificationShapeValidator.IsWellFormed(
+                        reader,
+                        handle))
+                {
+                    return false;
+                }
+
                 code = blob.ReadByte();
+            }
 
             if (code is 0x11 or 0x12) // VALUETYPE or CLASS
             {
                 int encoded = blob.ReadCompressedInteger();
                 if (!TryDecodeTypeDefOrRef(
                         encoded,
-                        out EntityHandle type))
+                        out EntityHandle type)
+                    || (!isGenericInstantiation
+                        && blob.RemainingBytes != 0))
                 {
                     return false;
                 }
@@ -60,7 +65,8 @@ internal readonly record struct TypeSpecificationRoot(
             if (code is 0x13 or 0x1e) // VAR or MVAR
             {
                 int index = blob.ReadCompressedInteger();
-                if (index < 0)
+                if (index < 0
+                    || blob.RemainingBytes != 0)
                     return false;
 
                 root = new TypeSpecificationRoot(
