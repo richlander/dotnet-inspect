@@ -87,6 +87,32 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+
+        var retained = Assert.IsType<
+            AssemblyImageAccessResult<
+                ResolvedAssemblyReference>.Available>(
+                    group.RetainAssemblyReference(source.Assembly)).Value;
+        byte first = source.Bytes[0];
+
+        source.Bytes[0] ^= 0xff;
+        workspace.Dispose();
+
+        Assert.Same(source.Assembly.Registration, retained.Registration);
+        Assert.Same(source.Assembly.Provenance, retained.Provenance);
+        Assert.Equal(source.Assembly.LastWriteTimeUtc, retained.LastWriteTimeUtc);
+        using Stream stream = retained.OpenRead();
+        Assert.Equal(first, stream.ReadByte());
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
     public void DisposalInsideCallback_DoesNotRevokeActiveView()
     {
         TestAssembly source = TestAssembly.Create();
@@ -164,40 +190,6 @@ public sealed class InspectionWorkspaceTests
         Assert.Equal(0, group.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(
             () => group.GetAssemblyImageSpan(source.Assembly));
-    }
-
-    [Fact]
-    public async Task UseAssemblyReferenceAsync_AwaitsOverRetainedSnapshot()
-    {
-        TestAssembly source = TestAssembly.Create();
-        var workspace = new InspectionWorkspace();
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [source.Participant]);
-        byte expected = source.Bytes[0];
-
-        AssemblyImageAccessResult<byte> result =
-            await group.UseAssemblyReferenceAsync(
-                source.Assembly,
-                async retained =>
-                {
-                    source.Bytes[0] ^= 0xff;
-                    await Task.Yield();
-                    workspace.Dispose();
-                    Assert.Equal(
-                        source.Bytes.Length,
-                        group.RetainedImageBytes);
-
-                    using Stream stream = retained.OpenRead();
-                    return (byte)stream.ReadByte();
-                });
-
-        Assert.Equal(
-            expected,
-            Assert.IsType<
-                AssemblyImageAccessResult<byte>.Available>(result).Value);
-        Assert.Equal(1, source.OpenCount);
-        Assert.Equal(0, group.RetainedImageBytes);
     }
 
     [Fact]

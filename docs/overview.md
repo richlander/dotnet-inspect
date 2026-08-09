@@ -9,13 +9,12 @@ It is built for both humans and agents. Markdown is the default output because h
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
-boundaries. The first typed query-planning slices are implemented for library
-metadata-image and direct-reference inspection. `DotnetInspector.Queries` also
-contains the first workspace context foundation and a sequential group-scoped
-Integrations query. Package `--all-libraries` is the first command migrated to
-that owner for explicit Integrations demand; the remaining query families and
-command paths remain future work. The components below are the current hosts,
-shared substrates, and inspection producers that will extend that space.
+boundaries. Typed query-planning slices are implemented for library
+metadata-image, direct-reference, SourceLink, and Integrations inspection. The
+library CLI and package `--all-libraries` use the first workspace-backed,
+group-scoped query for focused Integrations demand while remaining query
+families are future work. The components below are the current hosts, shared
+substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,

@@ -4,7 +4,6 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
-using DotnetInspector.Sections;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 
@@ -99,13 +98,13 @@ public sealed class PackageIntegrationsWorkspaceTests
     [Fact]
     public void OpportunityOnlyDemand_RequiresGroupedIntegrations()
     {
-        ScannerRegistry registry =
-            Sections.LibrarySections.CreateScannerRegistry();
+        HashSet<InspectionQueryDefinition> queries =
+            [AssemblyContextIntegrationsQuery.Definition];
 
         Assert.True(
             Commands.PackageCommand.RequiresGroupedIntegrations(
-                [Sections.LibrarySections.ScannerIntegrationOpportunities],
-                registry));
+                queries));
+        Assert.Empty(queries);
     }
 
     [Fact]
@@ -148,7 +147,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Fact]
-    public async Task ApplyAssemblyIntegrationsResult_PreventsLegacyRescan()
+    public async Task ApplyAssemblyIntegrationsEntry_PopulatesFindings()
     {
         string path =
             typeof(PackageIntegrationsWorkspaceTests).Assembly.Location;
@@ -164,25 +163,15 @@ public sealed class PackageIntegrationsWorkspaceTests
         var model = new LibraryInspection();
         var logger = new VerboseLogger(enabled: false);
 
-        LibraryMetadataService.ApplyAssemblyIntegrationsResult(
+        LibraryMetadataService.ApplyAssemblyIntegrationsEntry(
             path,
             model,
             logger,
             entry);
-        FindingInspection<EcosystemIntegrationSignalInfo>? ecosystem =
-            model.EcosystemIntegrationInspection;
-        FindingInspection<OpenTelemetrySignalInfo>? openTelemetry =
-            model.OpenTelemetryInspection;
 
-        using var session = AssemblyInspectionSession.Open(path);
-        LibraryMetadataService.ScanIntegrations(
-            session,
-            path,
-            model,
-            logger);
-
-        Assert.Same(ecosystem, model.EcosystemIntegrationInspection);
-        Assert.Same(openTelemetry, model.OpenTelemetryInspection);
+        Assert.NotNull(model.EcosystemIntegrationInspection);
+        Assert.NotNull(model.OpenTelemetryInspection);
+        Assert.Same(entry, model.AssemblyIntegrationsEntry);
     }
 
     [Fact]
@@ -317,8 +306,8 @@ public sealed class PackageIntegrationsWorkspaceTests
                         packageName: null,
                         packageVersion: null,
                         httpClient,
-                        retainedAssembly: retained,
-                        assemblyIntegrations: entry);
+                        assemblyReference: retained,
+                        integrationsEntry: entry);
                 });
 
         Assert.NotNull(inspection);

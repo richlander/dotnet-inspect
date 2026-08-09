@@ -185,7 +185,8 @@ public class PdbContext : IDisposable
     public long FileSize { get; }
 
     /// <summary>
-    /// Last write time captured at open time (avoids repeated lstat syscalls).
+    /// Last write time retained from the authoritative acquisition or captured
+    /// from the open file handle.
     /// </summary>
     public DateTime LastWriteTimeUtc { get; }
 
@@ -219,7 +220,8 @@ public class PdbContext : IDisposable
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
-        bool entireImagePrefetched)
+        bool entireImagePrefetched,
+        DateTime? lastWriteTimeUtc)
     {
         _peStream = peStream;
         _peReader = peReader;
@@ -230,7 +232,7 @@ public class PdbContext : IDisposable
         FileSize = peStream.Length;
         LastWriteTimeUtc = peStream is FileStream fileStream
             ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
-            : default;
+            : lastWriteTimeUtc ?? default;
     }
 
     /// <summary>
@@ -262,12 +264,13 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
             loadLocalPdb: false);
     }
 
     /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
-    /// The optional path is used only for adjacent PDB discovery and file metadata.
+    /// The optional path is used only for adjacent PDB discovery.
     /// </summary>
     public static PdbContext Open(
         ResolvedAssemblyReference assembly,
@@ -279,7 +282,8 @@ public class PdbContext : IDisposable
             assembly.Path,
             assembly.Identity.Name,
             log,
-            PEStreamOptions.Default);
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc);
     }
 
     /// <summary>
@@ -318,7 +322,7 @@ public class PdbContext : IDisposable
             loadLocalPdb: true);
 
     /// <summary>
-    /// Opens a descriptor-owned PE image with its complete content prefetched.
+    /// Opens an acquisition descriptor with its complete authoritative image prefetched.
     /// </summary>
     public static PdbContext OpenPrefetched(
         ResolvedAssemblyReference assembly,
@@ -331,6 +335,7 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            assembly.LastWriteTimeUtc,
             loadLocalPdb: true);
     }
 
@@ -345,6 +350,7 @@ public class PdbContext : IDisposable
             Path.GetFileName(assemblyPath),
             log,
             streamOptions,
+            lastWriteTimeUtc: null,
             loadLocalPdb);
 
     static PdbContext Open(
@@ -353,6 +359,7 @@ public class PdbContext : IDisposable
         string assemblyDisplayName,
         Action<string>? log,
         PEStreamOptions streamOptions,
+        DateTime? lastWriteTimeUtc,
         bool loadLocalPdb = true)
     {
         PEReader peReader;
@@ -372,7 +379,8 @@ public class PdbContext : IDisposable
             assemblyPath,
             assemblyDisplayName,
             log,
-            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0);
+            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
+            lastWriteTimeUtc);
 
         if (!peReader.HasMetadata)
             return context;

@@ -145,7 +145,7 @@ public static class AssemblyContextIntegrationsQuery
 
         var subject = new AssemblyContextSubject(participant.Assembly);
         AssemblyImageAccessResult<TResult> access =
-            await group.UseAssemblySessionAsync(
+            await group.UseAndReleaseAssemblySessionAsync(
                     participant.Assembly,
                     async (session, retained) =>
                     {
@@ -153,8 +153,7 @@ public static class AssemblyContextIntegrationsQuery
                             Inspect(subject, session);
                         return await callback(retained, entry)
                             .ConfigureAwait(false);
-                    },
-                    releaseAfterUse: true)
+                    })
                 .ConfigureAwait(false);
         return access switch
         {

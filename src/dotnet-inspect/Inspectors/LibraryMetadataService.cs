@@ -39,10 +39,10 @@ internal static class LibraryMetadataService
         ScannerRegistry? scannerRegistry = null,
         HashSet<InspectionQueryDefinition>? queries = null,
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
+        ResolvedAssemblyReference? assemblyReference = null,
+        AssemblyIntegrationsEntry? integrationsEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null,
-        ResolvedAssemblyReference? retainedAssembly = null,
-        AssemblyIntegrationsEntry? assemblyIntegrations = null)
+        Sections.InspectionTrace? trace = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -63,12 +63,17 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = requiredScanners is null
                 ? Analysis.LibraryBodyAnalysisFeatures.None
                 : SelectBodyAnalysisFeatures(requiredScanners);
-            using var service = OpenSourceLinkService(
-                path,
-                retainedAssembly,
-                logger,
-                discoveryOnly,
-                bodyAnalysisFeatures);
+            using var service = assemblyReference is not null
+                ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
+                    ? SourceLinkService.Open(assemblyReference, logger.Log)
+                    : SourceLinkService.OpenPrefetched(
+                        assemblyReference,
+                        logger.Log)
+                : discoveryOnly
+                    ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                    : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
+                        ? SourceLinkService.Open(path, logger.Log)
+                        : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
             var sourceLinkQueryContext = new SourceLinkQueryContext(
                 service,
@@ -101,7 +106,7 @@ internal static class LibraryMetadataService
                     using var queryContext = new Sections.ScannerContext
                     {
                         AssemblyPath = path,
-                        AssemblyReference = retainedAssembly,
+                        AssemblyReference = assemblyReference,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -150,7 +155,7 @@ internal static class LibraryMetadataService
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
 
             // Populate cheap presence flags for fast -s discovery
-            PresenceFlags presenceFlags = assemblyIntegrations switch
+            PresenceFlags presenceFlags = integrationsEntry switch
             {
                 AssemblyIntegrationsEntry.Available available =>
                     pdbContext.ScanPresenceFlags(available.Presence),
@@ -159,7 +164,7 @@ internal static class LibraryMetadataService
                     pdbContext.ScanPresenceFlagsWithoutIntegrations(),
                 null => pdbContext.ScanPresenceFlags(),
                 _ => throw new InvalidOperationException(
-                    $"Unknown assembly Integrations result '{assemblyIntegrations.GetType().Name}'."),
+                    $"Unknown assembly Integrations result '{integrationsEntry.GetType().Name}'."),
             };
             inspection.HasExtensionTypes = presenceFlags.HasExtensionTypes;
             inspection.HasPInvokeImports = presenceFlags.HasPInvokeImports;
@@ -193,13 +198,13 @@ internal static class LibraryMetadataService
             inspection.SwitchCount = presenceFlags.SwitchCount + appContextSwitches.Count;
             inspection.HasSwitches = inspection.SwitchCount > 0;
 
-            if (assemblyIntegrations is not null)
+            if (integrationsEntry is not null)
             {
-                ApplyAssemblyIntegrationsResult(
+                ApplyAssemblyIntegrationsEntry(
                     path,
                     inspection,
                     logger,
-                    assemblyIntegrations);
+                    integrationsEntry);
             }
 
             // PE debug directory fields
@@ -231,7 +236,7 @@ internal static class LibraryMetadataService
                 using var scannerContext = new Sections.ScannerContext
                 {
                     AssemblyPath = path,
-                    AssemblyReference = retainedAssembly,
+                    AssemblyReference = assemblyReference,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -317,9 +322,7 @@ internal static class LibraryMetadataService
             }
 
             inspection.FileSize = pdbContext.FileSize;
-            inspection.LastModified = retainedAssembly?.Path is { } retainedPath
-                ? File.GetLastWriteTimeUtc(retainedPath)
-                : pdbContext.LastWriteTimeUtc;
+            inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
             // Cheap discovery needs local applicability facts, not the source-analysis model.
             // Preserve the PDB facts that drive section gates, then avoid source findings,
@@ -393,39 +396,6 @@ internal static class LibraryMetadataService
             logger.LogWarning($"Failed to inspect {Path.GetFileName(path)}: {ex.Message}");
             return null;
         }
-    }
-
-    static SourceLinkService OpenSourceLinkService(
-        string path,
-        ResolvedAssemblyReference? retainedAssembly,
-        VerboseLogger logger,
-        bool discoveryOnly,
-        Analysis.LibraryBodyAnalysisFeatures bodyAnalysisFeatures)
-    {
-        if (retainedAssembly is null)
-        {
-            return discoveryOnly
-                ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
-                : bodyAnalysisFeatures
-                    == Analysis.LibraryBodyAnalysisFeatures.None
-                        ? SourceLinkService.Open(path, logger.Log)
-                        : SourceLinkService.OpenPrefetched(
-                            path,
-                            logger.Log);
-        }
-
-        return discoveryOnly
-            ? SourceLinkService.OpenMetadataOnly(
-                retainedAssembly,
-                logger.Log)
-            : bodyAnalysisFeatures
-                == Analysis.LibraryBodyAnalysisFeatures.None
-                    ? SourceLinkService.Open(
-                        retainedAssembly,
-                        logger.Log)
-                    : SourceLinkService.OpenPrefetched(
-                        retainedAssembly,
-                        logger.Log);
     }
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
@@ -1585,54 +1555,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static FindingInspection<OpenTelemetrySignalInfo> ScanOpenTelemetry(
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            return ScanOpenTelemetry(session, path, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning OpenTelemetry support in {path}: {ex.Message}");
-            return FailedInspection<OpenTelemetrySignalInfo>(
-                path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
-        }
-    }
-
-    internal static void ScanIntegrations(string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        if (IntegrationsAlreadyPopulated(inspection))
-            return;
-
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(path);
-            ScanIntegrations(session, path, inspection, logger);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning ecosystem integrations in {path}: {ex.Message}");
-            MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
-    internal static void ScanIntegrations(AssemblyInspectionSession session, string path, LibraryInspection inspection, VerboseLogger logger)
-    {
-        if (IntegrationsAlreadyPopulated(inspection))
-            return;
-
-        inspection.OpenTelemetryInspection = ScanOpenTelemetry(session, path, logger);
-        inspection.EcosystemIntegrationInspection = ScanEcosystemIntegrations(session, path, logger);
-    }
-
-    static bool IntegrationsAlreadyPopulated(
-        LibraryInspection inspection) =>
-        inspection.EcosystemIntegrationInspection is not null
-        && inspection.OpenTelemetryInspection is not null;
-
     internal static void ScanIntegrationOpportunities(string path, LibraryInspection inspection, VerboseLogger logger)
     {
         try
@@ -1670,44 +1592,6 @@ internal static class LibraryMetadataService
         {
             logger.LogWarning($"Error scanning integration opportunities in {path}: {ex.Message}");
             MarkIntegrationFailuresIfMissing(path, inspection, ex);
-        }
-    }
-
-    internal static FindingInspection<OpenTelemetrySignalInfo> ScanOpenTelemetry(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectOpenTelemetrySignals(
-                session.OpenTelemetrySignals(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning OpenTelemetry support in {path}: {ex.Message}");
-            return FailedInspection<OpenTelemetrySignalInfo>(
-                path, MetadataFindings.OpenTelemetrySignalDescriptor, ex);
-        }
-    }
-
-    static FindingInspection<EcosystemIntegrationSignalInfo> ScanEcosystemIntegrations(
-        AssemblyInspectionSession session,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            return MetadataFindings.InspectEcosystemIntegrations(
-                session.EcosystemIntegrations(),
-                FindingSubjectFor(path));
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning ecosystem integrations in {path}: {ex.Message}");
-            return FailedInspection<EcosystemIntegrationSignalInfo>(
-                path, MetadataFindings.EcosystemIntegrationDescriptor, ex);
         }
     }
 
@@ -2085,67 +1969,6 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyAssemblyIntegrationsResult(
-        string path,
-        LibraryInspection inspection,
-        VerboseLogger logger,
-        AssemblyIntegrationsEntry result)
-    {
-        switch (result)
-        {
-            case AssemblyIntegrationsEntry.Available available:
-                inspection.EcosystemIntegrationInspection =
-                    MetadataFindings.InspectEcosystemIntegrations(
-                        available.EcosystemSignals,
-                        FindingSubjectFor(path));
-                inspection.OpenTelemetryInspection =
-                    MetadataFindings.InspectOpenTelemetrySignals(
-                        available.OpenTelemetrySignals,
-                        FindingSubjectFor(path));
-                break;
-
-            case AssemblyIntegrationsEntry.Rejected rejected:
-                ApplyAssemblyIntegrationsFailure(
-                    path,
-                    inspection,
-                    logger,
-                    rejected.Failure.Detail);
-                break;
-
-            case AssemblyIntegrationsEntry.Failed failed:
-                ApplyAssemblyIntegrationsFailure(
-                    path,
-                    inspection,
-                    logger,
-                    failed.Error.Message);
-                break;
-
-            default:
-                throw new InvalidOperationException(
-                    $"Unknown assembly Integrations result '{result.GetType().Name}'.");
-        }
-    }
-
-    static void ApplyAssemblyIntegrationsFailure(
-        string path,
-        LibraryInspection inspection,
-        VerboseLogger logger,
-        string reason)
-    {
-        logger.LogWarning(
-            $"Error scanning ecosystem integrations in {path}: {reason}");
-        inspection.EcosystemIntegrationInspection =
-            FailedInspection<EcosystemIntegrationSignalInfo>(
-                path,
-                MetadataFindings.EcosystemIntegrationDescriptor,
-                reason);
-        inspection.OpenTelemetryInspection =
-            FailedInspection<OpenTelemetrySignalInfo>(
-                path,
-                MetadataFindings.OpenTelemetrySignalDescriptor,
-                reason);
-    }
-
     private static async Task RunTypedQueriesAsync(
         string path,
         LibraryInspection inspection,
@@ -2207,6 +2030,55 @@ internal static class LibraryMetadataService
                 FindingSubjectFor(path),
                 descriptor,
                 reason));
+
+    internal static void ApplyAssemblyIntegrationsEntry(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        AssemblyIntegrationsEntry entry)
+    {
+        inspection.AssemblyIntegrationsEntry = entry;
+        switch (entry)
+        {
+            case AssemblyIntegrationsEntry.Available available:
+                inspection.EcosystemIntegrationInspection =
+                    MetadataFindings.InspectEcosystemIntegrations(
+                        available.EcosystemSignals,
+                        FindingSubjectFor(path));
+                inspection.OpenTelemetryInspection =
+                    MetadataFindings.InspectOpenTelemetrySignals(
+                        available.OpenTelemetrySignals,
+                        FindingSubjectFor(path));
+                break;
+
+            case AssemblyIntegrationsEntry.Rejected rejected:
+                string acquisitionReason =
+                    $"{rejected.Failure.Kind}: {rejected.Failure.Detail}";
+                logger.LogWarning(
+                    $"Error acquiring integration metadata for {path}: {acquisitionReason}");
+                inspection.EcosystemIntegrationInspection =
+                    FailedInspection<EcosystemIntegrationSignalInfo>(
+                        path,
+                        MetadataFindings.EcosystemIntegrationDescriptor,
+                        acquisitionReason);
+                inspection.OpenTelemetryInspection =
+                    FailedInspection<OpenTelemetrySignalInfo>(
+                        path,
+                        MetadataFindings.OpenTelemetrySignalDescriptor,
+                        acquisitionReason);
+                break;
+
+            case AssemblyIntegrationsEntry.Failed failed:
+                logger.LogWarning(
+                    $"Error reading integration metadata of {path}: {failed.Error.Message}");
+                MarkIntegrationFailuresIfMissing(path, inspection, failed.Error);
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly integrations entry '{entry.GetType().Name}'.");
+        }
+    }
 
     static void MarkIntegrationFailuresIfMissing(
         string path,

@@ -130,20 +130,23 @@ public sealed class ResolvedAssemblyReference
         AssemblyReferenceIdentity identity,
         string? path,
         Func<Stream> openRead,
-        AssemblyResolutionProvenance provenance)
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc)
     {
         Registration = registration;
         Identity = identity;
         Path = path;
         OpenRead = openRead;
         Provenance = provenance;
+        LastWriteTimeUtc = lastWriteTimeUtc;
     }
 
     public static ResolvedAssemblyReference Create(
         AssemblyReferenceIdentity selectedIdentity,
         string? path,
         Func<Stream> openRead,
-        AssemblyResolutionProvenance provenance)
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(selectedIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(selectedIdentity.Name);
@@ -155,22 +158,23 @@ public sealed class ResolvedAssemblyReference
             selectedIdentity,
             path,
             openRead,
-            provenance);
-    }
-
-    internal ResolvedAssemblyReference WithOpenRead(
-        Func<Stream> openRead)
-    {
-        ArgumentNullException.ThrowIfNull(openRead);
-        return new ResolvedAssemblyReference(
-            Registration,
-            Identity,
-            Path,
-            openRead,
-            Provenance);
+            provenance,
+            lastWriteTimeUtc);
     }
 
     public static ResolvedAssemblyReference CreateFromPath(
+        string path,
+        AssemblyResolutionProvenance provenance)
+        => CreateFromPathIfManaged(path, provenance)
+            ?? throw new BadImageFormatException(
+                "The selected image has no managed metadata.");
+
+    /// <summary>
+    /// Creates a descriptor for a managed assembly path, or returns
+    /// <see langword="null"/> when the PE image has no managed metadata.
+    /// Malformed managed metadata remains a visible failure.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromPathIfManaged(
         string path,
         AssemblyResolutionProvenance provenance)
     {
@@ -178,27 +182,42 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(provenance);
 
         string fullPath = System.IO.Path.GetFullPath(path);
-        using var stream = File.OpenRead(fullPath);
-        using var peReader =
-            new System.Reflection.PortableExecutable.PEReader(stream);
-        if (!peReader.HasMetadata)
-            throw new BadImageFormatException(
-                "The selected image has no managed metadata.");
-
-        AssemblyReferenceIdentity identity =
-            AssemblyReferenceIdentity.FromAssemblyDefinition(
-                peReader.GetMetadataReader());
-        if (string.IsNullOrWhiteSpace(identity.Name))
+        using FileStream stream = File.OpenRead(fullPath);
+        System.Reflection.PortableExecutable.PEReader? peReader = null;
+        try
         {
-            throw new BadImageFormatException(
-                "The selected assembly has no valid name.");
+            peReader =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!peReader.HasMetadata)
+            {
+                peReader.Dispose();
+                return null;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            peReader?.Dispose();
+            return null;
         }
 
-        return Create(
-            identity,
-            fullPath,
-            () => File.OpenRead(fullPath),
-            provenance);
+        using (peReader)
+        {
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            if (string.IsNullOrWhiteSpace(identity.Name))
+            {
+                throw new BadImageFormatException(
+                    "The selected assembly has no valid name.");
+            }
+
+            return Create(
+                identity,
+                fullPath,
+                () => File.OpenRead(fullPath),
+                provenance,
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+        }
     }
 
     public static bool TryCreateFromPath(
@@ -253,6 +272,25 @@ public sealed class ResolvedAssemblyReference
     /// </remarks>
     public Func<Stream> OpenRead { get; }
     public AssemblyResolutionProvenance Provenance { get; }
+    /// <summary>
+    /// Last write time captured by the acquisition owner for the content
+    /// returned by <see cref="OpenRead"/>, when available.
+    /// </summary>
+    public DateTime? LastWriteTimeUtc { get; }
+
+    internal ResolvedAssemblyReference WithOpenRead(
+        Func<Stream> openRead,
+        DateTime? lastWriteTimeUtc)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        return new ResolvedAssemblyReference(
+            Registration,
+            Identity,
+            Path,
+            openRead,
+            Provenance,
+            lastWriteTimeUtc);
+    }
 }
 
 /// <summary>Identifies one acquisition catalog's candidate key space.</summary>

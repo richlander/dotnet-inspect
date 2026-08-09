@@ -141,34 +141,42 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-Package `--all-libraries` uses this query whenever its selected sections demand
-Integrations. It creates one binding-consistent group per target framework, so
-`--tfm all` never combines different framework universes. Every root receives
-its own `AssemblyDependencyResolver`, and
+The library CLI and package `--all-libraries` host now execute this query when a
+focused `Integration:` section or `@Integrations` is selected. The section
+catalog binds every member of the family to the same query definition by object
+identity and owns a separate group-query registry because the query consumes an
+`AssemblyContextGroup`, not a single-library scanner context.
+
+The library command retains its queried snapshot for the rest of inspection.
+`AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
+gates that shared-image boundary.
+
+Package `--all-libraries` creates one binding-consistent group per target
+framework, so `--tfm all` never combines different framework universes. Every
+root receives its own `AssemblyDependencyResolver`, and
 `SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
-one shared policy version required by the group.
+one shared policy version required by the group. For each participant in group
+order, the query and asynchronous library pipeline consume one retained
+snapshot before releasing it and advancing. This preserves one complete
+binding universe without retaining the cumulative bytes of every package
+assembly.
 
-The host correlates query entries to libraries by acquisition registration and
-projects their evidence or typed failure into the existing Finding properties.
-For each participant in group order, the query and asynchronous library pipeline
-consume one retained snapshot before releasing it and advancing. This preserves
-one complete binding universe without retaining the cumulative bytes of every
-package assembly. Metadata, body, Union Type, and Switch scanners borrow that
-same image rather than reopening the package path.
-Remote package provenance uses the coordinate resolved by package acquisition,
-not package-controlled nuspec fields. A local archive uses a trimmed, valid
-nuspec coordinate when available and otherwise carries local-archive
-provenance.
+The package host correlates query entries to libraries by acquisition
+registration and projects their evidence or typed failure into existing
+Finding properties. Remote provenance uses the coordinate resolved by package
+acquisition, not package-controlled nuspec fields. A local archive uses a
+trimmed, valid nuspec coordinate when available and otherwise carries
+local-archive provenance.
 
-The legacy Integrations scanner treats populated properties as complete. The
-dependent integration-opportunity scanner composes available group results
-without repeating metadata scanning and emits no gaps when its Integrations
-prerequisite failed. Direct `library` and package `--library` remain
-single-assembly controls. Ecosystem and OpenTelemetry evidence form one grouped
-query outcome, so malformed participant metadata fails that grouped unit.
-Grouped failures leave successful rows renderable, emit one warning per
-affected library and reason, and make the command incomplete with a nonzero
-exit code.
+`Integration: Opportunities` remains a CLI composition scanner. It consumes
+query-produced evidence and emits no gaps when its prerequisite failed;
+opportunity production has not moved into the L1 group query. Ecosystem and
+OpenTelemetry evidence form one grouped query outcome, so malformed participant
+metadata fails that grouped unit. Grouped failures leave successful rows
+renderable, emit one warning per affected library and reason, and make the
+command incomplete with a nonzero exit code. Direct `library` and package
+`--library` remain single-assembly controls.
+
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
 gates grouping, correlation, provenance, and retained-generation reuse.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
@@ -191,7 +199,7 @@ and
 gate malformed participant isolation.
 `PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
 preflight decoder-failure isolation.
-`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsEntry_PopulatesFindings`
 and `GroupedEvidence_SuppliesIntegrationPresence` gate projection and
 duplicate-scan avoidance.
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`

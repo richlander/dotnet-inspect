@@ -59,19 +59,21 @@ content-shaped registry over a host-owned `AssemblyInspectionSession`. The
 scanner key, and the CLI and package convenience route lower section selection
 into that same registry. Library and package SourceLink sections execute a
 shared document prerequisite plus availability or integrity query over a
-host-owned `SourceLinkService`. Separately, the first workspace query executes
-Integrations inspection across every participant in one binding-consistent
-assembly context group, reusing retained immutable content and returning
-per-participant evidence or failure. Package `--all-libraries` uses that
-group-scoped query for explicit Integrations demand, grouped by target
-framework; direct `library` and package `--library` remain single-assembly
-controls.
+host-owned `SourceLinkService`. The library CLI and package `--all-libraries`
+route focused Integrations demand through the first workspace query across every
+participant in binding-consistent assembly context groups. The command
+projects per-participant evidence or failure into compatibility models and
+continues each library inspection over the same retained immutable image.
+Package `--all-libraries` partitions those groups by target framework and
+releases each participant after inspection; direct `library` and package
+`--library` remain single-assembly controls.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
 `LibraryMetadataService` still projects query results into the mutable
 `LibraryInspection` compatibility aggregate, and transitive reference resolution
-remains host-owned. The SourceLink document query delegates PDB acquisition to
+remains host-owned. Integration opportunities also remain a host composition
+scanner over query-produced evidence. The SourceLink document query delegates PDB acquisition to
 shared Services while the host supplies trusted symbol and SSRF-hardened source
 clients. The registry supports deterministic synchronous and asynchronous
 execution and passes each query's maximum transitive cost into the host execution

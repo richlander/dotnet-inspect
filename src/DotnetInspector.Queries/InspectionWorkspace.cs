@@ -242,46 +242,24 @@ public sealed class AssemblyContextGroup : IDisposable
     }
 
     /// <summary>
-    /// Runs asynchronous work through a descriptor backed by this group's
-    /// retained immutable image.
+    /// Retains the participant's authoritative immutable image behind a fresh stream factory
+    /// while preserving its acquisition registration, identity, path hint, and provenance.
     /// </summary>
     /// <remarks>
-    /// The callback may suspend without reopening the participant's source.
-    /// Disposal waits to release the group's retained reference until the
-    /// callback completes. The descriptor remains memory-safe if it escapes,
-    /// just like a returned image span, because its opener retains the
-    /// immutable non-pooled array. Gated by
-    /// <c>UseAssemblyReferenceAsync_AwaitsOverRetainedSnapshot</c>.
+    /// The returned descriptor remains valid after the group is disposed because its stream
+    /// factory retains the immutable, non-pooled snapshot. The source path is not reopened.
+    /// Gated by
+    /// <c>RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal</c>.
     /// </remarks>
-    public async Task<AssemblyImageAccessResult<TResult>>
-        UseAssemblyReferenceAsync<TResult>(
-            ResolvedAssemblyReference assembly,
-            Func<ResolvedAssemblyReference, Task<TResult>> callback)
+    public AssemblyImageAccessResult<ResolvedAssemblyReference>
+        RetainAssemblyReference(
+            ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        ArgumentNullException.ThrowIfNull(callback);
 
-        BeginCallback();
-        try
-        {
-            ParticipantState participant = FindParticipant(assembly);
-            SnapshotAccess access = GetSnapshot(participant);
-            if (access.Failure is { } failure)
-            {
-                return new AssemblyImageAccessResult<TResult>.Rejected(
-                    assembly,
-                    failure);
-            }
-
-            TResult value = await callback(
-                    access.Snapshot!.CreateRetainedReference(assembly))
-                .ConfigureAwait(false);
-            return new AssemblyImageAccessResult<TResult>.Available(value);
-        }
-        finally
-        {
-            EndCallback();
-        }
+        return UseSnapshot(
+            assembly,
+            snapshot => snapshot.RetainAssemblyReference(assembly));
     }
 
     internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
@@ -302,13 +280,12 @@ public sealed class AssemblyContextGroup : IDisposable
     }
 
     internal async Task<AssemblyImageAccessResult<TResult>>
-        UseAssemblySessionAsync<TResult>(
+        UseAndReleaseAssemblySessionAsync<TResult>(
             ResolvedAssemblyReference assembly,
             Func<
                 AssemblyInspectionSession,
                 ResolvedAssemblyReference,
-                Task<TResult>> callback,
-            bool releaseAfterUse)
+                Task<TResult>> callback)
     {
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(callback);
@@ -331,13 +308,13 @@ public sealed class AssemblyContextGroup : IDisposable
                 AssemblyInspectionSession.Open(snapshot);
             TResult value = await callback(
                     session,
-                    snapshot.CreateRetainedReference(assembly))
+                    snapshot.RetainAssemblyReference(assembly))
                 .ConfigureAwait(false);
             return new AssemblyImageAccessResult<TResult>.Available(value);
         }
         finally
         {
-            if (releaseAfterUse && participant is not null)
+            if (participant is not null)
                 ReleaseSnapshot(participant);
             EndCallback();
         }

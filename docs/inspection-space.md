@@ -14,17 +14,18 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. Package `--all-libraries` is the first workspace-backed
-command path: explicit Integrations demand groups selected managed assemblies
-by target framework and scans each group sequentially. Library metadata and
-direct-reference inspection remain the first single-assembly typed-query
-canaries: the section catalog plans typed demand and executes it through a
-prerequisite-aware registry, while the command owns orchestration.
-`DotnetInspector.Queries` contains the workspace foundation: an ephemeral
-workspace owns binding-consistent assembly context groups, and a group retains
-lazily acquired immutable assembly snapshots behind callback-scoped, stack-only,
-and asynchronous retained-descriptor access. Other command paths have not
-migrated to that workspace owner yet. Other foundations include shared image
+govern its migration. Library metadata and direct-reference inspection are the
+first typed-query canaries: the section catalog plans typed demand and executes
+it through a prerequisite-aware registry, while the command still owns
+orchestration. The library CLI and package `--all-libraries` now use an
+ephemeral workspace for focused Integrations demand. One binding-consistent
+assembly context group per binding universe scans selected participants
+sequentially, preserves
+per-assembly identity, provenance, and failures, and retains each available
+immutable snapshot for the rest of that library inspection without reopening
+the source path. Package `--all-libraries` partitions binding universes by
+target framework and releases each participant before advancing. Other
+foundations include shared image
 and inspection session ownership, catalog generations, `CoreCache`, typed
 provenance and resolution currencies, and `InertString`; the remaining
 workspace model describes how those pieces will be composed.
@@ -345,7 +346,7 @@ and
 gate malformed participant isolation.
 `PackageCommand_AllLibraries_MetadataOverflowPreservesHealthyOutput` gates
 preflight decoder-failure isolation.
-`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsResult_PreventsLegacyRescan`
+`PackageIntegrationsWorkspaceTests.ApplyAssemblyIntegrationsEntry_PopulatesFindings`
 and `GroupedEvidence_SuppliesIntegrationPresence` gate the Finding projection
 and duplicate-scan boundary.
 `AssemblyContextIntegrationsQueryTests.Execute_CarriesBroadPresenceBeyondEvidenceRows`

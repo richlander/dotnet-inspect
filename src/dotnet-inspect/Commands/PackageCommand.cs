@@ -2528,7 +2528,7 @@ public class PackageCommand
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
         using PackageIntegrationsWorkspace? integrationsWorkspace =
-            RequiresGroupedIntegrations(scanners, scannerRegistry)
+            RequiresGroupedIntegrations(queries)
                 ? PackageIntegrationsWorkspace.Create(
                     selected.Select(selection =>
                     {
@@ -2553,7 +2553,7 @@ public class PackageCommand
                 .Replace('\\', '/');
 
             Task<LibraryInspection?> InspectAsync(
-                ResolvedAssemblyReference? retainedAssembly,
+                ResolvedAssemblyReference? assemblyReference,
                 AssemblyIntegrationsEntry? integrations)
                 => LibraryMetadataService.InspectAsync(
                     selection.Path,
@@ -2566,8 +2566,8 @@ public class PackageCommand
                     scannerRegistry: scannerRegistry,
                     queries: queries,
                     queryRegistry: queryRegistry,
-                    retainedAssembly: retainedAssembly,
-                    assemblyIntegrations: integrations);
+                    assemblyReference: assemblyReference,
+                    integrationsEntry: integrations);
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
@@ -2681,11 +2681,8 @@ public class PackageCommand
     }
 
     internal static bool RequiresGroupedIntegrations(
-        HashSet<string> scanners,
-        ScannerRegistry scannerRegistry) =>
-        scannerRegistry
-            .ExpandRequired(scanners)
-            .Contains(LibrarySections.ScannerIntegrations);
+        HashSet<InspectionQueryDefinition> queries) =>
+        queries.Remove(AssemblyContextIntegrationsQuery.Definition);
 
     internal static bool WriteGroupedIntegrationsFailures(
         IEnumerable<(string FileName, string Reason)> groupedFailures)
