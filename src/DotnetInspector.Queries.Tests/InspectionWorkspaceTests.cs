@@ -562,6 +562,23 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public void OwnedResourceFailure_DoesNotRetainSnapshots()
+    {
+        TestAssembly source = TestAssembly.Create();
+        var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        group.RegisterOwnedResource(new ThrowingResource());
+
+        Assert.Throws<AggregateException>(workspace.Dispose);
+
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public void ImageViewAndSpanResult_AreStackOnly()
     {
         Assert.True(typeof(AssemblyImageView).IsByRefLike);
@@ -647,5 +664,12 @@ public sealed class InspectionWorkspaceTests
                     "Synthetic disposal failure.");
             }
         }
+    }
+
+    sealed class ThrowingResource : IDisposable
+    {
+        public void Dispose() =>
+            throw new InvalidOperationException(
+                "Synthetic owned-resource disposal failure.");
     }
 }

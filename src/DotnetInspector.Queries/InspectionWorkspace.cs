@@ -132,11 +132,15 @@ public readonly ref struct AssemblyImageSpanResult
 /// <remarks>
 /// Images are acquired lazily, validated against their typed descriptors, and
 /// retained as immutable, non-pooled snapshots. Disposal closes the group to
-/// new access immediately. Active callbacks keep their local snapshot alive;
-/// the group releases its retained references after the final callback exits.
+/// new access immediately. Active callbacks and derived-resource operations
+/// keep their local snapshot and owned resources alive; the group disposes
+/// derived resources before releasing retained snapshots after the final
+/// operation exits.
 /// Gated by <c>ConcurrentDisposal_DoesNotRevokeActiveView</c>,
 /// <c>DisposalInsideCallback_DoesNotRevokeActiveView</c>, and
-/// <c>GroupRejectsMixedBindingPolicySnapshots</c>.
+/// <c>GroupRejectsMixedBindingPolicySnapshots</c>. Derived-resource ordering
+/// is gated by
+/// <c>WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots</c>.
 /// </remarks>
 public sealed class AssemblyContextGroup : IDisposable
 {
@@ -146,6 +150,8 @@ public sealed class AssemblyContextGroup : IDisposable
         AssemblyAcquisitionRegistration,
         ParticipantState> _participantByRegistration =
             new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<IDisposable> _ownedResources =
+        new(ReferenceEqualityComparer.Instance);
     readonly Action<AssemblyContextGroup> _onDisposed;
     readonly long _maxRetainedImageBytes;
     long _retainedImageBytes;
@@ -279,7 +285,7 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
-    AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
     {
@@ -302,6 +308,41 @@ public sealed class AssemblyContextGroup : IDisposable
         {
             EndCallback();
         }
+    }
+
+    internal TResult UseContext<TResult>(Func<TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        BeginCallback();
+        try
+        {
+            return callback();
+        }
+        finally
+        {
+            EndCallback();
+        }
+    }
+
+    internal void RegisterOwnedResource(IDisposable resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_ownedResources.Add(resource))
+            {
+                throw new ArgumentException(
+                    "A resource may be registered with an assembly context group only once.",
+                    nameof(resource));
+            }
+        }
+    }
+
+    internal void UnregisterOwnedResource(IDisposable resource)
+    {
+        lock (_lifetimeGate)
+            _ownedResources.Remove(resource);
     }
 
     public AssemblyImageSpanResult GetAssemblyImageSpan(
@@ -419,7 +460,7 @@ public sealed class AssemblyContextGroup : IDisposable
         }
 
         if (release)
-            ReleaseSnapshots();
+            ReleaseOwnedState();
     }
 
     public void Dispose()
@@ -439,11 +480,31 @@ public sealed class AssemblyContextGroup : IDisposable
         _onDisposed(this);
 
         if (release)
-            ReleaseSnapshots();
+            ReleaseOwnedState();
     }
 
-    void ReleaseSnapshots()
+    void ReleaseOwnedState()
     {
+        IDisposable[] resources;
+        lock (_lifetimeGate)
+        {
+            resources = [.. _ownedResources];
+            _ownedResources.Clear();
+        }
+
+        List<Exception>? failures = null;
+        foreach (IDisposable resource in resources)
+        {
+            try
+            {
+                resource.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
@@ -451,6 +512,9 @@ public sealed class AssemblyContextGroup : IDisposable
             if (imageSize != 0)
                 ReleaseImage(imageSize);
         }
+
+        if (failures is not null)
+            throw new AggregateException(failures);
     }
 
     sealed class ParticipantState(
