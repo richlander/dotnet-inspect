@@ -707,7 +707,9 @@ static class FidelityCheck
     sealed record ReferenceSet(
         ImmutableArray<MetadataReference> Metadata,
         SignatureSpellability Accessibility,
+        IAssemblyReferenceResolver Resolver,
         IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> TargetApi,
+        IReadOnlyDictionary<MetadataTypeDefinitionName, ApiType> TargetTypes,
         bool TargetApiIsResolutionAware);
 
     sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
@@ -2864,6 +2866,27 @@ static class FidelityCheck
                         entry.Type);
                 }
             }
+
+            foreach (TypeDefinitionHandle typeHandle
+                in reader.TypeDefinitions)
+            {
+                if (targetApiTypes.ContainsKey(typeHandle))
+                    continue;
+
+                if (TargetTypeDefinitionName(reader, typeHandle)
+                    is { } name
+                    && references.TargetTypes.TryGetValue(
+                        name,
+                        out ApiType? type)
+                    && IsAuthenticatedPlatformExceptionBase(
+                        type,
+                        references.Resolver))
+                {
+                    targetApiTypes.TryAdd(
+                        typeHandle,
+                        type);
+                }
+            }
         }
 
         var sb = new StringBuilder();
@@ -2937,15 +2960,24 @@ static class FidelityCheck
         return new BuiltUnit(sb.ToString(), productWholeMembers);
     }
 
+    static bool IsAuthenticatedPlatformExceptionBase(
+        ApiType type,
+        IAssemblyReferenceResolver resolver) =>
+        type.BaseType == "System.Exception"
+        && type.BaseTypeResolution is { } resolution
+        && resolver.Resolve(
+            resolution.Assembly,
+            AssemblyResolutionScope.Platform) is not null;
+
     /// <summary>
     /// A <c>: Base</c> clause for the reconstructed class. Same-assembly bases
     /// come from the local reader; a selected target's external base comes from
     /// the resolution-aware product surface, so overrides bind to the same API
-    /// that Roslyn receives as a metadata reference. Unselected external-base
-    /// siblings remain omitted except for framework bases the skeleton must
-    /// preserve for C# semantics. <see cref="System.Attribute"/> keeps
-    /// reconstructed custom-attribute types usable, and
-    /// <see cref="System.Exception"/> preserves constructor chains.
+    /// that Roslyn receives as a metadata reference. An unselected exception
+    /// support type can retain <see cref="Exception"/> only when that same
+    /// evidence resolves through the platform reference scope. Other
+    /// unselected external-base siblings remain omitted because the skeleton
+    /// cannot prove their full inheritance contract.
     /// </summary>
     static string BaseClause(
         MetadataReader reader,
@@ -4075,6 +4107,48 @@ static class FidelityCheck
         return index;
     }
 
+    static Dictionary<MetadataTypeDefinitionName, ApiType>
+        BuildTargetTypeIndex(ApiSurface surface)
+    {
+        var index =
+            new Dictionary<MetadataTypeDefinitionName, ApiType>();
+        foreach (ApiType type in surface.Types)
+        {
+            if (type.DefinitionName is { } name)
+                index.TryAdd(name, type);
+        }
+
+        return index;
+    }
+
+    static MetadataTypeDefinitionName? TargetTypeDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        var traversal =
+            MetadataRelationshipTraversal
+                .WalkTypeDefinitionDeclaringChain(reader, typeHandle);
+        if (traversal
+            is not RelationshipTraversalResult<
+                RelationshipChain<TypeDefinitionHandle>>.Completed completed)
+        {
+            return null;
+        }
+
+        ImmutableArray<TypeDefinitionHandle> handles =
+            completed.Value.Handles;
+        string typeNamespace = reader.GetString(
+            reader.GetTypeDefinition(handles[0]).Namespace);
+        var segments = handles
+            .Select(handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name))
+            .ToImmutableArray();
+        return MetadataTypeDefinitionName.Create(typeNamespace, segments)
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
+    }
+
     /// <summary>
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
@@ -5105,7 +5179,10 @@ static class FidelityCheck
 
         var compilerResolver =
             new CompilerReferenceResolver(resolvedReferences);
-        var (targetApi, targetApiIsResolutionAware) =
+        var (
+            targetApi,
+            targetTypes,
+            targetApiIsResolutionAware) =
             ResolutionAwareTargetApiIndex(
                 target,
                 targetPath,
@@ -5114,12 +5191,15 @@ static class FidelityCheck
         return new ReferenceSet(
             builder.ToImmutable(),
             new SignatureSpellability(compilerResolver),
+            compilerResolver,
             targetApi,
+            targetTypes,
             targetApiIsResolutionAware);
     }
 
     static (
         Dictionary<int, (ApiType Type, ApiMember Member)> Index,
+        Dictionary<MetadataTypeDefinitionName, ApiType> Types,
         bool IsResolutionAware)
         ResolutionAwareTargetApiIndex(
             PEReader target,
@@ -5142,9 +5222,15 @@ static class FidelityCheck
                 policy,
                 includeAll: true,
                 resolveBaseTypes: true);
-        return outcome is ResolutionAwareApiSurfaceOutcome.Read read
-            ? (BuildTargetApiIndex(read.Surface), true)
-            : (TargetApiIndex(target), false);
+        if (outcome is ResolutionAwareApiSurfaceOutcome.Read read)
+        {
+            return (
+                BuildTargetApiIndex(read.Surface),
+                BuildTargetTypeIndex(read.Surface),
+                true);
+        }
+
+        return (TargetApiIndex(target), [], false);
     }
 
     static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)

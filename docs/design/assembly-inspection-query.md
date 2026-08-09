@@ -387,8 +387,11 @@ compile-back. The same frozen resolution generation authenticates the defining a
 identity and copies only public accessibility and accessible-parameterless-constructor facts
 onto transient `ApiBaseTypeResolution`; it does not export catalog keys or metadata handles.
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
-same-named type from another assembly. `DirectDefinition_CarriesAccessibilityAndConstructorFacts`
-gates the copied declaration facts, while
+same-named type from another assembly. Selected targets may consume that evidence directly;
+unselected `System.Exception` support types additionally require the resolved assembly to bind
+through the platform scope before retaining their base clause.
+`DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
+`Evaluate_RetainsExceptionBaseClause` gates the authenticated exception support path, while
 `SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly` and
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gate fail-closed compile-back
 consumption.

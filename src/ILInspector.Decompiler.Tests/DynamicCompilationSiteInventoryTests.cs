@@ -64,6 +64,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
             ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
+            ["SkeletonEmitTests.cs"] = (1, "Cross-assembly identity seam: removes the referenced base while retaining a same-named definition from another assembly to prove compile-back cannot substitute identities."),
 
             // Product-output validity under varying compilation options.
             ["ExpressionTreeLambdaTests.cs"] = (3, "Product-output validity + compile-back oracle: compiles synthesized expression-tree source under varying compilation options (overflow checks) and recompiles recovered arithmetic/comparison lambdas to assert their expression-tree node identity."),
@@ -121,6 +122,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     alphabetical output and proves a second decompilation is identical.
     //   #4238 adds LambdaRaisingPassTests.cs (1 site): recompiles recovered
     //     explicit ref-parameter lambda syntax.
+    //   #3903 adds SkeletonEmitTests.cs (1 site): constructs two same-named
+    //     external bases, removes the referenced definition, and gates
+    //     fail-closed compile-back identity handling.
     //   Combined: 41 files, 51 sites.
     const int ExpectedDynamicFiles = 41;
     const int ExpectedDynamicSites = 51;
