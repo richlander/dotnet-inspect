@@ -1334,18 +1334,6 @@ public class ApiCommand
 
         if (options.Count)
         {
-            // A call graph declares edge rows in its projection. Count those rows directly
-            // rather than scanning the rendered tree, which has a different node-shaped
-            // lowering and therefore cannot answer the row question.
-            if (options.IncludeSections is { Count: 1 } sections
-                && sections.Contains(SectionNames.CallGraph)
-                && view.MemberCode?.CallGraphRowCount is { } graphRows)
-            {
-                CountOutput.WriteCount(graphRows);
-                ApiOutputFormatter.WriteCallGraphWarning(view);
-                return 0;
-            }
-
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var projection = CountProjectionFormatter.Capture(
@@ -1353,6 +1341,15 @@ public class ApiCommand
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
                 writerOptions);
+            // A call graph declares directed edges as its row unit. The count formatter observes
+            // the graph as content but deliberately does not infer rows from a rendered lowering,
+            // so add the product-owned, already-windowed edge cardinality to the same projection
+            // used by scalar and multi-section reductions.
+            if (options.IncludeSections?.Contains(SectionNames.CallGraph) == true
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                projection.RecordRows(SectionNames.CallGraph, graphRows);
+            }
             var ordered = OutputFormatter.ResolveCountMapSections(
                 ApiMemberSectionPipelines.Create(options),
                 options.IncludeSections,

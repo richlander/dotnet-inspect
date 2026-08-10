@@ -97,6 +97,44 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_MultiSectionCountMapKeepsEdgeCardinality()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var scalar = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var map = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with
+            {
+                IncludeSections = [SectionNames.CallGraph, SectionNames.Calls],
+                JsonOutput = true,
+                Format = OutputFormat.Json,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, scalar.ExitCode);
+        Assert.Equal(0, map.ExitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(map.Output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(
+            int.Parse(scalar.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture),
+            counts[SectionNames.CallGraph]);
+        Assert.Contains(SectionNames.Calls, counts.Keys);
+    }
+
+    [Fact]
     public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeInTreeAndTable()
     {
         var baseOptions = new MemberOptions
