@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Options;
+using DotnetInspector.Packages;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests.Parsers;
@@ -13,6 +14,9 @@ namespace DotnetInspector.Tests.Parsers;
 [Collection("Console")]
 public class MemberOptionsParserTests
 {
+    public MemberOptionsParserTests()
+        => NuGetCache.Initialize("dotnet-inspect");
+
     /// <summary>
     /// Creates the member command with shared options and args for testing.
     /// Mirrors ApiCommandDefinitions.CreateMemberCommand but exposes the args.

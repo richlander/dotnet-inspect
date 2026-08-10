@@ -132,11 +132,15 @@ public readonly ref struct AssemblyImageSpanResult
 /// <remarks>
 /// Images are acquired lazily, validated against their typed descriptors, and
 /// retained as immutable, non-pooled snapshots. Disposal closes the group to
-/// new access immediately. Active callbacks keep their local snapshot alive;
-/// the group releases its retained references after the final callback exits.
+/// new access immediately. Active callbacks and derived-resource operations
+/// keep their local snapshot and owned resources alive; the group disposes
+/// derived resources before releasing retained snapshots after the final
+/// operation exits.
 /// Gated by <c>ConcurrentDisposal_DoesNotRevokeActiveView</c>,
 /// <c>DisposalInsideCallback_DoesNotRevokeActiveView</c>, and
-/// <c>GroupRejectsMixedBindingPolicySnapshots</c>.
+/// <c>GroupRejectsMixedBindingPolicySnapshots</c>. Derived-resource ordering
+/// is gated by
+/// <c>OwnedResources_AreDisposedBeforeSnapshots</c>.
 /// </remarks>
 public sealed class AssemblyContextGroup : IDisposable
 {
@@ -146,6 +150,8 @@ public sealed class AssemblyContextGroup : IDisposable
         AssemblyAcquisitionRegistration,
         ParticipantState> _participantByRegistration =
             new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<IDisposable> _ownedResources =
+        new(ReferenceEqualityComparer.Instance);
     readonly Action<AssemblyContextGroup> _onDisposed;
     readonly long _maxRetainedImageBytes;
     long _retainedImageBytes;
@@ -241,6 +247,27 @@ public sealed class AssemblyContextGroup : IDisposable
                     snapshot.Content.AsSpan())));
     }
 
+    /// <summary>
+    /// Retains the participant's authoritative immutable image behind a fresh stream factory
+    /// while preserving its acquisition registration, identity, path hint, and provenance.
+    /// </summary>
+    /// <remarks>
+    /// The returned descriptor remains valid after the group is disposed because its stream
+    /// factory retains the immutable, non-pooled snapshot. The source path is not reopened.
+    /// Gated by
+    /// <c>RetainedReference_RemainsSnapshotBackedAfterWorkspaceDisposal</c>.
+    /// </remarks>
+    public AssemblyImageAccessResult<ResolvedAssemblyReference>
+        RetainAssemblyReference(
+            ResolvedAssemblyReference assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        return UseSnapshot(
+            assembly,
+            snapshot => snapshot.RetainAssemblyReference(assembly));
+    }
+
     internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyInspectionSession, TResult> callback)
@@ -258,11 +285,12 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
-    AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
     {
         BeginCallback();
+        Exception? operationFailure = null;
         try
         {
             ParticipantState participant = FindParticipant(assembly);
@@ -277,10 +305,56 @@ public sealed class AssemblyContextGroup : IDisposable
             TResult value = callback(access.Snapshot!);
             return new AssemblyImageAccessResult<TResult>.Available(value);
         }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
         finally
         {
-            EndCallback();
+            EndCallback(operationFailure);
         }
+    }
+
+    internal TResult UseContext<TResult>(Func<TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        BeginCallback();
+        Exception? operationFailure = null;
+        try
+        {
+            return callback();
+        }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
+        finally
+        {
+            EndCallback(operationFailure);
+        }
+    }
+
+    internal void RegisterOwnedResource(IDisposable resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        lock (_lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_ownedResources.Add(resource))
+            {
+                throw new ArgumentException(
+                    "A resource may be registered with an assembly context group only once.",
+                    nameof(resource));
+            }
+        }
+    }
+
+    internal void UnregisterOwnedResource(IDisposable resource)
+    {
+        lock (_lifetimeGate)
+            _ownedResources.Remove(resource);
     }
 
     public AssemblyImageSpanResult GetAssemblyImageSpan(
@@ -289,6 +363,7 @@ public sealed class AssemblyContextGroup : IDisposable
         ArgumentNullException.ThrowIfNull(assembly);
 
         BeginCallback();
+        Exception? operationFailure = null;
         try
         {
             ParticipantState participant = FindParticipant(assembly);
@@ -303,9 +378,14 @@ public sealed class AssemblyContextGroup : IDisposable
                     access.Snapshot!.Content.AsSpan(),
                     failure: null);
         }
+        catch (Exception ex)
+        {
+            operationFailure = ex;
+            throw;
+        }
         finally
         {
-            EndCallback();
+            EndCallback(operationFailure);
         }
     }
 
@@ -385,7 +465,7 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
-    void EndCallback()
+    void EndCallback(Exception? operationFailure)
     {
         bool release;
         lock (_lifetimeGate)
@@ -398,7 +478,19 @@ public sealed class AssemblyContextGroup : IDisposable
         }
 
         if (release)
-            ReleaseSnapshots();
+        {
+            try
+            {
+                ReleaseOwnedState();
+            }
+            catch (Exception releaseFailure)
+                when (operationFailure is not null)
+            {
+                throw new AggregateException(
+                    operationFailure,
+                    releaseFailure);
+            }
+        }
     }
 
     public void Dispose()
@@ -418,11 +510,31 @@ public sealed class AssemblyContextGroup : IDisposable
         _onDisposed(this);
 
         if (release)
-            ReleaseSnapshots();
+            ReleaseOwnedState();
     }
 
-    void ReleaseSnapshots()
+    void ReleaseOwnedState()
     {
+        IDisposable[] resources;
+        lock (_lifetimeGate)
+        {
+            resources = [.. _ownedResources];
+            _ownedResources.Clear();
+        }
+
+        List<Exception>? failures = null;
+        foreach (IDisposable resource in resources)
+        {
+            try
+            {
+                resource.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
@@ -430,6 +542,9 @@ public sealed class AssemblyContextGroup : IDisposable
             if (imageSize != 0)
                 ReleaseImage(imageSize);
         }
+
+        if (failures is not null)
+            throw new AggregateException(failures);
     }
 
     sealed class ParticipantState(
@@ -501,8 +616,21 @@ public sealed class InspectionWorkspace : IDisposable
             _groups.Clear();
         }
 
+        List<Exception>? failures = null;
         foreach (AssemblyContextGroup group in groups)
-            group.Dispose();
+        {
+            try
+            {
+                group.Dispose();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+
+        if (failures is not null)
+            throw new AggregateException(failures);
     }
 
     void RemoveGroup(AssemblyContextGroup group)

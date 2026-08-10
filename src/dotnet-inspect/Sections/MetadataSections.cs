@@ -55,7 +55,7 @@ public static class MetadataSections
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
             ScannerKey = null,
-            Query = MetadataImageQuery.Definition,
+            Queries = [MetadataImageQuery.Definition],
             HasExplicitApplicability = true,
             IsApplicable = HasMetadata,
             CanRender = HasMetadata,
@@ -76,7 +76,7 @@ public static class MetadataSections
             SizeClass = SectionSizeClass.Fixed,
             Cost = SectionCost.NetworkFree,
             ScannerKey = null,
-            Query = MetadataImageQuery.Definition,
+            Queries = [MetadataImageQuery.Definition],
             HasExplicitApplicability = true,
             IsApplicable = static model => model.MetadataHeap is not null,
             CanRender = static model => model.MetadataHeap is not null,
@@ -98,7 +98,7 @@ public static class MetadataSections
                 // entries. Unbounded is the honest classification.
                 Cost = SectionCost.Unbounded,
                 ScannerKey = null,
-                Query = MetadataImageQuery.Definition,
+                Queries = [MetadataImageQuery.Definition],
                 // Effectiveness follows the heap's size from the cheap image scan. Probing by
                 // rendering would project every table during discovery, paying the section's whole
                 // cost just to decide whether to list it.
@@ -126,7 +126,7 @@ public static class MetadataSections
                 // this section is reachable only by exact name or the @Metadata door.
                 Cost = SectionCost.Unbounded,
                 ScannerKey = null,
-                Query = MetadataImageQuery.Definition,
+                Queries = [MetadataImageQuery.Definition],
                 // Effectiveness is decided by the query's row count, which is exact: a table with
                 // rows always renders rows. Probing by rendering would project the whole table
                 // during discovery, paying the lens's expensive half just to list it.

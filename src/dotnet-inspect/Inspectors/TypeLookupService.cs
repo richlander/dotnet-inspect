@@ -1,4 +1,5 @@
 using DotnetInspector.Commands;
+using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -59,13 +60,15 @@ public static class TypeLookupService
         string typeName,
         string[] platformFrameworks,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions = null)
     {
         // Search for the type across all framework assemblies
         var options = new FindOptions
         {
             Pattern = typeName,
             PlatformFrameworks = platformFrameworks,
+            SourceOptions = sourceOptions,
             Limit = 1 // We only need the first match
         };
 
@@ -77,7 +80,11 @@ public static class TypeLookupService
         var match = results[0];
 
         // Resolve the assembly path
-        var assemblyPath = await ResolveAssemblyPathAsync(match, httpClient, logger);
+        var assemblyPath = await ResolveAssemblyPathAsync(
+            match,
+            httpClient,
+            logger,
+            sourceOptions);
         if (assemblyPath == null)
             return null;
 
@@ -97,10 +104,16 @@ public static class TypeLookupService
         string typeName,
         string[] platformFrameworks,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions = null)
     {
         // First try exact match
-        var match = await FindTypeAsync(typeName, platformFrameworks, httpClient, logger);
+        var match = await FindTypeAsync(
+            typeName,
+            platformFrameworks,
+            httpClient,
+            logger,
+            sourceOptions);
         if (match != null)
             return (match, []);
 
@@ -108,7 +121,8 @@ public static class TypeLookupService
         var options = new FindOptions
         {
             Pattern = "*", // Get all types
-            PlatformFrameworks = platformFrameworks
+            PlatformFrameworks = platformFrameworks,
+            SourceOptions = sourceOptions,
         };
 
         var allTypes = await TypeSearchService.CollectTypesAsync(options, null, logger, httpClient);
@@ -135,7 +149,8 @@ public static class TypeLookupService
     private static async Task<string?> ResolveAssemblyPathAsync(
         TypeSearchResult result,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
     {
         if (result.Assembly == null || result.Source == null)
             return null;
@@ -148,7 +163,8 @@ public static class TypeLookupService
             result.Assembly,
             httpClient,
             logger.Log,
-            framework);
+            framework,
+            sourceOptions: sourceOptions);
 
         if (error != null)
         {

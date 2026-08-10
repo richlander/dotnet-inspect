@@ -259,6 +259,140 @@ public class SourcePrecedenceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetVersions_PackageSourceMappingQueriesOnlyEligibleSource()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.31.0", "0.32.0"],
+            feedBVersions: ["0.32.99"]);
+        using var client = new HttpClient(handler);
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, $$"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="feed-a" value="https://{{FeedAIndex}}" />
+                <add key="feed-b" value="https://{{FeedBIndex}}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="feed-a">
+                  <package pattern="Markout" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        try
+        {
+            List<string>? versions = await PackageExtractor.GetVersionsAsync(
+                client,
+                "Markout",
+                includePrerelease: false,
+                limit: null,
+                log: null,
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath });
+
+            Assert.Equal(["0.32.0", "0.31.0"], versions);
+            Assert.DoesNotContain(
+                handler.Requests,
+                request => request.Url.Contains(FeedBIndex, StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task PlatformPackVersionResolution_UsesPackageSourceMapping()
+    {
+        var handler = CreateHandler(
+            feedAVersions: ["0.31.0", "0.32.0"],
+            feedBVersions: ["0.32.99"]);
+        using var client = new HttpClient(handler);
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"pack-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, $$"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="feed-a" value="https://{{FeedAIndex}}" />
+                <add key="feed-b" value="https://{{FeedBIndex}}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="feed-a">
+                  <package pattern="Markout" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        try
+        {
+            string? version = await PlatformPackService.GetLatestPackVersionAsync(
+                "Markout",
+                client,
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath });
+
+            Assert.Equal("0.32.0", version);
+            Assert.DoesNotContain(
+                handler.Requests,
+                request => request.Url.Contains(FeedBIndex, StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task NuspecResolution_UsesDependencyPackageMapping()
+    {
+        var handler = CreateHandler(feedAVersions: null, feedBVersions: null);
+        handler.Add(
+            "b-content.example.test/flat/contoso.dependency/1.0.0/contoso.dependency.nuspec",
+            "<package><metadata><id>Contoso.Dependency</id></metadata></package>");
+        using var client = new HttpClient(handler);
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"nuspec-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, $$"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="feed-a" value="https://{{FeedAIndex}}" />
+                <add key="feed-b" value="https://{{FeedBIndex}}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="feed-b">
+                  <package pattern="Contoso.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        try
+        {
+            string? nuspec = await PackageExtractor.TryGetNuspecXmlAsync(
+                client,
+                "Contoso.Dependency",
+                "1.0.0",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath });
+
+            Assert.Contains("<id>Contoso.Dependency</id>", nuspec);
+            Assert.DoesNotContain(
+                handler.Requests,
+                request => request.Url.Contains(FeedAIndex, StringComparison.Ordinal));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
     public async Task WildcardResolution_RetainsOnlySelectedVersionReporters()
     {
         var handler = CreateHandler(
