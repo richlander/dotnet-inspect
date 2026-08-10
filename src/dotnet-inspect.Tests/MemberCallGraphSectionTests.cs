@@ -1,5 +1,6 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Tests;
@@ -47,6 +48,109 @@ public class MemberCallGraphSectionTests
         Assert.Contains("\tExternal", result.Output);
         Assert.Contains($"{nameof(MemberCallGraphFixture.RootCall)}", result.Output);
         Assert.Contains($"{nameof(MemberCallGraphFixture.Mid)}", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_CountsEdgeRowsAcrossRenderModes()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var edgeTable = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with
+            {
+                Count = false,
+                Tabular = true,
+                Tsv = true,
+                TabularExplicitlySet = true,
+                FormatExplicitlySet = true,
+            }));
+        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var table = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with
+            {
+                Tabular = true,
+                TabularExplicitlySet = true,
+                FormatExplicitlySet = true,
+            }));
+
+        Assert.Equal(0, edgeTable.ExitCode);
+        Assert.Equal(0, markdown.ExitCode);
+        Assert.Equal(0, table.ExitCode);
+        Assert.Equal(markdown.Output, table.Output);
+        var edgeRows = edgeTable.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .Count();
+        Assert.True(edgeRows > 0, "fixture must produce a non-empty graph");
+        Assert.Equal(
+            edgeRows,
+            int.Parse(markdown.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeInTreeAndTable()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Rows = RowWindow.Range(2, 2),
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var tree = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var table = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with
+            {
+                Tabular = true,
+                Tsv = true,
+                TabularExplicitlySet = true,
+                FormatExplicitlySet = true,
+            }));
+        var count = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { Count = true }));
+
+        Assert.Equal(0, tree.ExitCode);
+        Assert.Equal(0, table.ExitCode);
+        Assert.Equal(0, count.ExitCode);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), tree.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), tree.Output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), tree.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), table.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), table.Output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), table.Output);
+        Assert.Equal("1", count.Output.Trim());
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EmptyWindowDoesNotRenderFocusAsARow()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Rows = RowWindow.Range(100, 100),
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), result.Output);
     }
 
     [Fact]
