@@ -714,12 +714,13 @@ static class ReturnToSender
     internal static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        bool applyCompileBackFloor = true)
         => CompileBackTargets(
             assemblyPath,
             targets,
             sourceIndex,
-            applyCompileBackFloor: true,
+            applyCompileBackFloor,
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
@@ -1856,6 +1857,7 @@ static class ReturnToSender
             or FidelityCheck.CompileBackStatus.OperandDiff
                 ? TryIsolateFidelityDifference(
                     sourceResult.Request,
+                    unit,
                     originalPe,
                     reader,
                     methodHandle,
@@ -2296,6 +2298,7 @@ static class ReturnToSender
     {
         var control = TryCompileAuthoredBody(
             request,
+            decompiledSource,
             sourceIndex,
             parseOptions,
             compileOptions,
@@ -2353,6 +2356,7 @@ static class ReturnToSender
     /// </remarks>
     internal static FaultIsolationResult? TryIsolateFidelityDifference(
         ArtifactRequest request,
+        string finalShell,
         PEReader originalPe,
         MetadataReader originalReader,
         MethodDefinitionHandle originalMethod,
@@ -2363,6 +2367,7 @@ static class ReturnToSender
     {
         var control = TryCompileAuthoredBody(
             request,
+            finalShell,
             sourceIndex,
             parseOptions,
             compileOptions,
@@ -2460,6 +2465,7 @@ static class ReturnToSender
 
     static AuthoredBodyCompilation? TryCompileAuthoredBody(
         ArtifactRequest request,
+        string finalShell,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
@@ -2477,10 +2483,9 @@ static class ReturnToSender
 
         try
         {
-            var finalArtifact = CompileBackSourceComposer.Compose(request);
             if (BuildTargetIdentity(request) is not { } identity
                 || !SpanAttribution.TrySubstituteBody(
-                    finalArtifact.Source,
+                    finalShell,
                     authoredBody,
                     identity,
                     parseOptions,

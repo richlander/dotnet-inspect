@@ -157,6 +157,102 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
+    public void ClosureRootBudgetStop_AttributesTheShellNotTheBody()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"rts-closure-budget-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            const string fullType = "CanaryNs.Class1";
+            const string methodName = "M";
+            string body = "return " + string.Join(
+                " + ",
+                Enumerable.Range(0, 250).Select(index => $"new Helper{index}().Value")) + ";";
+            string source = $$"""
+                namespace CanaryNs;
+
+                public class Class1
+                {
+                    public static int M()
+                    {
+                        {{body}}
+                    }
+                }
+
+                public class UnseededBase
+                {
+                }
+
+                public class Helper0 : UnseededBase
+                {
+                    public int Value => 1;
+                }
+
+                {{string.Join(
+                    Environment.NewLine + Environment.NewLine,
+                    Enumerable.Range(1, 249).Select(index => $$"""
+                        public class Helper{{index}}
+                        {
+                            public int Value => 1;
+                        }
+                        """))}}
+                """;
+            string sourcePath = Path.Combine(directory, "Fixture.cs");
+            string assemblyPath = Path.Combine(directory, "Fixture.dll");
+            File.WriteAllText(sourcePath, source);
+            FidelityFixture.Compile(source, assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var (typeHandle, methodHandle) = FidelityFixture.FindMethod(reader, fullType, methodName);
+            string signature = SignatureIdentity.ForMetadataMethod(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                methodHandle) ?? "";
+            var sourceIndex = ReturnToSenderSourceIndex.FromCorrelatedMembers(
+                [
+                    new ReturnToSenderSourceMember(
+                        fullType,
+                        methodName,
+                        0,
+                        signature,
+                        sourcePath,
+                        body,
+                        MetadataTokens.GetToken(methodHandle),
+                        reader.GetGuid(reader.GetModuleDefinition().Mvid)),
+                ],
+                reader);
+
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(fullType, methodName, 0, signature)],
+                sourceIndex,
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.StartsWith("closure-root-budget", result.Detail);
+            Assert.NotNull(result.FaultIsolation);
+            Assert.Equal(
+                ReturnToSender.FaultIsolationKind.ShellOrClosureDefect,
+                result.FaultIsolation.Kind);
+            Assert.Contains("CS0246", result.FaultIsolation.Detail);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void AuthoredConstructorBody_PreservesTheFinalRtsConstructorChain()
     {
         using var fixture = FidelityFixture.Create(
@@ -416,6 +512,7 @@ public sealed class ValidDifferentFaultIsolationTests
 
             return ReturnToSender.TryIsolateFidelityDifference(
                 Request,
+                CompileBackSourceComposer.Compose(Request).Source,
                 _pe,
                 Reader,
                 Method,
@@ -442,7 +539,7 @@ public sealed class ValidDifferentFaultIsolationTests
             }
         }
 
-        static void Compile(
+        internal static void Compile(
             string source,
             string assemblyPath,
             IReadOnlyList<MetadataReference>? references = null)
@@ -461,7 +558,7 @@ public sealed class ValidDifferentFaultIsolationTests
                 string.Join(Environment.NewLine, emit.Diagnostics));
         }
 
-        static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
+        internal static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(
             MetadataReader reader,
             string fullType,
             string methodName)
