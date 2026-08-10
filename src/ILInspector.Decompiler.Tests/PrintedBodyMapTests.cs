@@ -305,6 +305,15 @@ public class PrintedBodyMapTests
             new LoadArgument(2, "pointer", pointerType),
             new LoadArgument(0, "value", intType));
         var enumConstant = new Constant(3, enumType);
+        var namedEnumSink = new Coerce(
+            enumType,
+            new Constant(1, intType));
+        var namedEnumOperand = new Constant(1, enumType);
+        var enumComparison = new Comparison(
+            ComparisonKind.Equal,
+            isUnsigned: false,
+            new LoadLocal(11, enumType),
+            namedEnumOperand);
         var pattern = new IsPattern(
             new LoadArgument(4, "subject", objectType),
             stringType,
@@ -341,6 +350,8 @@ public class PrintedBodyMapTests
         block.Add(new StoreLocal(9, boolType, foldedPattern));
         block.Add(new StoreLocal(10, pointerType, pointerArithmetic));
         block.Add(new StoreLocal(11, enumType, enumConstant));
+        block.Add(new StoreLocal(12, enumType, namedEnumSink));
+        block.Add(new StoreLocal(13, boolType, enumComparison));
         block.Add(new Return(managedRead));
         var container = new BlockContainer();
         container.Add(block);
@@ -373,6 +384,8 @@ public class PrintedBodyMapTests
                 boolType,
                 pointerType,
                 enumType,
+                enumType,
+                boolType,
             ],
             container)
         {
@@ -383,6 +396,13 @@ public class PrintedBodyMapTests
             EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
             {
                 [enumType] = intType,
+            },
+            EnumMembers = new Dictionary<TypeRef, IReadOnlyDictionary<long, string>>
+            {
+                [enumType] = new Dictionary<long, string>
+                {
+                    [1] = "Enabled",
+                },
             },
         };
 
@@ -401,6 +421,8 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, foldedPattern, "subject is string { Length: 5 }", "PatternExpression");
         AssertSurfaceKind(ranges, pointerArithmetic, "(int*)((byte*)pointer + value)", "ConversionExpression");
         AssertSurfaceKind(ranges, enumConstant, "(Mode)3", "ConversionExpression");
+        AssertSurfaceKind(ranges, namedEnumSink, "Mode.Enabled", "MemberAccessExpression");
+        AssertSurfaceKind(ranges, namedEnumOperand, "Mode.Enabled", "MemberAccessExpression");
     }
 
     [Fact]

@@ -1937,7 +1937,7 @@ public sealed partial class CSharpPrinter
                 bool hasName = EnumMemberName(new Constant(enumValue, enumTarget)) is not null;
                 return new(
                     EnumConstantText(enumKonst, enumTarget),
-                    hasName ? "LiteralExpression" : "ConversionExpression");
+                    hasName ? "MemberAccessExpression" : "ConversionExpression");
             }
             return new(EnumIntegerCast(value, enumTarget), "ConversionExpression");
         }

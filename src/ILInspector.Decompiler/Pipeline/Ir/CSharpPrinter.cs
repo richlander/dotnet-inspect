@@ -3321,7 +3321,8 @@ public sealed partial class CSharpPrinter
         LoadArgument a => CSharpNaming.ContainedIdentifier(a.Name),
         LoadLocal l => $"{LocalName(l.Index)}",
         LoadStackSlot s => StackSlotName(s),
-        Constant { Value: int or long } c when EnumMemberName(c) is { } named => named,
+        Constant { Value: int or long } c when EnumMemberName(c) is { } named
+            => WithNodeKind(c, named, "MemberAccessExpression"),
         // A retyped enum constant is still that enum whether or not a single
         // member names it — a bare int is CS0266. EnumConstantText owns the
         // name-or-cast decision (the overflow-aware cast wraps an unsigned- or
