@@ -16431,6 +16431,53 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_SignatureJsonPopulatesEachSubject()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(2, document.RootElement.GetArrayLength());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                package =>
+                {
+                    JsonElement signature =
+                        package.GetProperty("signature_result");
+                    Assert.Equal(
+                        JsonValueKind.Object,
+                        signature.ValueKind);
+                    Assert.True(
+                        signature.GetProperty("is_unsigned").GetBoolean());
+                });
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");

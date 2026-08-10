@@ -620,12 +620,12 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
-            // Verify package signature if nupkg is available
-            if (resolution.NupkgPath != null && (options.Verbosity >= Verbosity.Normal || wantsSignals))
-            {
-                logger.Log($"Verifying package signature: {Path.GetFileName(resolution.NupkgPath)}");
-                result.SignatureResult = await SignatureVerifier.VerifyAsync(resolution.NupkgPath);
-            }
+            await PopulatePackageSignatureAsync(
+                result,
+                resolution.NupkgPath,
+                options,
+                wantsSignals,
+                logger);
 
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
@@ -903,7 +903,11 @@ public class PackageCommand
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options);
+            return WriteMultiPackageCount(
+                results,
+                rowSection,
+                options,
+                pipeline);
 
         if (options.JsonOutput)
         {
@@ -931,10 +935,15 @@ public class PackageCommand
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
         string? rowSection,
-        InspectionOptions options)
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
     {
         CountOutput.WriteCount(
-            CountMultiPackageRows(results, rowSection, options),
+            CountMultiPackageRows(
+                results,
+                rowSection,
+                options,
+                pipeline),
             options.OutputPath);
         return PackageIntegrityExitCode([.. results]);
     }
@@ -1580,6 +1589,13 @@ public class PackageCommand
             if (packageSize.HasValue)
                 result.PackageSize = packageSize;
 
+            await PopulatePackageSignatureAsync(
+                result,
+                resolution.NupkgPath,
+                options,
+                wantsSignals,
+                logger);
+
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             if (wantsFilesSection)
@@ -2164,10 +2180,57 @@ public class PackageCommand
         return builder.ToString();
     }
 
-    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section, InspectionOptions options)
-        => IsPackageFileSection(section)
-            ? results.Sum(result => options.SkipEmpty ? GetPackageFileRows(result, section!).Count : Math.Max(1, GetPackageFileRows(result, section!).Count))
-            : results.Sum(result => new InspectionResultView(result).Metadata.Count);
+    private static int CountMultiPackageRows(
+        IReadOnlyList<InspectionResult> results,
+        string? section,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        if (IsPackageFileSection(section))
+        {
+            return results.Sum(
+                result =>
+                    options.SkipEmpty
+                        ? GetPackageFileRows(result, section!).Count
+                        : Math.Max(
+                            1,
+                            GetPackageFileRows(result, section!).Count));
+        }
+
+        if (options.IncludeSections is { Count: 1 })
+        {
+            return results.Sum(
+                result => int.Parse(
+                    OutputFormatter.FormatResult(
+                        result,
+                        options,
+                        pipeline),
+                    CultureInfo.InvariantCulture));
+        }
+
+        return results.Sum(
+            result =>
+                new InspectionResultView(result).Metadata.Count);
+    }
+
+    private static async Task PopulatePackageSignatureAsync(
+        InspectionResult result,
+        string? nupkgPath,
+        InspectionOptions options,
+        bool wantsSignals,
+        VerboseLogger logger)
+    {
+        if (nupkgPath == null
+            || (options.Verbosity < Verbosity.Normal && !wantsSignals))
+        {
+            return;
+        }
+
+        logger.Log(
+            $"Verifying package signature: {Path.GetFileName(nupkgPath)}");
+        result.SignatureResult =
+            await SignatureVerifier.VerifyAsync(nupkgPath);
+    }
 
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {

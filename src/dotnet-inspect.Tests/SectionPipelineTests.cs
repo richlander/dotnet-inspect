@@ -1959,10 +1959,64 @@ public class SectionPipelineTests
             int exitCode = PackageCommand.WriteMultiPackageCount(
                 [clean, mismatch],
                 PackageSections.Files,
-                new InspectionOptions { Count = true, OutputPath = outputPath });
+                new InspectionOptions { Count = true, OutputPath = outputPath },
+                PackageSectionDescriptors.CreatePipeline());
 
             Assert.Equal(1, exitCode);
             Assert.Equal("2", File.ReadAllText(outputPath).Trim());
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void MultiPackageCount_AggregatesSelectedSignatureRows()
+    {
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-signature-count-{Guid.NewGuid():N}.txt");
+        var signature = new SignatureVerificationResult
+        {
+            AuthorVerified = true,
+            Publisher = "Publisher",
+            Repository = "nuget.org",
+            RepositoryVerified = true,
+        };
+        var options = new InspectionOptions
+        {
+            Count = true,
+            JsonOutput = true,
+            OutputPath = outputPath,
+            IncludeSections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                PackageSections.Signature,
+            },
+        };
+
+        try
+        {
+            int exitCode = PackageCommand.WriteMultiPackageCount(
+                [
+                    new InspectionResult
+                    {
+                        PackageName = "First",
+                        SignatureResult = signature,
+                    },
+                    new InspectionResult
+                    {
+                        PackageName = "Second",
+                        SignatureResult = signature,
+                    },
+                ],
+                PackageSections.Signature,
+                options,
+                PackageSectionDescriptors.CreatePipeline());
+
+            Assert.Equal(0, exitCode);
+            Assert.Equal("10", File.ReadAllText(outputPath).Trim());
         }
         finally
         {
