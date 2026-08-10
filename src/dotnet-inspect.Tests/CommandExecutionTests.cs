@@ -168,6 +168,32 @@ public partial class CommandExecutionTests
         assemblyBuilder.Save(path);
     }
 
+    private static void WriteApiDiffQueryAssembly(string path, bool includeAddedMethod)
+    {
+        var assemblyName = new AssemblyName("ApiDiffQueryFixture");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Sample.Widget",
+            TypeAttributes.Public | TypeAttributes.Class);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+        if (includeAddedMethod)
+        {
+            var method = typeBuilder.DefineMethod(
+                "Added",
+                MethodAttributes.Public,
+                typeof(void),
+                Type.EmptyTypes);
+            method.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteResourceAssembly(
         string path,
         params (string Name, byte[] Content)[] resources)
@@ -2583,6 +2609,46 @@ public partial class CommandExecutionTests
         Assert.Contains("5 additive", output);
         Assert.Contains("JsonKnownReferenceHandler", output);
         Assert.DoesNotContain("JsonSerializer |", output);
+    }
+
+    [Fact]
+    public async Task Diff_Changes_LocalPair_RendersTypedApiComparisonInMarkdownAndJson()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-query-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var oldPath = Path.Combine(tempDir, "old.dll");
+            var newPath = Path.Combine(tempDir, "new.dll");
+            WriteApiDiffQueryAssembly(oldPath, includeAddedMethod: false);
+            WriteApiDiffQueryAssembly(newPath, includeAddedMethod: true);
+            var range = $"{oldPath}..{newPath}";
+
+            var markdown = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--tips", "q");
+            var json = await RunAppAsync(
+                "diff", "--library", range,
+                "-S", DiffSections.Changes.Name,
+                "--json", "--tips", "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Empty(markdown.Error);
+            Assert.Contains("### Widget", markdown.Output);
+            Assert.Contains("Added", markdown.Output);
+            Assert.Equal(0, json.Exit);
+            Assert.Empty(json.Error);
+            Assert.Contains("\"changes\"", json.Output);
+            Assert.Contains("\"type\": \"Widget\"", json.Output);
+            Assert.Contains("Added", json.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -9938,7 +10004,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--tree requires exactly -S References", error);
+        Assert.Contains("--tree requires exactly one tree-shaped section (-S References)", error);
     }
 
     [Fact]
@@ -13077,42 +13143,173 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task LibraryCommand_TfmAll_PerformanceGroupTabular_IsKindLabeledPerAssembly()
+    [Theory]
+    [InlineData("--tree")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--plaintext")]
+    public async Task LibraryCommand_TfmAll_RejectsNonDocumentOutputBeforePackageAcquisition(string option)
     {
-        // Regression: the multi-assembly renderer (WriteLibraryResults, reached via `library --tfm
-        // all` when a library ships under several TFMs) must apply the same @Performance flattening
-        // as the single-assembly path — each assembly emits one self-describing Kind-labeled table,
-        // never per-kind headers without a Kind column.
-        var tempDir = Path.Combine(Path.GetTempPath(), $"perf-multitfm-{Guid.NewGuid():N}");
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var arguments = new List<string>
+        {
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-S", option == "--tree" ? SectionNames.References : SectionNames.LibraryInfo,
+            option, "--tips", "q"
+        };
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains("Markdown or JSON", error);
+        Assert.Contains(option, error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task LibraryCommand_TfmAll_RejectsUnaryProjections(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-S", SectionNames.LibraryInfo, option, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains(option, error);
+    }
+
+    [Theory]
+    [InlineData("--extract-resources")]
+    [InlineData("--il-offset")]
+    [InlineData("--il-offsets")]
+    [InlineData("--heap")]
+    public async Task LibraryCommand_TfmAll_CountDoesNotBypassSingleInspectionOperations(string option)
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var arguments = new List<string>
+        {
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all"
+        };
+        if (option == "--extract-resources")
+            arguments.AddRange(["-S", SectionNames.Resources]);
+        arguments.Add("--count");
+        arguments.Add(option);
+        arguments.Add(option switch
+        {
+            "--extract-resources" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}"),
+            "--il-offset" => "0x06000001+0x0",
+            "--il-offsets" => Path.Combine(Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.txt"),
+            "--heap" => "#Strings:0x1",
+            _ => throw new InvalidOperationException($"Unexpected option: {option}")
+        });
+        arguments.AddRange(["--tips", "q"]);
+
+        var (exit, output, error) = await RunAppAsync(arguments.ToArray());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains(option, error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_TreeRejectionTakesPrecedenceOverSectionSelection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath,
+            "--tfm", "all", "--tree", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tree requires exactly one tree shape", error);
+        Assert.Contains("Markdown or JSON", error);
+        Assert.DoesNotContain("-S References", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_DiscoveryDoesNotBypassILOffsetBatchRejection()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.nupkg");
+        var missingCoordinatesPath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-missing-{Guid.NewGuid():N}.txt");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "Missing.dll", "--package", missingPackagePath, "--tfm", "all",
+            "-D", "--il-offsets", missingCoordinatesPath, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--tfm all", error);
+        Assert.Contains("--il-offsets", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_LocalFileRetainsSingleShapeOutput()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--tfm", "all",
+            "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PlatformRouteRetainsSingleShapeOutput()
+    {
+        var missingPackagePath = Path.Combine(
+            Path.GetTempPath(), $"dotnet-inspect-unused-{Guid.NewGuid():N}.nupkg");
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", "--platform", "System.Text.Json", "--package", missingPackagePath,
+            "--tfm", "all", "-S", SectionNames.LibraryInfo, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_SinglePackageInspectionRetainsDocumentFraming()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var content = Path.Combine(tempDir, "content");
-            foreach (var tfm in new[] { "net8.0", "net10.0" })
-            {
-                var dir = Path.Combine(content, "lib", tfm);
-                Directory.CreateDirectory(dir);
-                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
-            }
-            var packagePath = Path.Combine(tempDir, "Perf.MultiTfm.1.0.0.nupkg");
-            ZipFile.CreateFromDirectory(content, packagePath);
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--tips", "q");
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "library", "System.Runtime.dll", "--package", packagePath, "--tfm", "all",
+                "-S", SectionNames.LibraryInfo, "--json", "--tips", "q");
 
-            var (exit, output, _) = await RunAppAsync(
-                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Performance:*", "--tsv", "--rows", "3", "--tips", "q");
-
-            Assert.Equal(0, exit);
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            // One flattened Kind-labeled table per TFM assembly; no bare per-kind "member\t" header.
-            Assert.Contains(lines, l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
-            Assert.DoesNotContain(lines, l => l.StartsWith("member\t", StringComparison.Ordinal));
-            var kindHeaders = lines.Count(l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
-            Assert.Equal(2, kindHeaders);
-            // Every data row is self-describing: its first field is a real kind label.
-            var kindLabels = PerformanceKinds.Sections.Select(PerformanceKinds.KindLabel).ToHashSet(StringComparer.Ordinal);
-            var dataRows = lines.Where(l => !l.StartsWith("kind\t", StringComparison.Ordinal)).ToArray();
-            Assert.NotEmpty(dataRows);
-            Assert.All(dataRows, l => Assert.Contains(l.Split('\t')[0], kindLabels));
+            Assert.Equal(0, markdownExit);
+            Assert.Contains("## Libraries", markdownOutput);
+            Assert.Empty(markdownError);
+            Assert.Equal(0, jsonExit);
+            using var document = JsonDocument.Parse(jsonOutput);
+            Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+            Assert.Single(document.RootElement.EnumerateArray());
+            Assert.Empty(jsonError);
         }
         finally
         {
@@ -13237,7 +13434,7 @@ public partial class CommandExecutionTests
             ZipFile.CreateFromDirectory(content, emptyPackagePath);
             var (emptyExit, emptyOutput, emptyError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async Methods", "--tsv", "--tips", "q");
+                "-S", "Async Methods", "--markdown", "--tips", "q");
             Assert.Equal(1, emptyExit);
             Assert.Empty(emptyOutput);
             Assert.Equal(
@@ -13246,18 +13443,19 @@ public partial class CommandExecutionTests
 
             var (wildcardExit, wildcardOutput, wildcardError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", emptyPackagePath, "--tfm", "all",
-                "-S", "Async*", "--tsv", "--tips", "q");
+                "-S", "Async*", "--markdown", "--tips", "q");
             Assert.Equal(0, wildcardExit);
-            Assert.Empty(wildcardOutput);
+            Assert.Contains("## Libraries", wildcardOutput);
             Assert.Equal(
                 "Note: 1 matched section has no data: Async Methods.",
                 wildcardError.Trim());
 
             var (exit, output, error) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--tsv", "--tips", "q");
+                "-S", "Async Methods", "--markdown", "--tips", "q");
 
             Assert.Equal(0, exit);
+            Assert.Contains("## Libraries", output);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
                 output);
@@ -13265,22 +13463,34 @@ public partial class CommandExecutionTests
                 "This section (Async Methods) produced no output.",
                 error);
 
-            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            var (defaultExit, defaultOutput, defaultError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--markdown", "--tips", "q");
+                "-S", "Async Methods", "--tips", "q");
 
-            Assert.Equal(0, markdownExit);
-            Assert.Contains("## Libraries", markdown);
+            Assert.Equal(0, defaultExit);
+            Assert.Contains("## Libraries", defaultOutput);
             Assert.Contains(
                 nameof(LibraryCommand_TfmAll_ExactSectionRendersRowsFromLaterAssembly),
-                markdown);
-            Assert.Empty(markdownError);
+                defaultOutput);
+            Assert.Empty(defaultError);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "Async Methods", "--json", "--tips", "q");
+
+            Assert.Equal(0, jsonExit);
+            using (var document = JsonDocument.Parse(jsonOutput))
+            {
+                Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
+                Assert.Equal(2, document.RootElement.GetArrayLength());
+            }
+            Assert.Empty(jsonError);
 
             var (singleCountExit, singleCountOutput, singleCountError) = await RunAppAsync(
                 "library", TestAssemblyPath, "-S", "Async Methods", "--count", "--tips", "q");
             var (multiCountExit, multiCountOutput, multiCountError) = await RunAppAsync(
                 "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
-                "-S", "Async Methods", "--count", "--tips", "q");
+                "-S", "Async Methods", "--count", "--tsv", "--tips", "q");
 
             Assert.Equal(0, singleCountExit);
             Assert.Equal(0, multiCountExit);

@@ -52,6 +52,18 @@ of the ladder families contributes in one of three ways:
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
 
+`library --package ... --tfm all` selects multiple independent inspections. Its
+full output therefore requires a document format: Markdown or JSON.
+Single-table, stream, plain-text, tree, and unary projection output fail closed
+rather than selecting one inspection or emitting multiple unframed payloads.
+`--count` remains valid because it aggregates across the selected inspections.
+
+Shape cardinality is evaluated after both section and subject selection.
+`--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
+requires exactly one tree shape. Selecting one section with `--tfm all` still
+produces one shape per inspection, so it does not satisfy either single-shape
+contract.
+
 ### Coordinate carriers sit before the ladder
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the

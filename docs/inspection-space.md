@@ -15,10 +15,13 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, and SourceLink inspection are the first typed-query canaries:
-the section catalog plans typed demand and executes it through a
-prerequisite-aware registry, while the command still owns orchestration. The
-library CLI and package
+custom-attribute, SourceLink, and API-comparison inspection are the first
+typed-query canaries: section catalogs plan typed demand and execute it through
+prerequisite-aware registries, while commands still own orchestration. The
+`diff` Changes section consumes one API-comparison result over host-resolved
+surfaces, retaining Metadata-owned Finding correspondence and compatibility
+classification without coupling the query to endpoint acquisition or output.
+The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group scans every selected
 participant sequentially, preserves per-assembly identity, provenance, and
