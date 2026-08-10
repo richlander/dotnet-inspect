@@ -228,7 +228,7 @@ public class UnlistedVersionTests : IDisposable
             out PackageVersionRange? range,
             out _));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var error = await Assert.ThrowsAsync<PackageVersionsUnavailableException>(
             () => PackageVersionVector.ResolveAsync(
                 client,
                 range!,
@@ -237,6 +237,8 @@ public class UnlistedVersionTests : IDisposable
                     Sources = [NuGetOrgSource.Url],
                 },
                 includePrerelease: true));
+
+        Assert.Equal("UnlistedPkg", error.PackageId);
     }
 
     [Fact]
