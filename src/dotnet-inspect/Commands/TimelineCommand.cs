@@ -858,49 +858,11 @@ public static class TimelineCommand
             Finding<ApiTypeHandle> type => type.Payload.TypeFullName,
             Finding<ApiMemberHandle> member => member.Payload.Identity,
             Finding<ApiAttributeHandle> attribute => attribute.Payload.Attribute,
-            Finding<AllocationOccurrence> allocation => AllocationTarget(allocation),
-            Finding<DirectCall> callSite => CallSiteTarget(callSite),
-            Finding<UnsafetyOccurrence> unsafety => UnsafetyTarget(unsafety),
+            Finding<AllocationOccurrence> allocation => FindingTargetFormatter.Format(allocation),
+            Finding<DirectCall> callSite => FindingTargetFormatter.Format(callSite),
+            Finding<UnsafetyOccurrence> unsafety => FindingTargetFormatter.Format(unsafety),
             _ => pair.Subject.Display,
         };
-    }
-
-    static string AllocationTarget(Finding<AllocationOccurrence> finding)
-    {
-        var occurrence = finding.Payload;
-        var allocatedType = occurrence.AllocatedType?.ToQualifiedDisplayString()
-            ?? occurrence.RuntimeAllocationType
-            ?? occurrence.Detail
-            ?? "?";
-        return $"{finding.Subject.Display} :: {occurrence.Source}/{occurrence.Kind} {allocatedType}";
-    }
-
-    static string CallSiteTarget(Finding<DirectCall> finding)
-    {
-        var callee = finding.Payload.Callee;
-        if (callee.Kind == MemberKind.Unsupported)
-            return $"{finding.Subject.Display} :: {callee.DeclaringType.ToDisplayString()}";
-
-        var typeArguments = callee.TypeArguments.IsDefaultOrEmpty
-            ? ""
-            : $"<{string.Join(", ", callee.TypeArguments.Select(type => type.ToQualifiedDisplayString()))}>";
-        var parameters = string.Join(
-            ", ",
-            callee.ParameterTypes.Select(type => type.ToQualifiedDisplayString()));
-        var declaringType = callee.DeclaringType.ToQualifiedDisplayString();
-        var calleeDisplay = callee.Kind == MemberKind.Constructor
-            ? $"{declaringType}{typeArguments}({parameters})"
-            : $"{declaringType}.{callee.Name}{typeArguments}({parameters})";
-        return $"{finding.Subject.Display} :: {calleeDisplay}";
-    }
-
-    static string UnsafetyTarget(Finding<UnsafetyOccurrence> finding)
-    {
-        var occurrence = finding.Payload;
-        string detail = string.IsNullOrWhiteSpace(occurrence.Detail)
-            ? ""
-            : $" {occurrence.Detail}";
-        return $"{finding.Subject.Display} :: {occurrence.Kind}{detail}";
     }
 
     static async Task<List<TimelineEvaluation>> EvaluateAsync(
