@@ -593,42 +593,62 @@ public class IlToolsActivationTests
     }
 
     [Theory]
-    [InlineData("deep-inspect.yml")]
-    [InlineData("release.yml")]
-    public void SlowWorkflows_FailAfterOracleRestoreFailure(string workflowName)
+    [InlineData("deep-inspect.yml", "test")]
+    [InlineData("release.yml", "deep-inspect-test")]
+    public void SlowWorkflows_FailAfterOracleRestoreFailure(
+        string workflowName,
+        string jobName)
     {
         string workflow = File.ReadAllText(
             Path.Combine(RepoRoot, ".github", "workflows", workflowName));
-        int install = workflow.IndexOf(
+        int jobStart = workflow.IndexOf(
+            $"\n  {jobName}:\n",
+            StringComparison.Ordinal);
+        Assert.True(jobStart >= 0);
+        int nextJob = workflow.IndexOf(
+            "\n  decompiler-corpus:",
+            jobStart,
+            StringComparison.Ordinal);
+        Assert.True(jobStart < nextJob);
+        string job = workflow[jobStart..nextJob];
+
+        int install = job.IndexOf(
             "- name: Install ilasm/ildasm",
             StringComparison.Ordinal);
-        int roundTrip = workflow.IndexOf(
+        int cliTests = job.IndexOf(
+            "- name: Run CLI tests (including slow integration)",
+            StringComparison.Ordinal);
+        int roundTrip = job.IndexOf(
             "- name: Run IL round-trip tests (including slow sweep)",
             StringComparison.Ordinal);
-        int nextInstallStep = workflow.IndexOf(
+        int nextInstallStep = job.IndexOf(
             "\n      - ",
             install + 1,
             StringComparison.Ordinal);
-        int terminalCheck = workflow.IndexOf(
+        int terminalCheck = job.IndexOf(
             "- name: Check ilasm/ildasm result",
-            StringComparison.Ordinal);
-        int nextJob = workflow.IndexOf(
-            "\n  decompiler-corpus:",
-            terminalCheck,
             StringComparison.Ordinal);
 
         Assert.True(install >= 0);
         Assert.True(install < nextInstallStep);
-        Assert.True(nextInstallStep < roundTrip);
+        Assert.True(nextInstallStep <= cliTests);
+        Assert.True(install < cliTests);
+        Assert.True(cliTests < roundTrip);
         Assert.True(install < roundTrip);
         Assert.True(roundTrip < terminalCheck);
-        Assert.True(terminalCheck < nextJob);
 
-        string installStep = workflow[install..nextInstallStep];
-        Assert.Contains("id: iltools", installStep);
+        string installStep = job[install..nextInstallStep];
+        Assert.Equal(
+            1,
+            installStep.Split('\n')
+                .Count(line => line.Trim() == "id: iltools"));
+        Assert.Equal(
+            1,
+            job.Split('\n')
+                .Count(line => line.Trim() == "id: iltools"));
         Assert.Contains("continue-on-error: true", installStep);
 
-        string checkStep = workflow[terminalCheck..nextJob];
+        string checkStep = job[terminalCheck..];
         Assert.Contains("if: steps.iltools.outcome == 'failure'", checkStep);
         Assert.Contains("exit 1", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);

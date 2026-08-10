@@ -63,14 +63,14 @@ jobs:
       - name: Build managed tool
         run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
 
-      - name: Run CLI tests (including slow integration)
-        run: dotnet run --project src/dotnet-inspect.Tests -c Release
-
       - name: Install ilasm/ildasm
         id: iltools
         continue-on-error: true
         shell: bash
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
+
+      - name: Run CLI tests (including slow integration)
+        run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Run decompiler tests (including slow, excluding corpus sweep)
         # The multi-hour corpus sweep runs in the decompiler-corpus job so it
