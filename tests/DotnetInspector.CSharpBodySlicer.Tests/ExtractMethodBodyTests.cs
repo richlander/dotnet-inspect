@@ -1603,6 +1603,29 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void ExtensionReceiverAttributeArray_DoesNotLeakTheExtensionWrapper()
+    {
+        var source = Lines(
+            "static class C",                 // 1
+            "{",                              // 2
+            "    extension(",                 // 3
+            "        [A(new int[] {",         // 4
+            "            1",                  // 5
+            "        })]",                    // 6
+            "        string value)",          // 7
+            "    {",                          // 8
+            "        public void M()",        // 9
+            "        {",                      // 10
+            "        }",                      // 11
+            "    }",                          // 12
+            "}");                             // 13
+
+        Assert.Equal(
+            "public void M()\n{\n}",
+            BodySlicer.ExtractMethodBody(source, 9, 11, "M"));
+    }
+
+    [Fact]
     public void ExtensionBlockHeaderSharingThePreviousMembersBoundary_ReportsAbsent()
     {
         var source = Lines(

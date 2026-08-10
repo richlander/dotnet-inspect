@@ -133,7 +133,7 @@ internal static class DeclarationIndexBuilder
         bool unitAttribute = false;
         var attributeLists = new List<LineRange>();
         var attributeStarts = new List<(int Line, int Column)>();
-        int initializerDepth = 0;
+        int nestedBraceDepth = 0;
         int lastTerminatorLine = 0;
 
         // The section of the terminator that last ended a declaration. A brace-less declaration
@@ -625,15 +625,16 @@ internal static class DeclarationIndexBuilder
             if (text == "{")
             {
                 // "= new(...) { ... }" is an initializer, not a member body. Neither is a brace
-                // nested inside an open header delimiter: object/array initializers, lambda blocks,
-                // and property patterns can occur in explicit constructor initializers and in a
-                // primary constructor's base arguments. Keep the header until the nested construct
-                // closes so the next top-level brace can open the declaration body.
-                if (initializerDepth > 0
+                // nested inside an open header delimiter: array initializers can occur in
+                // attributes on parameters (including extension receivers), while object
+                // initializers, lambda blocks, and property patterns can occur in constructor
+                // arguments. Keep the header until the nested construct closes so the next
+                // top-level brace can open the declaration body.
+                if (nestedBraceDepth > 0
                     || Truncate(pending, Text).CutAtEquals
-                    || IsInsideConstructorArguments(pending, Text))
+                    || HasOpenHeaderDelimiter(pending, Text))
                 {
-                    initializerDepth++;
+                    nestedBraceDepth++;
                     scopes.Add((-1, false, true));
                     pending.Add(tok);
                     continue;
@@ -690,9 +691,9 @@ internal static class DeclarationIndexBuilder
 
             if (text == "}")
             {
-                if (initializerDepth > 0)
+                if (nestedBraceDepth > 0)
                 {
-                    initializerDepth--;
+                    nestedBraceDepth--;
                     if (scopes.Count > 0) scopes.RemoveAt(scopes.Count - 1);
                     pending.Add(tok);
                     continue;
@@ -783,7 +784,7 @@ internal static class DeclarationIndexBuilder
             {
                 // "=> Decode(() => { ...; })" — a statement terminator inside an initializer or a
                 // lambda body is not the declaration's terminator.
-                if (initializerDepth > 0)
+                if (nestedBraceDepth > 0)
                 {
                     pending.Add(tok);
                     continue;
@@ -1181,48 +1182,24 @@ internal static class DeclarationIndexBuilder
                 .Min();
     }
 
-    private static bool IsInsideConstructorArguments(
+    private static bool HasOpenHeaderDelimiter(
         IReadOnlyList<ScanToken> pending,
         Func<ScanToken, string> text)
     {
         int depth = 0;
-        bool explicitInitializer = false;
-        bool typeHeader = false;
-        bool primaryParameters = false;
-        bool primaryBaseList = false;
-        for (int i = 0; i < pending.Count; i++)
+        foreach (var token in pending)
         {
-            var token = pending[i];
-            string value = text(token);
-            if (token.Kind == ScanTokenKind.Word && depth == 0 && TypeKeywords.Contains(value))
-            {
-                typeHeader = true;
-                continue;
-            }
-
             if (token.Kind != ScanTokenKind.Punctuator)
                 continue;
 
-            if (value == ":" && depth == 0)
-            {
-                explicitInitializer = i + 1 < pending.Count
-                    && (IsKeyword(pending, i + 1, "this", text)
-                        || IsKeyword(pending, i + 1, "base", text));
-                primaryBaseList = typeHeader && primaryParameters;
-            }
-            else if (value is "(" or "[" or "{")
-            {
-                if (value == "(" && depth == 0 && typeHeader && !primaryBaseList)
-                    primaryParameters = true;
+            string value = text(token);
+            if (value is "(" or "[")
                 depth++;
-            }
-            else if (value is ")" or "]" or "}")
-            {
+            else if (value is ")" or "]")
                 depth--;
-            }
         }
 
-        return depth > 0 && (explicitInitializer || primaryBaseList);
+        return depth > 0;
     }
 
     private static bool HasTopLevelKeyword(

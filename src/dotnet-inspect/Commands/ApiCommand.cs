@@ -1097,6 +1097,34 @@ public class ApiCommand
             return 0;
         }
 
+        if (options is MemberOptions { MemberSourceTooComplex: true }
+            && !IsProjectionRequested(options)
+            && !options.Bare
+            && (options.Count
+                || options.Tabular
+                || options.JsonOutput)
+            && GetRequestedMemberSections(type, options)
+                .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+        {
+            string format = options.Count
+                ? "--count"
+                : options.Jsonl
+                    ? "--jsonl"
+                    : options.Tsv
+                        ? "--tsv"
+                        : options.Tabular
+                            ? "--table"
+                            : "Document --json";
+            string guidance = options.Count
+                ? "Remove --count to render the section failure."
+                : "Use Markdown/plaintext output, or add --print to project the section payload.";
+            CommandError.Write(
+                "Authored source extraction stopped because the source exceeds the lexical "
+                + $"complexity limit. {format} cannot represent this code-section "
+                + "failure. " + guidance);
+            return 1;
+        }
+
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
@@ -1104,16 +1132,6 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
-            if (options is MemberOptions { MemberSourceTooComplex: true }
-                && GetRequestedMemberSections(type, options)
-                    .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
-            {
-                CommandError.Write(
-                    "Authored source extraction stopped because the source exceeds the lexical "
-                    + "complexity limit. Document --json cannot represent this code-section "
-                    + "failure; add --print to project the section payload.");
-                return 1;
-            }
             WriteJsonTypeOutput(type, options);
             return 0;
         }

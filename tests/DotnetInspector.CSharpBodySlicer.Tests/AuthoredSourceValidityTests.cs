@@ -1007,42 +1007,12 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// A type whose body closes on the constructor's own line is not retired, so the enclosing
-    /// type is never reached and the constructor is reported absent (adversarial review,
-    /// MAI-Code). Pinned rather than fixed, because retiring it is not the improvement it
-    /// looks like.
-    /// <para>
-    /// Scoping the target-line exemption to the type declared on that line — which is all the
-    /// exemption's own justification asks for — was implemented and measured. It restores the
-    /// enclosing type and finds the constructor, and the slice it then produces is
-    /// <c>"} Outer() { }"</c>: CS8803, CS1002, CS1022. A declaration is located by line, so a
-    /// slice cannot begin mid-line, and every shape this scoping reaches has a brace ahead of
-    /// the constructor on that line by construction. The change therefore converts an absent
-    /// answer into a malformed one, which is the wrong direction for the gate this branch
-    /// exists to satisfy. It is also what the code did before round 8, so the current answer
-    /// is the improvement.
-    /// </para>
-    /// </summary>
-    /// <summary>
-    /// Round 9 guarded the *unentered* branch of the retirement rule on bracket depth but left
-    /// the entered branch unguarded, so a brace inside an attribute's array initializer both
-    /// enters a type and then retires it (adversarial review, Gemini). With the declaring type
-    /// gone, constructor recovery is skipped and the slice starts at the type's opening brace.
-    /// <para>
-    /// This is not a regression: it fails at 7e1a5702 and fa1af2b6 alike. The reported repro
-    /// used <c>new int[] { 1 }</c> as a default parameter value, which is CS1736; the shape
-    /// pinned here is a type-parameter attribute, which compiles.
-    /// </para>
-    /// <para>
-    /// The remaining defect is that braces inside brackets move the lexer's block-depth counter.
-    /// The lexer already knows better in the analogous case — a brace inside an interpolation
-    /// hole is counted against the hole, not the block. Extending that distinction to brackets is
-    /// deliberately separate from replacing the slicer's boundary recovery with the declaration
-    /// index: the index consumes the same lexical depth and conservatively withholds this row.
-    /// </para>
+    /// A brace inside an array argument on a type-parameter attribute is nested header content,
+    /// not the type body. The declaration index keeps the header open until the attribute and type
+    /// parameter list close, preserving the constructor below.
     /// </summary>
     [Fact]
-    public void ABraceInAMultiLineAttributeInitializer_ReportsAbsentRatherThanTheDeclaringType()
+    public void ABraceInAMultiLineTypeParameterAttribute_KeepsTheConstructorSliceable()
     {
         var source = string.Join('\n',
         [
@@ -1060,23 +1030,15 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
 
-        // The brace inside the attribute still costs the scan its place, but the index reports
-        // that as an unknown span and the row is withheld, so the answer is absence rather than
-        // the declaring type. Losing a member is the failure this design accepts; naming the
-        // wrong one is the failure it does not.
-        Assert.Null(slice);
+        Assert.Equal("public\nC()\n{\n}", slice);
     }
 
     /// <summary>
-    /// A declaration ends on the ";" or "}" that terminates it, but only at declaration level.
-    /// An attribute on a type parameter may hold an array initializer whose closing brace ends
-    /// nothing while the attribute's bracket is still open; reading it as the terminator
-    /// retired the declaring type and returned the whole type instead of the constructor
-    /// (adversarial review, GPT). This is the carried-bracket blindness the sibling question
-    /// had to learn in round 6, in the retirement rule round 8 added.
+    /// The same nested-header rule applies when the attribute's array closes before the attribute
+    /// list does. The array brace cannot retire the type or make the constructor's span unknown.
     /// </summary>
     [Fact]
-    public void ABraceInsideATypeParameterAttribute_ReportsAbsent_KnownGap()
+    public void ABraceInsideATypeParameterAttribute_KeepsTheConstructorSliceable()
     {
         var source = string.Join('\n',
         [
@@ -1093,13 +1055,26 @@ public class AuthoredSourceValidityTests
 
         var slice = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
 
-        // Known gap, and a deliberate trade. The brace inside the type parameter's attribute
-        // moves the index's block depth, so every row in the file reports an unknown span and
-        // is withheld. The backward scan answered this one correctly; it answered the two
-        // shapes below it incorrectly. Absence is recoverable by a caller, a wrong span is not.
-        Assert.Null(slice);
+        Assert.Equal("public\nC()\n{\n}", slice);
     }
 
+    /// <summary>
+    /// A type whose body closes on the constructor's own line is not retired, so the enclosing
+    /// type is never reached and the constructor is reported absent (adversarial review,
+    /// MAI-Code). Pinned rather than fixed, because retiring it is not the improvement it
+    /// looks like.
+    /// <para>
+    /// Scoping the target-line exemption to the type declared on that line — which is all the
+    /// exemption's own justification asks for — was implemented and measured. It restores the
+    /// enclosing type and finds the constructor, and the slice it then produces is
+    /// <c>"} Outer() { }"</c>: CS8803, CS1002, CS1022. A declaration is located by line, so a
+    /// slice cannot begin mid-line, and every shape this scoping reaches has a brace ahead of
+    /// the constructor on that line by construction. The change therefore converts an absent
+    /// answer into a malformed one, which is the wrong direction for the gate this branch
+    /// exists to satisfy. It is also what the code did before round 8, so the current answer
+    /// is the improvement.
+    /// </para>
+    /// </summary>
     [Fact]
     public void ATypeClosingOnTheConstructorsLine_ReportsAbsent_KnownGap()
     {

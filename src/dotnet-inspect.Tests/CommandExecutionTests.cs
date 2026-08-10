@@ -4850,6 +4850,120 @@ public partial class CommandExecutionTests
         Assert.Contains("add --print", error);
     }
 
+    [Theory]
+    [InlineData(SectionNames.OriginalSource)]
+    [InlineData(SectionNames.SourceDiff)]
+    public async Task Member_ComplexSourceInNonCodeFormatsFailsVisibly(string section)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberSourceTooComplex = true,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("lexical complexity limit", error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ComplexSourceUnderPrintJsonRemainsRepresentable()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            Print = true,
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.OriginalSource },
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("lexical complexity limit", output);
+        using var _ = JsonDocument.Parse(output);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_ComplexSourceUnderBareRemainsRepresentable()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            Bare = true,
+            MemberSourceTooComplex = true,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { SectionNames.OriginalSource },
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(ApiCommand.SourceTooComplexNote + "\n", output);
+    }
+
     [Fact]
     public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
     {

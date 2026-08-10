@@ -766,6 +766,37 @@ public class DeclarationIndexTests
             index.TransparentScopes.Select(scope => scope.BodyStartLine));
     }
 
+    [Fact]
+    public void AnAttributeArrayInAnExtensionReceiver_DoesNotOpenTheExtensionBody()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension(
+                    [A(new int[] {
+                        1
+                    })]
+                    string receiver)
+                {
+                    public void M()
+                    {
+                    }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        var owner = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        Assert.Equal(owner, index.ParentOf(method));
+        Assert.Equal(9, method.SignatureStartLine);
+        Assert.Equal(11, method.EndLine);
+
+        var scope = Assert.Single(index.TransparentScopes);
+        Assert.Equal(3, scope.StartLine);
+        Assert.Equal(8, scope.BodyStartLine);
+        Assert.Equal(12, scope.EndLine);
+    }
+
     [Theory]
     [InlineData("() => { return 1; }")]
     [InlineData("new Holder { Value = 1 }")]
