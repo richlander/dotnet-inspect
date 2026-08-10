@@ -176,7 +176,7 @@ Show the calls into and out of string.IndexOf(char).
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --rows 2 --tips q
 ```
 
 ```expect
@@ -202,7 +202,7 @@ Show the call paths around string.IndexOf(char) as a tree.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --tree --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tree --rows 2 --tips q
 ```
 
 ```expect
@@ -224,7 +224,7 @@ Show the call graph around string.IndexOf(char) as standalone Mermaid.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --mermaid --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid --rows 2 --tips q
 ```
 
 ```expect
@@ -246,7 +246,7 @@ Show the call graph around string.IndexOf(char) in a Markdown document.
 ```
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --markdown --mermaid --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --markdown --mermaid --rows 2 --tips q
 ```
 
 ```expect
@@ -265,7 +265,7 @@ graph TD
 ### 5e. TSV edge rows
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --tsv --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --tsv --rows 2 --tips q
 ```
 
 ```expect
@@ -277,17 +277,17 @@ from
 ```
 
 ```query
-head -n 1 | tr '\t' ','
+head -n 1 | cut -f1-2 | tr '\t' ','
 ```
 
 ```pipeline
-from,to,label
+from,to
 ```
 
 ### 5f. JSONL edge rows
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --jsonl --rows 2 --tips q
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --jsonl --rows 2 --tips q
 ```
 
 ```expect
@@ -358,7 +358,7 @@ graph TD
 ### 7c. Standalone member graph formats reject conflicts
 
 ```bash
-dotnet-inspect member string -m IndexOf:7 -S "Call Graph" --mermaid --json
+dotnet-inspect member string -m IndexOf~147d84bbd7 -S "Call Graph" --mermaid --json
 ```
 
 ```expect-error

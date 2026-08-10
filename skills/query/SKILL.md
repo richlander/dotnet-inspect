@@ -40,19 +40,19 @@ For `member -S "Call Graph"`, default Markdown is an edge table. Choose the
 view for the task without changing the graph or its ordered edge rows:
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph"
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --tree
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --mermaid
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --markdown --mermaid
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --tsv
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tree
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tsv
 ```
 
 Use the Markdown table when edge evidence belongs in a document, `--tree` when
 call paths are the natural reading order, Mermaid for a diagram, and
-`--tsv`/`--jsonl` for one machine-readable edge row per relationship. The Call
-Graph machine fields are `from`, `from_group`, `to`, `to_group`, and `label`;
-group fields are omitted when no edge uses them. `--tree` and standalone
-`--mermaid` do not mix with another explicitly selected output format.
+`--tsv`/`--jsonl` for one machine-readable edge row per relationship.
+`from` and `to` are always present; `from_group`, `to_group`, and `label`
+appear only when the graph uses them. `--tree` and standalone `--mermaid` do
+not mix with another explicitly selected output format.
 
 ## Discover and select sections
 

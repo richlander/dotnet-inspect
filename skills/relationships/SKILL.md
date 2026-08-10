@@ -61,7 +61,7 @@ first `--project` is the source context; repeated `--project` values after it
 remain caller scopes.
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S Calls
+dnx dotnet-inspect -y -- member Type -m Method:1 -S Calls
 dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package System.Text.Json@9.0.0 --tfm net9.0
 ```
 
@@ -70,19 +70,19 @@ callers toward entry points plus outbound calls. Its default Markdown view is
 an edge table. Select `--tree` for a standalone path-oriented view,
 `--mermaid` for a standalone diagram, or `--markdown --mermaid` for a diagram
 inside the Markdown document. For scripts, `--tsv` and `--jsonl` expose the
-same ordered edges with machine fields `from`, `from_group`, `to`, `to_group`,
-and `label`; group fields appear only when used. `--count` and `--rows` address
-edge rows consistently across these views.
+same ordered edges. Machine fields `from` and `to` are always present;
+`from_group`, `to_group`, and `label` appear only when the graph uses them.
+`--count` and `--rows` address edge rows consistently across these views.
 
 For a type-level dependency summary, `Called Types` groups direct calls by
 target type, assembly, members, and call kinds.
 
 ```bash
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph"
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --tree
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --mermaid
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --markdown --mermaid
-dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --jsonl
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --tree
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type -m Method:1 -S "Call Graph" --jsonl
 dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
