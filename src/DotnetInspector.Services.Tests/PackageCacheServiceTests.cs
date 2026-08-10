@@ -2,6 +2,7 @@ using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
 
+[Collection(CoreCacheCollection.Name)]
 public class PackageCacheServiceTests
 {
     [Fact]
