@@ -674,6 +674,276 @@ public sealed class CatalogMemberCorrespondencePlan
             projection.Evidence.ToImmutable());
     }
 
+    /// <summary>
+    /// Compares two complete projections. When resolution is unavailable on
+    /// either side, exact assembly-reference or intrinsic-core-library
+    /// contracts retain the metadata-level correspondence without collapsing
+    /// distinct reference identities or type names. A separately established
+    /// type correspondence may also vouch for repeated occurrences of that
+    /// exact request pair elsewhere in the signature.
+    /// </summary>
+    internal bool CorrespondsTo(
+        CatalogMemberCorrespondencePlan other,
+        CatalogMemberJoinProjection.Issued projection,
+        CatalogMemberJoinProjection.Issued otherProjection,
+        TypeResolutionRequest? correspondingTypeRequest = null,
+        TypeResolutionRequest? otherCorrespondingTypeRequest = null)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(otherProjection);
+
+        CatalogMemberJoinKey key = projection.Key;
+        CatalogMemberJoinKey otherKey = otherProjection.Key;
+        if (key.Equals(otherKey))
+            return true;
+        if (key.Catalog != otherKey.Catalog
+            || !ReferenceEquals(key.Generation, otherKey.Generation)
+            || !string.Equals(key.Name, otherKey.Name, StringComparison.Ordinal)
+            || key.MemberKind != otherKey.MemberKind
+            || key.GenericArity != otherKey.GenericArity
+            || key.HasThis != otherKey.HasThis
+            || key.SignatureHeader != otherKey.SignatureHeader
+            || key.RequiredParameterCount != otherKey.RequiredParameterCount
+            || key.ParameterTypes.Length != otherKey.ParameterTypes.Length)
+        {
+            return false;
+        }
+
+        bool usedUnresolvedContract = false;
+        if (!CompatibleType(
+                _declaringType,
+                key.DeclaringType,
+                other,
+                other._declaringType,
+                otherKey.DeclaringType,
+                correspondingTypeRequest,
+                otherCorrespondingTypeRequest,
+                ref usedUnresolvedContract)
+            || !CompatibleType(
+                _returnType,
+                key.ReturnType,
+                other,
+                other._returnType,
+                otherKey.ReturnType,
+                correspondingTypeRequest,
+                otherCorrespondingTypeRequest,
+                ref usedUnresolvedContract))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _parameterTypes.Length; i++)
+        {
+            if (!CompatibleType(
+                    _parameterTypes[i],
+                    key.ParameterTypes[i],
+                    other,
+                    other._parameterTypes[i],
+                    otherKey.ParameterTypes[i],
+                    correspondingTypeRequest,
+                    otherCorrespondingTypeRequest,
+                    ref usedUnresolvedContract))
+            {
+                return false;
+            }
+        }
+
+        return key.Kind == otherKey.Kind || usedUnresolvedContract;
+    }
+
+    bool CompatibleType(
+        PlannedType planned,
+        CatalogTypeShape shape,
+        CatalogMemberCorrespondencePlan other,
+        PlannedType otherPlanned,
+        CatalogTypeShape otherShape,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest? otherCorrespondingTypeRequest,
+        ref bool usedUnresolvedContract)
+    {
+        if (shape.Equals(otherShape))
+            return true;
+        if (planned.Kind != otherPlanned.Kind)
+            return false;
+
+        switch (planned.Kind)
+        {
+            case PlannedTypeKind.Named:
+                bool equivalent =
+                    (shape.Kind == CatalogTypeShapeKind.DegradedDefinition
+                        || otherShape.Kind
+                            == CatalogTypeShapeKind.DegradedDefinition)
+                    && (EquivalentUnresolvedContract(
+                            Requests[planned.RequestIndex],
+                            other.Requests[otherPlanned.RequestIndex])
+                        || MatchesEstablishedCorrespondence(
+                            Requests[planned.RequestIndex],
+                            correspondingTypeRequest,
+                            other.Requests[otherPlanned.RequestIndex],
+                            otherCorrespondingTypeRequest));
+                usedUnresolvedContract |= equivalent;
+                return equivalent;
+            case PlannedTypeKind.GenericInstance:
+                return CompatibleType(
+                        planned.ElementType!,
+                        shape.ElementType!,
+                        other,
+                        otherPlanned.ElementType!,
+                        otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract)
+                    && CompatibleMany(
+                        planned.Components,
+                        shape.Components,
+                        other,
+                        otherPlanned.Components,
+                        otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract);
+            case PlannedTypeKind.SzArray:
+            case PlannedTypeKind.Array:
+            case PlannedTypeKind.ByRef:
+            case PlannedTypeKind.Pointer:
+            case PlannedTypeKind.Pinned:
+                return planned.Rank == otherPlanned.Rank
+                    && CompatibleType(
+                        planned.ElementType!,
+                        shape.ElementType!,
+                        other,
+                        otherPlanned.ElementType!,
+                        otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract);
+            case PlannedTypeKind.Modified:
+                return planned.IsRequiredModifier
+                        == otherPlanned.IsRequiredModifier
+                    && CompatibleType(
+                        planned.ElementType!,
+                        shape.ElementType!,
+                        other,
+                        otherPlanned.ElementType!,
+                        otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract)
+                    && CompatibleMany(
+                        planned.Components,
+                        shape.Components,
+                        other,
+                        otherPlanned.Components,
+                        otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract);
+            case PlannedTypeKind.FunctionPointer:
+                return planned.SignatureHeader
+                        == otherPlanned.SignatureHeader
+                    && planned.GenericArity == otherPlanned.GenericArity
+                    && planned.RequiredParameterCount
+                        == otherPlanned.RequiredParameterCount
+                    && CompatibleType(
+                        planned.ElementType!,
+                        shape.ElementType!,
+                        other,
+                        otherPlanned.ElementType!,
+                        otherShape.ElementType!,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract)
+                    && CompatibleMany(
+                        planned.Components,
+                        shape.Components,
+                        other,
+                        otherPlanned.Components,
+                        otherShape.Components,
+                        correspondingTypeRequest,
+                        otherCorrespondingTypeRequest,
+                        ref usedUnresolvedContract);
+            case PlannedTypeKind.GenericParameter:
+            case PlannedTypeKind.MethodGenericParameter:
+                return planned.GenericParameterIndex
+                    == otherPlanned.GenericParameterIndex;
+            default:
+                return false;
+        }
+    }
+
+    bool CompatibleMany(
+        ImmutableArray<PlannedType> planned,
+        ImmutableArray<CatalogTypeShape> shapes,
+        CatalogMemberCorrespondencePlan other,
+        ImmutableArray<PlannedType> otherPlanned,
+        ImmutableArray<CatalogTypeShape> otherShapes,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest? otherCorrespondingTypeRequest,
+        ref bool usedUnresolvedContract)
+    {
+        if (planned.Length != otherPlanned.Length
+            || shapes.Length != otherShapes.Length
+            || planned.Length != shapes.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < planned.Length; i++)
+        {
+            if (!CompatibleType(
+                    planned[i],
+                    shapes[i],
+                    other,
+                    otherPlanned[i],
+                    otherShapes[i],
+                    correspondingTypeRequest,
+                    otherCorrespondingTypeRequest,
+                    ref usedUnresolvedContract))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool EquivalentUnresolvedContract(
+        TypeResolutionRequest request,
+        TypeResolutionRequest other)
+    {
+        if (request.Type != other.Type)
+            return false;
+
+        return (request.Start, other.Start) switch
+        {
+            (
+                TypeResolutionStart.Reference left,
+                TypeResolutionStart.Reference right) =>
+                    left.Value == right.Value
+                    && left.Scope == right.Scope,
+            (
+                TypeResolutionStart.CoreLibrary left,
+                TypeResolutionStart.CoreLibrary right) =>
+                    left.Scope == right.Scope,
+            _ => false,
+        };
+    }
+
+    static bool MatchesEstablishedCorrespondence(
+        TypeResolutionRequest request,
+        TypeResolutionRequest? correspondingTypeRequest,
+        TypeResolutionRequest other,
+        TypeResolutionRequest? otherCorrespondingTypeRequest) =>
+        correspondingTypeRequest is not null
+        && otherCorrespondingTypeRequest is not null
+        && TypeResolutionRequestComparer.Instance.Equals(
+            request,
+            correspondingTypeRequest)
+        && TypeResolutionRequestComparer.Instance.Equals(
+            other,
+            otherCorrespondingTypeRequest);
+
     static CatalogMemberCorrespondencePlan CreateCore(
         ResolvedAssemblyReference source,
         TypeRef declaringType,

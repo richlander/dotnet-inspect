@@ -38,6 +38,10 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, or a tree (for example a call graph). Those are still
 "one section" — the Table rung — and they collapse to Scalars the same way.
+For a call graph, the declared row unit is a directed edge: `--count` counts
+relationships, and `--rows` selects the same ordered relationships whether the
+section is rendered as a tree or an edge table. Tree nodes are presentation
+context, not additional rows.
 
 ## Flag families
 
