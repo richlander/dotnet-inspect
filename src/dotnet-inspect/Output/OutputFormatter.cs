@@ -24,7 +24,7 @@ public static class OutputFormatter
     public static string RenderTable(bool showHeader, Action<TextWriter, IMarkoutFormatter> serialize)
     {
         var sw = new StringWriter { NewLine = "\n" };
-        serialize(sw, CreateTableFormatter(showHeader));
+        serialize(sw, new TableFormatter(showHeader));
         return sw.ToString();
     }
 
@@ -40,15 +40,12 @@ public static class OutputFormatter
         // those wrappers to preserve byte-identical output; their output is already small.
         if (maxRows is null or { IsUnlimited: true } && output is not (LineLimitingTextWriter or TailLineLimitingTextWriter))
         {
-            serialize(output, CreateTableFormatter(showHeader));
+            serialize(output, new TableFormatter(showHeader));
             return;
         }
 
         output.Write(LimitRenderedTableRows(RenderTable(showHeader, serialize), maxRows, showHeader));
     }
-
-    private static IMarkoutFormatter CreateTableFormatter(bool showHeader) =>
-        new TableFormatter(showHeader);
 
     /// <summary>
     /// Trims a rendered single-section table to <paramref name="maxRows"/> data rows,
@@ -488,7 +485,7 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(Console.Out, auditView, inspection, writerOpts, options);
+            WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
     }
 
@@ -605,7 +602,6 @@ public static class OutputFormatter
     /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
     /// </summary>
     private static void WriteLibraryTabular(
-        TextWriter output,
         LibraryInspectionView auditView, LibraryInspection inspection,
         MarkoutWriterOptions writerOpts, LibraryOptions options)
     {
@@ -617,7 +613,7 @@ public static class OutputFormatter
         if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
         {
             var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
-            WriteTable(output, !options.NoHeader,
+            WriteTable(Console.Out, !options.NoHeader,
                 (writer, _) => MetadataLensRenderer.TryRenderTabular(
                     inspection, writerOpts.IncludeSections, format, writer, CommandError.Writer,
                     writerOpts.Projection?.IncludeColumns),
@@ -632,13 +628,13 @@ public static class OutputFormatter
             var groupView = new PerformanceGroupView(groupRows);
             var groupOpts = ConfigureTableWriterOptions(
                 new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
-            WriteTable(output, !options.NoHeader,
+            WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
                 options.Rows);
         }
         else
         {
-            WriteTable(output, !options.NoHeader,
+            WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
                 options.Rows);
         }
@@ -738,15 +734,13 @@ public static class OutputFormatter
         }
         else
         {
-            var output = new StringWriter { NewLine = Console.Out.NewLine };
             foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(output, auditView, inspection, writerOpts, options);
+                WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
-            Console.Out.Write(output.ToString());
         }
     }
 
