@@ -112,8 +112,14 @@ within a pass-owned lowering shape; it is not a whole-method identity claim for 
 slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
 their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
-loads reached before the next write to the same slot. Its linear scan requires
-block-local loads; when structured EH is present, the stronger admission proof
+loads proven to be reached by one definition. Its linear path handles
+block-local loads. For a multi-block function body with complete modeled CFG
+edges, a union reaching-definition proof may split one top-level store only
+when every load it reaches is reached by that definition alone, no reachable
+load is use-before-definition, and at least one proven load is in another
+block. References nested in control flow, nested raw branches, and EH or
+external CFG edges decline.
+When structured EH is present, the stronger admission proof
 requires every reference to that slot to belong to a top-level statement in one
 direct try-body block whose owning try is itself a top-level function-body
 statement, and excludes a same-slot read nested under a same-slot store. Nested

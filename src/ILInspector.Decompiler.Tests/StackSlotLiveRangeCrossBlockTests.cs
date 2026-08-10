@@ -13,6 +13,7 @@ public class StackSlotLiveRangeCrossBlockTests
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Exception = TypeRef.CoreLib("System", "Exception");
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
 
     const int Slot = 5;
@@ -243,6 +244,27 @@ public class StackSlotLiveRangeCrossBlockTests
         => function.Descendants.OfType<StoreStackSlot>().Any(s => s.Slot >= StoreStackSlot.DupSlotBase)
             || function.Descendants.OfType<LoadStackSlot>().Any(l => l.Slot >= StoreStackSlot.DupSlotBase);
 
+    static IrFunction Run(params Block[] blocks)
+    {
+        var body = new BlockContainer();
+        foreach (var block in blocks)
+            body.Add(block);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", Owner, signature, [], body);
+        new StackSlotLiveRangePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+        return function;
+    }
+
+    static StoreStackSlot Store(int value)
+        => new(Slot, new Constant(value, Int32));
+
+    static StoreStackSlot Store(string value)
+        => new(Slot, new Constant(value, String));
+
+    static ExpressionStatement Load(TypeRef type)
+        => new(new LoadStackSlot(Slot, type));
+
     [Fact]
     public void BlockLocalRange_Splits()
     {
@@ -250,12 +272,187 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
-    public void CrossBlockRange_StaysUnsplit()
+    public void CrossBlockRange_SplitsAllReachedLoads()
     {
         var function = Build(crossBlock: true);
+        Assert.True(Split(function));
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == Slot);
+        var rewrittenLoads = function.Descendants.OfType<LoadStackSlot>().Where(load => load.Slot != Slot).ToList();
+        Assert.Equal(2, rewrittenLoads.Count);
+        Assert.Single(rewrittenLoads.Select(load => load.Slot).Distinct());
+    }
+
+    [Fact]
+    public void SequentialCrossBlockRanges_SplitOnlyTheReachedDefinitionAndLoad()
+    {
+        var firstStore = Store(1);
+        var firstLoad = Load(Int32);
+        var secondStore = Store("x");
+        var secondLoad = Load(String);
+        var function = Run(
+            BlockOf(0, firstStore),
+            BlockOf(10, firstLoad),
+            BlockOf(20, secondStore),
+            BlockOf(30, secondLoad, new Return(null)));
+
+        Assert.Equal(Slot, firstStore.Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(firstLoad.Expression).Slot);
+        var rewrittenStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+        var rewrittenLoad = Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+        Assert.Equal(String, rewrittenStore.Value.ResultType);
+        Assert.Equal(String, rewrittenLoad.Type);
+    }
+
+    [Fact]
+    public void SingleCrossBlockDefinition_StaysUnsplit()
+    {
+        var function = Run(
+            BlockOf(0, Store(1)),
+            BlockOf(10, Load(Int32), new Return(null)));
+
         Assert.False(Split(function));
-        // The successor read is left intact on the original slot.
-        Assert.Equal(3, function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == Slot));
+    }
+
+    [Fact]
+    public void SameTypedSequentialCrossBlockRanges_StayUnsplit()
+    {
+        var function = Run(
+            BlockOf(0, Store(1), Load(Int32)),
+            BlockOf(10, Store(2)),
+            BlockOf(20, Load(Int32), new Return(null)));
+
+        Assert.False(Split(function));
+    }
+
+    [Fact]
+    public void CompetingDiamondDefinitions_StayUnsplit()
+    {
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new ConditionalBranch(new LoadArgument(0, "condition", Boolean), 20));
+        var unchanged = BlockOf(10, new Branch(30));
+        var redefined = BlockOf(20, Store("x"), new Branch(30));
+        var join = BlockOf(30, Load(Object), new Return(null));
+
+        Assert.False(Split(Run(entry, unchanged, redefined, join)));
+    }
+
+    [Fact]
+    public void LoopRedefinitionWithUniquePostStoreLoad_Splits()
+    {
+        var entry = BlockOf(0, Store(1), Load(Int32), new Branch(10));
+        var redefine = BlockOf(10, Store("x"));
+        var useAndLatch = BlockOf(
+            20,
+            Load(String),
+            new ConditionalBranch(new LoadArgument(0, "again", Boolean), 10));
+        var exit = BlockOf(30, new Return(null));
+
+        var function = Run(entry, redefine, useAndLatch, exit);
+
+        var rewrittenStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+        var rewrittenLoad = Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+    }
+
+    [Fact]
+    public void LoopLoadReachedByInitialAndBackEdgeDefinitions_StaysUnsplit()
+    {
+        var entry = BlockOf(0, Store(1), new Branch(10));
+        var loop = BlockOf(
+            10,
+            Load(Object),
+            Store("x"),
+            new ConditionalBranch(new LoadArgument(0, "again", Boolean), 10));
+        var exit = BlockOf(20, new Return(null));
+
+        Assert.False(Split(Run(entry, loop, exit)));
+    }
+
+    [Fact]
+    public void UnreachableCompetingDefinition_DoesNotPolluteReachableJoin()
+    {
+        var entry = BlockOf(0, Store(1), new Branch(20));
+        var unreachable = BlockOf(10, Store("unreachable"), new Branch(30));
+        var redefine = BlockOf(20, Store("x"), new Branch(30));
+        var join = BlockOf(30, Load(String), new Return(null));
+
+        var function = Run(entry, unreachable, redefine, join);
+
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot != Slot);
+    }
+
+    [Fact]
+    public void UseBeforeDefinition_StaysUnsplit()
+    {
+        var entry = BlockOf(0, new ConditionalBranch(new LoadArgument(0, "skip", Boolean), 20));
+        var define = BlockOf(10, Store(1), new Branch(20));
+        var useAndRedefine = BlockOf(20, Load(Int32), Store("x"));
+        var finalUse = BlockOf(30, Load(String), new Return(null));
+
+        Assert.False(Split(Run(entry, define, useAndRedefine, finalUse)));
+    }
+
+    [Fact]
+    public void SameStoreReadBeforeWrite_StaysUnsplit()
+    {
+        var entry = BlockOf(0, Store(1), Load(Int32));
+        var redefine = BlockOf(
+            10,
+            new StoreStackSlot(Slot, new LoadStackSlot(Slot, String)));
+        var finalUse = BlockOf(20, Load(String), new Return(null));
+
+        Assert.False(Split(Run(entry, redefine, finalUse)));
+    }
+
+    [Fact]
+    public void ExternalCfgTarget_StaysUnsplit()
+    {
+        var entry = BlockOf(0, Store(1));
+        var redefine = BlockOf(10, Store("x"));
+        var use = BlockOf(20, Load(String), new Branch(0xFF));
+
+        Assert.False(Split(Run(entry, redefine, use)));
+    }
+
+    [Fact]
+    public void EhLeaveCfgEdge_StaysUnsplit()
+    {
+        var entry = BlockOf(0, Store(1));
+        var redefine = BlockOf(10, Store("x"));
+        var use = BlockOf(20, Load(String), new Leave(30));
+
+        Assert.False(Split(Run(entry, redefine, use)));
+    }
+
+    [Fact]
+    public void NestedControlFlowReference_StaysUnsplit()
+    {
+        var nestedBody = new Block(100);
+        nestedBody.Add(Load(Int32));
+        var entry = BlockOf(0, Store(1), new WhileLoop(new LoadArgument(0, "condition", Boolean), nestedBody));
+        var redefine = BlockOf(10, Store("x"));
+        var use = BlockOf(20, Load(String), new Return(null));
+
+        Assert.False(Split(Run(entry, redefine, use)));
+    }
+
+    [Fact]
+    public void NestedBranchThatBypassesDefinition_StaysUnsplit()
+    {
+        var bypass = new Block(100);
+        bypass.Add(new Branch(20));
+        var entry = BlockOf(
+            0,
+            Store(1),
+            new IfStatement(new LoadArgument(0, "bypass", Boolean), bypass, null));
+        var redefine = BlockOf(10, Store("x"));
+        var use = BlockOf(20, Load(String), new Return(null));
+
+        Assert.False(Split(Run(entry, redefine, use)));
     }
 
     [Fact]
@@ -275,6 +472,27 @@ public class StackSlotLiveRangeCrossBlockTests
 
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.DoesNotContain("S_0", result.Output);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
+    }
+
+    [Theory]
+    [InlineData("System.Text.StringBuilder", "AppendFormat", 9)]
+    [InlineData("System.Text.ValueStringBuilder", "AppendFormatHelper", 0)]
+    public void CoreLibSequentialCrossBlockRange_FullPipelineRemovesSlots(
+        string typeName,
+        string methodName,
+        int overloadIndex)
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(source, typeName, methodName, overloadIndex);
+        Assert.NotNull(function);
+        Assert.True(function!.Descendants.OfType<StoreStackSlot>().Count(store => store.Slot == 0) >= 2);
+        Assert.True(function.Descendants.OfType<LoadStackSlot>().Count(load => load.Slot == 0) >= 2);
+
+        var result = CSharpPrinter.PrintRaised(function);
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
         Assert.Empty(function.Descendants.OfType<LoadStackSlot>());
     }
@@ -323,5 +541,13 @@ public class StackSlotLiveRangeCrossBlockTests
     public void ReadBeforeWriteRange_StaysUnsplit()
     {
         Assert.False(Split(BuildReadBeforeWrite()));
+    }
+
+    static Block BlockOf(int offset, params IrNode[] statements)
+    {
+        var block = new Block(offset);
+        foreach (var statement in statements)
+            block.Add(statement);
+        return block;
     }
 }
