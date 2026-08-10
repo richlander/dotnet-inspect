@@ -11258,40 +11258,55 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The <c>--all-libraries</c> document is assembled by hand, and blocks are separated by
-    /// testing the buffer for a <c>'\n''\n'</c> tail. That test is easy to break silently: it read
-    /// a CRLF tail as "no blank line yet" and added a second one before every section on Windows
-    /// (#3963), and any future rewrite of the separator can reintroduce doubled or missing blanks
-    /// without producing a carriage return.
+    /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
+    /// produced by one helper that decides whether a blank line is already present. That decision
+    /// is easy to break silently in either direction: it read a CRLF tail as "no blank line yet"
+    /// and doubled the blank before every section on Windows (#3963), and a separator rewritten to
+    /// emit one newline instead of two would run the sections together. Neither produces a
+    /// carriage return, so neither is visible to a line-ending assertion.
     /// <para>
-    /// This complements <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> on two
-    /// axes. That test covers the per-library path over a local fixture and asserts the ending;
-    /// this one covers the aggregated path introduced in #3951, over a package whose section is
-    /// wide enough to window, and asserts the separation. The separation assertion has teeth on
-    /// every platform, where the <c>'\r'</c> assertion has teeth only on the
-    /// <c>test-windows</c> leg.
+    /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
+    /// exactly one blank line, so a missing blank and an extra blank both fail. It has teeth on
+    /// every platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers
+    /// the complementary property, the line ending itself, over the per-library path; that
+    /// assertion has teeth only on the <c>test-windows</c> leg.
+    /// </para>
+    /// <para>
+    /// Runs the aggregated path (<c>-S Switches</c>) added in #3951, which the per-library test
+    /// does not reach. One invocation rather than two: windowing changes the rows inside a block,
+    /// not how blocks are joined, so a second windowed run would repeat a package resolution
+    /// without testing anything new here.
     /// </para>
     /// </summary>
     [Fact]
     public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
-        var (exit, all, _) = await RunAppAsync(
+        var (exit, output, _) = await RunAppAsync(
             "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
-        var (windowedExit, windowed, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
 
         Assert.Equal(0, exit);
-        Assert.Equal(0, windowedExit);
+        Assert.Contains("## Switches", output, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', output);
+        Assert.EndsWith("\n", output, StringComparison.Ordinal);
 
-        foreach (var (label, output) in new[] { ("unwindowed", all), ("windowed", windowed) })
+        var lines = output.Split('\n');
+        var headings = 0;
+        for (var i = 0; i < lines.Length; i++)
         {
-            Assert.True(output.Contains('\n'), $"{label}: expected a multi-line document");
-            Assert.False(output.Contains('\r'), $"{label}: expected LF throughout, found a carriage return");
-            Assert.False(
-                output.Contains("\n\n\n", StringComparison.Ordinal),
-                $"{label}: expected blocks separated by exactly one blank line");
-            Assert.EndsWith("\n", output, StringComparison.Ordinal);
+            if (!lines[i].StartsWith("## ", StringComparison.Ordinal))
+                continue;
+
+            headings++;
+            Assert.True(i >= 2, $"'{lines[i]}' has no room for a preceding blank line");
+            Assert.True(
+                lines[i - 1].Length == 0,
+                $"expected a blank line before '{lines[i]}', found '{lines[i - 1]}'");
+            Assert.True(
+                lines[i - 2].Length != 0,
+                $"expected exactly one blank line before '{lines[i]}', found more than one");
         }
+
+        Assert.True(headings > 0, $"expected at least one section heading, got:\n{output}");
     }
 
     [Fact]
