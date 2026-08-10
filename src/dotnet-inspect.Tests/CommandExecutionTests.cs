@@ -11267,41 +11267,51 @@ public partial class CommandExecutionTests
     /// <para>
     /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
     /// exactly one blank line, so a missing blank and an extra blank both fail. The two ends of the
-    /// document are covered separately, because a heading loop cannot see them: the start must be
-    /// <c>"# "</c>, so nothing can be prepended above the title, and the end must not be blank, so
-    /// the trailing <c>TrimEnd</c> cannot be dropped. All three have teeth on every platform.
-    /// <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the complementary
-    /// property, the line ending itself, over the per-library path; that assertion has teeth only
-    /// on the <c>test-windows</c> leg.
+    /// document are covered separately, because a heading loop cannot see them: it opens with the
+    /// package's title heading followed by one blank line, and it carries no trailing whitespace,
+    /// so the assembling <c>TrimEnd</c> cannot be dropped. All of these have teeth on every
+    /// platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the
+    /// complementary property, the line ending itself, over the per-library path; that assertion
+    /// has teeth only on the <c>test-windows</c> leg.
     /// </para>
     /// <para>
-    /// Runs the aggregated path (<c>-S Switches</c>) added in #3951, which the per-library test
-    /// does not reach. One invocation rather than two: windowing changes the rows inside a block,
-    /// not how blocks are joined, so a second windowed run would repeat a package resolution
-    /// without testing anything new here.
+    /// Selects one aggregated section and one per-library section (<c>-S Switches,Dependencies</c>),
+    /// so the document carries two section blocks and the loop measures separation between blocks
+    /// rather than only the boundary below the title. The aggregated path is the one #3951 added and
+    /// the per-library test does not reach. One invocation rather than two: windowing changes the
+    /// rows inside a block, not how blocks are joined, so a second windowed run would repeat a
+    /// package resolution without testing anything new here.
     /// </para>
     /// </summary>
     [Fact]
     public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
         var (exit, output, _) = await RunAppAsync(
-            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", output, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', output);
 
-        // The two ends of the document, which the heading loop below cannot reach. The document is
-        // terminated by exactly one newline: every block contributes a trailing blank line, so
-        // without the TrimEnd that assembles them the document would end "\n\n\n" -- which still
-        // satisfies EndsWith("\n").
-        Assert.StartsWith("# ", output, StringComparison.Ordinal);
+        // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
+        // terminating newline itself, so asserting output ends with one asserts WriteLfLine;
+        // strip it and require what the assembling TrimEnd is actually for -- that the document
+        // carries no trailing whitespace. Every block contributes a trailing blank line, so
+        // without that TrimEnd the document would end "\n\n\n".
         Assert.EndsWith("\n", output, StringComparison.Ordinal);
-        Assert.False(
-            output.EndsWith("\n\n", StringComparison.Ordinal),
-            "expected the document to end with a single newline, not a trailing blank line");
+        var document = output[..^1];
+        Assert.Equal(document.TrimEnd(), document);
 
-        var lines = output.Split('\n');
+        var lines = document.Split('\n');
+
+        // The document's start, which the heading loop cannot reach: the title block is one
+        // heading line naming the package, followed by exactly one blank line. StartsWith("# ")
+        // alone would admit anything prepended above the title that is itself a heading.
+        Assert.StartsWith("# system.text.json", lines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            lines[1].Length == 0,
+            $"expected a blank line after the title, found '{lines[1]}'");
+
         var headings = 0;
         for (var i = 0; i < lines.Length; i++)
         {
@@ -11318,7 +11328,10 @@ public partial class CommandExecutionTests
                 $"expected exactly one blank line before '{lines[i]}', found more than one");
         }
 
-        Assert.True(headings > 0, $"expected at least one section heading, got:\n{output}");
+        Assert.True(
+            headings >= 2,
+            $"expected at least two section headings, so that separation between blocks is "
+                + $"exercised and not just the boundary below the title, got:\n{output}");
     }
 
     [Fact]

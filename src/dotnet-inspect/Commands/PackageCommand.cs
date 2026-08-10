@@ -2968,7 +2968,8 @@ public class PackageCommand
     /// before every section on Windows.
     /// <para>
     /// Those call sites also guarded the trailing newlines with
-    /// <c>!sb.ToString().EndsWith("\n\n")</c>. That guard is unreachable and is not carried over.
+    /// <c>!sb.ToString().EndsWith("\n\n")</c> -- the two section sites did; the title site, which
+    /// runs first, never had it. That guard is unreachable and is not carried over.
     /// Every append to the buffer goes through this method, and this method always leaves exactly
     /// <c>"\n\n"</c> at the tail, so the guard was false for every block after the first and the
     /// length test excluded the first. It was load-bearing only while the tail could be CRLF,
