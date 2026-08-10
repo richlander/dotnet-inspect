@@ -399,6 +399,8 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     {
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
+        using var workersWaiting = new CountdownEvent(2);
+        using var releaseWorkers = new ManualResetEventSlim();
         using var cancellation = new CancellationTokenSource();
         int completedWorkers = 0;
 
@@ -406,21 +408,44 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             StartDedicatedWorker(
                 ready,
                 start,
-                () => Interlocked.Increment(ref completedWorkers));
+                () =>
+                {
+                    workersWaiting.Signal();
+                    releaseWorkers.Wait();
+                    return Interlocked.Increment(ref completedWorkers);
+                });
 
         Task<int> first = StartWorker();
         Task<int> second = StartWorker();
         cancellation.Cancel();
 
+        Task<(bool Ready, int[] Results)> completion =
+            WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                cancellation.Token,
+                first,
+                second);
+
+        bool bothWorkersWaiting;
+        bool completedBeforeRelease;
+        try
+        {
+            bothWorkersWaiting =
+                workersWaiting.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
+            completedBeforeRelease = completion.IsCompleted;
+        }
+        finally
+        {
+            releaseWorkers.Set();
+        }
+
         OperationCanceledException exception =
             await Assert.ThrowsAsync<OperationCanceledException>(
-                () => WaitForAndJoinWorkersAsync(
-                    ready,
-                    start,
-                    cancellation.Token,
-                    first,
-                    second));
+                () => completion);
 
+        Assert.True(bothWorkersWaiting);
+        Assert.False(completedBeforeRelease);
         Assert.Equal(cancellation.Token, exception.CancellationToken);
         Assert.True(first.IsCompletedSuccessfully);
         Assert.True(second.IsCompletedSuccessfully);
