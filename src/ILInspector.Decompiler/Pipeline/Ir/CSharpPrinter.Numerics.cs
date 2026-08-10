@@ -195,9 +195,10 @@ public sealed partial class CSharpPrinter
     /// pointer additive form — including <c>pointer + pointer</c> and
     /// <c>integer - pointer</c>, which are not valid pointer arithmetic.
     /// </summary>
-    bool TryPointerArithmeticText(Binary binary, out string text)
+    bool TryPointerArithmeticText(Binary binary, out string text, out bool rendersConversion)
     {
         text = "";
+        rendersConversion = false;
         if (binary.Kind is BinaryKind.Divide
             && TryPointerDifferenceDivisionText(binary, out text))
         {
@@ -253,6 +254,7 @@ public sealed partial class CSharpPrinter
             ? $"{BytePointerOperand(pointer)} {BinaryOperator(binary)} {Operand(offset)}"
             : $"{Operand(offset)} {BinaryOperator(binary)} {BytePointerOperand(pointer)}";
         text = $"({TypeText(pointer.ResultType!)})({inner})";
+        rendersConversion = true;
         return true;
     }
 
@@ -887,8 +889,11 @@ public sealed partial class CSharpPrinter
         // wrong value. Render through `byte*` so the IL byte offset is reproduced
         // verbatim with no implicit scaling.
         if (binary.Kind is BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Divide
-            && TryPointerArithmeticText(binary, out string pointerText))
+            && TryPointerArithmeticText(binary, out string pointerText, out bool rendersConversion))
         {
+            _printedRanges?.SetNodeKind(
+                binary,
+                rendersConversion ? "ConversionExpression" : "BinaryExpression");
             // A pointer `add.ovf`/`sub.ovf` carries an overflow check the default
             // (unchecked) C# context would drop, and a plain pointer add spelled
             // inside a checked region would silently acquire `.ovf` on recompile.
@@ -2137,12 +2142,15 @@ public sealed partial class CSharpPrinter
     {
         if (SpellsAsLogicalAnd(conditional))
         {
+            var logical = new LogicalBinary(
+                LogicalKind.And,
+                (IrExpression)conditional.Condition.Clone(),
+                (IrExpression)conditional.WhenTrue.Clone());
+            if (TryPropertyPatternText(logical) is { } propertyPattern)
+                return WithNodeKind(conditional, propertyPattern, "PatternExpression");
             return WithNodeKind(
                 conditional,
-                Condition(new LogicalBinary(
-                    LogicalKind.And,
-                    (IrExpression)conditional.Condition.Clone(),
-                    (IrExpression)conditional.WhenTrue.Clone())),
+                Condition(logical),
                 "BinaryExpression");
         }
 

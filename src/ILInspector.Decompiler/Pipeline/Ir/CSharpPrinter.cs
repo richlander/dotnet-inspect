@@ -3321,7 +3321,7 @@ public sealed partial class CSharpPrinter
         // `unchecked((U)(-1))`); naming flag combinations is a later slice. A
         // long-backed enum keeps its `long` payload.
         Constant { Value: int or long, Type: { } enumType } c when _function.TypeShapes.GetValueOrDefault(enumType) == TypeShape.Enum
-            => EnumConstantText(c, enumType),
+            => WithNodeKind(c, EnumConstantText(c, enumType), "ConversionExpression"),
         Constant c => ConstantText(c),
         LoadField f => FieldTarget(f.Field, f.Instance),
         Binary b => BinaryText(b),

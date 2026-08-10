@@ -238,7 +238,10 @@ public class PrintedBodyMapTests
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var intType = TypeRef.CoreLib("System", "Int32");
         var objectType = TypeRef.CoreLib("System", "Object");
+        var stringType = TypeRef.CoreLib("System", "String");
         var uintType = TypeRef.CoreLib("System", "UInt32");
+        var pointerType = TypeRef.Pointer(intType);
+        var enumType = TypeRef.Definition("synthetic", "", "Mode");
         var nullableIntType = TypeRef.GenericInstance(
             TypeRef.CoreLib("System", "Nullable`1"),
             [intType]);
@@ -294,6 +297,37 @@ public class PrintedBodyMapTests
                     isChecked: false,
                     isUnsigned: false,
                     new Constant(32, intType))));
+        var pointerArithmetic = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(2, "pointer", pointerType),
+            new LoadArgument(0, "value", intType));
+        var enumConstant = new Constant(3, enumType);
+        var pattern = new IsPattern(
+            new LoadArgument(4, "subject", objectType),
+            stringType,
+            localIndex: 8);
+        var lengthGetter = new MethodRef(
+            stringType,
+            "get_Length",
+            intType,
+            [],
+            HasThis: true);
+        var foldedPattern = new Conditional(
+            pattern,
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadProperty(
+                    lengthGetter,
+                    new LoadLocal(8, stringType),
+                    []),
+                new Constant(5, intType)),
+            new Constant(false, boolType))
+        {
+            MergedType = boolType,
+        };
         var block = new Block(0);
         block.Add(new StoreLocal(0, objectType, boxed));
         block.Add(new StoreLocal(1, intType, coerced));
@@ -303,6 +337,9 @@ public class PrintedBodyMapTests
         block.Add(new StoreLocal(5, intType, coalesced));
         block.Add(new StoreLocal(6, uintType, collapsedConstant));
         block.Add(new StoreLocal(7, uintType, binary));
+        block.Add(new StoreLocal(9, boolType, foldedPattern));
+        block.Add(new StoreLocal(10, pointerType, pointerArithmetic));
+        block.Add(new StoreLocal(11, enumType, enumConstant));
         block.Add(new Return(managedRead));
         var container = new BlockContainer();
         container.Add(block);
@@ -314,7 +351,7 @@ public class PrintedBodyMapTests
                 [
                     new Parameter("value", intType),
                     new Parameter("managed", TypeRef.ByRef(intType)),
-                    new Parameter("pointer", TypeRef.Pointer(intType)),
+                    new Parameter("pointer", pointerType),
                     new Parameter("flag", boolType),
                     new Parameter("subject", objectType),
                     new Parameter("optional", nullableIntType),
@@ -322,8 +359,31 @@ public class PrintedBodyMapTests
                 ],
                 HasThis: false,
                 GenericParameterCount: 0),
-            [objectType, intType, intType, intType, boolType, intType, uintType, uintType],
-            container);
+            [
+                objectType,
+                intType,
+                intType,
+                intType,
+                boolType,
+                intType,
+                uintType,
+                uintType,
+                stringType,
+                boolType,
+                pointerType,
+                enumType,
+            ],
+            container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [enumType] = TypeShape.Enum,
+            },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+            {
+                [enumType] = intType,
+            },
+        };
 
         var result = CSharpPrinter.Print(function, out var ranges);
 
@@ -337,6 +397,9 @@ public class PrintedBodyMapTests
         AssertSurfaceKind(ranges, coalesced, "optional ?? 4", "CoalesceExpression");
         AssertSurfaceKind(ranges, collapsedConstant, "1", "LiteralExpression");
         AssertSurfaceKind(ranges, binary, "((uint)signed) % ((uint)32)", "BinaryExpression");
+        AssertSurfaceKind(ranges, foldedPattern, "subject is string { Length: 5 }", "PatternExpression");
+        AssertSurfaceKind(ranges, pointerArithmetic, "(int*)((byte*)pointer + value)", "ConversionExpression");
+        AssertSurfaceKind(ranges, enumConstant, "(Mode)3", "ConversionExpression");
     }
 
     [Fact]
