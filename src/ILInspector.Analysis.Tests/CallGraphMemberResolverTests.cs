@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -37,8 +38,10 @@ public sealed class CallGraphMemberResolverTests
             MemberKind.Method));
 
         Assert.NotEqual(objectSelector.Key, stringSelector.Key);
-        Assert.Equal("System.ReadOnlySpan{System.Object}", objectSelector.ParameterTypes[0]);
-        Assert.Equal("System.Int32@", byRefSelector.ParameterTypes[1]);
+        Assert.Equal(
+            "[corelib]System.ReadOnlySpan{[corelib]System.Object}",
+            objectSelector.ParameterTypes[0]);
+        Assert.Equal("[corelib]System.Int32@", byRefSelector.ParameterTypes[1]);
     }
 
     [Fact]
@@ -59,7 +62,10 @@ public sealed class CallGraphMemberResolverTests
             "get_Item",
             [TypeRef.CoreLib("System", "String")],
             TypeRef.CoreLib("System", "Int32"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
 
         var resolved = CallGraphMemberResolver.Resolve(
             type,
@@ -87,7 +93,10 @@ public sealed class CallGraphMemberResolverTests
             "get_Item",
             [TypeRef.CoreLib("System", "Int32")],
             TypeRef.CoreLib("System", "Int32"),
-            MemberKind.Method));
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
 
         var resolved = CallGraphMemberResolver.Resolve(
             type,
@@ -187,24 +196,131 @@ public sealed class CallGraphMemberResolverTests
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method));
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
-        var member = Method("Samples.Outer<int>.Inner<string>");
+        var member = Method(
+            "Samples.Outer<int>.Inner<string>",
+            "[Samples]Samples.Outer{[corelib]System.Int32}.Inner{[corelib]System.String}");
 
         Assert.Equal(
             CallGraphMemberResolver.CreateSelector(type, member).Key,
             graph.Key);
     }
 
-    static ApiMember Method(string parameterType) => new()
+    [Fact]
+    public void Resolve_DistinguishesStaticAndInstanceCallingShape()
+    {
+        var staticMember = WithToken(Method("int"), 0x06000001, isStatic: true);
+        var instanceMember = WithToken(Method("int"), 0x06000002, isStatic: false);
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [staticMember, instanceMember],
+        };
+        var selector = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        var resolved = CallGraphMemberResolver.Resolve(type, selector.Name, selector.Key);
+
+        Assert.Same(instanceMember, resolved!.Member);
+    }
+
+    [Fact]
+    public void Resolve_DistinguishesSameNamedParameterTypesFromDifferentAssemblies()
+    {
+        var first = WithToken(
+            Method("Samples.Payload", "[Contracts.A]Samples.Payload"),
+            0x06000001,
+            isStatic: true);
+        var second = WithToken(
+            Method("Samples.Payload", "[Contracts.B]Samples.Payload"),
+            0x06000002,
+            isStatic: true);
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [first, second],
+        };
+        var selector = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [TypeRef.Definition("Contracts.B", "Samples", "Payload")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method));
+
+        var resolved = CallGraphMemberResolver.Resolve(type, selector.Name, selector.Key);
+
+        Assert.Same(second, resolved!.Member);
+    }
+
+    [Fact]
+    public void ApiSurface_RetainsDefiningAssemblyInSignatureIdentity()
+    {
+        using var stream = File.OpenRead(typeof(CallGraphMemberResolverTests).Assembly.Location);
+        using var reader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(reader, includeAll: true);
+        ApiType type = Assert.Single(surface.Types, candidate =>
+            candidate.Members.Any(member => member.Name == nameof(IdentityFixture)));
+        ApiMember member = Assert.Single(type.Members, candidate =>
+            candidate.Name == nameof(IdentityFixture));
+
+        Assert.Equal(
+            "[ILInspector.Analysis.Tests]ILInspector.Analysis.Tests.CallGraphMemberResolverTests.IdentityPayload",
+            member.SignatureModel!.Parameters[0].TypeIdentity);
+        ApiMember byRef = Assert.Single(type.Members, candidate =>
+            candidate.Name == nameof(ByRefIdentityFixture));
+        Assert.Equal(
+            "[ILInspector.Analysis.Tests]ILInspector.Analysis.Tests.CallGraphMemberResolverTests.IdentityPayload@",
+            byRef.SignatureModel!.Parameters[0].TypeIdentity);
+    }
+
+    static ApiMember Method(string parameterType, string? parameterIdentity = null) => new()
     {
         Name = "M",
         Kind = "method",
         ReturnType = "void",
+        IsStatic = true,
         SignatureModel = new ApiSignature
         {
             ReturnType = "void",
-            Parameters = [new ApiParameter { Name = "value", Type = parameterType }],
+            ReturnTypeIdentity = "[corelib]System.Void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "value",
+                    Type = parameterType,
+                    TypeIdentity = parameterIdentity ?? parameterType switch
+                    {
+                        "int" => "[corelib]System.Int32",
+                        "string" => "[corelib]System.String",
+                        "delegate* unmanaged[Cdecl]<int, void>" =>
+                            "delegate* unmanaged[Cdecl]{[corelib]System.Int32,[corelib]System.Void}",
+                        _ => parameterType,
+                    },
+                },
+            ],
         },
     };
+
+    static ApiMember WithToken(ApiMember member, int token, bool isStatic)
+    {
+        member.MetadataToken = token;
+        member.IsStatic = isStatic;
+        return member;
+    }
+
+    static void IdentityFixture(IdentityPayload value) { }
+    static void ByRefIdentityFixture(ref IdentityPayload value) { }
+
+    sealed class IdentityPayload;
 
     static ApiMember Indexer(string parameterType, int getterToken) => new()
     {
@@ -215,12 +331,19 @@ public sealed class CallGraphMemberResolverTests
         SignatureModel = new ApiSignature
         {
             ReturnType = "int",
+            ReturnTypeIdentity = "[corelib]System.Int32",
             Parameters =
             [
                 new ApiParameter
                 {
                     Name = "index",
                     Type = parameterType,
+                    TypeIdentity = parameterType switch
+                    {
+                        "int" => "[corelib]System.Int32",
+                        "string" => "[corelib]System.String",
+                        _ => parameterType,
+                    },
                 },
             ],
         },

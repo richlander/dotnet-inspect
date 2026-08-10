@@ -329,6 +329,8 @@ public class ApiSignature
 {
     public string? ReturnType { get; set; }
     public string? CanonicalReturnType { get; set; }
+    [JsonIgnore]
+    public string? ReturnTypeIdentity { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
@@ -376,6 +378,8 @@ public class ApiParameter
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string? CanonicalType { get; set; }
+    [JsonIgnore]
+    public string? TypeIdentity { get; set; }
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
     public string? DefaultValueText { get; set; }

@@ -19,6 +19,7 @@ public static class CallGraphMemberResolver
         return CreateSelector(
             member.Name,
             member.GenericArity,
+            member.HasThis,
             member.OpenSignatureParameters.Select(TypeIdentity),
             TypeIdentity(member.OpenSignatureReturn));
     }
@@ -42,12 +43,16 @@ public static class CallGraphMemberResolver
         return CreateSelector(
             member.Name,
             member.SignatureModel?.TypeParameters.Count ?? 0,
+            !member.IsStatic,
             (member.SignatureModel?.Parameters ?? [])
-                .Select(parameter => Normalize(parameter.CanonicalTypeWithModifier)),
-            Normalize(
-                member.SignatureModel?.EffectiveCanonicalReturnType
-                    ?? member.ReturnType
-                    ?? "void"));
+                .Select(parameter =>
+                    parameter.TypeIdentity
+                    ?? Normalize(parameter.CanonicalTypeWithModifier)),
+            member.SignatureModel?.ReturnTypeIdentity
+                ?? Normalize(
+                    member.SignatureModel?.EffectiveCanonicalReturnType
+                        ?? member.ReturnType
+                        ?? "void"));
     }
 
     public static ImmutableArray<CallGraphMemberBodySelector> CreateBodySelectors(
@@ -113,6 +118,7 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"get_{member.Name}",
                 0,
+                !member.IsStatic,
                 owner.ParameterTypes,
                 owner.ReturnType);
             yield return new(selector.Name, selector.Key, new(member, getter));
@@ -123,8 +129,9 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"set_{member.Name}",
                 0,
+                !member.IsStatic,
                 owner.ParameterTypes.Append(owner.ReturnType),
-                "System.Void");
+                "[corelib]System.Void");
             yield return new(selector.Name, selector.Key, new(member, setter));
         }
 
@@ -133,8 +140,9 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"add_{member.Name}",
                 0,
+                !member.IsStatic,
                 [owner.ReturnType],
-                "System.Void");
+                "[corelib]System.Void");
             yield return new(selector.Name, selector.Key, new(member, adder));
         }
 
@@ -143,8 +151,9 @@ public static class CallGraphMemberResolver
             var selector = CreateSelector(
                 $"remove_{member.Name}",
                 0,
+                !member.IsStatic,
                 [owner.ReturnType],
-                "System.Void");
+                "[corelib]System.Void");
             yield return new(selector.Name, selector.Key, new(member, remover));
         }
     }
@@ -152,6 +161,7 @@ public static class CallGraphMemberResolver
     static CallGraphMemberSelector CreateSelector(
         string name,
         int genericArity,
+        bool hasThis,
         IEnumerable<string> parameterTypes,
         string returnType)
     {
@@ -159,11 +169,12 @@ public static class CallGraphMemberResolver
         var key = new StringBuilder();
         Append(key, name);
         key.Append(genericArity).Append(';');
+        key.Append(hasThis ? 'I' : 'S').Append(';');
         key.Append(parameters.Length).Append(';');
         foreach (string parameter in parameters)
             Append(key, parameter);
         Append(key, returnType);
-        return new(name, parameters, returnType, genericArity, key.ToString());
+        return new(name, parameters, returnType, genericArity, hasThis, key.ToString());
     }
 
     static void Append(StringBuilder builder, string value)
@@ -257,15 +268,16 @@ public static class CallGraphMemberResolver
             && type.Namespace == "System"
             && PrimitiveTypeNames.TryToKeywordForSystemType(type.Name, out string keyword))
         {
-            return PrimitiveTypeNames.ToClrFullName(keyword);
+            return $"[{type.Assembly}]{PrimitiveTypeNames.ToClrFullName(keyword)}";
         }
 
         string name = string.Join(
             '.',
             type.Name.Split('+').Select(StripArity));
-        return string.IsNullOrEmpty(type.Namespace)
+        string fullName = string.IsNullOrEmpty(type.Namespace)
             ? name
             : $"{type.Namespace}.{name}";
+        return $"[{type.Assembly}]{fullName}";
     }
 
     static string NamedGenericTypeIdentity(
@@ -288,6 +300,7 @@ public static class CallGraphMemberResolver
             return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
 
         var result = new StringBuilder();
+        result.Append('[').Append(definition.Assembly).Append(']');
         if (!string.IsNullOrEmpty(definition.Namespace))
             result.Append(definition.Namespace).Append('.');
         int argumentIndex = 0;
@@ -338,6 +351,7 @@ public sealed record CallGraphMemberSelector(
     ImmutableArray<string> ParameterTypes,
     string ReturnType,
     int GenericArity,
+    bool HasThis,
     string Key);
 
 public sealed record CallGraphMemberResolution(ApiMember Member, int BodyToken);

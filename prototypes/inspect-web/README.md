@@ -62,7 +62,11 @@ documentation, source, call-graph, and Facts queries. The cache holds at most
 12 packages or 128 MB and evicts the least recently used entry; an individual
 package is rejected above 64 MB. Runtime-pack assemblies have a separate
 16-entry/128-MB least-recently-used cache, and range responses plus expanded
-archive entries are capped before retention.
+archive entries are capped before retention. Assembly materialization is
+limited to 128 entries and 128 MB expanded in aggregate; package manifests and
+documentation XML are limited to 16 MB before secure parsing. Shared
+workspaces and resident package surfaces are deduplicated by package, version,
+and framework and retain at most 12 package models.
 
 ## Run the .NET 11 browser-WASM prototype
 

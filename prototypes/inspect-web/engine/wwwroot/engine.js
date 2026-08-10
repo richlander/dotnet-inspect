@@ -317,6 +317,7 @@ export async function inspectExpandPlatformCallGraph(request) {
   const json = await expandPlatformCallGraph(
     request.framework,
     request.pack,
+    JSON.stringify(request.assemblyPacks ?? {}),
     request.assembly ?? "",
     request.type,
     request.member,

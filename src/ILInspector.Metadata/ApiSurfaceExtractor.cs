@@ -487,10 +487,15 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(reader, evt.GetCustomAttributes(), out var obsoleteMessage);
+                var eventContext = GenericContext.ForType(reader, typeDef);
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
-                    GenericContext.ForType(reader, typeDef));
+                    eventContext);
+                var eventTypeIdentity = ResolveTypeIdentity(
+                    reader,
+                    evt.Type,
+                    eventContext);
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
@@ -538,6 +543,7 @@ public static class ApiSurfaceExtractor
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
+                        ReturnTypeIdentity = eventTypeIdentity,
                         MemberName = reader.GetString(evt.Name)
                     },
                     IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
@@ -1566,6 +1572,12 @@ public static class ApiSurfaceExtractor
             TypeNodeProvider.Instance,
             context,
             (TypeNode)new DegradedTypeNode());
+        var identitySignature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            MetadataTypeIdentityProvider.Instance,
+            context,
+            "<degraded>");
 
         // Determine the effective nullable default: method overrides type
         byte nullableDefault =
@@ -1636,6 +1648,7 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = type,
                 CanonicalType = canonicalType,
+                TypeIdentity = identitySignature.ParameterTypes[i],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
@@ -1660,6 +1673,7 @@ public static class ApiSurfaceExtractor
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            ReturnTypeIdentity = identitySignature.ReturnType,
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -2157,6 +2171,36 @@ public static class ApiSurfaceExtractor
                 "Unknown metadata type-name result."),
         };
 
+    private static string ResolveTypeIdentity(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context)
+        => handle.Kind switch
+        {
+            HandleKind.TypeDefinition =>
+                MetadataTypeIdentityProvider.Instance.GetTypeFromDefinition(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    0),
+            HandleKind.TypeReference =>
+                MetadataTypeIdentityProvider.Instance.GetTypeFromReference(
+                    reader,
+                    (TypeReferenceHandle)handle,
+                    0),
+            HandleKind.TypeSpecification => GuardedProviderDecode.TypeSpec(
+                reader,
+                (TypeSpecificationHandle)handle,
+                MetadataTypeIdentityProvider.Instance,
+                context,
+                "<degraded>"),
+            _ => throw new MetadataRowRejectedException(
+                "type identity",
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    $"Metadata handle kind '{handle.Kind}' cannot identify a type.")),
+        };
+
     private static void AddInspectionFailure(
         ApiSurface surface,
         string operation,
@@ -2269,6 +2313,12 @@ public static class ApiSurfaceExtractor
             TypeNodeProvider.Instance,
             context,
             (TypeNode)new DegradedTypeNode());
+        var identitySignature = GuardedProviderDecode.Property(
+            reader,
+            prop,
+            MetadataTypeIdentityProvider.Instance,
+            context,
+            "<degraded>");
 
         // Apply nullability to the property type
         var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
@@ -2423,6 +2473,7 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = paramType,
                 CanonicalType = canonicalParamType,
+                TypeIdentity = identitySignature.ParameterTypes[i],
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
@@ -2435,6 +2486,7 @@ public static class ApiSurfaceExtractor
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            ReturnTypeIdentity = identitySignature.ReturnType,
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,

@@ -106,6 +106,16 @@ public sealed class LayeringTests
             "inspect-web",
             "src",
             "app.js"));
+        string resolverSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "ILInspector.Analysis",
+            "CallGraphMemberResolver.cs"));
+        string apiSurfaceSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "src",
+            "ILInspector.Metadata",
+            "ApiSurface.cs"));
 
         Assert.Contains(
             ".Add(AssemblyReferencesQuery.Definition, AssemblyReferencesQuery.Execute)",
@@ -333,12 +343,64 @@ public sealed class LayeringTests
             engineSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "state.platformIndex?.lookup(",
+            "state.platformIndex.lookup(framework, indexedAssembly)?.pack",
             browserSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "pack,\n      assembly: node.assembly",
+            "assemblyPacks: platformProvenance.assemblyPacks",
             browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "assemblyPacks.TryGetValue(assemblyName",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "state.platformIndex.assembliesFor(framework)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DependencyResolutionService.SelectDependencyGroup(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "package.Framework.Equals(targetFramework",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "LoadBoundedXml(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MaxExtractedAssemblyBytes",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "AddToExtractionBudget(",
+            engineSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MAX_WORKSPACE_PACKAGES",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "retainPackageModel(packageModel)",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "item.version.toLowerCase() === version.toLowerCase()",
+            browserSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "key.Append(hasThis ? 'I' : 'S')",
+            resolverSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "parameter.TypeIdentity",
+            resolverSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public string? TypeIdentity",
+            apiSurfaceSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "compareVersionsDesc",
@@ -403,6 +465,30 @@ public sealed class LayeringTests
         Assert.Contains(
             "No direct lib/{targetFramework} implementation assemblies",
             engineSource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserPlatformIndex_CarriesCrossPackForwardProvenance()
+    {
+        string index = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "prototypes",
+            "inspect-web",
+            "assets",
+            "platform-index.tsv"));
+
+        Assert.Contains(
+            "net10.0\tnetcore.app\tSystem.Security\tSystem.Security.dll\tfacade\tSystem.Security.Cryptography.Xml\t",
+            index,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "net10.0\taspnetcore.app\tSystem.Security.Cryptography.Xml\tSystem.Security.Cryptography.Xml.dll\timpl\t",
+            index,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "net10.0\tnetcore.app\tSystem.Private.CoreLib\tSystem.Private.CoreLib.dll\timpl\t",
+            index,
             StringComparison.Ordinal);
     }
 

@@ -9,6 +9,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Xml;
 using System.Xml.Linq;
 using ILInspector.CallGraph;
 using ILInspector.Decompiler;
@@ -509,6 +510,7 @@ public sealed record BrowserMetadataHeaders(
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(BrowserStyleOption[]))]
 [JsonSerializable(typeof(BrowserStyleTier[]))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 
@@ -525,6 +527,13 @@ public static partial class BrowserInspectionEngine
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
     const int MaxPackageBytes = 64 * 1024 * 1024;
     const int MaxAssemblyBytes = 64 * 1024 * 1024;
+    const int MaxXmlBytes = 16 * 1024 * 1024;
+    const int MaxExtractedAssemblyCount = 128;
+    const long MaxExtractedAssemblyBytes = 128L * 1024 * 1024;
+    const int MaxWorkspacePackages = 12;
+    const int MaxWorkspaceJsonChars = 64 * 1024;
+    const int MaxPlatformProvenanceEntries = 1024;
+    const int MaxPlatformProvenanceJsonChars = 256 * 1024;
     const int MaxDocumentBytes = 4 * 1024 * 1024;
     const int MaxIndexBytes = 4 * 1024 * 1024;
     const int MaxRuntimeCacheEntries = 16;
@@ -1341,14 +1350,13 @@ public static partial class BrowserInspectionEngine
             if (nuspec is not null)
             {
                 using var nuspecStream = nuspec.Open();
-                var readerSettings = new System.Xml.XmlReaderSettings
-                {
-                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
-                    XmlResolver = null,
-                    MaxCharactersFromEntities = 1024
-                };
-                using var xmlReader = System.Xml.XmlReader.Create(nuspecStream, readerSettings);
-                var document = XDocument.Load(xmlReader, LoadOptions.None);
+                var nuspecBytes = ReadLimited(
+                    nuspecStream,
+                    MaxXmlBytes,
+                    $"Package manifest '{nuspec.FullName}'");
+                var document = LoadBoundedXml(
+                    nuspecBytes,
+                    $"Package manifest '{nuspec.FullName}'");
 
                 var metadata = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "metadata");
                 packageName = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "id")?.Value ?? packageId;
@@ -1365,9 +1373,44 @@ public static partial class BrowserInspectionEngine
                             var tfm = NormalizeFrameworkMoniker(group.Attribute("targetFramework")?.Value ?? "any");
                             groups.Add(new BrowserPackageDependencyGroup(
                                 tfm,
-                                string.Equals(tfm, targetFramework, StringComparison.OrdinalIgnoreCase),
+                                false,
                                 ReadDependencies(group)));
                         }
+                    }
+
+                    if (groups.Count > 0)
+                    {
+                        var dependencyGroups = groups.Select(group => new DependencyGroup
+                        {
+                            TargetFramework = group.Framework,
+                            Dependencies =
+                            [
+                                .. group.Dependencies.Select(dependency => new PackageDependency
+                                {
+                                    Id = dependency.Id,
+                                    Version = dependency.VersionRange
+                                })
+                            ]
+                        }).ToList();
+                        var dependencySelection = DependencyResolutionService.SelectDependencyGroup(
+                            dependencyGroups,
+                            targetFramework);
+                        if (!dependencySelection.IsSelected)
+                        {
+                            throw new InvalidOperationException(
+                                $"No dependency group is compatible with '{targetFramework}'. "
+                                + $"Available groups: {string.Join(", ", dependencySelection.AvailableTargetFrameworks)}.");
+                        }
+
+                        groups =
+                        [
+                            .. groups.Select(group => group with
+                            {
+                                IsActive = group.Framework.Equals(
+                                    dependencySelection.Group!.TargetFramework,
+                                    StringComparison.OrdinalIgnoreCase)
+                            })
+                        ];
                     }
                     else
                     {
@@ -2544,14 +2587,21 @@ public static partial class BrowserInspectionEngine
                 ?? throw new InvalidOperationException(
                     $"Member '{memberName}' could not be resolved uniquely on '{type.FullName}'.");
 
-            if (File.Exists(pdbPath)
-                && await TryGetAuthoredSourceAsync(
+            string? authoredUnavailable = null;
+            if (File.Exists(pdbPath))
+            {
+                var authored = await TryGetAuthoredSourceAsync(
                     implementationPath,
                     type,
                     resolved.Member,
-                    resolved.BodyToken) is { } authored)
-            {
-                return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
+                    resolved.BodyToken);
+                if (authored.Source is { } source)
+                {
+                    return JsonSerializer.Serialize(
+                        source,
+                        BrowserJsonContext.Default.BrowserMemberSource);
+                }
+                authoredUnavailable = authored.Absence;
             }
 
             var decompiled = MemberBodyProducer.ProduceMember(
@@ -2568,7 +2618,10 @@ public static partial class BrowserInspectionEngine
                     "decompiled",
                     text,
                     null,
-                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"
+                    + (authoredUnavailable is { Length: > 0 }
+                        ? $"; authored source unavailable: {authoredUnavailable}"
+                        : "")),
                 BrowserJsonContext.Default.BrowserMemberSource);
         }
         finally
@@ -2654,14 +2707,48 @@ public static partial class BrowserInspectionEngine
         Directory.CreateDirectory(tempRoot);
         try
         {
+            if (workspaceJson.Length > MaxWorkspaceJsonChars)
+            {
+                throw new InvalidDataException(
+                    $"Workspace request exceeds the {MaxWorkspaceJsonChars}-character limit.");
+            }
             var workspace = JsonSerializer.Deserialize(
                     workspaceJson,
                     BrowserJsonContext.Default.BrowserWorkspacePackageArray)
                 ?? [];
+            if (workspace.Any(package =>
+                string.IsNullOrWhiteSpace(package.Package)
+                || string.IsNullOrWhiteSpace(package.Version)
+                || string.IsNullOrWhiteSpace(package.Framework)))
+            {
+                throw new InvalidDataException(
+                    "Workspace package identities require package, version, and framework.");
+            }
+            workspace =
+            [
+                .. workspace
+                    .GroupBy(
+                        package => (
+                            package.Package.ToLowerInvariant(),
+                            package.Version.ToLowerInvariant(),
+                            package.Framework.ToLowerInvariant()))
+                    .Select(group => group.First())
+            ];
+            if (workspace.Length > MaxWorkspacePackages)
+            {
+                throw new InvalidDataException(
+                    $"Workspace request exceeds the {MaxWorkspacePackages}-package limit.");
+            }
             if (!workspace.Any(package =>
                 package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
-                && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)))
+                && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                && package.Framework.Equals(targetFramework, StringComparison.OrdinalIgnoreCase)))
             {
+                if (workspace.Length == MaxWorkspacePackages)
+                {
+                    throw new InvalidDataException(
+                        "Workspace request has no room for the selected package.");
+                }
                 workspace =
                 [
                     .. workspace,
@@ -2674,6 +2761,8 @@ public static partial class BrowserInspectionEngine
                 string Version,
                 string Framework,
                 string Path)>();
+            int extractedAssemblyCount = 0;
+            long extractedAssemblyBytes = 0;
             string? implementationPath = null;
             for (int packageIndex = 0; packageIndex < workspace.Length; packageIndex++)
             {
@@ -2695,6 +2784,9 @@ public static partial class BrowserInspectionEngine
                     && package.Version.Equals(
                         version,
                         StringComparison.OrdinalIgnoreCase)
+                    && package.Framework.Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
                         ? assemblyName
                         : null;
                 ZipArchiveEntry[] implementationEntries =
@@ -2704,6 +2796,11 @@ public static partial class BrowserInspectionEngine
                         preferredAssemblyName);
                 foreach (ZipArchiveEntry entry in implementationEntries)
                 {
+                    AddToExtractionBudget(
+                        entry,
+                        ref extractedAssemblyCount,
+                        ref extractedAssemblyBytes,
+                        "Workspace call-graph assemblies");
                     var path = Path.Combine(packageDirectory, entry.Name);
                     await WriteEntryAsync(entry, path);
                     workspaceAssemblies.Add((
@@ -2713,6 +2810,7 @@ public static partial class BrowserInspectionEngine
                         path));
                     if (package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
                         && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                        && package.Framework.Equals(targetFramework, StringComparison.OrdinalIgnoreCase)
                         && (entry.Name.Equals(
                                 assemblyName,
                                 StringComparison.Ordinal)
@@ -3196,8 +3294,14 @@ public static partial class BrowserInspectionEngine
                 $"Framework '{targetFramework}' is not present.");
         }
 
-        var assemblies = new List<SelectedPackageAssembly>(
-            selection.Assets.Count);
+        if (selection.Assets.Count > MaxExtractedAssemblyCount)
+        {
+            throw new InvalidDataException(
+                $"Selected package assemblies exceed the {MaxExtractedAssemblyCount}-entry limit.");
+        }
+
+        var assemblies = new List<SelectedPackageAssembly>(selection.Assets.Count);
+        long expandedBytes = 0;
         foreach (PackageCompileAsset asset in selection.Assets)
         {
             if (!content.TryOpenEntry(asset.Path, out Stream? stream))
@@ -3208,13 +3312,20 @@ public static partial class BrowserInspectionEngine
 
             using (stream)
             {
+                byte[] image = ReadLimited(
+                    stream,
+                    MaxAssemblyBytes,
+                    $"Assembly '{asset.Path}'");
+                expandedBytes += image.LongLength;
+                if (expandedBytes > MaxExtractedAssemblyBytes)
+                {
+                    throw new InvalidDataException(
+                        $"Selected package assemblies exceed the {MaxExtractedAssemblyBytes}-byte expanded limit.");
+                }
                 assemblies.Add(
                     new SelectedPackageAssembly(
                         asset,
-                        ReadLimited(
-                            stream,
-                            MaxAssemblyBytes,
-                            $"Assembly '{asset.Path}'")));
+                        image));
             }
         }
 
@@ -3285,7 +3396,7 @@ public static partial class BrowserInspectionEngine
         string? preferredAssemblyName = null,
         string root = "lib")
     {
-        return
+        ZipArchiveEntry[] entries =
         [
             .. archive.Entries
                 .Where(entry =>
@@ -3328,6 +3439,43 @@ public static partial class BrowserInspectionEngine
                     entry => entry.FullName,
                     StringComparer.Ordinal),
         ];
+        ValidateExtractionSet(entries, $"Assemblies under {root}/{targetFramework}");
+        return entries;
+    }
+
+    static void ValidateExtractionSet(
+        IReadOnlyCollection<ZipArchiveEntry> entries,
+        string description)
+    {
+        if (entries.Count > MaxExtractedAssemblyCount)
+        {
+            throw new InvalidDataException(
+                $"{description} exceed the {MaxExtractedAssemblyCount}-entry limit.");
+        }
+
+        long expandedBytes = entries.Sum(entry => entry.Length);
+        if (expandedBytes > MaxExtractedAssemblyBytes)
+        {
+            throw new InvalidDataException(
+                $"{description} exceed the {MaxExtractedAssemblyBytes}-byte expanded limit.");
+        }
+    }
+
+    static void AddToExtractionBudget(
+        ZipArchiveEntry entry,
+        ref int count,
+        ref long expandedBytes,
+        string description)
+    {
+        count++;
+        expandedBytes += entry.Length;
+        if (count > MaxExtractedAssemblyCount
+            || expandedBytes > MaxExtractedAssemblyBytes)
+        {
+            throw new InvalidDataException(
+                $"{description} exceed the {MaxExtractedAssemblyCount}-entry or "
+                + $"{MaxExtractedAssemblyBytes}-byte expanded limit.");
+        }
     }
 
     static ZipArchiveEntry? FindDirectPackageAssemblyEntry(
@@ -3693,6 +3841,7 @@ public static partial class BrowserInspectionEngine
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
         string pack,
+        string assemblyPacksJson,
         string assembly,
         string typeFullName,
         string memberName,
@@ -3703,8 +3852,25 @@ public static partial class BrowserInspectionEngine
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
 
         var major = ParseTfmMajor(targetFramework);
-        var packId = RuntimePackIdForToken(pack);
-        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        if (assemblyPacksJson.Length > MaxPlatformProvenanceJsonChars)
+        {
+            throw new InvalidDataException(
+                $"Platform provenance exceeds the {MaxPlatformProvenanceJsonChars}-character limit.");
+        }
+        var serializedAssemblyPacks = JsonSerializer.Deserialize(
+                assemblyPacksJson,
+                BrowserJsonContext.Default.DictionaryStringString)
+            ?? throw new ArgumentException(
+                "Platform assembly-pack provenance is required.",
+                nameof(assemblyPacksJson));
+        if (serializedAssemblyPacks.Count > MaxPlatformProvenanceEntries)
+        {
+            throw new InvalidDataException(
+                $"Platform provenance exceeds the {MaxPlatformProvenanceEntries}-entry limit.");
+        }
+        var assemblyPacks = new Dictionary<string, string>(
+            serializedAssemblyPacks,
+            StringComparer.OrdinalIgnoreCase);
         // TypeRef.Assembly canonicalizes the corelib facades (System.Private.CoreLib,
         // System.Runtime, mscorlib, netstandard) to "corelib"; those all implement in
         // System.Private.CoreLib.dll in the runtime pack.
@@ -3716,9 +3882,14 @@ public static partial class BrowserInspectionEngine
         Directory.CreateDirectory(tempRoot);
         try
         {
-            var acquired = await AcquirePlatformAssemblyAsync(packId, version, startFile, typeFullName)
+            var acquired = await AcquirePlatformAssemblyAsync(
+                    pack,
+                    assemblyPacks,
+                    major,
+                    startFile,
+                    typeFullName)
                 ?? throw new InvalidOperationException(
-                    $"Could not acquire an implementation assembly for '{typeFullName}' from {packId} {version}.");
+                    $"Could not acquire an implementation assembly for '{typeFullName}'.");
             var path = Path.Combine(tempRoot, acquired.FileName);
             await File.WriteAllBytesAsync(path, acquired.Bytes);
 
@@ -3726,7 +3897,8 @@ public static partial class BrowserInspectionEngine
                 new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(acquired.FileName), null, null, null),
                 path,
                 () => File.OpenRead(path),
-                AssemblyResolutionProvenance.Local($"runtime-pack/{packId}/{acquired.FileName}")));
+                AssemblyResolutionProvenance.Local(
+                    $"runtime-pack/{acquired.PackId}/{acquired.Version}/{acquired.FileName}")));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 ApiTypeMetadataId(candidate).Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
@@ -3810,9 +3982,10 @@ public static partial class BrowserInspectionEngine
     // Fetches a single implementation assembly from the runtime pack, following ECMA-335
     // type-forwards (a facade like System.Runtime.dll forwards its public surface to
     // System.Private.CoreLib.dll) up to a bounded number of hops.
-    static async Task<(byte[] Bytes, string FileName)?> AcquirePlatformAssemblyAsync(
-        string packId,
-        string version,
+    static async Task<(byte[] Bytes, string FileName, string PackId, string Version)?> AcquirePlatformAssemblyAsync(
+        string initialPack,
+        IReadOnlyDictionary<string, string> assemblyPacks,
+        int major,
         string startFile,
         string typeFullName)
     {
@@ -3821,6 +3994,15 @@ public static partial class BrowserInspectionEngine
         var current = startFile;
         for (int hop = 0; hop < 5 && visited.Add(current); hop++)
         {
+            string assemblyName = Path.GetFileNameWithoutExtension(current);
+            string pack = hop == 0
+                ? initialPack
+                : assemblyPacks.TryGetValue(assemblyName, out string? forwardedPack)
+                    ? forwardedPack
+                    : throw new InvalidOperationException(
+                        $"Platform index has no pack provenance for forwarded assembly '{assemblyName}'.");
+            string packId = RuntimePackIdForToken(pack);
+            string version = await ResolveRuntimePackVersionAsync(packId, major);
             // Range-extract (and session-cache) just this assembly from the pack.
             var bytes = await AcquireRuntimeFileAsync(packId, version, current);
             if (bytes is null)
@@ -3828,7 +4010,7 @@ public static partial class BrowserInspectionEngine
 
             var forward = FindForwardTarget(bytes, ns, name);
             if (forward is null)
-                return (bytes, current);
+                return (bytes, current, packId, version);
             current = forward.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? forward : forward + ".dll";
         }
         return null;
@@ -4294,32 +4476,50 @@ public static partial class BrowserInspectionEngine
         if (entry is null)
             return null;
 
+        using var stream = entry.Open();
+        var xmlBytes = ReadLimited(
+            stream,
+            MaxXmlBytes,
+            $"Documentation XML '{entry.FullName}'");
+        var document = LoadBoundedXml(
+            xmlBytes,
+            $"Documentation XML '{entry.FullName}'");
+        var element = document.Descendants("member").FirstOrDefault(candidate =>
+            candidate.Attribute("name")?.Value == documentationId);
+        return element is null
+            ? null
+            : new BrowserMemberDocumentation(
+                FormatDocElement(element.Element("summary")),
+                FormatDocElement(element.Element("returns")),
+                element.Elements("param")
+                    .Where(parameter => parameter.Attribute("name") is not null)
+                    .ToDictionary(
+                        parameter => parameter.Attribute("name")!.Value,
+                        parameter => FormatDocElement(parameter) ?? "",
+                        StringComparer.Ordinal),
+                element.Elements("exception")
+                    .Select(exception => new BrowserExceptionSurface(
+                        NormalizeDocReference(exception.Attribute("cref")?.Value),
+                        FormatDocElement(exception) ?? ""))
+                    .ToArray());
+    }
+
+    static XDocument LoadBoundedXml(byte[] bytes, string description)
+    {
         try
         {
-            using var stream = entry.Open();
-            var document = XDocument.Load(stream, LoadOptions.None);
-            var element = document.Descendants("member").FirstOrDefault(candidate =>
-                candidate.Attribute("name")?.Value == documentationId);
-            return element is null
-                ? null
-                : new BrowserMemberDocumentation(
-                    FormatDocElement(element.Element("summary")),
-                    FormatDocElement(element.Element("returns")),
-                    element.Elements("param")
-                        .Where(parameter => parameter.Attribute("name") is not null)
-                        .ToDictionary(
-                            parameter => parameter.Attribute("name")!.Value,
-                            parameter => FormatDocElement(parameter) ?? "",
-                            StringComparer.Ordinal),
-                    element.Elements("exception")
-                        .Select(exception => new BrowserExceptionSurface(
-                            NormalizeDocReference(exception.Attribute("cref")?.Value),
-                            FormatDocElement(exception) ?? ""))
-                        .ToArray());
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null,
+                MaxCharactersInDocument = MaxXmlBytes
+            });
+            return XDocument.Load(reader, LoadOptions.None);
         }
-        catch
+        catch (XmlException exception)
         {
-            return null;
+            throw new InvalidDataException($"{description} is not valid bounded XML.", exception);
         }
     }
 

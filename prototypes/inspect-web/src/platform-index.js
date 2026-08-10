@@ -75,8 +75,8 @@ function makeIndex(parsed) {
 
 /**
  * Lazily fetch and index the platform assembly map. Cached after the first call;
- * a failed load is not cached so a later call can retry. Returns null on failure
- * so callers degrade gracefully (the index is a hint, never load-bearing).
+ * a failed load is not cached so a later call can retry. Returns null on failure;
+ * callers that need exact runtime-pack provenance surface that absence.
  */
 export function loadPlatformIndex() {
   if (indexPromise) return indexPromise;

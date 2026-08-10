@@ -13,6 +13,7 @@ function loadStoredTaste() {
 
 const PLATFORM_RECENT_MAX = 8;
 const RECENT_PACKAGES_MAX = 12;
+const MAX_WORKSPACE_PACKAGES = 12;
 
 // Recently-opened NuGet packages, most-recent first, persisted across sessions so the
 // Home listing survives a refresh (the in-memory workspace does not). Written only from
@@ -352,14 +353,38 @@ function encodeShareState() {
 }
 
 function tabsFromTuples(list) {
-  return (Array.isArray(list) ? list : [])
-    .filter(Array.isArray)
-    .map(tuple => ({
+  const tabs = [];
+  const identityIndexes = new Map();
+  const sourceIndexes = [];
+  let truncated = false;
+  const tuples = Array.isArray(list) ? list : [];
+  for (let sourceIndex = 0; sourceIndex < tuples.length; sourceIndex++) {
+    const tuple = tuples[sourceIndex];
+    if (!Array.isArray(tuple)) continue;
+    const tab = {
       id: String(tuple[0] || ""),
       version: String(tuple[1] || "latest"),
       framework: String(tuple[2] || "")
-    }))
-    .filter(tab => tab.id);
+    };
+    if (!tab.id) continue;
+    const identity = packageIdentityKey({
+      id: tab.id,
+      version: tab.version,
+      activeFramework: tab.framework
+    });
+    if (identityIndexes.has(identity)) {
+      sourceIndexes[sourceIndex] = identityIndexes.get(identity);
+      continue;
+    }
+    if (tabs.length >= MAX_WORKSPACE_PACKAGES) {
+      truncated = true;
+      break;
+    }
+    identityIndexes.set(identity, tabs.length);
+    sourceIndexes[sourceIndex] = tabs.length;
+    tabs.push(tab);
+  }
+  return { tabs, sourceIndexes, truncated };
 }
 
 function decodeShareState(value) {
@@ -368,12 +393,17 @@ function decodeShareState(value) {
     const raw = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
     if (Array.isArray(raw)) {
-      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      const normalized = tabsFromTuples(raw);
+      return { tabs: normalized.tabs, truncated: normalized.truncated, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
     }
     if (raw && Array.isArray(raw.t)) {
+      const normalized = tabsFromTuples(raw.t);
       return {
-        tabs: tabsFromTuples(raw.t),
-        active: Number.isInteger(raw.a) ? raw.a : 0,
+        tabs: normalized.tabs,
+        truncated: normalized.truncated,
+        active: Number.isInteger(raw.a)
+          ? (normalized.sourceIndexes[raw.a] ?? 0)
+          : 0,
         view: typeof raw.v === "string" ? raw.v : "",
         rich: true,
         type: raw.y != null ? String(raw.y) : null,
@@ -419,9 +449,14 @@ function parseLocation() {
   let tabs = [];
   let active = 0;
   let library = null;
+  let workspaceNotice = "";
 
   if (share) {
     tabs = share.tabs;
+    if (share.truncated) {
+      workspaceNotice =
+        `The shared workspace exceeded the ${MAX_WORKSPACE_PACKAGES}-package limit and was truncated.`;
+    }
     if (share.rich) {
       // Rich packet is fully authoritative: identity, view, and selection all come from it.
       active = Math.min(Math.max(0, share.active), Math.max(0, tabs.length - 1));
@@ -455,7 +490,8 @@ function parseLocation() {
     packageLens: view.packageLens,
     tabs,
     active,
-    library
+    library,
+    workspaceNotice
   };
 }
 
@@ -653,6 +689,26 @@ function packageIdentityKey(pkg) {
 
 function packageIdentityEquals(left, right) {
   return Boolean(left && right && packageIdentityKey(left) === packageIdentityKey(right));
+}
+
+function retainPackageModel(packageModel) {
+  const existing = state.packages.findIndex(item =>
+    packageIdentityEquals(item, packageModel));
+  if (existing >= 0) {
+    state.packages[existing] = packageModel;
+    if (packageIdentityEquals(state.package, packageModel))
+      state.package = packageModel;
+    return;
+  }
+
+  state.packages.push(packageModel);
+  while (state.packages.length > MAX_WORKSPACE_PACKAGES) {
+    const eviction = state.packages.findIndex(item =>
+      !packageIdentityEquals(item, state.package)
+      && !packageIdentityEquals(item, packageModel));
+    if (eviction < 0) break;
+    state.packages.splice(eviction, 1);
+  }
 }
 
 function activatePackage(pkg, { resetAccessibility = false } = {}) {
@@ -1482,17 +1538,13 @@ function assemblyReferencesSectionHtml(data) {
 function dependencyListSectionHtml(groups, selectedTfm) {
   const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
   const deps = group.dependencies || [];
-  const openIds = new Set(state.packages.map(item => item.id.toLowerCase()));
   return `
     <section class="document-section" id="dep-list-section">
       <div class="section-title"><h2>NuGet dependencies</h2><span>${escapeHtml(group.framework)} · ${deps.length} package${deps.length === 1 ? "" : "s"}</span></div>
       ${deps.length
         ? `<ul class="dep-list">${deps.map(dependency => {
-            const isOpen = openIds.has(dependency.id.toLowerCase());
-            const attrs = isOpen
-              ? `data-dep-open="${escapeHtml(dependency.id)}" title="Switch to ${escapeHtml(dependency.id)}"`
-              : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
-            return `<li><button class="dep-name as-link${isOpen ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            const attrs = `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
+            return `<li><button class="dep-name as-link" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -1514,9 +1566,6 @@ function patchDependenciesFramework() {
 }
 
 function bindDependencyListHandlers() {
-  document.querySelectorAll("[data-dep-open]").forEach(button => {
-    button.onclick = () => switchToPackageForDependencies(button.dataset.depOpen);
-  });
   document.querySelectorAll("[data-dep-load]").forEach(button => {
     button.onclick = () => openDependencyPackage(button.dataset.depLoad, button.dataset.depVersion || "");
   });
@@ -5855,15 +5904,30 @@ function buildDependencyGraphMermaid(selectedTfm) {
   const MAX_NODES = 80;
   const centerId = state.package.id;
   const centerKey = centerId.toLowerCase();
-  const openById = new Map(state.packages.map(item => [item.id.toLowerCase(), item]));
+  const openPackagesById = new Map();
+  for (const item of state.packages) {
+    const key = item.id.toLowerCase();
+    const packages = openPackagesById.get(key) ?? [];
+    packages.push(item);
+    openPackagesById.set(key, packages);
+  }
+  const uniqueOpenPackage = id => {
+    const packages = openPackagesById.get(id.toLowerCase()) ?? [];
+    return packages.length === 1 ? packages[0] : null;
+  };
 
   const nodeInfo = new Map();
   const ensureNode = (id, versionRange) => {
     const key = id.toLowerCase();
     if (!nodeInfo.has(key)) {
-      const open = openById.get(key);
+      const open = uniqueOpenPackage(id);
       const kind = key === centerKey ? "self" : (open ? "open" : "external");
-      nodeInfo.set(key, { id, kind, versionRange: versionRange || "" });
+      nodeInfo.set(key, {
+        id,
+        kind,
+        versionRange: versionRange || "",
+        packageKey: open ? packageIdentityKey(open) : ""
+      });
     }
     return nodeInfo.get(key);
   };
@@ -5879,7 +5943,7 @@ function buildDependencyGraphMermaid(selectedTfm) {
   };
 
   const groupFor = (id, version) => {
-    const open = openById.get(id.toLowerCase());
+    const open = uniqueOpenPackage(id);
     let groups = open
       ? state.workspaceDependencies[workspaceDependencyKey(open)]
       : null;
@@ -5905,7 +5969,7 @@ function buildDependencyGraphMermaid(selectedTfm) {
         const depKey = dependency.id.toLowerCase();
         if (!downVisited.has(depKey)) {
           downVisited.add(depKey);
-          const open = openById.get(depKey);
+          const open = uniqueOpenPackage(depKey);
           if (open) next.push({ id: open.id, version: open.version });
         }
       }
@@ -6020,7 +6084,10 @@ async function renderDependencyGraph() {
       node.classList.add("nav-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
-        if (info.kind === "open") switchToPackageForDependencies(info.id);
+        const open = info.packageKey
+          ? state.packages.find(item => packageIdentityKey(item) === info.packageKey)
+          : null;
+        if (open) switchToPackageForDependencies(open);
         else openDependencyPackage(info.id, info.versionRange);
       });
     });
@@ -6037,9 +6104,7 @@ async function renderDependencyGraph() {
   }
 }
 
-function switchToPackageForDependencies(packageId) {
-  const target = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
-  if (!target) return;
+function switchToPackageForDependencies(target) {
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
@@ -6051,11 +6116,6 @@ function switchToPackageForDependencies(packageId) {
 }
 
 async function openDependencyPackage(packageId, versionRange) {
-  const existing = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
-  if (existing) {
-    switchToPackageForDependencies(existing.id);
-    return;
-  }
   let version;
   try {
     version = await inspectResolveDependencyVersion(packageId, versionRange);
@@ -6065,7 +6125,16 @@ async function openDependencyPackage(packageId, versionRange) {
     render();
     return;
   }
-  const model = await loadPackage(packageId, version, "");
+  const framework = state.package.activeFramework;
+  const existing = state.packages.find(item =>
+    item.id.toLowerCase() === packageId.toLowerCase()
+    && item.version.toLowerCase() === version.toLowerCase()
+    && item.activeFramework.toLowerCase() === framework.toLowerCase());
+  if (existing) {
+    switchToPackageForDependencies(existing);
+    return;
+  }
+  const model = await loadPackage(packageId, version, framework);
   if (!model) return;
   state.atPackageRoot = true;
   state.packageLens = "dependencies";
@@ -6203,8 +6272,13 @@ async function loadRuntimeMemberCallGraph(type, overload) {
   state.memberCallGraphError = "";
   render();
   try {
+    const platformProvenance = await platformPackProvenance(
+      state.package.activeFramework,
+      type.assembly);
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
+      pack: platformProvenance.pack,
+      assemblyPacks: platformProvenance.assemblyPacks,
       assembly: type.assembly,
       type: type.metadataId ?? type.queryId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
@@ -6539,6 +6613,27 @@ function findGraphMemberSelection(type, target) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+async function platformPackProvenance(framework, assembly) {
+  state.platformIndex ??= await loadPlatformIndex();
+  if (!state.platformIndex) {
+    throw new Error("Platform assembly-pack provenance is unavailable.");
+  }
+
+  const indexedAssembly = assembly === "corelib"
+    ? "System.Private.CoreLib"
+    : assembly;
+  const pack = state.platformIndex.lookup(framework, indexedAssembly)?.pack;
+  if (!pack) {
+    throw new Error(
+      `Platform pack provenance is unavailable for ${assembly || "the selected member"}.`);
+  }
+
+  const assemblyPacks = Object.fromEntries(
+    state.platformIndex.assembliesFor(framework)
+      .map(row => [row.assembly, row.pack]));
+  return { pack, assemblyPacks };
+}
+
 async function drillPlatformNode(node) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
@@ -6546,20 +6641,13 @@ async function drillPlatformNode(node) {
   state.platformDrillError = "";
   render();
   try {
-    state.platformIndex ??= await loadPlatformIndex();
-    const indexedAssembly = node.assembly === "corelib"
-      ? "System.Private.CoreLib"
-      : node.assembly;
-    const pack = state.platformIndex?.lookup(
+    const platformProvenance = await platformPackProvenance(
       state.package.activeFramework,
-      indexedAssembly)?.pack;
-    if (!pack) {
-      throw new Error(
-        `Platform pack provenance is unavailable for ${node.assembly || node.typeFullName}.`);
-    }
+      node.assembly);
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
-      pack,
+      pack: platformProvenance.pack,
+      assemblyPacks: platformProvenance.assemblyPacks,
       assembly: node.assembly,
       type: node.typeFullName,
       member: node.memberName,
@@ -7150,12 +7238,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       totalMembers: result.totalMembers,
       documents: result.documents ?? []
     };
-    const existing = state.packages.findIndex(item =>
-      item.id.toLowerCase() === packageModel.id.toLowerCase()
-      && item.version.toLowerCase() === packageModel.version.toLowerCase()
-      && item.activeFramework.toLowerCase() === packageModel.activeFramework.toLowerCase());
-    if (existing >= 0) state.packages[existing] = packageModel;
-    else state.packages.push(packageModel);
+    retainPackageModel(packageModel);
     recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
     if (background) return packageModel;
     activatePackage(packageModel, { resetAccessibility: true });
@@ -7356,12 +7439,7 @@ async function loadRuntimePack(framework) {
       documents: result.documents ?? [],
       isRuntimePack: true
     };
-    const at = state.packages.findIndex(item =>
-      item.id.toLowerCase() === packageModel.id.toLowerCase()
-      && item.version.toLowerCase() === packageModel.version.toLowerCase()
-      && item.activeFramework.toLowerCase() === packageModel.activeFramework.toLowerCase());
-    if (at >= 0) state.packages[at] = packageModel;
-    else state.packages.push(packageModel);
+    retainPackageModel(packageModel);
     return packageModel;
   })();
   runtimePackLoadPromise = operation;
@@ -7447,7 +7525,7 @@ async function loadRuntimePackAssembly(framework, assemblyFileName, pack) {
       documents: result.documents ?? [],
       isRuntimePack: true
     };
-    state.packages.push(packageModel);
+    retainPackageModel(packageModel);
     return packageModel;
   })();
   runtimePackLoadPromise = operation;
@@ -7513,7 +7591,7 @@ async function restoreWorkspaceFromLocation(
   deep,
   navigationSeq = ++state.navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
-  state.queryNotice = "";
+  state.queryNotice = loc.workspaceNotice || "";
   state.home = false;
   state.loading = true;
   state.error = "";
@@ -7523,7 +7601,9 @@ async function restoreWorkspaceFromLocation(
     version: loc.version || "latest",
     framework: loc.framework || ""
   };
-  const tabs = (loc.tabs && loc.tabs.length) ? loc.tabs.slice() : [target];
+  const tabs = (loc.tabs && loc.tabs.length)
+    ? loc.tabs.slice(0, MAX_WORKSPACE_PACKAGES)
+    : [target];
   const matchesFramework = tab =>
     !target.framework
     || String(tab.framework || tab.activeFramework || "").toLowerCase()
@@ -7534,7 +7614,15 @@ async function restoreWorkspaceFromLocation(
       : (tab.id.toLowerCase() === target.id.toLowerCase()
         && String(tab.version).toLowerCase() === String(target.version).toLowerCase()
         && matchesFramework(tab));
-  if (!tabs.some(matchesTarget)) tabs.push(target);
+  if (!tabs.some(matchesTarget)) {
+    if (tabs.length === MAX_WORKSPACE_PACKAGES) {
+      tabs.pop();
+      const notice =
+        `The shared workspace exceeded the ${MAX_WORKSPACE_PACKAGES}-package limit and was truncated.`;
+      state.queryNotice = state.queryNotice ? `${state.queryNotice} ${notice}` : notice;
+    }
+    tabs.push(target);
+  }
 
   // Load every tab's data so the tab bar and cross-package edges come back, but keep the
   // main view under the loading overlay throughout: NuGet tabs load in the background (no
