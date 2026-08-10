@@ -49,7 +49,7 @@ public class NestedTargetLookupTests
     }
 
     [Theory]
-    [InlineData("ILInspector.Analysis.LibraryBodyIndex.IndexBuilder", "Build", false)]
+    [InlineData("ILInspector.Analysis.LibraryBodyAnalysisBuilder", "Build", false)]
     [InlineData("System.Text.RegularExpressions.Generated.<RegexGenerator_g>X.RunnerFactory.Runner", "Scan", true)]
     [InlineData("Some.Normal.Type", "<TryMatch>g__UncaptureUntil|2_0", true)]
     [InlineData("<Module>", ".cctor", true)]

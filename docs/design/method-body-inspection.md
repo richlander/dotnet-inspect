@@ -212,8 +212,13 @@ Owns IL analysis facts:
 - allocation, safety, and cost facts
 - unsafe operations and unsafe API evidence
 
-The existing `LibraryBodyIndex` and `SemanticFactProjection` are the right
-substrates. Coordinate scope should be added there, not rebuilt in CLI code.
+`LibraryBodyIndex` remains the compatibility query facade over one shared body
+acquisition. `LibraryBodyAnalysisPlan` owns producer dependencies and scope;
+the acquisition returns cohesive method, safety, allocation, optimization, and
+resource-lifecycle results. Topic-specific Analysis services consume those
+results rather than adding more unrelated algorithms to the facade.
+`SemanticFactProjection` remains the coordinate projection substrate.
+Coordinate scope should be added in Analysis, not rebuilt in CLI code.
 
 ### `ILInspector.Research`
 
