@@ -62,9 +62,9 @@ public class ImplementsCommand
                     targetType,
                     options.IncludeAll),
                 (assembly, entry) =>
-                    AddImplementers(results, assembly, entry, logger),
+                    AddImplementers(results, assembly, entry),
                 (assembly, failure) =>
-                    logger.LogWarning(
+                    CommandError.WriteWarning(
                         $"Error scanning {assembly.Path}: {failure}"));
 
             // Deduplicate by type name + source (same type from multiple TFM folders)
@@ -111,8 +111,7 @@ public class ImplementsCommand
     private static void AddImplementers(
         List<ImplementerResult> results,
         AssemblySetEntry assembly,
-        AssemblyContextEntry<ImmutableArray<TypeRelationship>> entry,
-        VerboseLogger logger)
+        AssemblyContextEntry<ImmutableArray<TypeRelationship>> entry)
     {
         switch (entry)
         {
@@ -139,12 +138,12 @@ public class ImplementsCommand
                 break;
             case AssemblyContextEntry<
                 ImmutableArray<TypeRelationship>>.Rejected rejected:
-                logger.LogWarning(
+                CommandError.WriteWarning(
                     $"Error scanning {assembly.Path}: {rejected.Failure.Detail}");
                 break;
             case AssemblyContextEntry<
                 ImmutableArray<TypeRelationship>>.Failed failed:
-                logger.LogWarning(
+                CommandError.WriteWarning(
                     $"Error scanning {assembly.Path}: {failed.Error.Message}");
                 break;
         }

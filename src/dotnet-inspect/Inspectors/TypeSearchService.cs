@@ -333,10 +333,9 @@ internal static class TypeSearchService
                     switch (entry)
                     {
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                AssemblyTypeInventoryEntry>>.Available available:
+                            AssemblyTypeInventory>.Available available:
                             foreach (AssemblyTypeInventoryEntry type
-                                in available.Value)
+                                in available.Value.Types)
                             {
                                 if (!searchPatterns.Any(searchPattern =>
                                         TypeMatcher.MatchesTypeFilter(
@@ -360,23 +359,25 @@ internal static class TypeSearchService
                                 if (ReachedLimit())
                                     break;
                             }
+                            WriteInspectionFailures(
+                                assembly,
+                                available.Value.InspectionFailures,
+                                logger);
                             break;
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                AssemblyTypeInventoryEntry>>.Rejected rejected:
-                            logger.LogWarning(
+                            AssemblyTypeInventory>.Rejected rejected:
+                            CommandError.WriteWarning(
                                 $"Could not read {assembly.Path}: {rejected.Failure.Detail}");
                             break;
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                AssemblyTypeInventoryEntry>>.Failed failed:
-                            logger.LogWarning(
+                            AssemblyTypeInventory>.Failed failed:
+                            CommandError.WriteWarning(
                                 $"Could not read {assembly.Path}: {failed.Error.Message}");
                             break;
                     }
                 },
                 (assembly, failure) =>
-                    logger.LogWarning(
+                    CommandError.WriteWarning(
                         $"Could not read {assembly.Path}: {failure}"),
                 ReachedLimit);
         }
@@ -389,5 +390,23 @@ internal static class TypeSearchService
 
         await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
         return results;
+    }
+
+    private static void WriteInspectionFailures(
+        AssemblySetEntry assembly,
+        ImmutableArray<ApiSurfaceInspectionFailure> failures,
+        VerboseLogger logger)
+    {
+        if (failures.IsEmpty)
+            return;
+
+        CommandError.WriteWarning(
+            $"Type search in {assembly.Path} skipped {failures.Length} metadata row(s).");
+        foreach (ApiSurfaceInspectionFailure failure in failures)
+        {
+            logger.LogWarning(
+                $"Type search rejected {failure.Operation} at 0x{failure.SubjectToken:X8}: "
+                + $"{failure.Kind}: {failure.Detail}");
+        }
     }
 }

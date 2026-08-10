@@ -32,8 +32,7 @@ public sealed class AssemblySetInspectionWorkspaceTests
             {
                 Assert.IsType<
                     AssemblyContextEntry<
-                        System.Collections.Immutable.ImmutableArray<
-                            AssemblyTypeInventoryEntry>>.Available>(entry);
+                        AssemblyTypeInventory>.Available>(entry);
                 availableCount++;
             },
             (_, failure) => Assert.Fail(failure));

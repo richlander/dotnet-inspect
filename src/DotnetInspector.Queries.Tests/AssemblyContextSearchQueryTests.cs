@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Services;
@@ -75,26 +77,28 @@ public sealed class AssemblyContextSearchQueryTests
                     nameof(WorkspaceQueryImplementation),
                     StringComparison.Ordinal));
 
-        ImmutableArray<AssemblyTypeInventoryEntry> types =
+        AssemblyTypeInventory typeInventory =
             Available(
                 results.Get(
                     AssemblyContextTypeInventoryQuery.Definition));
         Assert.Contains(
-            types,
+            typeInventory.Types,
             type =>
                 type.FullName
                 == typeof(WorkspaceQueryImplementation).FullName);
+        Assert.Empty(typeInventory.InspectionFailures);
 
-        ImmutableArray<MemberSearchResult> members =
+        AssemblyMemberMatches memberMatches =
             Available(
                 results.Get(
                     AssemblyContextMemberMatchesQuery.Definition));
         Assert.Contains(
-            members,
+            memberMatches.Members,
             member =>
                 member.MemberName
                 == nameof(
                     WorkspaceQueryImplementation.WorkspaceQueryMember));
+        Assert.Empty(memberMatches.InspectionFailures);
 
         Assert.True(group.RetainedImageBytes > 0);
     }
@@ -132,23 +136,58 @@ public sealed class AssemblyContextSearchQueryTests
                     new AssemblyContextParticipant(available, policy),
                 ]);
 
-        AssemblyContextResult<
-            ImmutableArray<AssemblyTypeInventoryEntry>> result =
+        AssemblyContextResult<AssemblyTypeInventory> result =
             AssemblyContextTypeInventoryQuery.Execute(
                 group,
                 includeAll: true);
 
         var rejectedEntry = Assert.IsType<
             AssemblyContextEntry<
-                ImmutableArray<AssemblyTypeInventoryEntry>>.Rejected>(
+                AssemblyTypeInventory>.Rejected>(
                     result.Assemblies[0]);
         Assert.Equal(
             CandidateOpenFailureKind.InvalidImage,
             rejectedEntry.Failure.Kind);
         Assert.IsType<
             AssemblyContextEntry<
-                ImmutableArray<AssemblyTypeInventoryEntry>>.Available>(
+                AssemblyTypeInventory>.Available>(
                     result.Assemblies[1]);
+    }
+
+    [Fact]
+    public void SurfaceQueries_PreserveHealthyRowsAndInspectionFailures()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"workspace-query-partial-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildPartialSurfaceImage());
+        try
+        {
+            using var workspace = new InspectionWorkspace();
+            using AssemblyContextGroup group =
+                CreateGroup(workspace, path);
+
+            AssemblyTypeInventory types = Available(
+                AssemblyContextTypeInventoryQuery.Execute(
+                    group,
+                    includeAll: true));
+            Assert.Contains(
+                types.Types,
+                type => type.TypeName == "Sibling");
+            Assert.Single(types.InspectionFailures);
+
+            AssemblyMemberMatches members = Available(
+                AssemblyContextMemberMatchesQuery.Execute(
+                    group,
+                    ["*"],
+                    includeAll: true));
+            Assert.Empty(members.Members);
+            Assert.Single(members.InspectionFailures);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -178,11 +217,10 @@ public sealed class AssemblyContextSearchQueryTests
         Assert.True(actual.TypeInventories.IsComplete);
     }
 
-    private static ImmutableArray<TValue> Available<TValue>(
-        AssemblyContextResult<ImmutableArray<TValue>> result)
+    private static TValue Available<TValue>(
+        AssemblyContextResult<TValue> result)
         => Assert.IsType<
-                AssemblyContextEntry<
-                    ImmutableArray<TValue>>.Available>(
+                AssemblyContextEntry<TValue>.Available>(
                     Assert.Single(result.Assemblies))
             .Value;
 
@@ -197,6 +235,55 @@ public sealed class AssemblyContextSearchQueryTests
         var policy = new TestBindingPolicy();
         return workspace.CreateAssemblyContextGroup(
             [new AssemblyContextParticipant(assembly, policy)]);
+    }
+
+    private static byte[] BuildPartialSurfaceImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle cyclic = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Rejected"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(cyclic, cyclic);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Sibling"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     private sealed class TestBindingPolicy : IAssemblyBindingPolicy

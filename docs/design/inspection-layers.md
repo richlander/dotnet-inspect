@@ -85,9 +85,10 @@ workspace. Ordinary independent scans use sequential one-participant groups so
 the workspace does not retain the entire search set; this is gated by
 `RunPerAssembly_RetainsOnlyCurrentParticipant`. The explicit
 `extensions --reachable` traversal uses one binding-consistent group and lazily
-decodes edges only for reached types. CLI adapters retain output naming,
-source/version projection, Findings projection, fuzzy matching, and format
-selection.
+decodes edges only for reached types. The retained-image budget remains active,
+and both census and reachability participant rejections are visible. CLI
+adapters retain output naming, source/version projection, Findings projection,
+fuzzy matching, and format selection.
 The diff CLI binds Changes, Analysis Diff, and Implementation Diff to their
 concrete query definitions. Its transitional adapters resolve member targets
 and acquire body indexes and retained assembly descriptors lazily inside

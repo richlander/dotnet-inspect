@@ -73,10 +73,9 @@ internal static class MemberSearchService
                     switch (entry)
                     {
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                MemberSearchResult>>.Available available:
+                            AssemblyMemberMatches>.Available available:
                             foreach (MemberSearchResult member
-                                in available.Value)
+                                in available.Value.Members)
                             {
                                 results.Add(new MemberFindResult
                                 {
@@ -98,23 +97,25 @@ internal static class MemberSearchService
                                     SourceVersion = assembly.Version,
                                 });
                             }
+                            WriteInspectionFailures(
+                                assembly,
+                                available.Value.InspectionFailures,
+                                logger);
                             break;
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                MemberSearchResult>>.Rejected rejected:
-                            logger.LogWarning(
+                            AssemblyMemberMatches>.Rejected rejected:
+                            CommandError.WriteWarning(
                                 $"Could not read {assembly.Path}: {rejected.Failure.Detail}");
                             break;
                         case AssemblyContextEntry<
-                            ImmutableArray<
-                                MemberSearchResult>>.Failed failed:
-                            logger.LogWarning(
+                            AssemblyMemberMatches>.Failed failed:
+                            CommandError.WriteWarning(
                                 $"Could not read {assembly.Path}: {failed.Error.Message}");
                             break;
                     }
                 },
                 (assembly, failure) =>
-                    logger.LogWarning(
+                    CommandError.WriteWarning(
                         $"Could not read {assembly.Path}: {failure}"),
                 ReachedLimit);
         }
@@ -127,5 +128,23 @@ internal static class MemberSearchService
 
         await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
         return results;
+    }
+
+    private static void WriteInspectionFailures(
+        AssemblySetEntry assembly,
+        ImmutableArray<ApiSurfaceInspectionFailure> failures,
+        VerboseLogger logger)
+    {
+        if (failures.IsEmpty)
+            return;
+
+        CommandError.WriteWarning(
+            $"Member search in {assembly.Path} skipped {failures.Length} metadata row(s).");
+        foreach (ApiSurfaceInspectionFailure failure in failures)
+        {
+            logger.LogWarning(
+                $"Member search rejected {failure.Operation} at 0x{failure.SubjectToken:X8}: "
+                + $"{failure.Kind}: {failure.Detail}");
+        }
     }
 }

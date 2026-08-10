@@ -135,7 +135,12 @@ internal sealed class AssemblySetInspectionWorkspace : IDisposable
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
-                or BadImageFormatException)
+                or BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or NotSupportedException
+                or OverflowException
+                or IndexOutOfRangeException)
         {
             failure = ex.Message;
             return null;
@@ -163,7 +168,9 @@ internal sealed class AssemblySetInspectionWorkspace : IDisposable
                 AssemblyResolutionProvenance.Local(
                     "restored project asset"),
             _ => AssemblyResolutionProvenance.Local(
-                entry.Source),
+                string.IsNullOrWhiteSpace(entry.Source)
+                    ? "assembly-set search"
+                    : entry.Source),
         };
 
     public void Dispose() => _workspace.Dispose();

@@ -2,6 +2,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
@@ -231,6 +232,67 @@ public class ExtensionsCommandTests
             nameof(ExtensionWorkspaceMethods.WorkspaceExtension),
             output);
         Assert.Contains("\"reachable_path\": \".Reachable\"", output);
+    }
+
+    [Fact]
+    public async Task ReachabilityBudgetRejectionIsVisible()
+    {
+        string path = typeof(ExtensionsCommandTests).Assembly.Location;
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("first"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("second"));
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(first, policy),
+                    new AssemblyContextParticipant(second, policy),
+                ],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes = new FileInfo(path).Length,
+                });
+        AssemblyContextExtensionReachabilityResult reachability =
+            AssemblyContextExtensionReachabilityQuery.Execute(
+                group,
+                typeof(ExtensionWorkspaceRoot).FullName!,
+                maxDepth: 1);
+        var entries = new AssemblyContextEntryMap(
+            [
+                (
+                    first.Registration,
+                    new AssemblySetEntry(
+                        path,
+                        "first",
+                        null,
+                        AssemblySetSourceKind.Assembly)),
+                (
+                    second.Registration,
+                    new AssemblySetEntry(
+                        path,
+                        "second",
+                        null,
+                        AssemblySetSourceKind.Assembly)),
+            ]);
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => ExtensionsCommand.WriteReachabilityFailures(
+                reachability,
+                entries));
+
+        Assert.Contains(
+            "Extension reachability inspection failed",
+            error);
+        Assert.Contains(
+            "retained-image budget was exhausted",
+            error);
     }
 
     [Fact]

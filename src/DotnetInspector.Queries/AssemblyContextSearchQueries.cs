@@ -41,6 +41,20 @@ public sealed record AssemblyTypeInventoryEntry(
     string FullName,
     string Kind);
 
+/// <summary>
+/// Healthy type rows and metadata rows rejected while producing them.
+/// </summary>
+public sealed record AssemblyTypeInventory(
+    ImmutableArray<AssemblyTypeInventoryEntry> Types,
+    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
+
+/// <summary>
+/// Healthy member matches and metadata rows rejected while producing them.
+/// </summary>
+public sealed record AssemblyMemberMatches(
+    ImmutableArray<MemberSearchResult> Members,
+    ImmutableArray<ApiSurfaceInspectionFailure> InspectionFailures);
+
 /// <summary>One type reached through public members of the requested root type.</summary>
 public sealed record ExtensionReachableTypePath(
     string Type,
@@ -241,19 +255,21 @@ public static class AssemblyContextExtensionReachabilityQuery
 public static class AssemblyContextTypeInventoryQuery
 {
     public static InspectionQuery<
-        AssemblyContextResult<ImmutableArray<AssemblyTypeInventoryEntry>>>
+        AssemblyContextResult<AssemblyTypeInventory>>
         Definition { get; } =
         new("Assembly context type inventory", InspectionCost.Unbounded);
 
-    public static AssemblyContextResult<
-        ImmutableArray<AssemblyTypeInventoryEntry>> Execute(
+    public static AssemblyContextResult<AssemblyTypeInventory> Execute(
             AssemblyContextGroup group,
             bool includeAll = false)
         => AssemblyContextQueryExecutor.Execute(
             group,
             session =>
-                session.ApiSurface(includeAll, typesOnly: true)
-                    .Types
+            {
+                ApiSurface surface =
+                    session.ApiSurface(includeAll, typesOnly: true);
+                return new AssemblyTypeInventory(
+                    surface.Types
                     .Select(
                         static type =>
                             new AssemblyTypeInventoryEntry(
@@ -261,18 +277,20 @@ public static class AssemblyContextTypeInventoryQuery
                                 type.Namespace,
                                 type.FullName,
                                 type.Kind))
-                    .ToImmutableArray());
+                    .ToImmutableArray(),
+                    surface.InspectionFailures.ToImmutableArray());
+            });
 }
 
 /// <summary>Searches member names in every participant.</summary>
 public static class AssemblyContextMemberMatchesQuery
 {
     public static InspectionQuery<
-        AssemblyContextResult<ImmutableArray<MemberSearchResult>>>
+        AssemblyContextResult<AssemblyMemberMatches>>
         Definition { get; } =
         new("Assembly context member matches", InspectionCost.Unbounded);
 
-    public static AssemblyContextResult<ImmutableArray<MemberSearchResult>>
+    public static AssemblyContextResult<AssemblyMemberMatches>
         Execute(
             AssemblyContextGroup group,
             IReadOnlyList<string> patterns,
@@ -283,12 +301,17 @@ public static class AssemblyContextMemberMatchesQuery
         return AssemblyContextQueryExecutor.Execute(
             group,
             (subject, session) =>
-                MemberSearch.Search(
-                        session.ApiSurface(includeAll),
+            {
+                ApiSurface surface = session.ApiSurface(includeAll);
+                return new AssemblyMemberMatches(
+                    MemberSearch.Search(
+                        surface,
                         subject.Identity.Name,
                         patterns,
                         limit)
-                    .ToImmutableArray());
+                    .ToImmutableArray(),
+                    surface.InspectionFailures.ToImmutableArray());
+            });
     }
 }
 

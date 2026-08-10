@@ -138,9 +138,11 @@ public class ExtensionsCommand
                                 entry));
                     }
 
-                    reachableTypes = queryResults.Get(
-                            AssemblyContextExtensionReachabilityQuery.Definition)
-                        .ReachableTypes;
+                    AssemblyContextExtensionReachabilityResult reachability =
+                        queryResults.Get(
+                            AssemblyContextExtensionReachabilityQuery.Definition);
+                    WriteReachabilityFailures(reachability, entries);
+                    reachableTypes = reachability.ReachableTypes;
                 },
                 (assembly, failure) =>
                     censuses.Add(
@@ -194,6 +196,36 @@ public class ExtensionsCommand
         }
 
         return results;
+    }
+
+    internal static void WriteReachabilityFailures(
+        AssemblyContextExtensionReachabilityResult reachability,
+        AssemblyContextEntryMap entries)
+    {
+        foreach (AssemblyContextEntry<
+            ImmutableArray<ExtensionReachabilityType>> entry
+            in reachability.TypeInventories.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    ImmutableArray<
+                        ExtensionReachabilityType>>.Rejected rejected:
+                    CommandError.WriteWarning(
+                        $"Extension reachability inspection failed for "
+                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + rejected.Failure.Detail);
+                    break;
+                case AssemblyContextEntry<
+                    ImmutableArray<
+                        ExtensionReachabilityType>>.Failed failed:
+                    CommandError.WriteWarning(
+                        $"Extension reachability inspection failed for "
+                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + failed.Error.Message);
+                    break;
+            }
+        }
     }
 
     private static ExtensionAssemblyCensus CreateExtensionCensus(

@@ -34,10 +34,13 @@ directions, and remain independent of rendering. The `extensions`,
 workspaces. Ordinary search fan-out creates and disposes one-participant groups
 sequentially; explicit extension reachability uses one binding-consistent group
 so its name index, lazy member-edge traversal, and extension census observe the
-same retained participant images. Other foundations include shared image and
-inspection session ownership, catalog generations, `CoreCache`, typed
-provenance and resolution currencies, and `InertString`; the remaining
-workspace model describes how those pieces will be composed.
+same retained participant images. That group retains the workspace's bounded
+image budget; participants rejected by acquisition or the budget remain visible
+as extension and reachability warnings rather than silently shortening the
+search. Other foundations include shared image and inspection session ownership,
+catalog generations, `CoreCache`, typed provenance and resolution currencies,
+and `InertString`; the remaining workspace model describes how those pieces
+will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
