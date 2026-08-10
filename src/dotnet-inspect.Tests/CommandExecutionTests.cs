@@ -11275,22 +11275,50 @@ public partial class CommandExecutionTests
     /// has teeth only on the <c>test-windows</c> leg.
     /// </para>
     /// <para>
-    /// Selects one aggregated section and one per-library section (<c>-S Switches,Dependencies</c>),
-    /// so the document carries two section blocks and the loop measures separation between blocks
-    /// rather than only the boundary below the title. The aggregated path is the one #3951 added and
-    /// the per-library test does not reach. One invocation rather than two: windowing changes the
-    /// rows inside a block, not how blocks are joined, so a second windowed run would repeat a
-    /// package resolution without testing anything new here.
+    /// Both producers are covered, because they fail differently. The aggregated path (#3951, which
+    /// the per-library test does not reach) is exercised by <c>-S Switches,Dependencies</c> against
+    /// a real package. The per-library path appears there only as the document's last block, where
+    /// a trailing newline it emitted would be absorbed by the assembling <c>TrimEnd</c> and go
+    /// unnoticed; it is therefore also run against a local two-library package, so that a boundary
+    /// between two per-library blocks is measured directly.
     /// </para>
     /// </summary>
     [Fact]
     public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
-        var (exit, output, _) = await RunAppAsync(
+        var (exit, aggregated, _) = await RunAppAsync(
             "package", "System.Text.Json", "--all-libraries", "-S", "Switches,Dependencies");
 
         Assert.Equal(0, exit);
-        Assert.Contains("## Switches", output, StringComparison.Ordinal);
+        Assert.Contains("## Switches", aggregated, StringComparison.Ordinal);
+        AssertBlocksSeparatedByOneBlankLine(aggregated, "# system.text.json");
+
+        // The per-library producer, which the run above reaches only as the document's last block,
+        // where a trailing newline it emitted would be absorbed by the assembling TrimEnd. This
+        // package ships two libraries for the selected framework, so the boundary between two
+        // per-library blocks is measured rather than inferred.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (localExit, perLibrary, _) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+
+            Assert.Equal(0, localExit);
+            AssertBlocksSeparatedByOneBlankLine(perLibrary, "# test.libraryfiles");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Asserts the block-separation invariant over one rendered <c>--all-libraries</c> document:
+    /// it opens with its title heading, every <c>##</c> heading is preceded by exactly one blank
+    /// line, and it carries no trailing whitespace.
+    /// </summary>
+    private static void AssertBlocksSeparatedByOneBlankLine(string output, string expectedTitlePrefix)
+    {
         Assert.DoesNotContain('\r', output);
 
         // The document's own end, not the harness's. OutputFormatter.WriteLfLine appends the
@@ -11305,9 +11333,9 @@ public partial class CommandExecutionTests
         var lines = document.Split('\n');
 
         // The document's start, which the heading loop cannot reach: the title block is one
-        // heading line naming the package, followed by exactly one blank line. StartsWith("# ")
-        // alone would admit anything prepended above the title that is itself a heading.
-        Assert.StartsWith("# system.text.json", lines[0], StringComparison.OrdinalIgnoreCase);
+        // heading line naming the package, followed by exactly one blank line. A bare
+        // StartsWith("# ") would admit anything prepended above the title that is itself a heading.
+        Assert.StartsWith(expectedTitlePrefix, lines[0], StringComparison.OrdinalIgnoreCase);
         Assert.True(
             lines[1].Length == 0,
             $"expected a blank line after the title, found '{lines[1]}'");
