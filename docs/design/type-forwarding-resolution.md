@@ -2679,6 +2679,10 @@ frozen generation. `CatalogMemberCorrespondencePlanTests`,
 `CatalogCallGraphScopeTests`, and `MemberCallGraphSessionTests` gate
 forwarded declaring/parameter/return types, duplicate and unavailable evidence,
 physical participant deduplication, generation release, and product reuse.
+`CatalogCallGraphScopeTests.FunctionPointerPayloadKeepsOverloadsAndTheirCallersSeparate`
+and `PlanCacheIdentityPreservesRecursiveFunctionPointerPayload` gate the
+catalog plan cache against collapsing function-pointer calling conventions,
+return and parameter types, or custom modifiers (#3911).
 `TypeResolutionContextTests.NestedForwarder_ResolvesFullDeclarationChain`
 gates the nested-forwarder composition from declaration chain through final
 definition.

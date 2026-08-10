@@ -1845,6 +1845,120 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MemberLimitRestrictsShapeMembers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "property", Name = "First", Signature = "int First { get; }" },
+                new() { Kind = "property", Name = "Second", Signature = "int Second { get; }" },
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            Limit = 1,
+            MemberLimit = 1
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("int First { get; }", output);
+        Assert.DoesNotContain("Second", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ZeroMemberLimitKeepsStructuralShape()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            BaseType = "Example.Base",
+            Members =
+            [
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            KindFilter = ["method"],
+            Limit = 0,
+            MemberLimit = 0
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Inherits", output);
+        Assert.Contains("Example.Base", output);
+        Assert.DoesNotContain("Methods", output);
+
+        var unmatchedOptions = options with { KindFilter = ["event"] };
+        var unmatched = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                unmatchedOptions));
+
+        Assert.Equal(0, unmatched.ExitCode);
+        Assert.Empty(unmatched.Output);
+        Assert.Contains("No matching members for filter: event", unmatched.Error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.MemoryStream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Constructors", output);
+        Assert.Contains("Properties", output);
+        Assert.Contains("Methods", output);
+    }
+
+    [Fact]
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -11132,6 +11246,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
         Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', all);
+        Assert.DoesNotContain('\r', windowed);
 
         static int DataRows(string output) =>
             output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
@@ -11142,25 +11258,22 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// The <c>--all-libraries</c> document is assembled by hand from several serialized sections,
-    /// and every part of that assembly assumes LF: sections are split and rejoined on <c>'\n'</c>
-    /// to rewrite their headings, and blocks are separated by testing for a <c>'\n''\n'</c> tail.
-    /// Under <see cref="Environment.NewLine"/> both broke on Windows only (#3963) -- the rewritten
-    /// heading lost its <c>'\r'</c> while its siblings kept theirs, and the tail test never matched
-    /// a CRLF ending, so every section gained a second blank line.
+    /// The <c>--all-libraries</c> document is assembled by hand, and blocks are separated by
+    /// testing the buffer for a <c>'\n''\n'</c> tail. That test is easy to break silently: it read
+    /// a CRLF tail as "no blank line yet" and added a second one before every section on Windows
+    /// (#3963), and any future rewrite of the separator can reintroduce doubled or missing blanks
+    /// without producing a carriage return.
     /// <para>
-    /// Both invocations are checked because they were separately affected: until #3951 the
-    /// windowed one was accidentally repaired by <c>MarkdownTableRowLimiter</c>, which normalized
-    /// endings on its way past, while the unwindowed one returned early and was never normalized.
-    /// </para>
-    /// <para>
-    /// The <c>'\r'</c> half of this gate has teeth on the <c>test-windows</c> CI leg, where
-    /// <see cref="Environment.NewLine"/> is CRLF; on Linux it asserts only that nothing introduces
-    /// a carriage return. The blank-line and trailing-newline halves have teeth everywhere.
+    /// This complements <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> on two
+    /// axes. That test covers the per-library path over a local fixture and asserts the ending;
+    /// this one covers the aggregated path introduced in #3951, over a package whose section is
+    /// wide enough to window, and asserts the separation. The separation assertion has teeth on
+    /// every platform, where the <c>'\r'</c> assertion has teeth only on the
+    /// <c>test-windows</c> leg.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    public async Task PackageCommand_AllLibraries_AggregatedSection_SeparatesBlocksWithOneBlankLine()
     {
         var (exit, all, _) = await RunAppAsync(
             "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
@@ -11176,8 +11289,34 @@ public partial class CommandExecutionTests
             Assert.False(output.Contains('\r'), $"{label}: expected LF throughout, found a carriage return");
             Assert.False(
                 output.Contains("\n\n\n", StringComparison.Ordinal),
-                $"{label}: expected sections separated by exactly one blank line");
+                $"{label}: expected blocks separated by exactly one blank line");
             Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+            var (windowedExit, windowed, windowedError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, windowedExit);
+            Assert.DoesNotContain("Tip:", error);
+            Assert.DoesNotContain("Tip:", windowedError);
+            Assert.Contains('\n', output);
+            Assert.Contains('\n', windowed);
+            Assert.DoesNotContain('\r', output);
+            Assert.DoesNotContain('\r', windowed);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
