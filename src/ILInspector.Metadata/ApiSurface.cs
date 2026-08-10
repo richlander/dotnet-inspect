@@ -753,7 +753,8 @@ public class ApiType
 public sealed record ApiBaseTypeResolution(
     AssemblyReferenceIdentity Assembly,
     bool IsPubliclyAccessible,
-    bool HasAccessibleParameterlessConstructor);
+    bool HasAccessibleParameterlessConstructor,
+    bool IsAbstract);
 
 public class ApiMember
 {

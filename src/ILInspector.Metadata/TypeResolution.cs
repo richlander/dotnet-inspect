@@ -951,6 +951,7 @@ public sealed class ResolvedTypeDefinition
         int genericParameterCount,
         bool isPubliclyAccessible,
         bool hasAccessibleParameterlessConstructor,
+        bool isAbstract,
         TypeResolutionFailure? kindResolutionFailure = null,
         AssemblyReferenceIdentity? kindResolutionDependencyAssembly =
             null)
@@ -966,6 +967,7 @@ public sealed class ResolvedTypeDefinition
         IsPubliclyAccessible = isPubliclyAccessible;
         HasAccessibleParameterlessConstructor =
             hasAccessibleParameterlessConstructor;
+        IsAbstract = isAbstract;
         KindResolutionFailure = kindResolutionFailure;
         KindResolutionDependencyAssembly =
             kindResolutionDependencyAssembly;
@@ -987,6 +989,7 @@ public sealed class ResolvedTypeDefinition
     public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
     public bool IsPubliclyAccessible { get; }
     public bool HasAccessibleParameterlessConstructor { get; }
+    public bool IsAbstract { get; }
 }
 
 /// <summary>

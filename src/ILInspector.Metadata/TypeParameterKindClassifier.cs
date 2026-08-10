@@ -239,8 +239,7 @@ internal static class TypeParameterKindClassifier
                 return cached;
             }
 
-            TypeResolutionOutcome outcome =
-                _context.Resolve(request);
+            TypeResolutionOutcome outcome = _context.Resolve(request);
             ConstraintClass result = ClassifyOutcome(
                 request,
                 outcome,
@@ -414,6 +413,25 @@ internal static class TypeParameterKindClassifier
                     ConstraintClass.ProvesReferenceType,
                 _ => ConstraintClass.Unreadable,
             };
+        }
+
+        internal TypeResolutionOutcome Resolve(
+            TypeReferenceHandle handle,
+            TypeResolutionRequest request,
+            EntityHandle subject = default)
+        {
+            if (_context is null)
+            {
+                throw new InvalidOperationException(
+                    "The resolution plan must be bound before resolving.");
+            }
+
+            TypeResolutionOutcome outcome = _context.Resolve(request);
+            RecordResolutionOutcomeFailure(
+                request,
+                outcome,
+                subject.IsNil ? handle : subject);
+            return outcome;
         }
 
         void RecordResolutionOutcomeFailure(

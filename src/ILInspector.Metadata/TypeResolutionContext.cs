@@ -2080,6 +2080,7 @@ public sealed class TypeResolutionContext : IDisposable
                                     defined.IsPubliclyAccessible,
                                     defined
                                         .HasAccessibleParameterlessConstructor,
+                                    defined.IsAbstract,
                                     kindResolutionFailure,
                                     kindResolutionDependencyAssembly),
                                 hops.ToImmutable()));
@@ -2634,6 +2635,7 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.GenericParameterCount,
                     definition.IsPubliclyAccessible,
                     definition.HasAccessibleParameterlessConstructor,
+                    definition.IsAbstract,
                     definition.KindResolutionFailure,
                     definition.KindResolutionDependencyAssembly),
                 resolved.Hops);

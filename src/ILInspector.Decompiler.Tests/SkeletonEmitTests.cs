@@ -339,6 +339,105 @@ public class SkeletonEmitTests
         }
     }
 
+    [Theory]
+    [InlineData("int")]
+    [InlineData("object")]
+    public void SkeletonEscapesAliasQualifiedKeywordBase(
+        string baseName)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-keyword-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "KeywordDependency.dll");
+        string targetPath =
+            Path.Combine(root, "KeywordTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "KeywordDependency",
+                $"public class @{baseName} "
+                    + "{ public virtual int M() => 1; }");
+            EmitLibrary(
+                targetPath,
+                "KeywordTarget",
+                $"public class Derived : global::@{baseName} "
+                    + "{ public override int M() => 2; }",
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonRetainsSignalForAbstractExternalBase()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-abstract-base-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "AbstractDependency.dll");
+        string targetPath =
+            Path.Combine(root, "AbstractTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "AbstractDependency",
+                """
+                namespace AbstractCase;
+                public abstract class Base
+                {
+                    public abstract int Required { get; }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "AbstractTarget",
+                """
+                namespace AbstractCase;
+                public sealed class Derived : Base
+                {
+                    public override int Required => 42;
+                    public int Plain() => Required;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "AbstractCase.Derived",
+                method => method.Method == "Plain"));
+
+            Assert.False(
+                result.Status is
+                    FidelityCheck.CompileBackStatus.RecompileFail
+                    or FidelityCheck.CompileBackStatus.ContextFail,
+                $"Abstract external base erased compile-back signal: "
+                    + $"{result.Status} / {result.Detail}");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics()
     {

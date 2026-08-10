@@ -589,6 +589,9 @@ public static class ApiSurfaceExtractor
             // slot the C# `~Type()` destructor compiles to.
             var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
 
+            // Get/set and add/remove bodies are represented by their owning API
+            // members. Raiser and Other semantic methods have no ApiMember token
+            // slots, so retain them as methods to keep their bodies addressable.
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             foreach (var propertyHandle in typeDef.GetProperties())
             {
@@ -596,8 +599,6 @@ public static class ApiSurfaceExtractor
                     propertyHandle).GetAccessors();
                 AddAccessor(accessors.Getter);
                 AddAccessor(accessors.Setter);
-                foreach (var accessor in accessors.Others)
-                    AddAccessor(accessor);
             }
             foreach (var eventHandle in typeDef.GetEvents())
             {
@@ -605,9 +606,6 @@ public static class ApiSurfaceExtractor
                     eventHandle).GetAccessors();
                 AddAccessor(accessors.Adder);
                 AddAccessor(accessors.Remover);
-                AddAccessor(accessors.Raiser);
-                foreach (var accessor in accessors.Others)
-                    AddAccessor(accessor);
             }
 
             void AddAccessor(MethodDefinitionHandle accessor)
@@ -3217,6 +3215,7 @@ public static class ApiSurfaceExtractor
         readonly List<Group> _groups = [];
         readonly List<(
             ApiType Type,
+            TypeReferenceHandle Handle,
             TypeResolutionRequest Request,
             EntityHandle Subject)>
             _baseTypes = [];
@@ -3281,7 +3280,7 @@ public static class ApiSurfaceExtractor
             if (!_resolveBaseTypes)
                 return;
             if (Plan.Project(handle, subject) is { } request)
-                _baseTypes.Add((type, request, subject));
+                _baseTypes.Add((type, handle, request, subject));
         }
 
         internal void Apply(TypeResolutionContext context)
@@ -3315,9 +3314,9 @@ public static class ApiSurfaceExtractor
                 }
             }
 
-            foreach (var (type, request, _) in _baseTypes)
+            foreach (var (type, handle, request, subject) in _baseTypes)
             {
-                if (context.Resolve(request)
+                if (Plan.Resolve(handle, request, subject)
                     is TypeResolutionOutcome.Resolved
                     {
                         Definition:
@@ -3332,7 +3331,8 @@ public static class ApiSurfaceExtractor
                             definition.Assembly.Assembly.Identity,
                             definition.IsPubliclyAccessible,
                             definition
-                                .HasAccessibleParameterlessConstructor);
+                                .HasAccessibleParameterlessConstructor,
+                            definition.IsAbstract);
                 }
             }
         }

@@ -55,6 +55,38 @@ public class FidelityCheckGeneratedFilterTests
                     Version = null
                 },
                 expected));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                expected with
+                {
+                    Version = new Version(2, 0, 0, 0)
+                }));
+        Assert.True(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                expected with
+                {
+                    Version = new Version(2, 0, 0, 0)
+                },
+                platformTrusted: true));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected with
+                {
+                    Version = new Version(2, 0, 0, 0)
+                },
+                expected,
+                platformTrusted: true));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                expected with
+                {
+                    Version = new Version(2, 0, 0, 0),
+                    PublicKeyToken = "0011223344556677"
+                },
+                platformTrusted: true));
     }
 
     [Fact]

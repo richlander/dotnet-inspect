@@ -385,31 +385,52 @@ reference: the reference must bind through policy, as gated by
 External base-definition facts are a separate, explicit extraction option used by
 compile-back. The same frozen resolution generation authenticates the defining assembly
 identity and copies only non-generic class, public accessibility, and
-accessible-parameterless-constructor facts onto transient `ApiBaseTypeResolution`; it does
-not export catalog keys or metadata handles.
+accessible-parameterless-constructor and abstractness facts onto transient
+`ApiBaseTypeResolution`; it does not export catalog keys or metadata handles. A method named
+`.ctor` proves constructor availability only when its metadata has the complete CLI instance
+constructor shape: special and runtime-special names, a default managed signature with no
+explicit `this`, no generic parameters, `void` return, no parameters, and accessible
+visibility.
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
-same-named type from another assembly. The compile-back reference resolver matches culture and
-public-key token exactly (normalizing only neutral culture), and authenticated external bases are
-spelled through generated reference aliases so a target-local type with the same structured name
-cannot shadow the resolved definition. Selected targets may consume that evidence directly.
+same-named type from another assembly. The compile-back reference resolver matches the
+case-insensitive assembly name plus culture and public-key token exactly (normalizing only neutral
+culture). Ordinary dependencies also
+require an exact version; a trusted-platform reference may unify only to the same or a newer
+platform version so an older-TFM target can compile against the running platform without
+authorizing a downgrade or a different identity. Authenticated external bases are spelled through
+generated reference aliases so a target-local type with the same structured name cannot shadow
+the resolved definition; metadata identifiers that are C# keywords are escaped after the alias.
+Selected targets may consume that evidence directly. An authenticated abstract external base
+makes the generated support type abstract; non-target reuse-slot virtual members are inherited
+rather than emitted as accidental concrete implementations, while selected overrides remain
+product-rendered targets. This preserves compile-back signal without claiming that every
+metadata reuse-slot method has an overridable base member.
 Unselected `System.Exception` support types additionally require the referenced assembly to bind
 through the platform scope before retaining their base clause; manifest-less modules authenticate
 that platform reference directly from the base `TypeRef` while retaining the legacy target index.
 Method names that merely start with `get_`, `set_`, `add_`, or `remove_` remain ordinary methods
 unless property or event MethodSemantics identify them as accessors. Explicit-interface accessors
 remain explicit-interface-implementation members because their private property or event rows do
-not independently represent the public interface contract.
+not independently represent the public interface contract. Event raiser and other semantic
+methods remain method members because `ApiMember` has no event-token slots through which their
+bodies could otherwise remain addressable.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
 `Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase` gates malformed open-generic bases,
+`Extract_DoesNotTreatNamedMethodAsConstructor` gates the complete constructor shape,
 `Evaluate_RetainsExceptionBaseClause` and `Evaluate_FallsBackForNetModule` gate the authenticated
 exception support paths, while
 `SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly` and
 `SkeletonRejectsCultureMismatchedBaseAssembly` gate exact assembly identity,
 `SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike` gates alias-qualified
-spelling, `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
+spelling, `SkeletonEscapesAliasQualifiedKeywordBase` gates keyword escaping,
+`CompilerReferenceResolver_DoesNotWildcardMissingIdentityFields` gates ordinary exact-version
+matching and trusted-platform upgrade-only unification,
+`SkeletonRetainsSignalForAbstractExternalBase` gates abstract-base scaffolding,
+`SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
-MethodSemantics-based accessor exclusion.
+MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOtherMethods` gates
+the event semantic-method boundary.
 
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
@@ -420,7 +441,9 @@ rows cannot accumulate request state outside that budget
 through `ApiSurface.InspectionFailures` rather than silently returning a partial classification
 (`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), authentication exhaustion is reported
 after the frozen context is applied
-(`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
+(`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), base-authentication exhaustion is
+reported through the same failure surface
+(`BaseAuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
 non-cacheable rejection across catalog generations
 (`BudgetExhaustionIsNotPromotedAcrossGenerations`). A selected dependency that cannot be
 opened or decoded also remains unclassified, but its typed resolution rejection is projected

@@ -1352,6 +1352,48 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void BaseAuthenticationBudgetExhaustionIsVisibleOnApiSurface()
+    {
+        byte[] firstImage = BuildBaseBudgetFirst();
+        byte[] secondImage = BuildBaseBudgetSecond();
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "BaseBudgetConsumer",
+                "BaseBudgetA",
+                "Base");
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference first = Descriptor(firstImage);
+        ResolvedAssemblyReference second = Descriptor(secondImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxTypeResolutionRequests = 1,
+            });
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(first, second),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "dependency authentication",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configured budget of 1",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TransitiveDependencyOpenFailurePreservesResolvedIdentity()
     {
         byte[] dependencyImage =
@@ -1610,6 +1652,69 @@ public class ConstraintResolutionHardeningTests
         Assert.Null(
             Assert.Single(surface.Types).BaseTypeResolution);
             Assert.Single(surface.Types).BaseTypeResolution);
+    }
+
+    [Fact]
+    public void Extract_DoesNotTreatNamedMethodAsConstructor()
+    {
+        byte[] definitionImage =
+            BuildMalformedConstructorBaseDefinition();
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "MalformedConstructorConsumer",
+                "MalformedConstructorBase",
+                "Base");
+        ResolvedAssemblyReference definition =
+            Descriptor(definitionImage);
+        ResolvedAssemblyReference consumer =
+            Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            new MappingPolicy(definition),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiBaseTypeResolution resolution = Assert.IsType<
+            ApiBaseTypeResolution>(
+                Assert.Single(surface.Types).BaseTypeResolution);
+        Assert.True(resolution.IsPubliclyAccessible);
+        Assert.False(
+            resolution.HasAccessibleParameterlessConstructor);
+    }
+
+    [Fact]
+    public void Extract_PreservesEventRaiserAndOtherMethods()
+    {
+        byte[] image = BuildEventSemanticsAssembly();
+        using var pe = Reader(image);
+
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                pe,
+                includeAll: true).Types);
+
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name == "raise_E");
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name == "other_E");
+        Assert.DoesNotContain(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name is "add_E" or "remove_E");
+        ApiMember eventMember = Assert.Single(
+            type.Members,
+            member => member.Kind == "event");
+        Assert.NotNull(eventMember.AdderToken);
+        Assert.NotNull(eventMember.RemoverToken);
     }
 
     static byte[] BuildChain(
@@ -2105,6 +2210,118 @@ public class ConstraintResolutionHardeningTests
                 "U0",
                 AddConstructedClass(metadata, baseType));
         AddGenericParameter(metadata, definition);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBaseBudgetFirst()
+    {
+        MetadataBuilder metadata = NewMetadata("BaseBudgetA");
+        AssemblyReferenceHandle other =
+            AddReference(metadata, "BaseBudgetB");
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                other,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Root"));
+        AddModule(metadata);
+        AddType(
+            metadata,
+            "Base",
+            AddConstructedClass(metadata, root));
+        AddParameterlessMethod(
+            metadata,
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBaseBudgetSecond()
+    {
+        MetadataBuilder metadata = NewMetadata("BaseBudgetB");
+        AddModule(metadata);
+        TypeDefinitionHandle root =
+            AddType(metadata, "Root`1");
+        AddGenericParameter(metadata, root);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMalformedConstructorBaseDefinition()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("MalformedConstructorBase");
+        AddModule(metadata);
+        AddType(metadata, "Base");
+        AddParameterlessMethod(
+            metadata,
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEventSemanticsAssembly()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("EventSemantics");
+        AssemblyReferenceHandle systemRuntime =
+            AddReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        AddModule(metadata);
+        TypeDefinitionHandle type =
+            AddType(metadata, "EventOwner");
+        MethodDefinitionHandle raiser =
+            AddParameterlessMethod(
+                metadata,
+                "raise_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle other =
+            AddParameterlessMethod(
+                metadata,
+                "other_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle adder =
+            AddParameterlessMethod(
+                metadata,
+                "add_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle remover =
+            AddParameterlessMethod(
+                metadata,
+                "remove_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        EventDefinitionHandle eventDefinition =
+            metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("E"),
+                objectType);
+        metadata.AddEventMap(type, eventDefinition);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Raiser,
+            raiser);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Other,
+            other);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Remover,
+            remover);
         return Serialize(metadata);
     }
 
@@ -2655,6 +2872,45 @@ public class ConstraintResolutionHardeningTests
         AddModule(metadata);
         AddType(metadata, "Derived", baseType);
         return Serialize(metadata);
+    }
+
+    static byte[] BuildDirectBaseConsumer(
+        string assemblyName,
+        string baseAssembly,
+        string baseName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AssemblyReferenceHandle definition =
+            AddReference(metadata, baseAssembly);
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                definition,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(baseName));
+        AddModule(metadata);
+        AddType(metadata, "Derived", baseType);
+        return Serialize(metadata);
+    }
+
+    static MethodDefinitionHandle AddParameterlessMethod(
+        MetadataBuilder metadata,
+        string name,
+        MethodAttributes attributes)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        return metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
     }
 
     static MetadataBuilder NewMetadata(

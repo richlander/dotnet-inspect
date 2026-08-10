@@ -740,7 +740,8 @@ static class FidelityCheck
                 var reference = candidate.Reference;
                 if (!IdentityMatches(
                     identity,
-                    reference.Identity))
+                    reference.Identity,
+                    candidate.PlatformTrusted))
                     continue;
                 return candidate;
             }
@@ -750,11 +751,16 @@ static class FidelityCheck
 
         internal static bool IdentityMatches(
             AssemblyReferenceIdentity expected,
-            AssemblyReferenceIdentity actual) =>
+            AssemblyReferenceIdentity actual,
+            bool platformTrusted = false) =>
             actual.Name.Equals(
                 expected.Name,
                 StringComparison.OrdinalIgnoreCase)
-            && actual.Version == expected.Version
+            && (platformTrusted
+                ? PlatformVersionMatches(
+                    expected.Version,
+                    actual.Version)
+                : actual.Version == expected.Version)
             && CultureMatches(
                 expected.Culture,
                 actual.Culture)
@@ -762,6 +768,13 @@ static class FidelityCheck
                 expected.PublicKeyToken ?? "",
                 actual.PublicKeyToken ?? "",
                 StringComparison.OrdinalIgnoreCase);
+
+        static bool PlatformVersionMatches(
+            Version? expected,
+            Version? actual) =>
+            expected is not null
+            && actual is not null
+            && actual.CompareTo(expected) >= 0;
 
         static bool CultureMatches(string? expected, string? actual)
         {
@@ -776,10 +789,12 @@ static class FidelityCheck
 
     internal static bool CompilerReferenceIdentityMatchesForTest(
         AssemblyReferenceIdentity expected,
-        AssemblyReferenceIdentity actual) =>
+        AssemblyReferenceIdentity actual,
+        bool platformTrusted = false) =>
         CompilerReferenceResolver.IdentityMatches(
             expected,
-            actual);
+            actual,
+            platformTrusted);
 
     internal sealed class ZeroSignalGuard
     {
@@ -2399,6 +2414,11 @@ static class FidelityCheck
         return sb.ToString();
     }
 
+    static string EscapeMetadataTypeName(string type) =>
+        EscapeTypeKeywords(
+            type,
+            preserveBarePrimitiveSpellings: false);
+
     /// <summary>
     /// A classified recompile failure: a <c>cause</c> and a paired <c>fix</c>, and
     /// (for a concrete <c>emit A → B</c> fix) the raw <see cref="From"/>/<see cref="To"/>
@@ -3078,10 +3098,9 @@ static class FidelityCheck
     static string AliasedBaseClause(
         string baseType,
         string? alias) =>
-        baseType is "System.Object" or "object"
-            || alias is null
-                ? ""
-                : $" : {alias}::{Clean(baseType)}";
+        alias is null
+            ? ""
+            : $" : {alias}::{EscapeMetadataTypeName(baseType)}";
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
     {
@@ -3378,15 +3397,26 @@ static class FidelityCheck
 
         // Byref-like stubs can legally contain Span<T> fields only when emitted
         // as ref structs; otherwise the whole compile-back unit becomes invalid.
-        string keyword = kind == TypeKind.Struct
-            ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
-            : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(
             reader,
             typeDef,
             kind,
             targetApiTypes.GetValueOrDefault(typeHandle),
             resolver);
+        bool externalAbstractBase =
+            baseClause.Length != 0
+            && targetApiTypes.GetValueOrDefault(typeHandle)
+                ?.BaseTypeResolution?.IsAbstract == true;
+        bool requiresAbstractClass =
+            kind == TypeKind.Class
+            && !IsStaticClass(typeDef)
+            && ((typeDef.Attributes & TypeAttributes.Abstract) != 0
+                || externalAbstractBase);
+        string keyword = kind == TypeKind.Struct
+            ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
+            : IsStaticClass(typeDef)
+                ? "static class"
+                : requiresAbstractClass ? "abstract class" : "class";
         string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
@@ -3432,6 +3462,7 @@ static class FidelityCheck
         if (kind is TypeKind.Class or TypeKind.Struct)
             EmitStubProperties(reader, typeDef, targets, accessibility, thisFieldInits, stubPropertyAccessors,
                 orderedTargetProperties, sb, pad + "    ",
+                omitExternalAbstractOverrides: externalAbstractBase,
                 requireAutoProperty: kind == TypeKind.Struct);
         var orderedTargetEvents = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
         IndexTargetEvents(reader, typeDef, targets, orderedTargetEvents);
@@ -3467,7 +3498,15 @@ static class FidelityCheck
                     }
                     else
                     {
-                        EmitTargetProperty(reader, typeDef, targetProperty, targets, accessibility, sb, pad + "    ");
+                        EmitTargetProperty(
+                            reader,
+                            typeDef,
+                            targetProperty,
+                            targets,
+                            baseClause.Length != 0,
+                            accessibility,
+                            sb,
+                            pad + "    ");
                     }
                 }
                 continue; // emitted once, at its first accessor's metadata position
@@ -3475,6 +3514,15 @@ static class FidelityCheck
             if (mh == primaryConstructorTarget.Key)
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
+            MethodDefinition method = reader.GetMethodDefinition(mh);
+            if (externalAbstractBase
+                && !hasTarget
+                && !method.Attributes.HasFlag(MethodAttributes.Static)
+                && method.Attributes.HasFlag(MethodAttributes.Virtual)
+                && !method.Attributes.HasFlag(MethodAttributes.NewSlot))
+            {
+                continue;
+            }
             if (hasTarget && target.WholeMember is { } wholeMember)
             {
                 string methodName = reader.GetString(reader.GetMethodDefinition(mh).Name);
@@ -3507,7 +3555,7 @@ static class FidelityCheck
         // ordinal and compare it against this throwing stub. Last-ordinal keeps the
         // real ctors at 0..k-1 and the synthetic at k (never requested), so it
         // cannot change a target's fidelity.
-        if (keyword == "class"
+        if (kind == TypeKind.Class
             && primaryConstructor is null
             && !IsStaticClass(typeDef)
             && !HasParameterlessInstanceCtor(reader, typeDef))
@@ -3695,6 +3743,7 @@ static class FidelityCheck
         HashSet<MethodDefinitionHandle> skipAccessors,
         Dictionary<MethodDefinitionHandle, PropertyDefinitionHandle> orderedTargetProperties,
         StringBuilder sb, string pad,
+        bool omitExternalAbstractOverrides,
         bool requireAutoProperty = false)
     {
         var typeContext = GenericContext.ForType(reader, typeDef);
@@ -3726,6 +3775,17 @@ static class FidelityCheck
                 bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
                 if (!hasGet && !hasSet)
                     continue;
+                bool accessorIsTarget = (!pa.Getter.IsNil && targets.ContainsKey(pa.Getter))
+                    || (!pa.Setter.IsNil && targets.ContainsKey(pa.Setter));
+                if (omitExternalAbstractOverrides
+                    && !accessorIsTarget
+                    && (AccessorOverridesBase(pa.Getter)
+                        || AccessorOverridesBase(pa.Setter)))
+                {
+                    AddAccessor(pa.Getter);
+                    AddAccessor(pa.Setter);
+                    continue;
+                }
                 var accessorMethod = reader.GetMethodDefinition(pa.Getter.IsNil ? pa.Setter : pa.Getter);
                 bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
                 // Preserve the accessor's call kind at a `?.X` site (receiver known
@@ -3780,6 +3840,24 @@ static class FidelityCheck
                 sb.AppendLine($"{pad}public {modifier}{unsafeMod}{ret} {Identifier(pname)} {{{body} }}");
                 if (!pa.Getter.IsNil) skipAccessors.Add(pa.Getter);
                 if (!pa.Setter.IsNil) skipAccessors.Add(pa.Setter);
+
+                bool AccessorOverridesBase(
+                    MethodDefinitionHandle handle)
+                {
+                    if (handle.IsNil)
+                        return false;
+                    MethodAttributes attributes =
+                        reader.GetMethodDefinition(handle).Attributes;
+                    return (attributes & MethodAttributes.Static) == 0
+                        && (attributes & MethodAttributes.Virtual) != 0
+                        && (attributes & MethodAttributes.NewSlot) == 0;
+                }
+
+                void AddAccessor(MethodDefinitionHandle handle)
+                {
+                    if (!handle.IsNil)
+                        skipAccessors.Add(handle);
+                }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException) { }
         }
@@ -3872,6 +3950,7 @@ static class FidelityCheck
 
     static void EmitTargetProperty(MetadataReader reader, TypeDefinition typeDef, PropertyDefinitionHandle ph,
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        bool preserveOverride,
         SignatureSpellability accessibility, StringBuilder sb, string pad)
     {
         var prop = reader.GetPropertyDefinition(ph);
@@ -3883,7 +3962,12 @@ static class FidelityCheck
         bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
         bool emitVirtual = accessorMethod.Attributes.HasFlag(MethodAttributes.Virtual)
             && !accessorMethod.Attributes.HasFlag(MethodAttributes.Final);
-        string modifier = isStatic ? "static " : (emitVirtual ? "virtual " : "");
+        bool emitOverride = preserveOverride
+            && emitVirtual
+            && !accessorMethod.Attributes.HasFlag(MethodAttributes.NewSlot);
+        string modifier = isStatic
+            ? "static "
+            : emitOverride ? "override " : emitVirtual ? "virtual " : "";
         string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
         bool hasGet = !pa.Getter.IsNil && CanEmitAccessor(reader, typeDef, pa.Getter, accessibility);
         bool hasSet = !pa.Setter.IsNil && CanEmitAccessor(reader, typeDef, pa.Setter, accessibility);
@@ -4483,7 +4567,13 @@ static class FidelityCheck
             ? "async "
             : "";
         string unsafeModifier = asyncModifier.Length == 0 ? "unsafe " : "";
-        string slotModifier = StructObjectOverrideModifier(reader, typeDef, method, name, returnType, sig.ParameterTypes.Length);
+        string slotModifier = StructObjectOverrideModifier(
+            reader,
+            typeDef,
+            method,
+            name,
+            returnType,
+            sig.ParameterTypes.Length);
         // A same-type call to a source-declarable new-slot virtual method binds as
         // callvirt only when the reconstructed sibling keeps that declaration.
         // Override-shaped methods need an override declaration to preserve their
@@ -5029,7 +5119,9 @@ static class FidelityCheck
         if (type.StartsWith("delegate*", StringComparison.Ordinal)
             || type.StartsWith("ref delegate*", StringComparison.Ordinal))
             return type;
-        return EscapeTypeKeywords(type);
+        return EscapeTypeKeywords(
+            type,
+            preserveBarePrimitiveSpellings: true);
     }
 
     /// <summary>
@@ -5046,7 +5138,9 @@ static class FidelityCheck
     /// ambiguous at string level (the decoder yields the same text for the primitive
     /// and the identifier) — an astronomically-rare case this does not regress.
     /// </summary>
-    static string EscapeTypeKeywords(string type)
+    static string EscapeTypeKeywords(
+        string type,
+        bool preserveBarePrimitiveSpellings)
     {
         if (type.Length == 0 || !type.Any(c => char.IsLetter(c) || c == '_'))
             return type;
@@ -5065,7 +5159,11 @@ static class FidelityCheck
                 bool qualifiedSegment = start > 0 && type[start - 1] == '.';
                 // A bare primitive/`ref` is a real type spelling/by-ref prefix; the
                 // same word after a `.` can only be an identifier segment.
-                bool bareSpelling = (word is "void" or "ref" || IsPrimitiveTypeName(word)) && !qualifiedSegment;
+                bool bareSpelling =
+                    preserveBarePrimitiveSpellings
+                    && (word is "void" or "ref"
+                        || IsPrimitiveTypeName(word))
+                    && !qualifiedSegment;
                 if (!alreadyEscaped && !bareSpelling
                     && (SyntaxFacts.GetKeywordKind(word) != SyntaxKind.None || SyntaxFacts.GetContextualKeywordKind(word) != SyntaxKind.None))
                     sb.Append('@');

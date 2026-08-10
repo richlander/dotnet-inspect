@@ -648,6 +648,7 @@ public static class MetadataTypeDeclarationProbe
                     definition.GenericParameterCount,
                     definition.IsPubliclyAccessible,
                     definition.HasAccessibleParameterlessConstructor,
+                    definition.IsAbstract,
                     definition.KindDependency),
             TypeDeclarationCandidate.Forwarder forwarder =>
                 new TypeDeclarationResult.Forwarded(
@@ -700,6 +701,7 @@ public static class MetadataTypeDeclarationProbe
             bool hasValidGenericParameters = false;
             bool isPubliclyAccessible = false;
             bool hasAccessibleParameterlessConstructor = false;
+            bool isAbstract = false;
             try
             {
                 TypeDefinition definition =
@@ -717,6 +719,8 @@ public static class MetadataTypeDeclarationProbe
                 {
                     isPubliclyAccessible =
                         IsPubliclyAccessible(reader, handle);
+                    isAbstract =
+                        (definition.Attributes & TypeAttributes.Abstract) != 0;
                     hasAccessibleParameterlessConstructor =
                         HasAccessibleParameterlessConstructor(
                             reader,
@@ -736,6 +740,7 @@ public static class MetadataTypeDeclarationProbe
                 genericParameterCount,
                 isPubliclyAccessible,
                 hasAccessibleParameterlessConstructor,
+                isAbstract,
                 hasValidGenericParameters
                     && kind == MetadataTypeDefinitionKind.Unknown
                     ? dependency
@@ -771,7 +776,12 @@ public static class MetadataTypeDeclarationProbe
             {
                 MethodDefinition method =
                     reader.GetMethodDefinition(handle);
+                const MethodAttributes constructorFlags =
+                    MethodAttributes.SpecialName
+                    | MethodAttributes.RTSpecialName;
                 if ((method.Attributes & MethodAttributes.Static) != 0
+                    || (method.Attributes & constructorFlags)
+                        != constructorFlags
                     || reader.GetString(method.Name) != ".ctor")
                 {
                     continue;
@@ -795,8 +805,18 @@ public static class MetadataTypeDeclarationProbe
                         ILSignatureTypeProvider.Instance,
                         (GenericContext?)null,
                         "object");
+                MethodSignature<string> value = signature.Value;
                 if (!signature.IsDegraded
-                    && signature.Value.ParameterTypes.Length == 0)
+                    && value.Header.Kind == SignatureKind.Method
+                    && value.Header.CallingConvention
+                        == SignatureCallingConvention.Default
+                    && value.Header.IsInstance
+                    && !value.Header.IsGeneric
+                    && !value.Header.HasExplicitThis
+                    && method.GetGenericParameters().Count == 0
+                    && value.ReturnType == "void"
+                    && value.RequiredParameterCount == 0
+                    && value.ParameterTypes.Length == 0)
                 {
                     return true;
                 }

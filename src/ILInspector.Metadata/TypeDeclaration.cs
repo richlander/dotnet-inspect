@@ -99,6 +99,7 @@ public abstract class TypeDeclarationCandidate
             int genericParameterCount,
             bool isPubliclyAccessible,
             bool hasAccessibleParameterlessConstructor,
+            bool isAbstract,
             DefinitionKindDependency? kindDependency = null)
         {
             Token = token;
@@ -107,6 +108,7 @@ public abstract class TypeDeclarationCandidate
             IsPubliclyAccessible = isPubliclyAccessible;
             HasAccessibleParameterlessConstructor =
                 hasAccessibleParameterlessConstructor;
+            IsAbstract = isAbstract;
             KindDependency = kindDependency;
         }
 
@@ -115,6 +117,7 @@ public abstract class TypeDeclarationCandidate
         internal int GenericParameterCount { get; }
         public bool IsPubliclyAccessible { get; }
         public bool HasAccessibleParameterlessConstructor { get; }
+        public bool IsAbstract { get; }
         internal DefinitionKindDependency? KindDependency { get; }
         public bool IsInterface =>
             Kind == MetadataTypeDefinitionKind.Interface;
@@ -167,6 +170,7 @@ public abstract class TypeDeclarationResult
             int genericParameterCount,
             bool isPubliclyAccessible,
             bool hasAccessibleParameterlessConstructor,
+            bool isAbstract,
             DefinitionKindDependency? kindDependency = null)
         {
             Definition = definition;
@@ -177,6 +181,7 @@ public abstract class TypeDeclarationResult
             IsPubliclyAccessible = isPubliclyAccessible;
             HasAccessibleParameterlessConstructor =
                 hasAccessibleParameterlessConstructor;
+            IsAbstract = isAbstract;
             KindDependency = kindDependency;
         }
 
@@ -191,6 +196,7 @@ public abstract class TypeDeclarationResult
         public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
         public bool IsPubliclyAccessible { get; }
         public bool HasAccessibleParameterlessConstructor { get; }
+        public bool IsAbstract { get; }
     }
 
     public sealed class Forwarded : TypeDeclarationResult
