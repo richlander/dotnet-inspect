@@ -2050,7 +2050,9 @@ public sealed partial class CSharpPrinter
             string value = returnPointer.Equals(stackAllocate.ResultType)
                 ? localName
                 : $"({TypeText(returnPointer)}){localName}";
+            int returnStart = sb.Length;
             sb.Append(pad).Append("return ").Append(value).AppendLf(";");
+            _printedRanges?.Record(node, returnStart, sb.Length);
             return;
         }
         if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store

@@ -130,6 +130,7 @@ public class PrintedBodyMapTests
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.FloatUnordered), "!(a <= b)", "UnaryExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.ConstantUIntSpan), "new uint[] { 1, 10, 100, 1000, 10000 }", "ArrayCreationExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.AsWithoutPattern), "o as string", "ConversionExpression")]
+    [InlineData(typeof(LifetimeSampleClass), nameof(LifetimeSampleClass.EscapingStackPointer), "return (int*)__stackalloc;", "ReturnStatement")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdGet), "a[i, j]", "ElementAccessExpression")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdSet), "a[i, j] = v", "AssignmentStatement")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdNew), "new int[3, 4]", "ArrayCreationExpression")]
