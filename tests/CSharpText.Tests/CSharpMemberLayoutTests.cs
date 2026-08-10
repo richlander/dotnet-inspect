@@ -4,10 +4,10 @@ namespace CSharpText.Tests;
 
 public sealed class CSharpMemberLayoutTests
 {
-    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
+    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableOneLinerWrapping = false)
     {
         var sb = new StringBuilder();
-        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableSignatureWrapping);
+        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableOneLinerWrapping);
         return sb.ToString().Replace("\r\n", "\n");
     }
 
@@ -216,7 +216,7 @@ public sealed class CSharpMemberLayoutTests
     public void Append_LongSignature_DisableOptOut_KeepsSingleLine()
         => Assert.Equal(
             "    " + LongParseHead + " => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
-            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableSignatureWrapping: true));
+            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableOneLinerWrapping: true));
 
     [Fact]
     public void Append_ShortSignature_StaysInline()
@@ -229,11 +229,85 @@ public sealed class CSharpMemberLayoutTests
         => Assert.Equal(
             "    public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(\n"
             + "        IServiceCollection services,\n"
-            + "        string longParameterName) where TImpl : TService, new();\n",
+            + "        string longParameterName)\n"
+            + "        where TImpl : TService, new();\n",
             Render(
                 "public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(IServiceCollection services, string longParameterName) where TImpl : TService, new()",
                 body: null,
                 indent: 4));
+
+    [Fact]
+    public void Append_GenericConstraints_UseIndentedContinuationLines()
+        => Assert.Equal(
+            "    public override T? Pick<T>(T? value)\n"
+            + "        where T : class => value;\n",
+            Render(
+                "public override T? Pick<T>(T? value) where T : class",
+                "return value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_MultipleGenericConstraints_UseOneLineEach()
+        => Assert.Equal(
+            "    public override T? Pick<T, U>(T? value)\n"
+            + "        where T : U\n"
+            + "        where U : class => value;\n",
+            Render(
+                "public override T? Pick<T, U>(T? value) where T : U where U : class",
+                "return value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_GenericConstraint_BlockBraceFollowsConstraintLine()
+        => Assert.Equal(
+            "    public T Pick<T>(T value)\n"
+            + "        where T : class\n"
+            + "    {\n"
+            + "        Log(value);\n"
+            + "        return value;\n"
+            + "    }\n",
+            Render(
+                "public T Pick<T>(T value) where T : class",
+                "Log(value);\nreturn value;",
+                indent: 4));
+
+    [Fact]
+    public void Append_WhereInsideParameterLiteral_DoesNotStartConstraintClause()
+        => Assert.Equal(
+            "    public void Log<T>(string text = \" where U : class\")\n"
+            + "        where T : class;\n",
+            Render(
+                "public void Log<T>(string text = \" where U : class\") where T : class",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_GenericConstraints_DisableOneLinerWrapping_StayInline()
+        => Assert.Equal(
+            "    public override T? Pick<T, U>(T? value) where T : U where U : class => value;\n",
+            Render(
+                "public override T? Pick<T, U>(T? value) where T : U where U : class",
+                "return value;",
+                indent: 4,
+                disableOneLinerWrapping: true));
+
+    [Fact]
+    public void Append_GenericConstraints_AreWhitespaceVariantOfInline()
+    {
+        static string Collapse(string value)
+            => string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
+
+        const string head =
+            "public override T? Pick<T, U>(T? value) where T : U where U : class";
+        string wrapped = Render(head, "return value;", indent: 4);
+        string inline = Render(
+            head,
+            "return value;",
+            indent: 4,
+            disableOneLinerWrapping: true);
+
+        Assert.Equal(Collapse(inline), Collapse(wrapped));
+    }
 
     [Fact]
     public void Append_LongGenericSignature_KeepsGenericArgCommasIntact()

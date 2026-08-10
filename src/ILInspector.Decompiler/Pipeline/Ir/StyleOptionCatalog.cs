@@ -492,7 +492,7 @@ public static class StyleOptionCatalog
         Boolean(
             id: "disable-one-liner-wrapping",
             title: "Keep one-liners on one line",
-            summary: "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+            summary: "Suppress the always-on layout wrappers (long fluent chains, long member signatures, and generic where clauses) so the construct stays on a single physical line instead of wrapping (whitespace only).",
             tier: StyleOptionTier.Formatting,
             byteDivergent: false,
             oracleEndorsed: false,

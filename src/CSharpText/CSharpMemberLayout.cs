@@ -39,7 +39,7 @@ public static class CSharpMemberLayout
     /// single-line bodies stay on the
     /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
     /// </param>
-    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableOneLinerWrapping = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
@@ -47,29 +47,29 @@ public static class CSharpMemberLayout
         string pad = new(' ', indent);
         if (body is null)
         {
-            sb.Append(LayOutHead(pad, head, ";", ";", disableSignatureWrapping)).Append('\n');
+            sb.Append(LayOutHead(pad, head, ";", ";", disableOneLinerWrapping)).Append('\n');
             return;
         }
         if (bodyIsSingleExpressionBody
             && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { } expressionLines)
         {
-            AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow, disableSignatureWrapping);
+            AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow, disableOneLinerWrapping);
             return;
         }
         if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
         {
             if (wrapExpressionBodyArrow)
             {
-                sb.Append(LayOutHead(pad, head, "", " =>", disableSignatureWrapping)).Append('\n');
+                sb.Append(LayOutHead(pad, head, "", " =>", disableOneLinerWrapping)).Append('\n');
                 sb.Append($"{pad}    => {expression};").Append('\n');
             }
             else
             {
-                sb.Append(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping)).Append('\n');
+                sb.Append(LayOutHead(pad, head, $" => {expression};", " =>", disableOneLinerWrapping)).Append('\n');
             }
             return;
         }
-        sb.Append(LayOutHead(pad, head, "", " {", disableSignatureWrapping)).Append('\n');
+        sb.Append(LayOutHead(pad, head, "", " {", disableOneLinerWrapping)).Append('\n');
         sb.Append($"{pad}{{").Append('\n');
         AppendIndentedBody(sb, body, indent + 4);
         sb.Append($"{pad}}}").Append('\n');
@@ -88,18 +88,18 @@ public static class CSharpMemberLayout
     /// terminator (<c>;</c>). Blank lines are preserved.
     /// </summary>
     static void AppendMultilineExpressionBody(
-        StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow, bool disableSignatureWrapping)
+        StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow, bool disableOneLinerWrapping)
     {
         string pad = new(' ', indent);
         string valueLine = expressionLines[0];
         if (wrapExpressionBodyArrow)
         {
-            sb.Append(LayOutHead(pad, head, "", " =>", disableSignatureWrapping)).Append('\n');
+            sb.Append(LayOutHead(pad, head, "", " =>", disableOneLinerWrapping)).Append('\n');
             sb.Append($"{pad}    => {valueLine}").Append('\n');
         }
         else
         {
-            sb.Append(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping)).Append('\n');
+            sb.Append(LayOutHead(pad, head, $" => {valueLine}", " =>", disableOneLinerWrapping)).Append('\n');
         }
 
         string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
@@ -129,26 +129,99 @@ public static class CSharpMemberLayout
     internal const int SignatureWrapWidth = 120;
 
     /// <summary>
-    /// Renders the declaration <paramref name="head"/> at <paramref name="pad"/>,
-    /// wrapping its parameter list one parameter per line (each under a four-space
-    /// continuation indent, the closing <c>)</c> and everything after it kept on the
-    /// last parameter's line) when the single physical line
-    /// <c>pad + head + decisionSuffix</c> would exceed
-    /// <see cref="SignatureWrapWidth"/> and the parameter list can be unambiguously
-    /// located. <paramref name="renderTail"/> is whatever follows the head's closing
-    /// <c>)</c> on its final line (<c>" =&gt; expr;"</c>, <c>";"</c>, or <c>""</c>).
-    /// Falls back to the inline single line when wrapping is disabled, the signature
-    /// fits, or the parameter list cannot be located — so an unrecognized shape
-    /// degrades to today's output rather than a mangled signature. Whitespace only:
-    /// the wrapped form is token-identical to the inline form.
+    /// Renders the declaration <paramref name="head"/> at <paramref name="pad"/>.
+    /// Top-level generic-constraint clauses each occupy an indented continuation
+    /// line, matching the dominant dotnet/runtime source form. Independently, an
+    /// over-width parameter list wraps one parameter per continuation line when it
+    /// can be located unambiguously. <paramref name="renderTail"/> is the member
+    /// terminator, expression body, or empty block tail; with constraints it follows
+    /// the final clause. Falls back to the inline single line when one-liner wrapping
+    /// is disabled. Whitespace only: every form is token-identical.
     /// </summary>
-    static string LayOutHead(string pad, string head, string renderTail, string decisionSuffix, bool disableSignatureWrapping)
+    static string LayOutHead(string pad, string head, string renderTail, string decisionSuffix, bool disableOneLinerWrapping)
     {
-        if (!disableSignatureWrapping
-            && pad.Length + head.Length + decisionSuffix.Length > SignatureWrapWidth
-            && WrapParameterList(pad, head, renderTail) is { } wrapped)
-            return wrapped;
+        if (disableOneLinerWrapping)
+            return pad + head + renderTail;
+
+        if (SplitConstraintClauses(head) is { Count: > 1 } parts)
+        {
+            string declaration = parts[0];
+            string laidOutDeclaration =
+                pad.Length + declaration.Length > SignatureWrapWidth
+                    && WrapParameterList(pad, declaration, renderTail: "") is { } wrapped
+                    ? wrapped
+                    : pad + declaration;
+
+            var sb = new StringBuilder(laidOutDeclaration);
+            string continuation = pad + "    ";
+            for (int i = 1; i < parts.Count; i++)
+                sb.Append('\n').Append(continuation).Append(parts[i]);
+            sb.Append(renderTail);
+            return sb.ToString();
+        }
+
+        if (pad.Length + head.Length + decisionSuffix.Length > SignatureWrapWidth
+            && WrapParameterList(pad, head, renderTail) is { } widthWrapped)
+            return widthWrapped;
         return pad + head + renderTail;
+    }
+
+    static List<string> SplitConstraintClauses(string head)
+    {
+        if (ContainsUnsupportedLiteral(head))
+            return [head];
+
+        var indexes = new List<int>();
+        int angle = 0, paren = 0, bracket = 0, brace = 0;
+        for (int i = 0; i + 7 <= head.Length; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            switch (c)
+            {
+                case '<':
+                    if (paren == 0 && bracket == 0 && brace == 0)
+                        angle++;
+                    break;
+                case '>':
+                    if (paren == 0 && bracket == 0 && brace == 0 && angle > 0)
+                        angle--;
+                    break;
+                case '(': paren++; break;
+                case ')': if (paren > 0) paren--; break;
+                case '[': bracket++; break;
+                case ']': if (bracket > 0) bracket--; break;
+                case '{': brace++; break;
+                case '}': if (brace > 0) brace--; break;
+                case ' ':
+                    if (angle == 0 && paren == 0 && bracket == 0 && brace == 0
+                        && string.CompareOrdinal(head, i, " where ", 0, 7) == 0)
+                    {
+                        indexes.Add(i);
+                        i += 6;
+                    }
+                    break;
+            }
+        }
+
+        if (indexes.Count == 0)
+            return [head];
+
+        var parts = new List<string>(indexes.Count + 1)
+        {
+            head[..indexes[0]].TrimEnd()
+        };
+        for (int i = 0; i < indexes.Count; i++)
+        {
+            int start = indexes[i] + 1;
+            int end = i + 1 < indexes.Count ? indexes[i + 1] : head.Length;
+            parts.Add(head[start..end].Trim());
+        }
+        return parts;
     }
 
     static string? WrapParameterList(string pad, string head, string renderTail)

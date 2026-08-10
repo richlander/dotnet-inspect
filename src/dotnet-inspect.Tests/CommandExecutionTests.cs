@@ -3025,22 +3025,22 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains(
-            "ClassConstraint<T>(T? value) where T : class",
+            "ClassConstraint<T>(T? value)\n        where T : class",
             output);
         Assert.Contains(
-            "DelegateConstraint<T>(T? value) where T : class",
+            "DelegateConstraint<T>(T? value)\n        where T : class",
             output);
         Assert.Contains(
-            "InterfaceConstraint<T>(T? value) where T : default",
+            "InterfaceConstraint<T>(T? value)\n        where T : default",
             output);
         Assert.Contains(
-            "EnumConstraint<T>(T? value) where T : default",
+            "EnumConstraint<T>(T? value)\n        where T : default",
             output);
         Assert.Contains(
-            "TransitiveConstraint<T, U>(T? value) where T : class where U : class",
+            "TransitiveConstraint<T, U>(T? value)\n        where T : class\n        where U : class",
             output);
         Assert.Contains(
-            "GenericBaseConstraint<T>(T? value) where T : class",
+            "GenericBaseConstraint<T>(T? value)\n        where T : class",
             output);
     }
 

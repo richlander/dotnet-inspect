@@ -941,18 +941,39 @@ public class ApiOutputFormatterTests
                 UnsafeOperations: false)));
         var sections = new MemberCodeView();
 
-        // A second type parameter exists only on the rows that need one to constrain T.
-        string signature = memberName is nameof(RestatementRowFixture.Transitive)
+        // The selected-member projection retains its compact declaration. The whole-type
+        // projection applies the runtime-style constraint layout owned by CSharpText.
+        string selectedMemberSignature = memberName is nameof(RestatementRowFixture.Transitive)
             or nameof(RestatementRowFixture.OpenChain)
             ? $"{memberName}<T, U>(T? value) where T : {expected} where U : {expected}"
             : $"{memberName}<T>(T? value) where T : {expected}";
+        string wholeTypeSignature = memberName is nameof(RestatementRowFixture.Transitive)
+            or nameof(RestatementRowFixture.OpenChain)
+            ? $"{memberName}<T, U>(T? value)\n        where T : {expected}\n        where U : {expected}"
+            : $"{memberName}<T>(T? value)\n        where T : {expected}";
 
         Assert.True(ApiOutputFormatter.PopulateCSharpSections(sections, type, member, collected.Code));
-        Assert.Contains(signature, sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
+        Assert.Contains(selectedMemberSignature, sections.DecompiledSourceCode.Content, StringComparison.Ordinal);
 
         var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
         Assert.NotNull(typeSource);
-        Assert.Contains(signature, typeSource, StringComparison.Ordinal);
+        Assert.Contains(wholeTypeSignature, typeSource, StringComparison.Ordinal);
+
+        var compactTypeSource = MemberBodyProducer.Project(
+            type,
+            path,
+            pdbPath: null,
+            printerOptions: ILInspector.Decompiler.Pipeline.PrinterOptions.Default with
+            {
+                DisableOneLinerWrapping = true
+            }).Output;
+        Assert.NotNull(compactTypeSource);
+        Assert.Contains(selectedMemberSignature, compactTypeSource, StringComparison.Ordinal);
+
+        static string WithoutWhitespace(string value)
+            => string.Concat(value.Where(c => !char.IsWhiteSpace(c)));
+
+        Assert.Equal(WithoutWhitespace(compactTypeSource), WithoutWhitespace(typeSource));
     }
 
     [Theory]
