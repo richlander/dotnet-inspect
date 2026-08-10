@@ -321,7 +321,6 @@ public class MarkoutRowContainmentTests
         "InfoView.Time",
         "InspectionFailureRow.Section",
         "InterfaceRow.Interface",
-        "LibraryInspectionReport.Title",
         "MemberIndexRow.CanonicalSignature",
         "MemberIndexRow.Decode",
         "MemberIndexRow.Digest",

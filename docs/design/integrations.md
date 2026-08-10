@@ -141,9 +141,25 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-This query does not yet drive `@Integrations` sections. Command migration,
-integration-opportunity composition, cancellation-aware execution, and optional
-concurrent execution remain later slices.
+The library CLI and package `--all-libraries` host now execute this query when a
+focused `Integration:` section or `@Integrations` is selected. The section
+catalog binds every member of the family to the same query definition by object
+identity and owns a separate group-query registry because the query consumes an
+`AssemblyContextGroup`, not a single-library scanner context.
+
+The command creates one group for the selected assembly set, projects each typed
+entry into the corresponding `LibraryInspection`, and retains the workspace's
+authoritative immutable image for the rest of that library inspection. A path
+retarget after query execution therefore cannot mix one assembly's integration
+evidence with another assembly's metadata or opportunity scan.
+`AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
+gates that shared-image boundary.
+
+`Integration: Opportunities` remains a CLI composition scanner. It consumes the
+query-produced existing-integration evidence before scanning for missing
+registration surfaces; opportunity production has not moved into the L1 group
+query. Cancellation-aware group execution and optional concurrency remain later
+slices.
 
 ## Relationship to sections and categories
 

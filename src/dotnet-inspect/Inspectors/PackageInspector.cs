@@ -117,7 +117,8 @@ internal static class PackageInspector
         result.AssemblyCount = ToolsAnalyzer.CountAssemblies(extractPath);
         PopulateLibraryFiles(extractPath, result);
         result.BinarySignals = await ScanBinarySignalsAsync(
-            extractPath, packageName, version, httpClient, logger, acquirePdb: false);
+            extractPath, packageName, version, httpClient, logger,
+            acquirePdb: false, sourceOptions);
 
         // Parse deps.json files (present in tool packages, typically in tools/{tfm}/{rid}/)
         if (hasToolsDir)
@@ -180,7 +181,8 @@ internal static class PackageInspector
         string? packageVersion,
         HttpClient httpClient,
         VerboseLogger logger,
-        bool acquirePdb)
+        bool acquirePdb,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var dlls = TfmSelector.GetPackageAssemblies(extractPath);
         if (dlls.Count == 0)
@@ -207,7 +209,8 @@ internal static class PackageInspector
                 {
                     await SourceEnricher.AcquirePdbAsync(
                         service.Context, httpClient, packageName, packageVersion,
-                        isPlatformAssembly: false, logger.Log).ConfigureAwait(false);
+                        isPlatformAssembly: false, logger.Log,
+                        sourceOptions: sourceOptions).ConfigureAwait(false);
                 }
 
                 if (service.HasPdb)
