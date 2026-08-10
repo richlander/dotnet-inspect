@@ -11,21 +11,26 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-SourceLink, Integrations, API-comparison, Analysis body-signal comparison, and
-Implementation comparison inspection. The `diff` Changes, Analysis Diff, and
-Implementation Diff sections consume producer-owned comparison results over
-host-resolved surfaces, body indexes, and retained assembly content.
-The library CLI and package `--all-libraries` use the first
-workspace-backed, group-scoped query for focused Integrations demand while
-remaining query families are future work. The components below are the current
-hosts, shared substrates, and inspection producers that will extend that space.
+SourceLink, Integrations, implementation relationships, type/member search,
+extension reachability, API-comparison, and Analysis body-signal comparison
+inspection, plus Implementation comparison inspection. The `diff` Changes,
+Analysis Diff, and Implementation Diff sections consume producer-owned
+comparison results over host-resolved surfaces, body indexes, and retained
+assembly content.
+The library CLI, package `--all-libraries`, `extensions`, `implements`, and
+`find` now host workspace-backed queries. Independent search fan-out remains
+sequential and bounded to one retained participant at a time; group-scoped
+Integrations and extension reachability retain compatible participants for
+cross-assembly composition. The components below are the current hosts, shared
+substrates, and inspection producers that will extend that space.
 
 - `src/dotnet-inspect/` contains the CLI, command routing, parsers, options, output views, section descriptors, and inspectors.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  SourceLink, API-comparison, and progressive call-graph queries. It has no
-  Markout, console, or filesystem-path dependency.
+  SourceLink, implementation-relationship, type/member search,
+  extension-reachability, API-comparison, and progressive call-graph queries.
+  It has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It compares already-acquired Analysis body indexes and
   retained implementation assembly content, returning Research-owned results
