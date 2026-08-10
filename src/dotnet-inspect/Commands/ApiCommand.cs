@@ -51,7 +51,7 @@ public class ApiCommand
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
-            Columns = options.Columns, Fields = options.Fields,
+            Columns = options.Columns, Fields = options.Fields, Rows = options.Rows,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RequestAllTaste = options.RequestAllTaste,

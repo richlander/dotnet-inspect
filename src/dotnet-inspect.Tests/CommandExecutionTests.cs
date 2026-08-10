@@ -1777,6 +1777,7 @@ public partial class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             IncludeSections = ["Classes", "Structs"],
             Count = true,
+            Rows = RowWindow.Head(1),
             JsonOutput = true,
             Format = OutputFormat.Json,
             FormatExplicitlySet = true,
@@ -1789,11 +1790,13 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
-        var sections = document.RootElement
+        var rows = document.RootElement
             .EnumerateArray()
-            .Select(row => row.GetProperty("section").GetString()!)
+            .Select(row => (
+                Section: row.GetProperty("section").GetString()!,
+                Count: row.GetProperty("count").GetInt32()))
             .ToArray();
-        Assert.Equal(["Classes", "Structs"], sections);
+        Assert.Equal([("Classes", 1), ("Structs", 1)], rows);
     }
 
     [Fact]
