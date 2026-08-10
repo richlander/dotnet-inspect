@@ -611,6 +611,12 @@ public class IlToolsActivationTests
             StringComparison.Ordinal);
         Assert.True(jobStart < nextJob);
         string job = workflow[jobStart..nextJob];
+        int stepsStart = job.IndexOf(
+            "\n    steps:\n",
+            StringComparison.Ordinal);
+        Assert.True(stepsStart >= 0);
+        string jobHeader = job[..stepsStart];
+        Assert.DoesNotContain("continue-on-error:", jobHeader);
 
         int install = job.IndexOf(
             "- name: Install ilasm/ildasm",
@@ -654,12 +660,50 @@ public class IlToolsActivationTests
         Assert.Contains(
             "run: eng/restore-iltools.sh --rid linux-x64 >> \"$GITHUB_PATH\"",
             installStep);
+        Assert.DoesNotContain(
+            installStep.Split('\n'),
+            line => line.TrimStart().StartsWith("if:", StringComparison.Ordinal));
 
         string checkStep = job[terminalCheck..];
-        Assert.Contains("if: steps.iltools.outcome == 'failure'", checkStep);
+        Assert.Equal(
+            ["if: steps.iltools.outcome != 'success'"],
+            checkStep.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("if:", StringComparison.Ordinal)));
         Assert.Contains("exit 1", checkStep);
         Assert.DoesNotContain("continue-on-error:", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);
+    }
+
+    [Fact]
+    public void ReleaseWorkflow_OracleTestLaneBlocksAllPackageJobs()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", "release.yml"));
+
+        foreach (string jobName in new[] { "build-native", "build-portable", "publish" })
+        {
+            int jobStart = workflow.IndexOf(
+                $"\n  {jobName}:\n",
+                StringComparison.Ordinal);
+            Assert.True(jobStart >= 0);
+            int stepsStart = workflow.IndexOf(
+                "\n    steps:\n",
+                jobStart,
+                StringComparison.Ordinal);
+            Assert.True(jobStart < stepsStart);
+            string jobHeader = workflow[jobStart..stepsStart];
+            string needsLine = Assert.Single(
+                jobHeader.Split('\n').Select(line => line.Trim()),
+                line => line.StartsWith("needs:", StringComparison.Ordinal));
+            string[] needs = needsLine["needs:".Length..]
+                .Trim()
+                .Trim('[', ']')
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.Contains("deep-inspect-test", needs);
+            Assert.DoesNotContain("continue-on-error:", jobHeader);
+        }
     }
 
     static IEnumerable<string> FencedBashBlocks(string markdown)

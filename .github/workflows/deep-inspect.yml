@@ -138,7 +138,7 @@ jobs:
       # acquisition fails, but the lane must not go green after replacing its
       # oracle comparisons with skips.
       - name: Check ilasm/ildasm result
-        if: steps.iltools.outcome == 'failure'
+        if: steps.iltools.outcome != 'success'
         run: |
           echo "::error::Restoring ilasm/ildasm failed, so every test that uses them skipped." >&2
           echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
