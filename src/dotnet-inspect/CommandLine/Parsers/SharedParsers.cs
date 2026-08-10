@@ -56,13 +56,13 @@ public static class SharedParsers
 
     public static async Task<SourceSelection> ResolveSourceSelectionAsync(
         SourceSelectionInputs inputs,
-        IReadOnlyList<string> sourceKeys,
+        NuGetSourceOptions? sourceOptions,
         bool verbose,
         bool tryQualifiedTypeName)
     {
         var source = await SourceResolver.ResolveAsync(
             inputs.Args, inputs.ExplicitPackage, inputs.ExplicitAssembly, inputs.ExplicitPlatform,
-            sourceKeys, verbose, tryQualifiedTypeName).ConfigureAwait(false);
+            sourceOptions, verbose, tryQualifiedTypeName).ConfigureAwait(false);
 
         return new SourceSelection(
             inputs.Args,
@@ -99,6 +99,36 @@ public static class SharedParsers
         IReadOnlyList<string> sourceKeys,
         bool allowPlatformPrefixFallback,
         Action<string>? reportPlatformLookupFailure = null)
+        => TrySplitQualifiedTypeMember(
+            value,
+            (candidate, fallback, report) => SourceResolver.TryResolveQualifiedTypeName(
+                candidate,
+                sourceKeys,
+                fallback,
+                report),
+            allowPlatformPrefixFallback,
+            reportPlatformLookupFailure);
+
+    internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
+        string value,
+        NuGetSourceOptions? sourceOptions,
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure = null)
+        => TrySplitQualifiedTypeMember(
+            value,
+            (candidate, fallback, report) => SourceResolver.TryResolveQualifiedTypeName(
+                candidate,
+                sourceOptions,
+                fallback,
+                report),
+            allowPlatformPrefixFallback,
+            reportPlatformLookupFailure);
+
+    private static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
+        string value,
+        Func<string, bool, Action<string>?, SourceResolver.LocalProbeResult?> resolve,
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure)
     {
         for (var i = value.Length - 1; i > 0; i--)
         {
@@ -111,9 +141,8 @@ public static class SharedParsers
                 continue;
 
             string? platformLookupFailure = null;
-            var probe = SourceResolver.TryResolveQualifiedTypeName(
+            var probe = resolve(
                 typeCandidate,
-                sourceKeys,
                 allowPlatformPrefixFallback,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)

@@ -107,6 +107,11 @@ public static class CommandLineBuilder
             CommandError.Write(ex);
             return 1;
         }
+        catch (PackageSourceMappingException ex)
+        {
+            CommandError.Write(ex);
+            return 1;
+        }
         catch (OperationCanceledException)
         {
             return 1;

@@ -236,7 +236,8 @@ public static class AssemblySetResolver
                     platformAsm,
                     httpClient,
                     log,
-                    request.PlatformAssemblyFrameworkHint);
+                    request.PlatformAssemblyFrameworkHint,
+                    sourceOptions: request.SourceOptions);
 
                 if (error != null)
                 {
@@ -259,7 +260,11 @@ public static class AssemblySetResolver
                 var requests = PlatformPackService.GetMissingPackRequests(request.PlatformFrameworks);
                 if (requests.Count > 0)
                 {
-                    await foreach (var _ in PlatformPackService.EnsurePacksAsync(requests, httpClient, log))
+                    await foreach (var _ in PlatformPackService.EnsurePacksAsync(
+                        requests,
+                        httpClient,
+                        log,
+                        sourceOptions: request.SourceOptions))
                     {
                     }
                 }

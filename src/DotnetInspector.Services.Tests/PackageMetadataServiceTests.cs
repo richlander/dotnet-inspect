@@ -169,7 +169,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal(0, handler.RequestCount);
         Assert.Null(result.Published);
         Assert.Contains(messages, message => message.Contains(
-            "configured package sources do not include api.nuget.org",
+            "does not authorize api.nuget.org",
             StringComparison.Ordinal));
     }
 
@@ -205,7 +205,50 @@ public class PackageMetadataServiceTests : IDisposable
             Sources = [sourceUrl],
         };
 
-        Assert.False(PackageMetadataService.SupportsNuGetOrgMetadata(sourceOptions));
+        Assert.False(PackageMetadataService.SupportsNuGetOrgMetadata(
+            sourceOptions,
+            "Private.Package"));
+    }
+
+    [Fact]
+    public void SupportsNuGetOrgMetadata_RequiresPackageMappingToAuthorizeNuGetOrg()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Private.*" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="Public.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        try
+        {
+            var sourceOptions = new NuGetSourceOptions { ConfigFile = configPath };
+
+            Assert.False(PackageMetadataService.SupportsNuGetOrgMetadata(
+                sourceOptions,
+                "Private.Package"));
+            Assert.True(PackageMetadataService.SupportsNuGetOrgMetadata(
+                sourceOptions,
+                "Public.Package"));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 
     private sealed class FailingHandler : HttpMessageHandler

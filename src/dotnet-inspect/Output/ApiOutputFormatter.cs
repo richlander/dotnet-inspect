@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -1465,6 +1466,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1593,16 +1595,29 @@ public static class ApiOutputFormatter
             var projection = ILInspector.CallGraph.CallGraphProjection.Create(
                 callerTree,
                 analysisInspection.BuildCallTree(graphToken));
+            var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
+            memberCode.CallGraphRowCount = selectedRows.Count;
+            bool treeWindowIsEmpty =
+                options is { Tabular: false, Rows: not null }
+                && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
-            if (projection.Edges.Length > 0)
+            if (projection.Edges.Length > 0 && !treeWindowIsEmpty)
             {
+                // Markout's graph formatters lower the same graph to a tree or an edge table.
+                // Table output already windows the rendered edge rows at its writer boundary;
+                // tree formats have no rows of their own, so give them the selected projection
+                // rows and let every lowering describe the same edge set.
+                IReadOnlyList<ILInspector.CallGraph.CallGraphRow>? renderedRows =
+                    options is { Tabular: false, Rows: not null } ? selectedRows : null;
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options));
+                    GetRequestedCallGraphFields(options),
+                    renderedRows);
                 hasCode = true;
             }
-            else if (ExplicitlySelected(SectionNames.CallGraph))
+            else if (ExplicitlySelected(SectionNames.CallGraph)
+                || treeWindowIsEmpty)
             {
                 memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
@@ -1698,7 +1713,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1740,6 +1755,11 @@ public static class ApiOutputFormatter
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
+
+            hasCode |= PopulateAnnotatedSourceDocument(
+                memberCode,
+                code.SourceDocument,
+                code.SourceDocumentFailure);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1827,6 +1847,35 @@ public static class ApiOutputFormatter
         }
 
         return hasCode;
+    }
+
+    internal static bool PopulateAnnotatedSourceDocument(
+        MemberCodeView memberCode,
+        Decompiler.AnnotatedSourceDocument? sourceDocument,
+        Decompiler.DecompilerResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (sourceDocument is not null)
+        {
+            memberCode.AnnotatedSourceDocument = sourceDocument;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    sourceDocument,
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+            return true;
+        }
+        if (failure is not null)
+        {
+            memberCode.AnnotatedSourceDocumentFailure = failure;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "text",
+                string.Join(
+                    "\n",
+                    failure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+            return true;
+        }
+        return false;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

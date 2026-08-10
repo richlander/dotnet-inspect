@@ -28,7 +28,8 @@ internal static class MemberSourceLocationCollector
             {
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     packageName, packageVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
 
             var pdbPath = context.PortablePdbPath;
