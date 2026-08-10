@@ -2184,6 +2184,44 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void ResourcesQuery_DisposedBorrowedSessionRemainsTyped()
+    {
+        using var lender = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        var session = AssemblyInspectionSession.Borrow(lender);
+        session.Dispose();
+
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            ResourcesQuery.Execute(session));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+    }
+
+    [Fact]
+    public void ResourcesQuery_RetainedImageFailureDoesNotReopenPath()
+    {
+        using var metadataContext = PdbContext.Open(
+            typeof(LibraryInspection).Assembly.Location);
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(AssemblyInspectionSession).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = metadataContext,
+        };
+        metadataContext.Dispose();
+
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [ResourcesQuery.Definition],
+            context);
+        var failure = Assert.IsType<ResourcesResult.Failed>(
+            results.Get(ResourcesQuery.Definition));
+
+        Assert.IsType<ObjectDisposedException>(failure.Error);
+        Assert.Equal(0, context.SharedScanCount);
+    }
+
+    [Fact]
     public void ResourcesQuery_FailureRemainsTypedAndProjectsFindingFailure()
     {
         var session = AssemblyInspectionSession.Open(

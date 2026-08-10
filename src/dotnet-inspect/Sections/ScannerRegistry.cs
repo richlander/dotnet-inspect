@@ -48,14 +48,15 @@ public sealed class ScannerContext : IDisposable
 
     private MethodBodyInspectionSession? _bodySession;
     private AssemblyInspectionSession? _session;
+    private Exception? _sessionOpenFailure;
     private bool _sessionOpenAttempted;
     private Dictionary<int, (string? Stable, string Visibility, string Selector)>?
         _drillMap;
     private (WorkKind Kind, string Key, SectionCost Cost)? _runningWork;
 
     /// <summary>
-    /// One metadata session over the assembly, opened on first use and shared by the scanners that
-    /// ask for it through <see cref="Scan{TScan}"/>.
+    /// One metadata session over the assembly, opened on first use and shared by scanners and typed
+    /// queries that ask for it through <see cref="Scan{TScan}"/> or <see cref="Query{TResult}"/>.
     ///
     /// This exists for atomicity, not speed. Each of the three scanner fan-out sites that declared
     /// prerequisites replaced held its callees inside one open, so a single run could not mix two
@@ -70,11 +71,11 @@ public sealed class ScannerContext : IDisposable
     /// the same image. Reopening here would leave that wider window open even though every scanner
     /// shared one session.
     ///
-    /// Returns <see langword="null"/> when the assembly cannot be opened, so the caller falls back
-    /// to the path-based overload. That is deliberate: each path overload maps its own open
-    /// failure onto its own inspection type, and reproducing those mappings here would duplicate
-    /// them. The fallback reopens and fails again, which costs an extra open only on a path that is
-    /// already failing.
+    /// Returns <see langword="null"/> when the session cannot be acquired and retains the
+    /// acquisition exception. Scanner adapters use their path overload to preserve their existing
+    /// failure mapping. Typed-query adapters map the retained exception directly because reopening
+    /// <see cref="AssemblyPath"/> could substitute different content for a supplied
+    /// <see cref="MetadataContext"/>.
     ///
     /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
     /// synchronization is required.
@@ -82,7 +83,8 @@ public sealed class ScannerContext : IDisposable
     /// Gated by <c>SharedSessionScanners_AllObserveOneSession</c>,
     /// <c>SharedSessionScanners_DoNotObserveAPathRetargetedMidRun</c>,
     /// <c>SharedSessionScanners_ObserveTheImageTheCommandAlreadyOpened</c>, and
-    /// <c>ResourcesQuery_OpenFailureRemainsTyped</c>.
+    /// <c>ResourcesQuery_OpenFailureRemainsTyped</c>, and
+    /// <c>ResourcesQuery_RetainedImageFailureDoesNotReopenPath</c>.
     /// </summary>
     public AssemblyInspectionSession? Session()
     {
@@ -107,13 +109,15 @@ public sealed class ScannerContext : IDisposable
                     new InertString(TextPolicy.Field, "opened (no shared image available)"));
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Left to the fallback path overload, which logs and produces the failed inspection.
             _session = null;
+            _sessionOpenFailure = ex;
             Trace?.RecordResource(
                 "metadata session",
-                new InertString(TextPolicy.Field, "failed to open; scanners reopen individually"));
+                new InertString(
+                    TextPolicy.Field,
+                    "failed to acquire; work maps the acquisition failure"));
         }
 
         return _session;
@@ -148,7 +152,28 @@ public sealed class ScannerContext : IDisposable
     }
 
     /// <summary>
-    /// How many scans have taken the shared-session branch of <see cref="Scan{TScan}"/>.
+    /// Runs a typed query against the shared session, or maps the original acquisition failure
+    /// without reopening <see cref="AssemblyPath"/>.
+    /// </summary>
+    public TResult Query<TResult>(
+        Func<AssemblyInspectionSession, TResult> execute,
+        Func<Exception, TResult> failed)
+    {
+        if (Session() is { } session)
+        {
+            SharedScanCount++;
+            return execute(session);
+        }
+
+        Exception error = _sessionOpenFailure
+            ?? throw new InvalidOperationException(
+                "Metadata session acquisition failed without recording an exception.");
+        return failed(error);
+    }
+
+    /// <summary>
+    /// How many scans or typed queries have taken the shared-session branch of
+    /// <see cref="Scan{TScan}"/> or <see cref="Query{TResult}"/>.
     ///
     /// This exists so the atomicity property above can be gated rather than asserted. A scanner
     /// that reverts to opening <see cref="AssemblyPath"/> itself still produces correct-looking

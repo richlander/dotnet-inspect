@@ -301,21 +301,9 @@ public static class LibrarySections
                         }
                     }))
             .Add(ResourcesQuery.Definition, ctx =>
-                ctx.Scan(
+                ctx.Query(
                     ResourcesQuery.Execute,
-                    () =>
-                    {
-                        try
-                        {
-                            using var session = ILInspector.Metadata.AssemblyInspectionSession.Open(
-                                ctx.AssemblyPath);
-                            return ResourcesQuery.Execute(session);
-                        }
-                        catch (Exception ex)
-                        {
-                            return new ResourcesResult.Failed(ex);
-                        }
-                    }))
+                    ex => new ResourcesResult.Failed(ex)))
             .AddSourceLinkQueries(RequireSourceLinkContext);
     }
 
