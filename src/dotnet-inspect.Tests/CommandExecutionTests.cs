@@ -1845,6 +1845,120 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleType_MemberLimitRestrictsShapeMembers()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new() { Kind = "property", Name = "First", Signature = "int First { get; }" },
+                new() { Kind = "property", Name = "Second", Signature = "int Second { get; }" },
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            Limit = 1,
+            MemberLimit = 1
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Properties (1)", output);
+        Assert.Contains("int First { get; }", output);
+        Assert.DoesNotContain("Second", output);
+        Assert.DoesNotContain("Methods", output);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_ZeroMemberLimitKeepsStructuralShape()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+            BaseType = "Example.Base",
+            Members =
+            [
+                new() { Kind = "method", Name = "Run", Signature = "void Run()" },
+            ]
+        };
+        var options = new TypeOptions
+        {
+            ShapeOutput = true,
+            KindFilter = ["method"],
+            Limit = 0,
+            MemberLimit = 0
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Inherits", output);
+        Assert.Contains("Example.Base", output);
+        Assert.DoesNotContain("Methods", output);
+
+        var unmatchedOptions = options with { KindFilter = ["event"] };
+        var unmatched = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                unmatchedOptions));
+
+        Assert.Equal(0, unmatched.ExitCode);
+        Assert.Empty(unmatched.Output);
+        Assert.Contains("No matching members for filter: event", unmatched.Error);
+    }
+
+    [Fact]
+    public async Task Type_SingleType_TypeLimitDoesNotRestrictShapeMembers()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IO.MemoryStream",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "1",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Constructors", output);
+        Assert.Contains("Properties", output);
+        Assert.Contains("Methods", output);
+    }
+
+    [Fact]
     public async Task Type_Listing_MarkdownUsesLfThroughout()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6727,6 +6841,60 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("mermaid")]
+    public async Task Member_CallGraphTree_OverridesEnvironmentFormat(string environmentFormat)
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (exit, output, error) = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.DoesNotContain("| From |", output);
+            Assert.DoesNotContain("graph TD", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Member_EnvironmentMermaid_AppliesOnlyToCallGraphSelection()
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var graph = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+            var calls = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--tips", "q");
+
+            Assert.Equal(0, graph.Exit);
+            Assert.Empty(graph.Error);
+            Assert.StartsWith("graph TD", graph.Output, StringComparison.Ordinal);
+            Assert.Equal(0, calls.Exit);
+            Assert.Empty(calls.Error);
+            Assert.Contains("## Calls", calls.Output);
+            Assert.DoesNotContain("graph TD", calls.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
     [Fact]
     public async Task Member_BareNameCallGraph_AmbiguousOverloadReportsSelectorHint()
     {
@@ -9514,6 +9682,51 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Member_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = ["Calls"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
     public async Task Assembly_LocalAssembly_ShowsInfo()
     {
         var options = new LibraryOptions { AssemblyName = TestAssemblyPath };
@@ -11132,6 +11345,8 @@ public partial class CommandExecutionTests
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
         Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', all);
+        Assert.DoesNotContain('\r', windowed);
 
         static int DataRows(string output) =>
             output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
@@ -11139,6 +11354,32 @@ public partial class CommandExecutionTests
 
         Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
         Assert.Equal(2, DataRows(windowed));
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_MarkdownUsesLfThroughout()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info");
+            var (windowedExit, windowed, windowedError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Library Info", "--rows", "20");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, windowedExit);
+            Assert.DoesNotContain("Tip:", error);
+            Assert.DoesNotContain("Tip:", windowedError);
+            Assert.Contains('\n', output);
+            Assert.Contains('\n', windowed);
+            Assert.DoesNotContain('\r', output);
+            Assert.DoesNotContain('\r', windowed);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

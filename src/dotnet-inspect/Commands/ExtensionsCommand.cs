@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
@@ -5,6 +6,7 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -91,9 +93,80 @@ public class ExtensionsCommand
         AssemblySetDiagnosticWriter.Write(assemblySet);
 
         List<ExtensionMethodResult> results = [];
-        var censuses = assemblySet.Assemblies
-            .Select(assembly => InspectExtensionAssembly(assembly, options.IncludeAll))
-            .ToList();
+        var censuses = new List<ExtensionAssemblyCensus>(
+            assemblySet.Assemblies.Count);
+        ImmutableArray<ExtensionReachableTypePath> reachableTypes = [];
+        using var workspace = new AssemblySetInspectionWorkspace();
+        if (options.Reachable)
+        {
+            workspace.RunGroup(
+                assemblySet,
+                (group, entries) =>
+                {
+                    var registry =
+                        new InspectionQueryRegistry<AssemblyContextGroup>()
+                            .Add(
+                                AssemblyContextExtensionMethodsQuery.Definition,
+                                contextGroup =>
+                                    AssemblyContextExtensionMethodsQuery.Execute(
+                                        contextGroup,
+                                        options.IncludeAll))
+                            .Add(
+                                AssemblyContextExtensionReachabilityQuery.Definition,
+                                contextGroup =>
+                                    AssemblyContextExtensionReachabilityQuery.Execute(
+                                        contextGroup,
+                                        targetType,
+                                        options.Depth));
+                    InspectionQueryResults queryResults = registry.Run(
+                        [
+                            AssemblyContextExtensionMethodsQuery.Definition,
+                            AssemblyContextExtensionReachabilityQuery.Definition,
+                        ],
+                        group);
+                    AssemblyContextResult<
+                        ImmutableArray<ExtensionMethodInfo>> extensionMethods =
+                        queryResults.Get(
+                            AssemblyContextExtensionMethodsQuery.Definition);
+                    foreach (AssemblyContextEntry<
+                        ImmutableArray<ExtensionMethodInfo>> entry
+                        in extensionMethods.Assemblies)
+                    {
+                        censuses.Add(
+                            CreateExtensionCensus(
+                                entries.EntryFor(entry.Subject),
+                                entry));
+                    }
+
+                    AssemblyContextExtensionReachabilityResult reachability =
+                        queryResults.Get(
+                            AssemblyContextExtensionReachabilityQuery.Definition);
+                    WriteReachabilityFailures(reachability, entries);
+                    reachableTypes = reachability.ReachableTypes;
+                },
+                (assembly, failure) =>
+                    censuses.Add(
+                        FailedExtensionCensus(
+                            assembly,
+                            failure)));
+        }
+        else
+        {
+            workspace.RunPerAssembly(
+                assemblySet,
+                AssemblyContextExtensionMethodsQuery.Definition,
+                group => AssemblyContextExtensionMethodsQuery.Execute(
+                    group,
+                    options.IncludeAll),
+                (assembly, entry) =>
+                    censuses.Add(CreateExtensionCensus(assembly, entry)),
+                (assembly, failure) =>
+                    censuses.Add(
+                        FailedExtensionCensus(
+                            assembly,
+                            failure)));
+        }
+
         var availableCensuses = new List<ExtensionAssemblyCensus>(censuses.Count);
 
         foreach (var census in censuses)
@@ -109,27 +182,100 @@ public class ExtensionsCommand
             results.AddRange(ProjectExtensions(census, targetType));
         }
 
-        if (!options.Reachable)
-            return results;
-
-        var assemblyPaths = assemblySet.Assemblies.Select(a => a.Path).ToList();
-        var reachableTypes = ExtensionMethodScanner.FindReachableTypes(targetType, assemblyPaths, options.Depth);
-        foreach (var (reachableType, path) in reachableTypes)
+        foreach (ExtensionReachableTypePath reachable
+            in reachableTypes)
         {
-            if (reachableType == targetType) continue;
-
             foreach (var census in availableCensuses)
             {
                 results.AddRange(ProjectExtensions(
                     census,
-                    reachableType,
-                    reachablePath: path,
-                    reachableFromType: reachableType));
+                    reachable.Type,
+                    reachablePath: reachable.Path,
+                    reachableFromType: reachable.Type));
             }
         }
 
         return results;
     }
+
+    internal static void WriteReachabilityFailures(
+        AssemblyContextExtensionReachabilityResult reachability,
+        AssemblyContextEntryMap entries)
+    {
+        foreach (AssemblyContextEntry<
+            ImmutableArray<ExtensionReachabilityType>> entry
+            in reachability.TypeInventories.Assemblies)
+        {
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    ImmutableArray<
+                        ExtensionReachabilityType>>.Rejected rejected:
+                    CommandError.WriteWarning(
+                        $"Extension reachability inspection failed for "
+                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + rejected.Failure.Detail);
+                    break;
+                case AssemblyContextEntry<
+                    ImmutableArray<
+                        ExtensionReachabilityType>>.Failed failed:
+                    CommandError.WriteWarning(
+                        $"Extension reachability inspection failed for "
+                        + $"{entries.EntryFor(entry.Subject).Path}: "
+                        + failed.Error.Message);
+                    break;
+            }
+        }
+    }
+
+    private static ExtensionAssemblyCensus CreateExtensionCensus(
+        AssemblySetEntry assembly,
+        AssemblyContextEntry<ImmutableArray<ExtensionMethodInfo>> entry)
+        => entry switch
+        {
+            AssemblyContextEntry<
+                ImmutableArray<ExtensionMethodInfo>>.Available available =>
+                AvailableExtensionCensus(assembly, available.Value),
+            AssemblyContextEntry<
+                ImmutableArray<ExtensionMethodInfo>>.Rejected rejected =>
+                FailedExtensionCensus(
+                    assembly,
+                    rejected.Failure.Detail),
+            AssemblyContextEntry<
+                ImmutableArray<ExtensionMethodInfo>>.Failed failed =>
+                FailedExtensionCensus(
+                    assembly,
+                    failed.Error.Message),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly-context extension result."),
+        };
+
+    private static ExtensionAssemblyCensus AvailableExtensionCensus(
+        AssemblySetEntry assembly,
+        IReadOnlyList<ExtensionMethodInfo> members)
+        => new(
+            assembly,
+            members,
+            MetadataFindings.InspectExtensionMembers(
+                members,
+                ExtensionSubject(assembly.Path)));
+
+    private static ExtensionAssemblyCensus FailedExtensionCensus(
+        AssemblySetEntry assembly,
+        string reason)
+        => new(
+            assembly,
+            [],
+            new FindingInspection<ExtensionMemberObservation>.Failed(
+                new InspectionError(
+                    ExtensionSubject(assembly.Path),
+                    MetadataFindings.ExtensionMemberDescriptor,
+                    reason)));
+
+    private static FindingSubject ExtensionSubject(string path)
+        => new(
+            Path.GetFullPath(path),
+            Path.GetFileName(path));
 
     internal sealed record ExtensionAssemblyCensus(
         AssemblySetEntry Assembly,
@@ -144,23 +290,11 @@ public class ExtensionsCommand
         {
             using var session = AssemblyInspectionSession.Open(assembly.Path);
             var members = session.ExtensionMethods(includeAll).ToList();
-            var inspection = MetadataFindings.InspectExtensionMembers(
-                members,
-                new FindingSubject(Path.GetFullPath(assembly.Path), Path.GetFileName(assembly.Path)));
-            return new ExtensionAssemblyCensus(assembly, members, inspection);
+            return AvailableExtensionCensus(assembly, members);
         }
         catch (Exception ex)
         {
-            return new ExtensionAssemblyCensus(
-                assembly,
-                [],
-                new FindingInspection<ExtensionMemberObservation>.Failed(
-                    new InspectionError(
-                        new FindingSubject(
-                            Path.GetFullPath(assembly.Path),
-                            Path.GetFileName(assembly.Path)),
-                        MetadataFindings.ExtensionMemberDescriptor,
-                        ex.Message)));
+            return FailedExtensionCensus(assembly, ex.Message);
         }
     }
 
