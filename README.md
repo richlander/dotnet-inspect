@@ -86,6 +86,30 @@ with a temporary NuGet config that includes both the .NET 11 daily feed and
 nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
 projects still target stable `net10.0` packs.
 
+### Refreshing an older Windows checkout
+
+`.gitattributes` pins tracked text files to LF, but Git may leave CRLF bytes in
+a Windows working tree created before that policy was added. The tree still
+appears clean because Git compares normalized content. Check the effective
+working-tree endings with:
+
+```powershell
+git ls-files --eol | Select-String 'w/(crlf|mixed).*eol=lf'
+```
+
+No output means the checkout follows the policy. If files are listed, run the
+following commands from the repository root. First commit or stash any work and
+confirm `git status --short` is empty, because the final command discards
+working-tree changes:
+
+```powershell
+git rm --cached -r .
+git reset --hard HEAD
+```
+
+`RepositoryLineEndingTests.TrackedLfFilesHaveLfWorkingTreeEndings` enforces the
+same check and prints this repair when a stale checkout reaches the test suite.
+
 ## What it inspects
 
 | Source | Examples | Notes |
@@ -248,7 +272,8 @@ of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`.
+`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--rows` selects the same ordered relationships in tree and table output.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
