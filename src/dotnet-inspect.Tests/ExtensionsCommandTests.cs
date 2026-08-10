@@ -15,6 +15,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for extension method discovery.
 /// </summary>
+[Collection("Console")]
 public class ExtensionsCommandTests
 {
     [Fact]
@@ -205,6 +206,31 @@ public class ExtensionsCommandTests
 
         Assert.Same(MetadataFindings.ExtensionMemberDescriptor, failure.Error.Descriptor);
         Assert.Contains("Finding inspection failed", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReachableSearchUsesWorkspaceQueries()
+    {
+        var options = new ExtensionsOptions
+        {
+            TargetType = typeof(ExtensionWorkspaceRoot).FullName!,
+            Assemblies = [typeof(ExtensionsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Reachable = true,
+            Depth = 1,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ExtensionsCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            nameof(ExtensionWorkspaceMethods.WorkspaceExtension),
+            output);
+        Assert.Contains("\"reachable_path\": \".Reachable\"", output);
     }
 
     [Fact]
@@ -541,4 +567,18 @@ public static class SampleExtensions
 public class SampleTargetType
 {
     public string Name { get; set; } = "";
+}
+
+public sealed class ExtensionWorkspaceRoot
+{
+    public ExtensionWorkspaceTarget Reachable { get; } = new();
+}
+
+public sealed class ExtensionWorkspaceTarget;
+
+public static class ExtensionWorkspaceMethods
+{
+    public static string WorkspaceExtension(
+        this ExtensionWorkspaceTarget target)
+        => target.ToString()!;
 }

@@ -15,13 +15,13 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, SourceLink, and API-comparison inspection are the first
-typed-query canaries: section catalogs plan typed demand and execute it through
-prerequisite-aware registries, while commands still own orchestration. The
-`diff` Changes section consumes one API-comparison result over host-resolved
-surfaces, retaining Metadata-owned Finding correspondence and compatibility
-classification without coupling the query to endpoint acquisition or output.
-The library CLI and package
+custom-attribute, SourceLink, API-comparison, implementation-relationship, and
+type/member search inspection are the first typed-query canaries: commands and
+section catalogs plan typed demand while queries remain independent of
+acquisition and output. The `diff` Changes section consumes one API-comparison
+result over host-resolved surfaces, retaining Metadata-owned Finding
+correspondence and compatibility classification without coupling the query to
+endpoint acquisition or output. The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group scans every selected
 participant sequentially, preserves per-assembly identity, provenance, and
@@ -29,9 +29,14 @@ failures, and retains each available immutable snapshot for the rest of that
 library inspection without reopening the source path. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
-directions, and remain independent of rendering. Other foundations include
-shared image and inspection session ownership, catalog generations, `CoreCache`,
-typed provenance and resolution currencies, and `InertString`; the remaining
+directions, and remain independent of rendering. The `extensions`,
+`implements`, and `find` commands also execute typed queries through ephemeral
+workspaces. Ordinary search fan-out creates and disposes one-participant groups
+sequentially; explicit extension reachability uses one binding-consistent group
+so its name index, lazy member-edge traversal, and extension census observe the
+same retained participant images. Other foundations include shared image and
+inspection session ownership, catalog generations, `CoreCache`, typed
+provenance and resolution currencies, and `InertString`; the remaining
 workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,

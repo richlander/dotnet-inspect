@@ -1,9 +1,11 @@
+using System.Collections.Immutable;
 using DotnetInspector.Packages;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
@@ -51,15 +53,19 @@ public class ImplementsCommand
             logger.Log($"Scanning {assemblySet.Assemblies.Count} libraries for types implementing {targetType}");
 
             var results = new List<ImplementerResult>();
-            foreach (var assemblyInfo in assemblySet.Assemblies)
-            {
-                foreach (var result in ScanForImplementers(assemblyInfo.Path, targetType, options.IncludeAll, logger))
-                {
-                    result.Source = assemblyInfo.Source;
-                    result.SourceVersion = assemblyInfo.Version;
-                    results.Add(result);
-                }
-            }
+            using var workspace = new AssemblySetInspectionWorkspace();
+            workspace.RunPerAssembly(
+                assemblySet,
+                AssemblyContextImplementersQuery.Definition,
+                group => AssemblyContextImplementersQuery.Execute(
+                    group,
+                    targetType,
+                    options.IncludeAll),
+                (assembly, entry) =>
+                    AddImplementers(results, assembly, entry, logger),
+                (assembly, failure) =>
+                    logger.LogWarning(
+                        $"Error scanning {assembly.Path}: {failure}"));
 
             // Deduplicate by type name + source (same type from multiple TFM folders)
             results = results
@@ -102,37 +108,46 @@ public class ImplementsCommand
         }
     }
 
-    private static List<ImplementerResult> ScanForImplementers(
-        string assemblyPath,
-        string targetType,
-        bool includeAll,
+    private static void AddImplementers(
+        List<ImplementerResult> results,
+        AssemblySetEntry assembly,
+        AssemblyContextEntry<ImmutableArray<TypeRelationship>> entry,
         VerboseLogger logger)
     {
-        List<ImplementerResult> results = [];
-
-        try
+        switch (entry)
         {
-            var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-
-            foreach (var relationship in AssemblyReader.FindImplementers(assemblyPath, targetType, includeAll))
-            {
-                results.Add(new ImplementerResult
+            case AssemblyContextEntry<
+                ImmutableArray<TypeRelationship>>.Available available:
+                string assemblyName =
+                    Path.GetFileNameWithoutExtension(assembly.Path);
+                foreach (TypeRelationship relationship
+                    in available.Value)
                 {
-                    TypeName = relationship.TypeName,
-                    Namespace = relationship.Namespace,
-                    Kind = relationship.Kind,
-                    Relationship = relationship.RelationshipKind.ToString().ToLowerInvariant(),
-                    Assembly = assemblyName
-                });
-            }
-
+                    results.Add(new ImplementerResult
+                    {
+                        TypeName = relationship.TypeName,
+                        Namespace = relationship.Namespace,
+                        Kind = relationship.Kind,
+                        Relationship = relationship.RelationshipKind
+                            .ToString()
+                            .ToLowerInvariant(),
+                        Assembly = assemblyName,
+                        Source = assembly.Source,
+                        SourceVersion = assembly.Version,
+                    });
+                }
+                break;
+            case AssemblyContextEntry<
+                ImmutableArray<TypeRelationship>>.Rejected rejected:
+                logger.LogWarning(
+                    $"Error scanning {assembly.Path}: {rejected.Failure.Detail}");
+                break;
+            case AssemblyContextEntry<
+                ImmutableArray<TypeRelationship>>.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning {assembly.Path}: {failed.Error.Message}");
+                break;
         }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning {assemblyPath}: {ex.Message}");
-        }
-
-        return results;
     }
 
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
