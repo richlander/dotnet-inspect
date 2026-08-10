@@ -7,8 +7,10 @@ description: Map how code connects — implementors and subclasses, extension me
 # dotnet-inspect: relationships and dependency graphs
 
 Use this skill to map how code connects: what implements or extends a type, what
-it depends on, and who calls it. Many of these outputs are graph-shaped — add
-`--mermaid` for a diagram (or `--mermaid --markdown` to embed one).
+it depends on, and who calls it. Dependency views already render as trees; add
+`--mermaid` for a standalone diagram or `--markdown --mermaid` to embed one.
+Member Call Graphs instead default to Markdown edge tables and offer an
+explicit `--tree` path view.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -64,12 +66,23 @@ dnx dotnet-inspect -y -- member string IndexOf:7 -S Callers --caller-package Sys
 ```
 
 `Call Graph` is the bounded bidirectional view centered on one member: inbound
-callers toward entry points plus outbound calls. For a type-level dependency
-summary, `Called Types` groups direct calls by target type, assembly, members,
-and call kinds.
+callers toward entry points plus outbound calls. Its default Markdown view is
+an edge table. Select `--tree` for a standalone path-oriented view,
+`--mermaid` for a standalone diagram, or `--markdown --mermaid` for a diagram
+inside the Markdown document. For scripts, `--tsv` and `--jsonl` expose the
+same ordered edges with machine fields `from`, `from_group`, `to`, `to_group`,
+and `label`; group fields appear only when used. `--count` and `--rows` address
+edge rows consistently across these views.
+
+For a type-level dependency summary, `Called Types` groups direct calls by
+target type, assembly, members, and call kinds.
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph"
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --tree
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --mermaid
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --markdown --mermaid
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --jsonl
 dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 ```
 
