@@ -1800,39 +1800,15 @@ public sealed partial class CSharpPrinter
     {
         if (_printedRanges is null)
         {
-            AppendStatementCore(sb, node, indent);
+            AppendStatementCore(sb, node, indent, out _);
             return;
         }
         int start = sb.Length;
-        AppendStatementCore(sb, node, indent);
+        AppendStatementCore(sb, node, indent, out int? statementStartOverride);
         RecordExpressionRanges(sb, node, start);
-        int statementStart = EmitsSynthesizedStackallocDeclaration(node)
-            ? LastLineStart(sb, start)
-            : start;
-        _printedRanges.Record(node, statementStart, sb.Length);
+        _printedRanges.Record(node, statementStartOverride ?? start, sb.Length);
         if (HasNamedRegions(node))
             _printedRanges.RecordRegion(PrintedRegionRole.Construct, start, sb.Length);
-    }
-
-    bool EmitsSynthesizedStackallocDeclaration(IrNode node)
-        => node switch
-        {
-            Return { Value: StackAllocate }
-                => _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer },
-            StoreLocal { Value: StackAllocate, Type.Kind: TypeRefKind.Pointer } store
-                => store.Type is not null && store.Value.ResultType is not null,
-            StoreStackSlot { Value: StackAllocate } store
-                => StackSlotTargetType(store) is { Kind: TypeRefKind.Pointer }
-                    && store.Value.ResultType is not null,
-            _ => false,
-        };
-
-    static int LastLineStart(StringBuilder sb, int lowerBound)
-    {
-        for (int i = sb.Length - 2; i >= lowerBound; i--)
-            if (sb[i] == '\n')
-                return i + 1;
-        return lowerBound;
     }
 
     static bool HasNamedRegions(IrNode node)
@@ -1975,8 +1951,13 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
-    void AppendStatementCore(StringBuilder sb, IrNode node, int indent)
+    void AppendStatementCore(
+        StringBuilder sb,
+        IrNode node,
+        int indent,
+        out int? statementStartOverride)
     {
+        statementStartOverride = null;
         _statementIndent = indent;
         string pad = new(' ', indent * 4);
         if (node is LocalFunctionStatement localFunction)
@@ -2074,6 +2055,7 @@ public sealed partial class CSharpPrinter
             string value = returnPointer.Equals(stackAllocate.ResultType)
                 ? localName
                 : $"({TypeText(returnPointer)}){localName}";
+            statementStartOverride = sb.Length;
             sb.Append(pad).Append("return ").Append(value).AppendLf(";");
             return;
         }
@@ -2089,6 +2071,7 @@ public sealed partial class CSharpPrinter
                 .Append(" = ")
                 .Append(Expression(storeStackAllocate))
                 .AppendLf(";");
+            statementStartOverride = sb.Length;
             sb.Append(pad);
             if (_declaringStores.Contains(store))
                 sb.Append(TypeText(storeType)).Append(' ');
@@ -2114,6 +2097,7 @@ public sealed partial class CSharpPrinter
                 .Append(" = ")
                 .Append(Expression(slotStackAllocate))
                 .AppendLf(";");
+            statementStartOverride = sb.Length;
             sb.Append(pad);
             if (_declaringStores.Contains(slotStore))
                 sb.Append(TypeText(slotType)).Append(' ');
