@@ -429,6 +429,7 @@ public class LibraryCommand
         }
 
         if (options.Discover == null
+            && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(
                 options.TabularExplicitlySet, options.IncludeSections))
             return 1;

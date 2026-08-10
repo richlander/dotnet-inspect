@@ -398,6 +398,18 @@ public partial class CommandExecutionTests
         Assert.Equal(["2", "3", "4"], dataRows.Select(r => r.Split('\t')[1]));
     }
 
+    [Fact]
+    public async Task MetadataLens_TableCount_AppliesRowWindowBeforeReduction()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeRef",
+            "--count", "--rows", "2..4", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("3", output.Trim());
+        Assert.Empty(error);
+    }
+
     /// <summary>
     /// A package that resolves to several assemblies rejects metadata rows rather than rendering
     /// them. Row ids are image-relative and the section names carry no assembly, so a
@@ -525,9 +537,12 @@ public partial class CommandExecutionTests
             "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tips", "q");
         var (tsvExit, tsvOutput, _) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--tsv", "--tips", "q");
+        var (countExit, countOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", MetadataSectionNames.Image, "--count", "--tips", "q");
 
         Assert.Equal(0, markdownExit);
         Assert.Equal(0, tsvExit);
+        Assert.Equal(0, countExit);
 
         // Markdown table lines less the header and separator rows.
         int markdownRows = markdownOutput
@@ -537,6 +552,7 @@ public partial class CommandExecutionTests
 
         Assert.True(markdownRows > 0, "the image section must render facts");
         Assert.Equal(markdownRows, tsvRows);
+        Assert.Equal(markdownRows, int.Parse(countOutput));
     }
 
     /// <summary>
@@ -691,6 +707,12 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
         Assert.Contains("| #Strings | 1 |", output, StringComparison.Ordinal);
+
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", "#Strings:1", "--count", "--tips", "q");
+        Assert.Equal(0, countExit);
+        Assert.Equal("1", countOutput.Trim());
+        Assert.Empty(countError);
     }
 
     /// <summary>

@@ -1,7 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
-using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -263,7 +262,7 @@ public static class OutputFormatter
     /// rendered set - is what the map describes, so a requested section with no rows reports zero
     /// rather than disappearing, matching how a category renders.
     /// </remarks>
-    private static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
+    internal static IReadOnlyList<string>? ResolveCountMapSections<TModel>(
         SectionPipeline<TModel> pipeline, HashSet<string>? includeSections, bool fixedOverview)
     {
         var requested = includeSections is { Count: > 0 }
@@ -295,17 +294,18 @@ public static class OutputFormatter
         else if (selectInfo)
             writerOptions.SectionOrder = pipeline.InfoSectionNames;
         writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).TrimEnd();
-        if (!options.Count)
-            return markdown;
+        if (options.Count)
+        {
+            var projection = CountProjectionFormatter.Capture(
+                view, InspectionContext.Default, writerOptions);
+            var ordered = ResolveCountMapSections(
+                pipeline, options.IncludeSections, options.FixedOverview);
+            return CountOutput.Render(
+                projection, ordered, options.Format, options.NoHeader);
+        }
 
-        // A category selects many sections at once; report each member's count, including the
-        // members that rendered nothing, so the map describes the whole category.
-        var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-        if (ordered != null)
-            return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
-
-        return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
+        return MarkoutSerializer.Serialize(
+            view, InspectionContext.Default, writerOptions).TrimEnd();
     }
 
     /// <summary>
@@ -374,17 +374,11 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdown = SerializeLibraryMarkdown(
-                auditView, inspection, writerOpts, pipeline, options.Rows);
+            var projection = CaptureLibraryCountProjection(
+                auditView, inspection, writerOpts, options.Rows);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-            if (ordered != null)
-            {
-                CountOutput.WriteCountMapFromMarkdown(markdown, ordered, options.OutputPath);
-            }
-            else
-            {
-                CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
-            }
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath);
             return;
         }
 
@@ -591,30 +585,16 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdownDocuments = inspections.Select(inspection =>
+            var projection = new CountProjection();
+            foreach (var inspection in inspections)
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
-                var markdown = SerializeLibraryMarkdown(
-                    auditView, inspection, WriterOptions(inspection), pipeline, options.Rows);
-                return markdown;
-            }).ToList();
+                projection.Merge(CaptureLibraryCountProjection(
+                    auditView, inspection, WriterOptions(inspection), options.Rows));
+            }
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
-            if (ordered != null)
-            {
-                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var markdown in markdownDocuments)
-                {
-                    foreach (var (section, count) in CountOutput.CountMarkdownTableRowsBySection(markdown))
-                        counts[section] = counts.GetValueOrDefault(section) + count;
-                }
-                CountOutput.WriteCountMap(counts, ordered, options.OutputPath);
-            }
-            else
-            {
-                CountOutput.WriteCount(
-                    markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
-                    options.OutputPath);
-            }
+            CountOutput.Write(
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath);
             return;
         }
 
@@ -763,4 +743,18 @@ public static class OutputFormatter
 
     internal static bool ShouldRenderLibraryContext(LibraryOptions options) =>
         options.Verbosity == Verbosity.Quiet;
+
+    internal static CountProjection CaptureLibraryCountProjection(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOptions,
+        RowWindow? rows)
+    {
+        writerOptions.RowWindow = RowWindow.ToMarkout(rows);
+        var projection = CountProjectionFormatter.Capture(
+            auditView, InspectionContext.Default, writerOptions);
+        projection.Merge(MetadataLensRenderer.CaptureCounts(
+            inspection, writerOptions.IncludeSections, rows));
+        return projection;
+    }
 }

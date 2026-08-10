@@ -146,6 +146,11 @@ public partial record ApiOptions : IProjectionOptions
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
 
+    /// <summary>
+    /// Resolved output format, including environment overrides.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }
     public HashSet<string> MemberFilter { get; init; } = [];

@@ -146,7 +146,7 @@ public record LibraryOptions : IProjectionOptions
     /// <summary>
     /// Resolved output format.
     /// </summary>
-    public OutputFormat Format { get; init; }
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
     /// <summary>
     /// Show progress messages on stderr.

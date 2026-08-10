@@ -1,8 +1,9 @@
 # Output shapes
 
-dotnet-inspect output narrows through a small ladder of **shapes**. Markout
-defines the shapes and produces them; dotnet-inspect flags choose which rung you
-land on. Naming the ladder gives a shared vocabulary for the output flags
+dotnet-inspect output narrows through a small ladder of **shapes**. Product
+producers define the rows and capabilities; Markout renders those shapes after
+dotnet-inspect flags choose which rung you land on. Naming the ladder gives a
+shared vocabulary for the output flags
 (`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
@@ -128,6 +129,12 @@ Formatters decide presentation, not content:
   table row) and have no verbosity dial — they either show a thing or they
   do not (see [rendering-model.md](rendering-model.md)).
 
+Cardinality is observed at the structured writer seam, after section, column,
+field, and row-window projection and before text formatting. A formatter can
+observe those selected rows without writing text; rendered Markdown is never
+parsed back into rows. Producers outside Markout, such as metadata tables, expose
+cardinality from the same typed row builders their renderer consumes.
+
 ## How dotnet-inspect flags select a shape
 
 Flags are how the user (or an agent) walks the ladder. The important distinction
@@ -142,6 +149,30 @@ modifier changes how a selected payload is rendered.
 | Table | `-S OneSection` (a single section) |
 | Vector | `--fields X` / `--columns X` (project to one column) |
 | Scalar | `--count` (row count); `-n 1` (one row) |
+
+### Count projection
+
+`--count` reduces selected structured table rows after filtering, ordering, and
+`--rows` windowing:
+
+- One selected section produces a culture-invariant decimal scalar. The scalar
+  is the complete payload in every format: JSON emits a JSON number and JSONL
+  emits one numeric record; text and tabular formats emit the same bare value.
+- Multiple selected sections produce ordered `section`/`count` rows, including
+  a zero row for a requested section that emitted no table rows. Markdown,
+  table, and plain text render those rows as their native table form; TSV emits
+  two columns; JSONL emits one object per row; JSON emits an array of objects.
+  JSON and JSONL counts are numbers rather than numeric strings.
+
+The multi-section reduction is itself one table, so table, TSV, and JSONL
+formats accept a category or other multi-section selection under `--count`.
+Their ordinary one-input-table restriction applies before reduction and does
+not reject this count-result table.
+
+Trees and graphs do not acquire row semantics from whichever presentation a
+formatter happens to choose. A producer that supports counting such a shape
+must declare and count its product-owned lowering, as the dependency commands
+do for graph nodes.
 
 `-D`/`--discover` is orthogonal: it does not render the subject, it lists the
 *available* shapes — the sections of the Document and the columns of a Table (see

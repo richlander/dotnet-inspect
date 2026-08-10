@@ -242,6 +242,11 @@ public record InspectionOptions : IProjectionOptions
     public bool FormatExplicitlySet { get; init; }
 
     /// <summary>
+    /// Resolved output format, including environment overrides.
+    /// </summary>
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+
+    /// <summary>
     /// Suppress column headers (use with --table or --tsv).
     /// </summary>
     public bool NoHeader { get; init; }
@@ -281,7 +286,7 @@ public record InspectionOptions : IProjectionOptions
     public bool Schema { get; init; }
 
     /// <summary>
-    /// Output the number of rendered table rows for a single selected section.
+    /// Output selected table-row cardinality as a scalar or per-section count rows.
     /// </summary>
     public bool Count { get; init; }
 

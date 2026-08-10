@@ -163,6 +163,7 @@ public static class PackageOptionsParser
                 && !parseResult.GetValue(opts.RawUrls),
             TabularExplicitlySet = suppressImplicitRowFormat ? false : explicitTabularOutput,
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            Format = opts.ResolveFormat(parseResult),
             NoHeader = parseResult.GetValue(opts.NoHeaders),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = verbosity,

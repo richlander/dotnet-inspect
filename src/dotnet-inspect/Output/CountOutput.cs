@@ -1,4 +1,9 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using DotnetInspector.Options;
+using Markout;
+using Markout.Formatting;
 
 namespace DotnetInspector.Output;
 
@@ -38,39 +43,6 @@ public static class CountOutput
         return false;
     }
 
-    public static int CountMarkdownTableRows(string markdown)
-    {
-        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
-        var count = 0;
-
-        var inCodeFence = false;
-
-        for (var i = 0; i < lines.Length - 1; i++)
-        {
-            if (MarkdownScan.IsCodeFence(lines[i]))
-            {
-                inCodeFence = !inCodeFence;
-                continue;
-            }
-
-            if (inCodeFence)
-                continue;
-
-            if (!MarkdownScan.IsTableLine(lines[i]) || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
-                continue;
-
-            i += 2;
-            while (i < lines.Length && MarkdownScan.IsTableLine(lines[i]))
-            {
-                if (!MarkdownScan.IsSeparatorLine(lines[i]))
-                    count++;
-                i++;
-            }
-        }
-
-        return count;
-    }
-
     /// <summary>
     /// Writes a single count and records that the <c>--count</c> projection was honored.
     /// Count-emitting paths should route through this rather than writing to the console
@@ -90,7 +62,7 @@ public static class CountOutput
     }
 
     /// <summary>
-    /// Writes an already-rendered scalar or per-section count to <paramref name="outputPath"/>,
+    /// Writes an already-rendered scalar or structured count to <paramref name="outputPath"/>,
     /// or to stdout when it is null.
     /// </summary>
     public static void WriteCountResult(string result, string? outputPath)
@@ -103,116 +75,70 @@ public static class CountOutput
             File.WriteAllText(outputPath, text);
     }
 
-    public static void WriteCountFromMarkdown(string markdown, string? outputPath = null)
-    {
-        WriteCount(CountMarkdownTableRows(markdown), outputPath);
-    }
+    internal static string Render(
+        CountProjection projection,
+        IReadOnlyList<string>? orderedSections,
+        OutputFormat format,
+        bool noHeader = false)
+        => orderedSections is null
+            ? projection.Total.ToString(CultureInfo.InvariantCulture)
+            : RenderSectionCounts(projection.SectionCounts, orderedSections, format, noHeader);
 
-    /// <summary>
-    /// Counts markdown table rows attributed to the nearest preceding <c>## Section</c> heading.
-    /// Empty (absent) sections do not appear in the returned map.
-    /// </summary>
-    public static Dictionary<string, int> CountMarkdownTableRowsBySection(string markdown)
-    {
-        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
-        var inCodeFence = false;
-        string? currentSection = null;
-
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i];
-
-            if (MarkdownScan.IsCodeFence(line))
-            {
-                inCodeFence = !inCodeFence;
-                continue;
-            }
-
-            if (inCodeFence)
-                continue;
-
-            if (line.StartsWith("## ", StringComparison.Ordinal))
-            {
-                currentSection = line[3..].Trim();
-                continue;
-            }
-
-            if (currentSection is null || i + 1 >= lines.Length)
-                continue;
-
-            if (!MarkdownScan.IsTableLine(line) || !MarkdownScan.IsSeparatorLine(lines[i + 1]))
-                continue;
-
-            i += 2;
-            var rows = 0;
-            while (i < lines.Length && MarkdownScan.IsTableLine(lines[i]))
-            {
-                if (!MarkdownScan.IsSeparatorLine(lines[i]))
-                    rows++;
-                i++;
-            }
-            i--;
-
-            counts[currentSection] = counts.GetValueOrDefault(currentSection) + rows;
-        }
-
-        return counts;
-    }
-
-    /// <summary>
-    /// Renders a per-section count map (<c>| Section | Count |</c>) over
-    /// <paramref name="orderedSections"/>, reporting 0 for sections absent from the rendered
-    /// markdown. A category selection counts every member, including empty ones, which is why
-    /// the zero rows are kept rather than filtered.
-    /// </summary>
-    public static string RenderCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
-    {
-        var counts = CountMarkdownTableRowsBySection(markdown);
-        return RenderCountMap(counts, orderedSections);
-    }
-
-    /// <summary>
-    /// Renders a per-section count map from counts that were already aggregated across one or
-    /// more independently rendered documents.
-    /// </summary>
-    public static string RenderCountMap(
-        IReadOnlyDictionary<string, int> counts,
-        IReadOnlyList<string> orderedSections)
-    {
-        var builder = new System.Text.StringBuilder();
-        builder.Append("| Section | Count |\n");
-        builder.Append("| ------- | ----- |\n");
-        foreach (var section in orderedSections)
-        {
-            counts.TryGetValue(section, out var count);
-            builder.Append($"| {section} | {count} |\n");
-        }
-
-        return builder.ToString().TrimEnd();
-    }
-
-    /// <summary>
-    /// Emits a per-section count map (<c>| Section | Count |</c>) over <paramref name="orderedSections"/>,
-    /// reporting 0 for sections absent from the rendered markdown.
-    /// </summary>
-    public static void WriteCountMapFromMarkdown(
-        string markdown,
-        IReadOnlyList<string> orderedSections,
+    internal static void Write(
+        CountProjection projection,
+        IReadOnlyList<string>? orderedSections,
+        OutputFormat format,
+        bool noHeader = false,
         string? outputPath = null)
-    {
-        WriteCountMap(CountMarkdownTableRowsBySection(markdown), orderedSections, outputPath);
-    }
+        => WriteCountResult(Render(projection, orderedSections, format, noHeader), outputPath);
 
-    /// <summary>
-    /// Emits a per-section count map from counts that were already aggregated across one or more
-    /// independently rendered documents.
-    /// </summary>
-    public static void WriteCountMap(
+    internal static string RenderSectionCounts(
         IReadOnlyDictionary<string, int> counts,
         IReadOnlyList<string> orderedSections,
-        string? outputPath = null)
+        OutputFormat format,
+        bool noHeader = false)
     {
-        WriteCountResult(RenderCountMap(counts, orderedSections), outputPath);
+        var rows = orderedSections
+            .Select(section => new SectionCount(section, counts.GetValueOrDefault(section)))
+            .ToArray();
+
+        if (format == OutputFormat.Json)
+            return JsonSerializer.Serialize(rows, CountOutputJsonContext.Default.SectionCountArray);
+
+        var output = new StringWriter { NewLine = "\n" };
+        IMarkoutFormatter formatter = format switch
+        {
+            OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl
+                => new TableFormatter(showHeader: !noHeader),
+            OutputFormat.PlainText => new PlainTextFormatter(),
+            _ => new MarkdownFormatter()
+        };
+        var options = new MarkoutWriterOptions();
+        options.JsonTypedValues = true;
+        if (format == OutputFormat.Tsv)
+            options.TableMode = MarkoutTableMode.Tsv;
+        else if (format == OutputFormat.Jsonl)
+            options.TableMode = MarkoutTableMode.Jsonl;
+        var writer = new MarkoutWriter(output, formatter, options);
+        writer.WriteTable(
+            ["Section", "Count"],
+            ["section", "count"],
+            rows.Select(row => new[]
+            {
+                row.Section,
+                row.Count.ToString(CultureInfo.InvariantCulture)
+            }).ToArray());
+        writer.Flush();
+        return output.ToString().TrimEnd();
     }
+}
+
+internal sealed record SectionCount(string Section, int Count);
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    WriteIndented = true)]
+[JsonSerializable(typeof(SectionCount[]))]
+internal partial class CountOutputJsonContext : JsonSerializerContext
+{
 }

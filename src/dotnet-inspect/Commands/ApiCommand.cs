@@ -117,7 +117,8 @@ public class ApiCommand
                 && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
                 return null;
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(
+            if (!listingOptions.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
                     listingOptions.TabularExplicitlySet, listingOptions.IncludeSections))
                 return null;
         }
@@ -369,6 +370,7 @@ public class ApiCommand
         }
 
         if (!options.SelectDeferredToListing
+            && !options.Count
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
             return (null!, 1);
 
@@ -741,10 +743,12 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildWriterOptions(api, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var markdown = MarkoutSerializer.Serialize(view, ApiViewContext.Default, writerOptions);
-            if (!TryReportEmptyProjection(markdown, options))
+            var projection = CountProjectionFormatter.Capture(
+                view, ApiViewContext.Default, writerOptions);
+            if (!TryReportEmptyProjection(projection.WroteAnyContent, options))
                 return 1;
-            CountOutput.WriteCountFromMarkdown(markdown);
+            CountOutput.Write(
+                projection, orderedSections: null, options.Format, options.NoHeader);
         }
         else if (options.Tabular)
         {
@@ -845,8 +849,11 @@ public class ApiCommand
     /// emptiness first puts the schema's blind spots out of reach.
     /// </remarks>
     private static bool TryReportEmptyProjection(string rendered, ApiOptions options)
+        => TryReportEmptyProjection(!string.IsNullOrWhiteSpace(rendered), options);
+
+    private static bool TryReportEmptyProjection(bool wroteAnyContent, ApiOptions options)
     {
-        if (!string.IsNullOrWhiteSpace(rendered))
+        if (wroteAnyContent)
             return true;
 
         var names = options.Fields ?? options.Columns;
@@ -1310,13 +1317,13 @@ public class ApiCommand
         {
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
-            var sw = new StringWriter { NewLine = "\n" };
-            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
-            ApiOutputFormatter.SerializeTypeDocument(
-                view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
-                explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
-            writer.Flush();
-            CountOutput.WriteCountFromMarkdown(sw.ToString().TrimEnd());
+            var projection = CountProjectionFormatter.Capture(
+                writer => ApiOutputFormatter.SerializeTypeDocument(
+                    view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
+                    explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
+                writerOptions);
+            CountOutput.Write(
+                projection, orderedSections: null, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }

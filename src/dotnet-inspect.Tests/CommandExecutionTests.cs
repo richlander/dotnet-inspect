@@ -1173,6 +1173,31 @@ public partial class CommandExecutionTests
         Assert.Contains("Performance: Other", output);
     }
 
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--json")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--table")]
+    [InlineData("--plaintext")]
+    public async Task PerformanceGroup_CountMapHonorsSelectedFormat(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Text.Json",
+            "-S",
+            "@Performance",
+            "--count",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Performance: Boxing", output, StringComparison.Ordinal);
+        Assert.Contains("Performance: Other", output, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
     /// curated route carries that selection as a flag rather than as an include set, so this also

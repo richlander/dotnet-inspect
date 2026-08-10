@@ -300,6 +300,7 @@ public static class MemberOptionsParser
             Jsonl = opts.ResolveJsonl(parseResult),
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            Format = opts.ResolveFormat(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),

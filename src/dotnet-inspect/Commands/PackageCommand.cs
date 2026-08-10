@@ -167,7 +167,9 @@ public class PackageCommand
             if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+            if (!options.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                    options.TabularExplicitlySet, options.IncludeSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections
@@ -2579,20 +2581,34 @@ public class PackageCommand
             return 1;
         }
 
-        if (libraryOptions.JsonOutput)
+        if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
             return 0;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
+        if (libraryOptions.Count)
+        {
+            if (sections.Count == 0)
+                CommandError.WriteNote("matched sections have no data across all libraries.");
+
+            var projection = CaptureAllLibrariesCounts(
+                inspections, sections, libraryOptions, pipeline);
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
+            CountOutput.Write(
+                projection,
+                ordered,
+                libraryOptions.Format,
+                libraryOptions.NoHeader,
+                options.OutputPath);
+            return 0;
+        }
+
         if (sections.Count == 0)
         {
             CommandError.WriteNote("matched sections have no data across all libraries.");
-            // An empty match is still an answer to --count, and returning without projecting
-            // would report the absence as unprojected output.
-            if (libraryOptions.Count)
-                CountOutput.WriteCount(0, options.OutputPath);
             return 0;
         }
 
@@ -2604,10 +2620,7 @@ public class PackageCommand
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
-        if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
-        else
-            Console.WriteLine(markdown);
+        Console.WriteLine(markdown);
         return 0;
     }
 
@@ -2627,11 +2640,7 @@ public class PackageCommand
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            Format = options.JsonOutput ? OutputFormat.Json
-                : options.Jsonl ? OutputFormat.Jsonl
-                : options.Tsv ? OutputFormat.Tsv
-                : options.Tabular ? OutputFormat.Table
-                : OutputFormat.Markdown,
+            Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
             IncludeSections = options.IncludeSections,
@@ -2963,12 +2972,16 @@ public class PackageCommand
     /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
     /// the writer, which is what applies <c>--rows</c>.
     /// </summary>
-    private static void AppendAggregatedTable(StringBuilder sb, string section, MarkoutTable table, RowWindow? rows)
+    private static void AppendAggregatedSection(
+        StringBuilder sb,
+        string section,
+        List<LibraryInspection> inspections,
+        RowWindow? rows)
     {
-        var document = new AggregatedSectionDocument
-        {
-            Sections = [new AggregatedSectionView { Name = section, Body = table }]
-        };
+        var document = BuildAggregatedSection(section, inspections);
+        if (document is null)
+            return;
+
         var rendered = MarkoutSerializer.Serialize(
             document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
         if (rendered.Length == 0)
@@ -2985,7 +2998,9 @@ public class PackageCommand
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
            || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
-    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections, RowWindow? rows)
+    private static AggregatedSectionDocument? BuildAggregatedSection(
+        string section,
+        List<LibraryInspection> inspections)
     {
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
@@ -3003,15 +3018,14 @@ public class PackageCommand
                 .ThenBy(row => row.Api, StringComparer.Ordinal)
                 .ToList();
             if (opportunityRows.Count == 0)
-                return;
+                return null;
 
             var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendAggregatedTable(sb, section, new MarkoutTable(
+            return CreateAggregatedSection(section, new MarkoutTable(
                 includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
                 opportunityRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()), rows);
-            return;
+                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()));
         }
 
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
@@ -3029,28 +3043,27 @@ public class PackageCommand
                 .ThenBy(row => row.Switch, StringComparer.Ordinal)
                 .ToList();
             if (switchRows.Count == 0)
-                return;
+                return null;
 
             var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendAggregatedTable(sb, section, new MarkoutTable(
+            return CreateAggregatedSection(section, new MarkoutTable(
                 includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
                 switchRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]).ToList()), rows);
-            return;
+                    : [row.Kind, row.Switch, row.Api]).ToList()));
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
             d.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
         if (descriptor == null)
-            return;
+            return null;
 
         var signals = inspections
             .SelectMany(inspection => descriptor.GetSignals(inspection)
                 .Select(signal => new { Library = inspection.FileName, Signal = signal }))
             .ToList();
         if (signals.Count == 0)
-            return;
+            return null;
 
         var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
         var includeTypes = descriptor.IncludeTypesWhenApisPresent;
@@ -3060,7 +3073,7 @@ public class PackageCommand
             .ThenBy(row => row.Signal.Name, StringComparer.Ordinal)
             .ToList();
         if (focusedRows.Count == 0)
-            return;
+            return null;
 
         var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
@@ -3071,14 +3084,70 @@ public class PackageCommand
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
-        AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
+        return CreateAggregatedSection(section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
             List<string> values = [];
             if (includeLibraryColumn) values.Add(CodeCell(row.Library));
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();
-        }).ToList()), rows);
+        }).ToList()));
+    }
+
+    private static AggregatedSectionDocument CreateAggregatedSection(
+        string section,
+        MarkoutTable table)
+        => new()
+        {
+            Sections = [new AggregatedSectionView { Name = section, Body = table }]
+        };
+
+    private static CountProjection CaptureAllLibrariesCounts(
+        List<LibraryInspection> inspections,
+        List<string> sections,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var projection = new CountProjection();
+
+        foreach (var section in sections)
+        {
+            if (IsAggregatedAllLibrariesSection(section))
+            {
+                if (BuildAggregatedSection(section, inspections) is { } document)
+                {
+                    projection.Merge(CountProjectionFormatter.Capture(
+                        document,
+                        InspectionContext.Default,
+                        OutputFormatter.CreateWindowedOptions(options.Rows)));
+                }
+                continue;
+            }
+
+            foreach (var inspection in inspections)
+            {
+                if (!pipeline.GetEffectiveSections(
+                        inspection, options.Verbosity, options.IncludeSections)
+                    .Contains(section, StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var writerOptions = new MarkoutWriterOptions
+                {
+                    IncludeSections = [section],
+                    Projection = OutputFormatter.BuildProjection(
+                        options.Columns, options.Fields)
+                };
+                projection.Merge(OutputFormatter.CaptureLibraryCountProjection(
+                    new LibraryInspectionView(inspection),
+                    inspection,
+                    writerOptions,
+                    options.Rows));
+            }
+        }
+
+        return projection;
     }
 
     private static void AppendPerLibrarySections(
