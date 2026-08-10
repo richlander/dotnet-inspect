@@ -11,9 +11,10 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-SourceLink, Integrations, and API-comparison inspection. The `diff` Changes
-section consumes the API-comparison result over host-resolved surfaces. The
-library CLI and package `--all-libraries` use the first
+SourceLink, Integrations, API-comparison, and Analysis body-signal comparison
+inspection. The `diff` Changes and Analysis Diff sections consume
+producer-owned comparison results over host-resolved surfaces and body indexes.
+The library CLI and package `--all-libraries` use the first
 workspace-backed, group-scoped query for focused Integrations demand while
 remaining query families are future work. The components below are the current
 hosts, shared substrates, and inspection producers that will extend that space.
@@ -24,6 +25,10 @@ hosts, shared substrates, and inspection producers that will extend that space.
   and content-shaped metadata, reference, extension-method, custom-attribute,
   SourceLink, API-comparison, and progressive call-graph queries. It has no
   Markout, console, or filesystem-path dependency.
+- `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
+  L1 query family. Its first query compares already-acquired Analysis body
+  indexes and returns `ResearchComparison` without pulling Research or
+  Decompiler dependencies into the core query assembly.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
