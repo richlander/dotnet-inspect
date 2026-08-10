@@ -2124,7 +2124,8 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var guardLabels = TranslatedLabels(Enumerable.Range(0, lastIndex + 1), guardLabelBase);
         var tableLabels = TranslatedLabels(Enumerable.Range(0, sw.TargetOffsets.Length), switchLabelBase);
-        if (guardLabels.Any(tableLabels.Contains))
+        var guardLabelSet = guardLabels.ToHashSet();
+        if (tableLabels.Any(guardLabelSet.Contains))
             return false;
 
         range = new GuardRange(branch, guardLabels);
