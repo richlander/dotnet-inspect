@@ -46,7 +46,7 @@ What members does the Command type in System.CommandLine have?
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command
 ```
 
 ```expect
@@ -56,7 +56,7 @@ dotnet-inspect member --package System.CommandLine@2.0.3 Command --tips q
 ## Method Groups
 ```
 
-```expect-not
+```expect-stderr
 Tips:
 ```
 
@@ -107,7 +107,7 @@ Show me the SetAction method on Command in System.CommandLine.
 ```
 
 ```bash
-dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction --tips q
+dotnet-inspect member --package System.CommandLine@2.0.3 Command SetAction
 ```
 
 ```expect
@@ -117,8 +117,11 @@ SetAction
 ```
 
 ```expect-not
-Tips:
 | Add |
+```
+
+```expect-stderr
+Tips:
 ```
 
 ```query

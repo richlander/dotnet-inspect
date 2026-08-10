@@ -40,10 +40,6 @@ method
 Tips:
 ```
 
-```query
-head -3
-```
-
 ### 1b. With header
 
 ```bash
@@ -153,10 +149,6 @@ class
 Members
 ```
 
-```query
-head -3
-```
-
 ### 4b. Sum member counts
 
 ```bash
@@ -207,5 +199,9 @@ enum
 ```
 
 ```query
-head -3
+awk 'NR == 1 { previous = $1; rows = 1; next } { if ($1 > previous) bad = 1; previous = $1; rows++ } END { if (rows == 5 && !bad) print "descending-five" }'
+```
+
+```expect
+descending-five
 ```

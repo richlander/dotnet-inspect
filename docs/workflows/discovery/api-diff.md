@@ -142,6 +142,13 @@ dotnet-inspect diff System.Text.Json@8.0.0..10.0.0 \
   -m 'JsonConverterAttribute.ConverterType' -v:q
 ```
 
+```expect
+# API Diff: System.Text.Json
+JsonConverterAttribute
+ConverterType
+signature changed
+```
+
 Member filters also target body-signal diffs:
 
 ```bash
@@ -218,15 +225,38 @@ only the supplied pair; it does not traverse the version range. Use
 Select an implementation producer to inspect the exact C# line or IL operation
 census for one method:
 
+### 7a. C# line transitions
+
 ```bash
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   --type DiffFixtureSample.DiffSample --member ConstantValue \
   --finding csharp.line
+```
+
+```expect
+PairFinding.Added
+PairFinding.Removed
+csharp.line
+return 1;
+return 2;
+```
+
+### 7b. IL operation transitions
+
+```bash
 dotnet-inspect diff \
   --library artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll..artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
   --type DiffFixtureSample.DiffSample --member ConstantValue \
   --finding il.op
+```
+
+```expect
+PairFinding.Added
+PairFinding.Removed
+il.op
+ldc.i4 1
+ldc.i4 2
 ```
 
 These lenses preserve complete, absent, and failed inspection outcomes.

@@ -68,6 +68,11 @@ grep -oE 'Types: [0-9]+'
 grep -oE 'Source: [A-Za-z]+'
 ```
 
+```expect
+Types: 39
+Source: NuGet
+```
+
 ### 1b. Using `type` with table output
 
 ```bash
@@ -202,7 +207,12 @@ Tips:
 
 ```query
 grep -o 'Kind: [a-z]*'
-grep -oE 'Methods: [0-9]+'
+grep -Eq 'Methods: [1-9][0-9]*' && echo methods-positive
+```
+
+```expect
+Kind: class
+methods-positive
 ```
 
 ### 4b. Using fully qualified type name

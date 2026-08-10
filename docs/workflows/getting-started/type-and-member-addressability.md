@@ -212,6 +212,16 @@ Properties:
 Methods:
 ```
 
+```query
+grep -Eq 'Properties: [1-9][0-9]*' && echo properties-positive
+grep -Eq 'Methods: [1-9][0-9]*' && echo methods-positive
+```
+
+```expect
+properties-positive
+methods-positive
+```
+
 ## Address a specific member by name
 
 > Goal: Filter members to a single name (all overloads).

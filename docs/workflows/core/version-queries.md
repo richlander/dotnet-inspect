@@ -245,10 +245,14 @@ dotnet-inspect package Markout --versions-with-feed 3 --include-unlisted \
 Version
 Feed
 Listing
-10.0.2
-unlisted
-0.35.0
-listed
+```
+
+```query
+awk 'NR > 1 { if ($1 == "10.0.2" && $3 == "unlisted") anchor = 1; if ($3 == "listed") listed = 1 } END { if (anchor && listed) print "listing-status-ok" }'
+```
+
+```expect
+listing-status-ok
 ```
 
 The column is applied **per feed**, which is the one thing this view can express

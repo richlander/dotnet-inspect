@@ -31,6 +31,10 @@ dotnet-inspect System.CommandLine@2.0.3 -v:q
 dotnet-inspect Microsoft.Extensions.AI@9.9.1 -v:q
 ```
 
+```bash
+dotnet-inspect Markout@0.33.0 -v:q
+```
+
 ## 1. View package metadata
 
 > Goal: See package summary with author, license, and build date.
@@ -226,7 +230,7 @@ directory only locates that file; dotnet-inspect does not restore or build.
 ### 6b. Resolve package skill paths
 
 ```bash
-dotnet-inspect package Markout -S "Package skill files" --paths
+dotnet-inspect package Markout@0.33.0 -S "Package skill files" --paths
 ```
 
 ```expect
