@@ -7,6 +7,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.CSharp;
+using Markout;
 
 namespace DotnetInspector.Commands;
 
@@ -25,8 +26,10 @@ public class ProjectCommand
         if (!ValidateOptions(options))
             return 1;
 
+        Verbosity userVerbosity = options.Verbosity;
         ProjectSectionCatalog catalog = ProjectSections.CreateCatalog();
         SectionPipeline<ProjectInspection> pipeline = catalog.Pipeline;
+        DocumentSchema schema = ProjectSections.CreateSchema();
         SelectResult selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select,
             pipeline.SelectableSectionNames,
@@ -61,11 +64,31 @@ public class ProjectCommand
             options,
             pipeline,
             selectedSections);
+        if (!ProjectionDiagnostics.ValidateProjection(
+                schema,
+                candidateSections,
+                options.Fields,
+                options.Columns))
+        {
+            return 1;
+        }
+        if (!ValidateShapeAndFormatOptions(options, candidateSections))
+            return 1;
+        string? selectedValueField = null;
+        if (options.Discover is null
+            && !TryResolveValueField(
+                schema,
+                candidateSections,
+                options,
+                out selectedValueField))
+        {
+            return 1;
+        }
+
         bool structuralDiscovery = options.Discover is not null
             && !options.Effective;
         if (structuralDiscovery)
         {
-            var schema = ProjectSections.CreateSchema();
             List<string> discoverableSections =
                 candidateSections.Count == 0
                     ? []
@@ -82,7 +105,7 @@ public class ProjectCommand
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
                 markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)options.Verbosity,
+                verbosity: (int)userVerbosity,
                 fullSchema: schema,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap(),
@@ -91,18 +114,6 @@ public class ProjectCommand
                     : pipeline.GetCatalogHiddenSections(),
                 listedCategoryDoors: pipeline.GetListedCategoryDoors());
         }
-
-        if (options.Discover is null
-            && !ProjectionDiagnostics.ValidateProjection(
-                ProjectSections.CreateSchema(),
-                candidateSections,
-                options.Fields,
-                options.Columns))
-        {
-            return 1;
-        }
-        if (!ValidateShapeAndFormatOptions(options, candidateSections))
-            return 1;
 
         var commandContext = new CommandContext(options.Verbose);
         if (!ProjectAssetsParser.TryFindAssets(
@@ -165,14 +176,14 @@ public class ProjectCommand
             int discoverExitCode = DiscoverOutput.ExecuteEffective(
                 options.Discover,
                 effectiveSections,
-                ProjectSections.CreateSchema(),
+                schema,
                 tree: options.Tree,
                 json: options.JsonOutput,
                 tsv: options.Tsv,
                 jsonl: options.Jsonl,
                 markdown: !options.Tabular && !options.JsonOutput,
-                verbosity: (int)options.Verbosity,
-                fullSchema: ProjectSections.CreateSchema(),
+                verbosity: (int)userVerbosity,
+                fullSchema: schema,
                 sectionCostAnnotations: pipeline.GetCostAnnotations(),
                 sectionCategories: pipeline.GetCategoryMap(),
                 catalogHiddenSections: pipeline.GetCatalogHiddenSections(),
@@ -200,18 +211,26 @@ public class ProjectCommand
             ?? candidateSections;
 
         int outputExitCode;
-        if (options.Print || options.Bare)
+        if (options.Value || options.Urls || options.Paths)
         {
-            outputExitCode = PrintDocument(inspection, options, renderedSections);
-        }
-        else if (options.Value || options.Urls || options.Paths)
-        {
-            outputExitCode = WriteShapeProjection(inspection, options, renderedSections);
+            outputExitCode = WriteShapeProjection(
+                inspection,
+                options,
+                renderedSections,
+                selectedValueField);
         }
         else if (options.Count)
         {
-            WriteCounts(inspection, renderedSections, options.OutputPath);
+            WriteCounts(
+                inspection,
+                renderedSections,
+                options.Rows,
+                options.OutputPath);
             outputExitCode = 0;
+        }
+        else if (options.Print || options.Bare)
+        {
+            outputExitCode = PrintDocument(inspection, options, renderedSections);
         }
         else
         {
@@ -415,15 +434,6 @@ public class ProjectCommand
                 : options.Urls
                     ? "--urls"
                     : "--paths";
-            int selectedFieldCount =
-                (options.Columns?.Length ?? 0)
-                + (options.Fields?.Length ?? 0);
-            if (options.Value && selectedFieldCount > 1)
-            {
-                CommandError.Write(
-                    "--value accepts at most one field or column.");
-                return false;
-            }
             if (!ShapeProjectionOutput.ValidateSingleSection(
                     candidateSections,
                     optionName))
@@ -478,6 +488,42 @@ public class ProjectCommand
             return false;
         }
 
+        return true;
+    }
+
+    static bool TryResolveValueField(
+        DocumentSchema schema,
+        IReadOnlyCollection<string> candidateSections,
+        ProjectOptions options,
+        out string? selectedField)
+    {
+        selectedField = null;
+        if (!options.Value)
+            return true;
+
+        string[] requested =
+        [
+            .. options.Columns ?? [],
+            .. options.Fields ?? [],
+        ];
+        if (requested.Length == 0)
+            return true;
+
+        var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string section in candidateSections)
+        {
+            foreach (string name in schema.ValidateProjection(section, requested).Resolved)
+                resolved.Add(name);
+        }
+
+        if (resolved.Count > 1)
+        {
+            CommandError.Write(
+                "--value accepts at most one field or column.");
+            return false;
+        }
+
+        selectedField = resolved.SingleOrDefault()?.ToLowerInvariant();
         return true;
     }
 
@@ -848,7 +894,8 @@ public class ProjectCommand
     static int WriteShapeProjection(
         ProjectInspection inspection,
         ProjectOptions options,
-        HashSet<string> renderedSections)
+        HashSet<string> renderedSections,
+        string? selectedValueField)
     {
         string section = renderedSections.Single();
         ShapeProjectionKind kind = ShapeProjectionOutput.GetKind(
@@ -859,13 +906,17 @@ public class ProjectCommand
         switch (section)
         {
             case ProjectSectionNames.Skills when inspection.Skills is not null:
-                AddSkillProjections(inspection.Skills.Skills, options, kind, projected);
+                AddSkillProjections(
+                    inspection.Skills.Skills,
+                    selectedValueField,
+                    kind,
+                    projected);
                 break;
             case ProjectSectionNames.AgentGuidance
                 when inspection.AgentGuidance is not null:
                 AddAgentGuidanceProjections(
                     inspection.AgentGuidance.Guidance,
-                    options,
+                    selectedValueField,
                     kind,
                     projected);
                 break;
@@ -873,7 +924,7 @@ public class ProjectCommand
                 when inspection.PackageDocuments is not null:
                 AddPackageDocumentProjections(
                     inspection.PackageDocuments.Documents,
-                    options,
+                    selectedValueField,
                     kind,
                     projected);
                 break;
@@ -891,7 +942,7 @@ public class ProjectCommand
 
     static void AddSkillProjections(
         IReadOnlyList<ProjectSkillData> rows,
-        ProjectOptions options,
+        string? selectedValueField,
         ShapeProjectionKind kind,
         List<ShapeProjectionRow> projected)
     {
@@ -901,7 +952,9 @@ public class ProjectCommand
             string? value = kind switch
             {
                 ShapeProjectionKind.Paths => row.Path,
-                ShapeProjectionKind.Value => SelectSkillValue(row, options),
+                ShapeProjectionKind.Value => SelectSkillValue(
+                    row,
+                    selectedValueField),
                 _ => null,
             };
             if (!string.IsNullOrWhiteSpace(value))
@@ -918,7 +971,7 @@ public class ProjectCommand
 
     static void AddAgentGuidanceProjections(
         IReadOnlyList<ProjectAgentGuidanceData> rows,
-        ProjectOptions options,
+        string? selectedValueField,
         ShapeProjectionKind kind,
         List<ShapeProjectionRow> projected)
     {
@@ -928,7 +981,9 @@ public class ProjectCommand
             string? value = kind switch
             {
                 ShapeProjectionKind.Paths => row.Path,
-                ShapeProjectionKind.Value => SelectAgentGuidanceValue(row, options),
+                ShapeProjectionKind.Value => SelectAgentGuidanceValue(
+                    row,
+                    selectedValueField),
                 _ => null,
             };
             if (!string.IsNullOrWhiteSpace(value))
@@ -945,7 +1000,7 @@ public class ProjectCommand
 
     static void AddPackageDocumentProjections(
         IReadOnlyList<ProjectPackageDocumentData> rows,
-        ProjectOptions options,
+        string? selectedValueField,
         ShapeProjectionKind kind,
         List<ShapeProjectionRow> projected)
     {
@@ -955,7 +1010,9 @@ public class ProjectCommand
             string? value = kind switch
             {
                 ShapeProjectionKind.Paths => row.Path,
-                ShapeProjectionKind.Value => SelectPackageDocumentValue(row, options),
+                ShapeProjectionKind.Value => SelectPackageDocumentValue(
+                    row,
+                    selectedValueField),
                 _ => null,
             };
             if (!string.IsNullOrWhiteSpace(value))
@@ -972,8 +1029,8 @@ public class ProjectCommand
 
     static string? SelectSkillValue(
         ProjectSkillData row,
-        ProjectOptions options)
-        => SelectedField(options) switch
+        string? selectedValueField)
+        => selectedValueField switch
         {
             "package" => row.Package,
             "version" => row.Version,
@@ -986,8 +1043,8 @@ public class ProjectCommand
 
     static string? SelectAgentGuidanceValue(
         ProjectAgentGuidanceData row,
-        ProjectOptions options)
-        => SelectedField(options) switch
+        string? selectedValueField)
+        => selectedValueField switch
         {
             "package" => row.Package,
             "version" => row.Version,
@@ -999,8 +1056,8 @@ public class ProjectCommand
 
     static string? SelectPackageDocumentValue(
         ProjectPackageDocumentData row,
-        ProjectOptions options)
-        => SelectedField(options) switch
+        string? selectedValueField)
+        => selectedValueField switch
         {
             "package" => row.Package,
             "version" => row.Version,
@@ -1009,14 +1066,10 @@ public class ProjectCommand
             _ => row.Path,
         };
 
-    static string? SelectedField(ProjectOptions options)
-        => (options.Columns?.FirstOrDefault()
-                ?? options.Fields?.FirstOrDefault())
-            ?.ToLowerInvariant();
-
     static void WriteCounts(
         ProjectInspection inspection,
         HashSet<string> renderedSections,
+        RowWindow? rows,
         string? outputPath)
     {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1025,11 +1078,17 @@ public class ProjectCommand
             counts[section] = section switch
             {
                 ProjectSectionNames.Skills =>
-                    inspection.Skills?.Skills.Length ?? 0,
+                    CountRows<ProjectSkillData>(
+                        inspection.Skills?.Skills,
+                        rows),
                 ProjectSectionNames.AgentGuidance =>
-                    inspection.AgentGuidance?.Guidance.Length ?? 0,
+                    CountRows<ProjectAgentGuidanceData>(
+                        inspection.AgentGuidance?.Guidance,
+                        rows),
                 ProjectSectionNames.PackageDocs =>
-                    inspection.PackageDocuments?.Documents.Length ?? 0,
+                    CountRows<ProjectPackageDocumentData>(
+                        inspection.PackageDocuments?.Documents,
+                        rows),
                 _ => 0,
             };
         }
@@ -1039,6 +1098,9 @@ public class ProjectCommand
         else
             CountOutput.WriteCountMap(counts, renderedSections.ToArray(), outputPath);
     }
+
+    static int CountRows<T>(IReadOnlyList<T>? source, RowWindow? rows) =>
+        source is null ? 0 : RowWindow.Apply(rows, source).Count;
 
     static void WriteOutput(string output, string? outputPath)
     {

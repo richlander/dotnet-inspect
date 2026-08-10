@@ -15982,6 +15982,40 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_SkillsValue_UsesOnlyMatchedFieldFromPartialProjection()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Value.Partial",
+                "1.2.3",
+                "README.md",
+                "one",
+                Skills:
+                [
+                    new ProjectSkillDoc(
+                        "skills/value/SKILL.md",
+                        "one")
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--fields", "Bogus,Version",
+                "--value");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("1.2.3", output.Trim());
+            Assert.Contains("field 'Bogus' not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_SkillsPrint_PrintsFirstSkillDocument()
     {
         var skill = """
@@ -16322,6 +16356,50 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_SkillsBare_PreservesExplicitShape()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Bare.Shape",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
+                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                ]));
+
+        try
+        {
+            var paths = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--paths",
+                "--bare");
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Error);
+            Assert.Equal(
+                ["skills/one/SKILL.md", "skills/two/SKILL.md"],
+                paths.Output.ReplaceLineEndings("\n")
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+            var count = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--count",
+                "--bare");
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("2\n", count.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
@@ -16528,6 +16606,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_SkillsCount_AppliesRowWindow()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Count.Window",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
+                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                ]));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-S", "Skills",
+                "--rows", "1",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("1\n", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_Discover_ListsSkillsSection()
     {
         var (exit, output, error) = await RunAppAsync("project", "-D", "Skills");
@@ -16577,6 +16688,36 @@ public partial class CommandExecutionTests
         Assert.Contains("Skills", output);
         Assert.DoesNotContain("Agent Guidance", output);
         Assert.DoesNotContain("Package Docs", output);
+    }
+
+    [Fact]
+    public async Task Project_Discover_RejectsUnknownProjectionBeforeResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Skills",
+            "-S", "Skills",
+            "--columns", "Bogus");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection: Bogus", error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_RejectsPackageOutsidePackageDocsBeforeResolution()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D",
+            "--agents-index",
+            "--package", "Test.Project.Other");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--package requires -S \"Package Docs\" or --readme",
+            error);
     }
 
     [Fact]
@@ -16771,6 +16912,42 @@ public partial class CommandExecutionTests
             Assert.Empty(error);
             Assert.Contains("Package (column)", output);
             Assert.Contains("Description (column)", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_UnboundedSelectionPreservesJsonl()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Discovery.Unbounded",
+                "1.0.0",
+                "README.md",
+                "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-D", "--effective",
+                "-S", "Package Docs",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain("├", output);
+            string[] lines = output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.NotEmpty(lines);
+            foreach (string line in lines)
+            {
+                using JsonDocument _ = JsonDocument.Parse(line);
+            }
         }
         finally
         {
