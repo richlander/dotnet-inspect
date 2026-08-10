@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -1515,6 +1516,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
+            SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1748,7 +1750,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1790,6 +1792,11 @@ public static class ApiOutputFormatter
                 memberCode.ILCode = new CodeSection("il", ilText);
                 hasCode = true;
             }
+
+            hasCode |= PopulateAnnotatedSourceDocument(
+                memberCode,
+                code.SourceDocument,
+                code.SourceDocumentFailure);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1877,6 +1884,35 @@ public static class ApiOutputFormatter
         }
 
         return hasCode;
+    }
+
+    internal static bool PopulateAnnotatedSourceDocument(
+        MemberCodeView memberCode,
+        Decompiler.AnnotatedSourceDocument? sourceDocument,
+        Decompiler.DecompilerResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (sourceDocument is not null)
+        {
+            memberCode.AnnotatedSourceDocument = sourceDocument;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    sourceDocument,
+                    AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument));
+            return true;
+        }
+        if (failure is not null)
+        {
+            memberCode.AnnotatedSourceDocumentFailure = failure;
+            memberCode.AnnotatedSourceDocumentCode = new CodeSection(
+                "text",
+                string.Join(
+                    "\n",
+                    failure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+            return true;
+        }
+        return false;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

@@ -15,10 +15,13 @@ shared contracts, not dynamically loaded plugins.
 
 This document describes the target core architecture and the principles that
 govern its migration. Library metadata, direct-reference, extension-method,
-custom-attribute, and SourceLink inspection are the first typed-query canaries:
-the section catalog plans typed demand and executes it through a
-prerequisite-aware registry, while the command still owns orchestration. The
-library CLI and package
+custom-attribute, SourceLink, and API-comparison inspection are the first
+typed-query canaries: section catalogs plan typed demand and execute it through
+prerequisite-aware registries, while commands still own orchestration. The
+`diff` Changes section consumes one API-comparison result over host-resolved
+surfaces, retaining Metadata-owned Finding correspondence and compatibility
+classification without coupling the query to endpoint acquisition or output.
+The library CLI and package
 `--all-libraries` now use an ephemeral workspace for focused Integrations
 demand. One binding-consistent assembly context group scans every selected
 participant sequentially, preserves per-assembly identity, provenance, and
@@ -663,8 +666,8 @@ Those parts need not be duplicated on every leaf. Identity belongs at the
 highest container that knows the subject; native coordinates stay on the
 lowest producer that owns their semantics. A body-local fact may carry only an
 IL offset while its enclosing result carries the member subject and assembly
-binding. A portable source line may depend on its containing stream for the
-coordinate plane. Composition supplies the full operand without flattening it
+binding. A portable structural span may depend on its containing text buffer for
+the coordinate plane. Composition supplies the full operand without flattening it
 into one key.
 
 Member inspection is the worked pattern. A selector is a portable question, a
@@ -677,11 +680,14 @@ and the physical body owner instead of collapsing them.
 
 Source projection demonstrates the same pattern at another scale. An in-process
 correlation may retain live annotation objects and IR relationships. Its
-portable projection materializes annotation data and rebased extents so another
+portable projection materializes annotation data and text spans so another
 consumer can retain, filter, or render the relation without those live objects.
-The line's IL offset remains scoped to its physical body, while annotation
-extents use the containing rendered stream's coordinate plane. The projection
-does not claim to recover the original graph.
+An instruction's IL offset remains scoped to its physical body, while structural
+coordinates become absolute spans over the rendered text — the projection's own
+canonical artifact — so a discontinuous construct names the same characters,
+line breaks included, however the media were woven, and no coordinate depends on
+a line identity the payload does not carry. The projection does not claim to
+recover the original graph.
 
 These examples are precedents, not core types. Their owning documents define
 the exact currencies and conversions.

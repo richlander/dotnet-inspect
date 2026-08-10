@@ -1059,6 +1059,13 @@ public class ApiCommand
     {
         var sink = output ?? Console.Out;
 
+        if (IsInvalidAnnotatedSourceDocumentJsonSelection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
+            return 1;
+        }
+
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
             ApiOutputFormatter.WriteShapeOutput(
@@ -1073,7 +1080,8 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
+        bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
@@ -1249,6 +1257,22 @@ public class ApiCommand
 
             PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
 
+        }
+
+        if (sourceDocumentJson)
+        {
+            if (view.MemberCode?.AnnotatedSourceDocument is not { } sourceDocument)
+            {
+                CommandError.Write(AnnotatedSourceDocumentError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                sourceDocument,
+                AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
         }
 
         // Whole-type decompilation (type command; member flows populate per
@@ -2116,6 +2140,7 @@ public class ApiCommand
         {
             outputType = ProjectTypeToSections(type, members, sections);
         }
+
         else if (members != type.Members)
         {
             outputType = new ApiType
@@ -2155,11 +2180,45 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
     }
 
+    private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && HasOnlyExplicitAnnotatedSourceDocumentSelectors(options);
+
+    private static bool IsInvalidAnnotatedSourceDocumentJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.AnnotatedSourceDocument)
+           && options.Select?.Any(IsExplicitAnnotatedSourceDocumentSelector) == true
+           && (sections.Count != 1
+               || !HasOnlyExplicitAnnotatedSourceDocumentSelectors(options));
+
+    private static bool HasOnlyExplicitAnnotatedSourceDocumentSelectors(ApiOptions options)
+        => options.Select is { Length: > 0 } selectors
+           && selectors.All(IsExplicitAnnotatedSourceDocumentSelector);
+
+    private static bool IsExplicitAnnotatedSourceDocumentSelector(string selector)
+        => selector.Equals(
+            SectionNames.AnnotatedSourceDocument,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    internal static string AnnotatedSourceDocumentError(MemberCodeView? memberCode)
+        => memberCode?.AnnotatedSourceDocumentFailure is { } failure
+            ? string.Join(
+                "; ",
+                failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
+            : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

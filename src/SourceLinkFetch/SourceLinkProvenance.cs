@@ -966,7 +966,7 @@ public static class SourceLinkProvenance
             return false;
         }
 
-        if (ContainsEncodedSeparatorOrDotSegment(url, out string encoded))
+        if (ContainsEncodedSeparator(url, out string encoded))
         {
             // Uri preserves these verbatim through canonicalization, so a canonicalize-then-check
             // step passes while a server that percent-decodes before resolving dot segments still
@@ -1637,10 +1637,9 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
-    /// Detects percent-encoded path separators and percent-encoded dot segments, which survive
-    /// <see cref="Uri"/> canonicalization unchanged.
+    /// Detects percent-encoded path separators, which survive <see cref="Uri"/> canonicalization.
     /// </summary>
-    private static bool ContainsEncodedSeparatorOrDotSegment(string url, out string encoded)
+    private static bool ContainsEncodedSeparator(string url, out string encoded)
     {
         for (int i = 0; i + 2 < url.Length; i++)
         {
@@ -1651,8 +1650,7 @@ public static class SourceLinkProvenance
 
             ReadOnlySpan<char> pair = url.AsSpan(i + 1, 2);
             if (pair.Equals("2f", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("5c", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("2e", StringComparison.OrdinalIgnoreCase))
+                pair.Equals("5c", StringComparison.OrdinalIgnoreCase))
             {
                 encoded = url.Substring(i, 3);
                 return true;
