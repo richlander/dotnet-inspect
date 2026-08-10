@@ -44,6 +44,22 @@ public static class CountOutput
     }
 
     /// <summary>
+    /// Validates that the selected format can represent a multi-section count map.
+    /// Scalar counts are format-independent bare numbers, so they remain valid for every format.
+    /// </summary>
+    public static bool ValidateMapFormat(
+        OutputFormat format,
+        IReadOnlyList<string>? orderedSections)
+    {
+        if (orderedSections is null || format != OutputFormat.Mermaid)
+            return true;
+
+        CommandError.Write(
+            "--count cannot render multiple sections as Mermaid. Use Markdown, JSON, TSV, JSONL, table, or plain-text output.");
+        return false;
+    }
+
+    /// <summary>
     /// Writes a single count and records that the <c>--count</c> projection was honored.
     /// Count-emitting paths should route through this rather than writing to the console
     /// directly, so the payload-projection audit can tell a rendered count from a dropped one.
@@ -111,7 +127,10 @@ public static class CountOutput
             OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl
                 => new TableFormatter(showHeader: !noHeader),
             OutputFormat.PlainText => new PlainTextFormatter(),
-            _ => new MarkdownFormatter()
+            OutputFormat.Markdown => new MarkdownFormatter(),
+            OutputFormat.Mermaid => throw new InvalidOperationException(
+                "Mermaid count maps must be rejected before rendering."),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported count-map format.")
         };
         var options = new MarkoutWriterOptions();
         options.JsonTypedValues = true;

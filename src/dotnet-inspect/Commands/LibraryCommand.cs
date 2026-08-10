@@ -353,9 +353,16 @@ public class LibraryCommand
         // not use. -S still narrows effective discovery, so it stays permitted.
         var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
-        if (!rendersOwnPayload && options.Count
-            && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
-            return 1;
+        if (!rendersOwnPayload && options.Count)
+        {
+            if (!CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
+                return 1;
+
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, options.IncludeSections, options.FixedOverview);
+            if (!CountOutput.ValidateMapFormat(options.Format, ordered))
+                return 1;
+        }
 
         if (options.Count && options.Print)
         {

@@ -1198,6 +1198,25 @@ public partial class CommandExecutionTests
         Assert.Contains("Performance: Other", output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task PerformanceGroup_CountMapRejectsMermaidWithoutRejectingScalarCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--count", "--mermaid",
+            "--tips", "q");
+        var (scalarExit, scalarOutput, scalarError) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "References", "--count", "--mermaid",
+            "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot render multiple sections as Mermaid", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Section | Count |", output, StringComparison.Ordinal);
+        Assert.Equal(0, scalarExit);
+        Assert.Empty(scalarError);
+        Assert.True(int.TryParse(scalarOutput.Trim(), out _));
+    }
+
     /// <summary>
     /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
     /// curated route carries that selection as a flag rather than as an include set, so this also
@@ -3645,17 +3664,37 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>
-    /// Section arity for <c>--count</c> is still judged against what the listing will actually
-    /// render, so a deferred select naming two sections fails the same way a direct one does.
+    /// A deferred select must use the listing pipeline for both count-map ordering and reduction;
+    /// otherwise it either retains the obsolete single-section rejection or emits one scalar total.
     /// </summary>
     [Fact]
-    public async Task Type_PrefixBrowse_MultiSectionSelect_StillFailsCountArity()
+    public async Task Type_PrefixBrowse_MultiSectionSelect_RendersCountMap()
     {
-        var (exit, _, error) = await RunAppAsync(
-            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums", "--count", "--tips", "q");
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Command", "--library", TestAssemblyPath, "-S", "Classes,Enums",
+            "--count", "--json", "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Contains("exactly one section", error, StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(["Classes", "Enums"], rows.Select(row => row.GetProperty("section").GetString()));
+        Assert.All(rows, row => Assert.Equal(JsonValueKind.Number, row.GetProperty("count").ValueKind));
+    }
+
+    [Fact]
+    public async Task Type_ExactMatch_MultiSectionSelect_RendersCountMap()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.CommandExecutionTests", "--library", TestAssemblyPath,
+            "-S", "Type Info,Methods", "--count", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(["Methods", "Type Info"], rows.Select(row => row.GetProperty("section").GetString()));
+        Assert.All(rows, row => Assert.Equal(JsonValueKind.Number, row.GetProperty("count").ValueKind));
     }
 
     /// <summary>
@@ -5972,6 +6011,58 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task AllLibraries_CategoryCount_RendersCountMap()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "@Library",
+                "--count", "--json", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            var rows = document.RootElement.EnumerateArray().ToArray();
+            Assert.True(rows.Length > 1);
+            Assert.Contains(
+                rows,
+                row => row.GetProperty("section").GetString() == "Library Info");
+            Assert.All(rows, row => Assert.Equal(JsonValueKind.Number, row.GetProperty("count").ValueKind));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AllLibraries_MetadataSection_CountsOnlyRowsItsRendererOwns()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Metadata: TypeRef",
+                "--count", "--tips", "q");
+            var (renderExit, rendered, renderError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "Metadata: TypeRef",
+                "--markdown", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(0, renderExit);
+            Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Error:", renderError, StringComparison.Ordinal);
+            Assert.Equal("0", output.Trim());
+            Assert.DoesNotContain("## Metadata: TypeRef", rendered, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

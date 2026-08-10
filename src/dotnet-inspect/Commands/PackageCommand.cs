@@ -118,9 +118,19 @@ public class PackageCommand
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
-            if (!rendersOwnPayload && options.Count
-                && !CountOutput.ValidateSectionsSelected(options.IncludeSections, options.FixedOverview))
-                return 1;
+            if (!rendersOwnPayload && options.Count)
+            {
+                if (!CountOutput.ValidateSectionsSelected(
+                        options.IncludeSections, options.FixedOverview))
+                {
+                    return 1;
+                }
+
+                var ordered = OutputFormatter.ResolveCountMapSections(
+                    pipeline, options.IncludeSections, options.FixedOverview);
+                if (!CountOutput.ValidateMapFormat(options.Format, ordered))
+                    return 1;
+            }
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
             if (shapeCount > 1)
@@ -2510,8 +2520,19 @@ public class PackageCommand
         if (selectResult.Sections != null)
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
 
-        if (libraryOptions.Count && !CountOutput.ValidateSingleSection(libraryOptions.IncludeSections))
-            return 1;
+        if (libraryOptions.Count)
+        {
+            if (!CountOutput.ValidateSectionsSelected(
+                    libraryOptions.IncludeSections, libraryOptions.FixedOverview))
+            {
+                return 1;
+            }
+
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline, libraryOptions.IncludeSections, libraryOptions.FixedOverview);
+            if (!CountOutput.ValidateMapFormat(libraryOptions.Format, ordered))
+                return 1;
+        }
 
         var requiredVerbosity = pipeline.GetRequiredVerbosity(libraryOptions.IncludeSections);
         if (requiredVerbosity > libraryOptions.Verbosity)
@@ -3133,17 +3154,10 @@ public class PackageCommand
                     continue;
                 }
 
-                var writerOptions = new MarkoutWriterOptions
-                {
-                    IncludeSections = [section],
-                    Projection = OutputFormatter.BuildProjection(
-                        options.Columns, options.Fields)
-                };
-                projection.Merge(OutputFormatter.CaptureLibraryCountProjection(
+                projection.Merge(CountProjectionFormatter.Capture(
                     new LibraryInspectionView(inspection),
-                    inspection,
-                    writerOptions,
-                    options.Rows));
+                    InspectionContext.Default,
+                    CreateAllLibrariesWriterOptions(section, options)));
             }
         }
 
@@ -3176,15 +3190,10 @@ public class PackageCommand
     private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
     {
         var view = new LibraryInspectionView(inspection);
-        var writerOptions = new MarkoutWriterOptions
-        {
-            IncludeSections = [section],
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
-            // Windowed here rather than over the assembled document: the heading rewrite below is
-            // the only text this path edits, and it does not touch rows.
-            RowWindow = RowWindow.ToMarkout(options.Rows)
-        };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        var markdown = MarkoutSerializer.Serialize(
+            view,
+            InspectionContext.Default,
+            CreateAllLibrariesWriterOptions(section, options)).Trim();
         if (markdown.Length == 0)
             return "";
 
@@ -3207,6 +3216,17 @@ public class PackageCommand
 
         return string.Join('\n', lines).Trim();
     }
+
+    private static MarkoutWriterOptions CreateAllLibrariesWriterOptions(
+        string section,
+        LibraryOptions options)
+        => new()
+        {
+            IncludeSections = [section],
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            // Windowed before both count reduction and the aggregate heading rewrite above.
+            RowWindow = RowWindow.ToMarkout(options.Rows)
+        };
 
     /// <summary>
     /// Marks a cell as code using markout's semantic inline tag rather than literal backticks, so

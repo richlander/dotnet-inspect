@@ -114,8 +114,15 @@ public class ApiCommand
         if (options.SelectDeferredToListing)
         {
             if (listingOptions.Discover == null && listingOptions.Count
-                && !CountOutput.ValidateSingleSection(listingOptions.IncludeSections))
+                && (!CountOutput.ValidateSectionsSelected(
+                        listingOptions.IncludeSections, fixedOverview: false)
+                    || !CountOutput.ValidateMapFormat(
+                        listingOptions.Format,
+                        OutputFormatter.ResolveCountMapSections(
+                            typePipeline, listingOptions.IncludeSections, fixedOverview: false))))
+            {
                 return null;
+            }
 
             if (!listingOptions.Count
                 && !OutputFormatResolver.ValidateSingleSectionForTabular(
@@ -310,9 +317,17 @@ public class ApiCommand
         // actionable, and judging the listing's sections preempts the single-type view's own, more
         // accurate rejection. ReresolveSectionsForListing re-runs them once the pipeline is known.
         var selectionSections = options.SelectDeferredToListing ? null : options.IncludeSections;
+        var countMapSections = singleTypeMode
+            ? OutputFormatter.ResolveCountMapSections(
+                memberPipeline, selectionSections, fixedOverview: false)
+            : OutputFormatter.ResolveCountMapSections(
+                typePipeline, selectionSections, fixedOverview: false);
         if (options.Discover == null && options.Count && !options.SelectDeferredToListing
-            && !CountOutput.ValidateSingleSection(selectionSections))
+            && (!CountOutput.ValidateSectionsSelected(selectionSections, fixedOverview: false)
+                || !CountOutput.ValidateMapFormat(options.Format, countMapSections)))
+        {
             return (null!, 1);
+        }
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
         if (shapeCount > 1)
@@ -747,8 +762,12 @@ public class ApiCommand
                 view, ApiViewContext.Default, writerOptions);
             if (!TryReportEmptyProjection(projection.WroteAnyContent, options))
                 return 1;
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiTypeSectionDescriptors.CreatePipeline(),
+                options.IncludeSections,
+                fixedOverview: false);
             CountOutput.Write(
-                projection, orderedSections: null, options.Format, options.NoHeader);
+                projection, ordered, options.Format, options.NoHeader);
         }
         else if (options.Tabular)
         {
@@ -1322,8 +1341,12 @@ public class ApiCommand
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer),
                 writerOptions);
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                ApiMemberSectionPipelines.Create(options),
+                options.IncludeSections,
+                fixedOverview: false);
             CountOutput.Write(
-                projection, orderedSections: null, options.Format, options.NoHeader);
+                projection, ordered, options.Format, options.NoHeader);
             ApiOutputFormatter.WriteCallGraphWarning(view);
             return 0;
         }

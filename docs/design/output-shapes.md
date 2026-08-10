@@ -162,7 +162,8 @@ modifier changes how a selected payload is rendered.
   a zero row for a requested section that emitted no table rows. Markdown,
   table, and plain text render those rows as their native table form; TSV emits
   two columns; JSONL emits one object per row; JSON emits an array of objects.
-  JSON and JSONL counts are numbers rather than numeric strings.
+  JSON and JSONL counts are numbers rather than numeric strings. Standalone
+  Mermaid is rejected because a count map is a table, not a graph.
 
 The multi-section reduction is itself one table, so table, TSV, and JSONL
 formats accept a category or other multi-section selection under `--count`.
