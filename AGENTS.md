@@ -352,6 +352,12 @@ Test harnesses own orchestration, fixtures, independent oracles, comparison,
 and reporting. When behavior belongs to the product, a harness must exercise
 the product-owned capability rather than reconstructing or replacing it.
 
+Harnesses may parse source or diagnostics to observe and measure independent
+evidence. They must not use that parsed representation to construct, normalize,
+repair, or rewrite C# that the harness later compiles as product evidence. The
+product must own that artifact construction and expose typed identities, ranges,
+or replacement operations so the harness never becomes a second C# producer.
+
 Do not add harness-side adaptive mechanisms, fallback resolvers, special-case
 shape recognition, or normalization that compensates for missing, incomplete,
 or incorrect product behavior. Such compensation hides the product gap and
