@@ -40,11 +40,11 @@ public readonly record struct PrintedNodeSpan(int Id, string Kind, PrintedExtent
 /// <param name="Detail">Rendered specifics, e.g. the allocated type name.</param>
 /// <param name="SourceOffset">IL offset of the originating instruction, or <c>-1</c> when unknown.</param>
 /// <param name="NodeId">
-/// The <see cref="PrintedNodeSpan.Id"/> of the node this fact was placed on, or
-/// <see langword="null"/> when it could not be placed. Minted while the
-/// <c>IrNode</c> identity is still alive, so a consumer never has to recover the
-/// join by re-matching <paramref name="Kind"/> and <paramref name="Extent"/> —
-/// a match that is ambiguous whenever two nodes print the same characters.
+/// The <see cref="PrintedNodeSpan.Id"/> of the canonical surface-syntax node
+/// this fact was placed on, or <see langword="null"/> when it could not be
+/// placed. Minted while the contributing <c>IrNode</c> identities are still
+/// alive; implementation nodes that produce the same <paramref name="Kind"/>
+/// and <paramref name="Extent"/> intentionally share one id.
 /// </param>
 public readonly record struct PrintedAnnotationSpan(
     string Descriptor,
@@ -118,12 +118,12 @@ public readonly record struct PrintedRegion(PrintedRegionRole Role, PrintedExten
 /// This map stays deliberately denormalized — a placed annotation repeats the
 /// kind and extent of the node it sits on — because a caret renderer wants one
 /// self-describing row. What it no longer leaves implicit is the <em>join</em>:
-/// <see cref="PrintedAnnotationSpan.NodeId"/> names the exact
-/// <see cref="PrintedNodeSpan.Id"/> the fact was placed on, minted while the
-/// <see cref="IrNode"/> identity was still alive. Recovering that join later by
-/// matching kind and extent is ambiguous whenever two nodes print the same
-/// characters, so the portable document form (<see cref="AnnotatedSourceDocument"/>)
-/// normalizes on this id rather than re-deriving it.
+/// <see cref="PrintedAnnotationSpan.NodeId"/> names the canonical
+/// <see cref="PrintedNodeSpan.Id"/> the fact was placed on. It is minted while
+/// <see cref="IrNode"/> identity is still alive, after implementation wrappers
+/// with the same rendered kind and extent have been normalized to one surface
+/// node. The portable document form (<see cref="AnnotatedSourceDocument"/>)
+/// carries that established join rather than re-deriving it.
 /// </para>
 /// <para>
 /// <see cref="Nodes"/> and <see cref="Regions"/> form a laminar family: any two
@@ -342,9 +342,9 @@ public sealed record PrintedBodyMap
     /// </para>
     /// <para>
     /// The <see cref="IrNode"/> keys are carried through that reordering rather
-    /// than re-matched afterwards: two nodes can print the same characters under
-    /// the same kind, and recovering the join by coordinates would then pick one
-    /// of them arbitrarily.
+    /// than re-matched afterwards. When several implementation nodes print the
+    /// same characters under the same kind, every contributing identity is
+    /// assigned the one normalized surface-node id.
     /// </para>
     /// </remarks>
     static (

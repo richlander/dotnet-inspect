@@ -32,13 +32,20 @@ public class PrintedBodyMapTests
         var map = PrintedBodyMap.Create(ranges);
         Assert.NotEmpty(map.Nodes);
 
-        // Read the emitted spans, not recomputed coordinates. Checking only the
-        // count let a map of entirely bogus spans pass.
+        // Independently slice the printer's absolute offsets and compare them
+        // with the portable line/column projection. Reusing only TryGetExtent
+        // on both sides would let a coordinate conversion defect agree with
+        // itself.
         var expected = new HashSet<(string Kind, PrintedExtent Extent)>();
         foreach (var printed in ranges)
         {
             if (!ranges.TryGetExtent(printed.Node, out var extent))
                 continue;
+            int start = printed.Characters.Start.GetOffset(output.Length);
+            int end = printed.Characters.End.GetOffset(output.Length);
+            Assert.Equal(
+                output[start..end].TrimEnd('\r', '\n'),
+                Text(map, extent));
             expected.Add((
                 AnnotatedSourceNodeKindProjection.From(printed.Node),
                 extent));
@@ -78,6 +85,25 @@ public class PrintedBodyMapTests
                 LogicalKind.And,
                 new Constant(true, TypeRef.CoreLib("System", "Boolean")),
                 new Constant(false, TypeRef.CoreLib("System", "Boolean")))));
+
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var indexer = new MethodRef(objectType, "get_Item", objectType, [intType], HasThis: true);
+        Assert.Equal("ElementAccessExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadProperty(
+                indexer,
+                new LoadArgument(0, "items", objectType),
+                [new Constant(0, intType)])));
+        Assert.Equal("MemberAccessExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadProperty(
+                indexer with { Name = "get_Count", ParameterTypes = [] },
+                new LoadArgument(0, "items", objectType),
+                [])));
+
+        Assert.Equal("TypeOfExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadToken(RuntimeTokenKind.Type, objectType, objectType.ToDisplayString())));
+        Assert.Equal("UnsupportedExpression", AnnotatedSourceNodeKindProjection.From(
+            new LoadToken(RuntimeTokenKind.Field, null, "C.F")));
     }
 
     [Fact]

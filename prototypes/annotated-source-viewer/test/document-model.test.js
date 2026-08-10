@@ -33,13 +33,31 @@ test("one fact resolves through targets to C# and IL nodes", () => {
 });
 
 test("node kinds form a sorted structural selector", () => {
-  assert.deepEqual(nodeKinds(sampleDocument), [
+  const document = structuredClone(sampleDocument);
+  document.nodes.push({
+    id: 4,
+    kind: "FutureSyntax",
+    medium: "CSharp",
+    spans: structuredClone(sampleDocument.nodes[0].spans),
+  });
+  validateDocument(document);
+
+  assert.deepEqual(nodeKinds(document), [
     "ForStatement",
+    "FutureSyntax",
     "Instruction",
     "ObjectCreationExpression",
   ]);
-  assert.deepEqual(nodeIdsForKind(sampleDocument, "Instruction"), [2, 3]);
-  assert.deepEqual(nodeIdsForKind(sampleDocument, "FutureSyntax"), []);
+  assert.deepEqual(nodeIdsForKind(document, "Instruction"), [2, 3]);
+  assert.deepEqual(nodeIdsForKind(document, "FutureSyntax"), [4]);
+
+  const lines = buildLines(document.text);
+  const header = segmentsForLine(document, lines[0], [4]);
+  const instruction = segmentsForLine(document, lines[1], [4]);
+  const body = segmentsForLine(document, lines[3], [4]);
+  assert.ok(header.some(segment => segment.selected));
+  assert.ok(instruction.every(segment => !segment.selected));
+  assert.ok(body.some(segment => segment.selected));
 });
 
 test("multi-span nodes highlight each separated run without filling gaps", () => {

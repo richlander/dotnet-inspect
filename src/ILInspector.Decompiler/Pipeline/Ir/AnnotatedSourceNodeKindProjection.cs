@@ -3,6 +3,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>
 /// Projects implementation nodes onto the stable rendered-syntax vocabulary.
 /// </summary>
+/// <remarks>
+/// The type map is exhaustive. <see cref="From"/> refines that default when one
+/// implementation type prints more than one surface syntax according to node
+/// state, such as property access versus indexer access.
+/// </remarks>
 internal static class AnnotatedSourceNodeKindProjection
 {
     private static readonly IReadOnlyDictionary<Type, string> Kinds =
@@ -105,7 +110,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(CollectionSpreadElement)] = "SpreadElement",
             [typeof(ArrayLiteral)] = "ArrayCreationExpression",
             [typeof(InlineArraySpanConversion)] = "ConversionExpression",
-            [typeof(LoadToken)] = "TypeTokenExpression",
+            [typeof(LoadToken)] = "UnsupportedExpression",
             [typeof(LoadProperty)] = "MemberAccessExpression",
             [typeof(StoreProperty)] = "AssignmentStatement",
             [typeof(EventSubscription)] = "EventAssignmentStatement",
@@ -139,7 +144,12 @@ internal static class AnnotatedSourceNodeKindProjection
     /// <summary>Every explicit implementation-to-syntax decision.</summary>
     internal static IEnumerable<KeyValuePair<Type, string>> Mappings => Kinds;
 
-    /// <summary>Returns the stable rendered-syntax kind for <paramref name="node"/>.</summary>
+    /// <summary>Returns the stable rendered-syntax kind for <paramref name="node"/>, including instance-sensitive refinements.</summary>
     internal static string From(IrNode node)
-        => Kinds.GetValueOrDefault(node.GetType(), AnnotatedSourceNodeKinds.Unknown);
+        => node switch
+        {
+            LoadProperty { IndexArguments.Count: > 0 } => "ElementAccessExpression",
+            LoadToken { Kind: RuntimeTokenKind.Type, Type: not null } => "TypeOfExpression",
+            _ => Kinds.GetValueOrDefault(node.GetType(), AnnotatedSourceNodeKinds.Unknown),
+        };
 }

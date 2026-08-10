@@ -548,9 +548,9 @@ public static partial class ResearchViews
     /// Every IL line becomes an <c>Instruction</c> node carrying its own offset,
     /// because a fact anchors to structure and the interleaved line is no longer
     /// an addressable thing. C# nodes keep the ids the printer projection minted
-    /// while <c>IrNode</c> identity was still alive, so a C# target is the node
-    /// the fact was actually anchored to rather than a coordinate re-match that
-    /// would be ambiguous whenever two nodes print the same characters.
+    /// while <c>IrNode</c> identity was still alive. Equivalent implementation
+    /// wrappers share one canonical surface node, and each C# target carries the
+    /// join established before those identities were discarded.
     /// </para>
     /// <para>
     /// Facts are deduplicated on their full semantic identity, including origin,

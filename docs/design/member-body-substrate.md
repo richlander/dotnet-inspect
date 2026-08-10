@@ -434,7 +434,10 @@ name. Internal forms normalize to syntax a reader can ask about:
 `Coerce → ConversionExpression`. Several implementation forms may share one
 syntax kind — all switch-expression raisers are `SwitchExpression`, for
 example — because the document describes the text, not how the decompiler
-reached it.
+reached it. A type-level mapping is refined from node state when one IR class
+prints different syntax: an indexed `LoadProperty` is
+`ElementAccessExpression`, while an ordinary property read is
+`MemberAccessExpression`.
 
 The strictness is intentionally one-way. Producers emit only cataloged values;
 consumers **must tolerate unknown kinds** so an additive vocabulary change does

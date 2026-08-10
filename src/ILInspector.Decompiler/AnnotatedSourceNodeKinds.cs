@@ -98,7 +98,6 @@ public static class AnnotatedSourceNodeKinds
             "CollectionExpression",
             "SpreadElement",
             "ElementAccessExpression",
-            "TypeTokenExpression",
             "EventAssignmentStatement",
             "CaughtExceptionExpression",
             "ControlTransferStatement",
