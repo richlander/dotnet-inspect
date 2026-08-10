@@ -192,6 +192,165 @@ public class ConstraintResolutionHardeningTests
                 .TypeKind);
     }
 
+    [Theory]
+    [InlineData("ValueType", false)]
+    [InlineData("Enum", false)]
+    [InlineData("ValueType", true)]
+    public void SameImageCoreRootsDoNotAuthenticateForgedClassMarkers(
+        string baseName,
+        bool constructed)
+    {
+        byte[] coreImage =
+            BuildCoreWithMarkedDerived(baseName, constructed);
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "HostileCore",
+                "Derived",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference core = Descriptor(coreImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(core));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void ConstructedConstraintRequiresMatchingExternalArity()
+    {
+        byte[] dependencyImage = BuildSimpleType("Dependency", "Base");
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "Dependency",
+                "Base",
+                constructed: true);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void ConstructedConstraintRequiresMatchingSameImageArity()
+    {
+        byte[] image = BuildSameImageConstructedConstraint();
+        using var pe = Reader(image);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
+
+        ApiType consumer =
+            Assert.Single(
+                surface.Types,
+                static type => type.Name == "Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(consumer.TypeParameters).TypeKind);
+    }
+
+    [Fact]
+    public void ConstructedConstraintRejectsTrailingSignatureBytes()
+    {
+        byte[] dependencyImage =
+            BuildGenericType("Dependency", "Base`1");
+        byte[] consumerImage = BuildTrailingConstraintConsumer();
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void ConstructedCoreConstraintWithoutResolutionStaysUndetermined()
+    {
+        byte[] image = BuildConstructedCoreEnumConsumer();
+        using var pe = Reader(image);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void AuthenticationBudgetExhaustionIsVisibleOnApiSurface()
+    {
+        byte[] firstImage = BuildBudgetFirst();
+        byte[] secondImage = BuildBudgetSecond();
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "BudgetA",
+                "T0",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference first = Descriptor(firstImage);
+        ResolvedAssemblyReference second = Descriptor(secondImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxTypeResolutionRequests = 1,
+            });
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(first, second));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            Assert.Single(Assert.Single(surface.Types).TypeParameters)
+                .TypeKind);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains(
+            "dependency authentication",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configured budget of 1",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DiscoveryBudgetExhaustionIsVisibleOnApiSurface()
     {
@@ -342,6 +501,145 @@ public class ConstraintResolutionHardeningTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildConstructedCoreEnumConsumer()
+    {
+        MetadataBuilder metadata = NewMetadata("ConstructedCoreConsumer");
+        var token =
+            new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a };
+        AssemblyReferenceHandle core =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(10, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(token),
+                default,
+                default);
+        TypeReferenceHandle enumType =
+            metadata.AddTypeReference(
+                core,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Enum"));
+        AddModule(metadata);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            AddConstructedClass(metadata, enumType));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCoreWithMarkedDerived(
+        string baseName,
+        bool constructed)
+    {
+        MetadataBuilder metadata = NewMetadata("HostileCore");
+        AddModule(metadata);
+        TypeDefinitionHandle objectType =
+            AddType(metadata, "Object", typeNamespace: "System");
+        TypeDefinitionHandle valueType =
+            AddType(
+                metadata,
+                "ValueType",
+                objectType,
+                "System");
+        TypeDefinitionHandle enumType =
+            AddType(
+                metadata,
+                "Enum",
+                valueType,
+                "System");
+        TypeDefinitionHandle root =
+            baseName == "Enum" ? enumType : valueType;
+        AddType(
+            metadata,
+            "Derived",
+            constructed
+                ? AddConstructedClass(metadata, root)
+                : AddClassSpecification(metadata, root));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSimpleType(
+        string assemblyName,
+        string typeName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AddModule(metadata);
+        AddType(metadata, typeName);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericType(
+        string assemblyName,
+        string typeName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AddModule(metadata);
+        TypeDefinitionHandle definition =
+            AddType(metadata, typeName);
+        AddGenericParameter(metadata, definition);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSameImageConstructedConstraint()
+    {
+        MetadataBuilder metadata = NewMetadata("SameImage");
+        AddModule(metadata);
+        TypeDefinitionHandle root = AddType(metadata, "Base");
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            AddConstructedClass(metadata, root));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildTrailingConstraintConsumer()
+    {
+        MetadataBuilder metadata = NewMetadata("Trailing");
+        AssemblyReferenceHandle dependency =
+            AddReference(metadata, "Dependency");
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(root) << 2) | 1);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x08);
+        signature.WriteByte(0x08);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature)));
+        return Serialize(metadata);
+    }
+
     static byte[] BuildMarkedDerived(
         string assemblyName,
         AssemblyName baseAssembly,
@@ -459,10 +757,11 @@ public class ConstraintResolutionHardeningTests
     static TypeDefinitionHandle AddType(
         MetadataBuilder metadata,
         string name,
-        EntityHandle baseType = default) =>
+        EntityHandle baseType = default,
+        string typeNamespace = "N") =>
         metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Class,
-            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(typeNamespace),
             metadata.GetOrAddString(name),
             baseType,
             MetadataTokens.FieldDefinitionHandle(1),
@@ -502,13 +801,13 @@ public class ConstraintResolutionHardeningTests
 
     static TypeSpecificationHandle AddConstructedClass(
         MetadataBuilder metadata,
-        TypeReferenceHandle type)
+        EntityHandle type)
     {
         var signature = new BlobBuilder();
         signature.WriteByte(0x15);
         signature.WriteByte(0x12);
         signature.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(type) << 2) | 1);
+            EncodeTypeDefOrRef(type));
         signature.WriteCompressedInteger(1);
         signature.WriteByte(0x08);
         return metadata.AddTypeSpecification(
@@ -517,15 +816,25 @@ public class ConstraintResolutionHardeningTests
 
     static TypeSpecificationHandle AddClassSpecification(
         MetadataBuilder metadata,
-        TypeReferenceHandle type)
+        EntityHandle type)
     {
         var signature = new BlobBuilder();
         signature.WriteByte(0x12);
         signature.WriteCompressedInteger(
-            (MetadataTokens.GetRowNumber(type) << 2) | 1);
+            EncodeTypeDefOrRef(type));
         return metadata.AddTypeSpecification(
             metadata.GetOrAddBlob(signature));
     }
+
+    static int EncodeTypeDefOrRef(EntityHandle type) =>
+        (MetadataTokens.GetRowNumber(type) << 2)
+        | type.Kind switch
+        {
+            HandleKind.TypeDefinition => 0,
+            HandleKind.TypeReference => 1,
+            HandleKind.TypeSpecification => 2,
+            _ => throw new ArgumentOutOfRangeException(nameof(type)),
+        };
 
     static MetadataTypeDefinitionName Name(string leaf) =>
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(

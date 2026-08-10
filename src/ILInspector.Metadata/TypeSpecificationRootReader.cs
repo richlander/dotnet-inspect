@@ -130,10 +130,9 @@ internal readonly record struct TypeSpecificationRoot(
                     }
 
                     cumulativeBytes += blobLength;
-                    if (!SignatureBlobGuard.IsSafeToDecode(
-                            reader,
-                            signature,
-                            SignatureBlobGuard.Kind.TypeSpecification))
+                    if (!SignatureBlobGuard
+                            .IsCompleteTypeSpecification(
+                                reader.GetBlobReader(signature)))
                     {
                         return false;
                     }

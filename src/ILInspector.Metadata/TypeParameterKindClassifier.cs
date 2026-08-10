@@ -47,7 +47,7 @@ internal static class TypeParameterKindClassifier
         readonly AssemblyReferenceProjectionCache
             _assemblyReferenceProjection;
         readonly Dictionary<
-            TypeReferenceHandle,
+            (TypeReferenceHandle Handle, int? GenericArgumentCount),
             ConstraintClass> _resolvedClasses = [];
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
@@ -117,7 +117,8 @@ internal static class TypeParameterKindClassifier
 
         internal ConstraintClass Classify(
             MetadataReader reader,
-            TypeReferenceHandle handle)
+            TypeReferenceHandle handle,
+            int? genericArgumentCount = null)
         {
             if (!_projectedRequests.TryGetValue(
                     handle,
@@ -155,24 +156,43 @@ internal static class TypeParameterKindClassifier
                 return ConstraintClass.Unreadable;
             }
 
+            var cacheKey = (handle, genericArgumentCount);
             if (_resolvedClasses.TryGetValue(
-                    handle,
+                    cacheKey,
                     out ConstraintClass cached))
             {
                 return cached;
             }
 
-            if (_context.Resolve(request)
+            TypeResolutionOutcome outcome =
+                _context.Resolve(request);
+            if (outcome
                 is not TypeResolutionOutcome.Resolved resolved)
             {
+                if (outcome is TypeResolutionOutcome.Rejected
+                    {
+                        Failure:
+                            TypeResolutionFailure.RequestBudgetExceeded
+                                budget,
+                    })
+                {
+                    RecordAuthenticationBudgetFailure(
+                        handle,
+                        budget.Budget);
+                }
+
                 _resolvedClasses.Add(
-                    handle,
+                    cacheKey,
                     ConstraintClass.Unreadable);
                 return ConstraintClass.Unreadable;
             }
 
             ResolvedTypeDefinition definition = resolved.Definition;
-            ConstraintClass result = definition.Kind switch
+            ConstraintClass result =
+                genericArgumentCount is int expected
+                    && definition.GenericParameterCount != expected
+                ? ConstraintClass.Unreadable
+                : definition.Kind switch
             {
                 MetadataTypeDefinitionKind.Interface =>
                     ConstraintClass.ProvesNothing,
@@ -186,7 +206,7 @@ internal static class TypeParameterKindClassifier
                     ConstraintClass.ProvesReferenceType,
                 _ => ConstraintClass.Unreadable,
             };
-            _resolvedClasses.Add(handle, result);
+            _resolvedClasses.Add(cacheKey, result);
             return result;
         }
 
@@ -198,6 +218,16 @@ internal static class TypeParameterKindClassifier
                     "Type-resolution request discovery exceeded "
                         + $"the configured budget of "
                         + $"{_maxTypeResolutionRequests}.");
+
+        void RecordAuthenticationBudgetFailure(
+            TypeReferenceHandle handle,
+            int budget) =>
+            _requestBudgetFailure ??=
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    "Type-resolution dependency authentication exceeded "
+                        + $"the configured budget of {budget}.");
 
         TypeResolutionRequest? CreateRequest(
             MetadataReader reader,
@@ -875,7 +905,8 @@ internal static class TypeParameterKindClassifier
         EntityHandle handle,
         ResolutionPlan? resolution,
         Dictionary<TypeDefinitionHandle, ConstraintClass>
-            definitionClasses)
+            definitionClasses,
+        int? genericArgumentCount = null)
     {
         if (handle.IsNil)
             return ConstraintClass.Unreadable;
@@ -885,6 +916,17 @@ internal static class TypeParameterKindClassifier
             case HandleKind.TypeDefinition:
                 TypeDefinitionHandle definitionHandle =
                     (TypeDefinitionHandle)handle;
+                if (genericArgumentCount is int expected
+                    && (!MetadataTypeDeclarationProbe
+                            .TryGetGenericParameterCount(
+                                reader,
+                                definitionHandle,
+                                out int actual)
+                        || actual != expected))
+                {
+                    return ConstraintClass.Unreadable;
+                }
+
                 if (!definitionClasses.TryGetValue(
                         definitionHandle,
                         out ConstraintClass definitionClass))
@@ -908,7 +950,8 @@ internal static class TypeParameterKindClassifier
                 return ClassifyReference(
                     reader,
                     (TypeReferenceHandle)handle,
-                    resolution);
+                    resolution,
+                    genericArgumentCount);
 
             // A generic instantiation constrains to the instantiated type, so the
             // question is about its generic type definition.
@@ -930,7 +973,8 @@ internal static class TypeParameterKindClassifier
                             reader,
                             root.Type,
                             resolution,
-                            definitionClasses),
+                            definitionClasses,
+                            root.GenericArgumentCount),
                     TypeSpecificationRootKind.GenericTypeParameter
                         or TypeSpecificationRootKind.GenericMethodParameter =>
                         ConstraintClass.DeferToTypeParameter,
@@ -1042,10 +1086,19 @@ internal static class TypeParameterKindClassifier
     static ConstraintClass ClassifyReference(
         MetadataReader reader,
         TypeReferenceHandle handle,
-        ResolutionPlan? resolution)
+        ResolutionPlan? resolution,
+        int? genericArgumentCount)
     {
         if (resolution is not null)
-            return resolution.Classify(reader, handle);
+        {
+            return resolution.Classify(
+                reader,
+                handle,
+                genericArgumentCount);
+        }
+
+        if (genericArgumentCount is not null)
+            return ConstraintClass.Unreadable;
 
         try
         {

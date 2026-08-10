@@ -64,6 +64,29 @@ public static class ApiSurfaceExtractor
             typesOnly,
             includeCompilerGenerated,
             constraintResolution);
+        if (constraintResolution.Requests.Count == 0)
+        {
+            AddConstraintResolutionFailure(
+                surface,
+                constraintResolution);
+            return surface;
+        }
+
+        using TypeResolutionContext context = catalog.CreateContext(
+            bindingPolicy,
+            [source],
+            constraintResolution.Requests);
+        constraintResolution.Apply(context);
+        AddConstraintResolutionFailure(
+            surface,
+            constraintResolution);
+        return surface;
+    }
+
+    static void AddConstraintResolutionFailure(
+        ApiSurface surface,
+        TypeParameterConstraintResolution constraintResolution)
+    {
         if (constraintResolution.Plan.RequestBudgetFailure
             is { } budgetFailure)
         {
@@ -73,15 +96,6 @@ public static class ApiSurfaceExtractor
                 default,
                 budgetFailure);
         }
-        if (constraintResolution.Requests.Count == 0)
-            return surface;
-
-        using TypeResolutionContext context = catalog.CreateContext(
-            bindingPolicy,
-            [source],
-            constraintResolution.Requests);
-        constraintResolution.Apply(context);
-        return surface;
     }
 
     static ApiSurface ExtractCore(

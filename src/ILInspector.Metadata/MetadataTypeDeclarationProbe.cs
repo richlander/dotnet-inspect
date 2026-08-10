@@ -462,19 +462,11 @@ public static class MetadataTypeDeclarationProbe
                     reader,
                     handle,
                     declaringAssemblyDefinesCoreLibraryRoot);
-            int genericParameterCount;
-            try
+            if (!TryGetGenericParameterCount(
+                    reader,
+                    handle,
+                    out int genericParameterCount))
             {
-                genericParameterCount =
-                    reader.GetTypeDefinition(handle)
-                        .GetGenericParameters()
-                        .Count;
-            }
-            catch (Exception ex) when (
-                ex is BadImageFormatException
-                    or ArgumentOutOfRangeException)
-            {
-                genericParameterCount = -1;
                 kind = MetadataTypeDefinitionKind.Unknown;
             }
 
@@ -652,10 +644,29 @@ public static class MetadataTypeDeclarationProbe
 
         if (root.Type.Kind == HandleKind.TypeDefinition)
         {
+            TypeDefinitionHandle rootHandle =
+                (TypeDefinitionHandle)root.Type;
+            if (!TryGetGenericParameterCount(
+                    reader,
+                    rootHandle,
+                    out int genericParameterCount)
+                || genericParameterCount
+                    != root.GenericArgumentCount
+                || declaringAssemblyDefinesCoreLibraryRoot
+                    && MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        rootHandle)
+                        is MetadataTypeDefinitionNameReadResult.Read named
+                    && named.Name.ToMetadataFullName()
+                        is "System.ValueType" or "System.Enum")
+            {
+                return MetadataTypeDefinitionKind.Unknown;
+            }
+
             MetadataTypeDefinitionKind actual =
                 ClassifyDefinitionKind(
                     reader,
-                    (TypeDefinitionHandle)root.Type,
+                    rootHandle,
                     declaringAssemblyDefinesCoreLibraryRoot,
                     active);
             return actual == MetadataTypeDefinitionKind.Class
@@ -670,6 +681,39 @@ public static class MetadataTypeDeclarationProbe
         // not evidence about an external definition. The resolution builder
         // authenticates the copied dependency before accepting Class.
         return MetadataTypeDefinitionKind.Unknown;
+    }
+
+    internal static bool TryGetGenericParameterCount(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        out int count)
+    {
+        count = 0;
+        try
+        {
+            GenericParameterHandleCollection parameters =
+                reader.GetTypeDefinition(handle).GetGenericParameters();
+            foreach (GenericParameterHandle parameter in parameters)
+            {
+                if (reader.GetGenericParameter(parameter).Index
+                    != count)
+                {
+                    count = -1;
+                    return false;
+                }
+
+                count++;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            count = -1;
+            return false;
+        }
     }
 
     static DefinitionKindDependency? ReadDefinitionKindDependency(

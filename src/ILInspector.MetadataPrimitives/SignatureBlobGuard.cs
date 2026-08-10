@@ -62,7 +62,7 @@ public static class SignatureBlobGuard
     {
         try
         {
-            return !ExceedsDepth(blob, kind, maxDepth);
+            return !ExceedsDepth(ref blob, kind, maxDepth);
         }
         catch (BadImageFormatException)
         {
@@ -81,7 +81,32 @@ public static class SignatureBlobGuard
         return IsSafeToDecode(reader.GetBlobReader(signature), kind, maxDepth);
     }
 
-    static bool ExceedsDepth(BlobReader blob, Kind kind, int maxDepth)
+    /// <summary>
+    /// Returns whether a TypeSpec is bounded and contains exactly one complete
+    /// type signature with no trailing bytes.
+    /// </summary>
+    public static bool IsCompleteTypeSpecification(
+        BlobReader blob,
+        int maxDepth = DefaultMaxDepth)
+    {
+        try
+        {
+            return !ExceedsDepth(
+                    ref blob,
+                    Kind.TypeSpecification,
+                    maxDepth)
+                && blob.RemainingBytes == 0;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+    }
+
+    static bool ExceedsDepth(
+        ref BlobReader blob,
+        Kind kind,
+        int maxDepth)
     {
         // Work items are read strictly left-to-right; the stack only tracks *what* to read next and
         // at what depth, so recursion lives on the heap and can never overflow the native stack.
