@@ -659,7 +659,7 @@ public class IlToolsActivationTests
         Assert.Contains("continue-on-error: true", installStep);
         Assert.Contains(
             "run: eng/restore-iltools.sh --rid linux-x64 >> \"$GITHUB_PATH\"",
-            installStep);
+            installStep.Split('\n').Select(line => line.Trim()));
         Assert.DoesNotContain(
             installStep.Split('\n'),
             line => line.TrimStart().StartsWith("if:", StringComparison.Ordinal));
@@ -670,7 +670,12 @@ public class IlToolsActivationTests
             checkStep.Split('\n')
                 .Select(line => line.Trim())
                 .Where(line => line.StartsWith("if:", StringComparison.Ordinal)));
-        Assert.Contains("exit 1", checkStep);
+        Assert.Contains(
+            "run: |",
+            checkStep.Split('\n').Select(line => line.Trim()));
+        Assert.Contains(
+            "exit 1",
+            checkStep.Split('\n').Select(line => line.Trim()));
         Assert.DoesNotContain("continue-on-error:", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);
     }
@@ -700,9 +705,23 @@ public class IlToolsActivationTests
                 .Trim()
                 .Trim('[', ']')
                 .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            string[] conditions = jobHeader.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("if:", StringComparison.Ordinal))
+                .ToArray();
 
             Assert.Contains("deep-inspect-test", needs);
             Assert.DoesNotContain("continue-on-error:", jobHeader);
+            if (jobName == "publish")
+            {
+                Assert.Equal(
+                    ["if: github.event.inputs.confirm == 'publish'"],
+                    conditions);
+            }
+            else
+            {
+                Assert.Empty(conditions);
+            }
         }
     }
 
