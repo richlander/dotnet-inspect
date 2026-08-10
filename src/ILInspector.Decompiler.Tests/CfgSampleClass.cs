@@ -2621,6 +2621,51 @@ public class CfgSampleClass
         }
     }
 
+    // #4008: a sparse jump table whose successful labels use `break;` to reach the
+    // method's final void return. csc places that ret after the throwing default,
+    // so switch raising must preserve it as the post-switch continuation rather
+    // than moving `return;` into the successful section.
+    public static void TerminalSwitchBreakToReturn(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                break;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
+    // #4008 close negative: source-level `return;` inside the same sparse case group
+    // places ret before the default and emits a branch over it. That return must
+    // remain in the section rather than being mistaken for a trailing join.
+    public static void TerminalSwitchReturnInCase(CfgTerminalSwitchKind value)
+    {
+        switch (value)
+        {
+            case CfgTerminalSwitchKind.Value25:
+            case CfgTerminalSwitchKind.Value30:
+            case CfgTerminalSwitchKind.Value31:
+            case CfgTerminalSwitchKind.Value32:
+            case CfgTerminalSwitchKind.Value33:
+            case CfgTerminalSwitchKind.Value35:
+            case CfgTerminalSwitchKind.Value36:
+            case CfgTerminalSwitchKind.Value37:
+            case CfgTerminalSwitchKind.Value40:
+                return;
+            default:
+                throw new ArgumentException();
+        }
+    }
+
     public static int TryCatch(string s)
     {
         try { return int.Parse(s); }
@@ -5188,6 +5233,19 @@ public sealed class JoinTypeProvider
 }
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
+
+public enum CfgTerminalSwitchKind
+{
+    Value25 = 25,
+    Value30 = 30,
+    Value31 = 31,
+    Value32 = 32,
+    Value33 = 33,
+    Value35 = 35,
+    Value36 = 36,
+    Value37 = 37,
+    Value40 = 40,
+}
 
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }

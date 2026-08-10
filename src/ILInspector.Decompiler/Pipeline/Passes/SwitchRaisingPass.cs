@@ -44,6 +44,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// read the same enum variable, the pass absorbs the guarded values as labels on
 /// the empty continuation section, restoring the original single switch.
 ///
+/// A void switch may also target the enclosing container's final bare return
+/// directly for source cases that <c>break;</c> to the method exit. When no
+/// pre-switch predecessor identifies the sparse-guard shape above, that return
+/// remains the post-switch continuation and those labels receive empty
+/// <c>break;</c> bodies.
+///
 /// When that model leaves the switch flat, a second attempt
 /// (<see cref="RaiseCaseTargetJoin"/>) handles tables whose default routes into
 /// shared case bodies: one case target is the post-switch join, so cases reaching
@@ -94,7 +100,14 @@ public sealed class SwitchRaisingPass : IIrPass
         return false;
     }
 
-    static bool Raise(IrFunction function, BlockContainer container, int s, SwitchBranch sw, HashSet<int> leaveTargets, Stepper stepper)
+    static bool Raise(
+        IrFunction function,
+        BlockContainer container,
+        int s,
+        SwitchBranch sw,
+        HashSet<int> leaveTargets,
+        Stepper stepper,
+        bool recognizeTrailingReturn = true)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -116,15 +129,28 @@ public sealed class SwitchRaisingPass : IIrPass
         var preds = BuildPredecessors(blocks, s, caseTargets, offsetToIndex);
 
         var owned = new HashSet<int>();
-        int? join = null;
+        int? terminalReturnJoin = recognizeTrailingReturn
+            ? TrailingVoidReturnJoin(blocks, s, defaultIndex, caseTargets, preds)
+            : null;
+        int? join = terminalReturnJoin;
 
         // Each distinct case target grows into its single-entry region; the
         // region's exits unify to the shared join (or it terminates).
         var regions = new Dictionary<int, List<int>>();
         foreach (int target in caseTargets.Distinct())
+        {
+            if (target == join)
+                continue;
             if (!TryAddOwnedRegion(blocks, target, s, caseTargets, offsetToIndex,
                     preds, regions, owned, ref join))
                 return false;
+        }
+        // A case that jumps directly to the final return skips any earlier
+        // continuation block. If another section promotes such an earlier block
+        // to the join, the direct-return case cannot be rendered as `break;`;
+        // retry the established path that owns every target as a case region.
+        if (terminalReturnJoin is not null && join != terminalReturnJoin)
+            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
 
         // The default: a bare dispatch to a separate body laid out after the
         // cases, a bare jump to the join (omitted), an inline section, or — when
@@ -144,17 +170,17 @@ public sealed class SwitchRaisingPass : IIrPass
         else if (dispatch.Children is [Branch d] && offsetToIndex.TryGetValue(d.TargetOffset, out int dt) && dt > s)
         {
             bool isCase = caseTargets.Contains(dt);
-            if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
+            if (join is { } jn && dt == jn)
+            {
+                // Empty default — a bare jump to the trailing continuation.
+                owned.Add(defaultIndex);
+            }
+            else if (isCase && regions.TryGetValue(dt, out var sharedRegion) && SectionTerminates(blocks, sharedRegion, offsetToIndex))
             {
                 // Default jumps to a case body that returns/throws: fold the
                 // `default:` label onto that section (`case N: default: throw;`).
                 owned.Add(defaultIndex);
                 defaultSharesTarget = dt;
-            }
-            else if (!isCase && join is { } jn && dt == jn)
-            {
-                // Empty default — a bare jump to the join; C# omits it.
-                owned.Add(defaultIndex);
             }
             else if (!isCase)
             {
@@ -178,6 +204,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 return false;
             defaultBodyHead = defaultIndex;
         }
+        if (terminalReturnJoin is not null && join != terminalReturnJoin)
+            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
 
         // The owned blocks must tile the contiguous span [s+1, regionEnd): the
         // join (if any) lies just past them, and no foreign block is interleaved.
@@ -201,6 +229,35 @@ public sealed class SwitchRaisingPass : IIrPass
 
         Build(function, container, s, sw, caseTargets, regions, defaultBodyHead, defaultSharesTarget, join, regionEnd, stepper);
         return true;
+    }
+
+    /// <summary>
+    /// Recognizes csc's terminal <c>break;</c> layout for a void switch: one or
+    /// more table entries target the method's final bare <c>ret</c>, after every
+    /// materialized case/default body. The return is the post-switch
+    /// continuation, not a case body. With a following throwing default, a
+    /// source-level <c>return;</c> inside the case has a different lowering:
+    /// csc places the <c>ret</c> before the default body and emits an explicit
+    /// branch over it, so the final-block requirement keeps that close-negative
+    /// shape as a terminating case.
+    /// </summary>
+    static int? TrailingVoidReturnJoin(
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        int defaultIndex,
+        IReadOnlyList<int> caseTargets,
+        IReadOnlyDictionary<int, List<int>> predecessors)
+    {
+        int candidate = blocks.Count - 1;
+        return candidate > defaultIndex
+            && caseTargets.Contains(candidate)
+            // A pre-switch predecessor is the sparse-enum guard shape owned by
+            // RaiseCaseTargetJoin, which absorbs the guarded values as labels.
+            && (!predecessors.TryGetValue(candidate, out var preds)
+                || preds.All(predecessor => predecessor >= switchIndex))
+            && blocks[candidate].Children is [Return { Value: null }]
+                ? candidate
+                : null;
     }
 
     /// <summary>
@@ -1950,7 +2007,9 @@ public sealed class SwitchRaisingPass : IIrPass
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
             sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase), isDefault: target == defaultSharesTarget,
-                SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
+                target == join
+                    ? EmptyBreakBody()
+                    : SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         if (defaultBodyHead is { } dh)
             sections.Add(new SwitchSection([], isDefault: true,
                 SectionBody(regions[dh].Select(i => all[i]).ToList(), joinOffset)));
