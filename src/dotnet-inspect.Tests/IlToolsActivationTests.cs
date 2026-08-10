@@ -618,6 +618,9 @@ public class IlToolsActivationTests
         int cliTests = job.IndexOf(
             "- name: Run CLI tests (including slow integration)",
             StringComparison.Ordinal);
+        int decompilerTests = job.IndexOf(
+            "- name: Run decompiler tests",
+            StringComparison.Ordinal);
         int roundTrip = job.IndexOf(
             "- name: Run IL round-trip tests (including slow sweep)",
             StringComparison.Ordinal);
@@ -633,8 +636,9 @@ public class IlToolsActivationTests
         Assert.True(install < nextInstallStep);
         Assert.True(nextInstallStep <= cliTests);
         Assert.True(install < cliTests);
+        Assert.True(install < decompilerTests);
         Assert.True(cliTests < roundTrip);
-        Assert.True(install < roundTrip);
+        Assert.True(decompilerTests < roundTrip);
         Assert.True(roundTrip < terminalCheck);
 
         string installStep = job[install..nextInstallStep];
@@ -647,10 +651,14 @@ public class IlToolsActivationTests
             job.Split('\n')
                 .Count(line => line.Trim() == "id: iltools"));
         Assert.Contains("continue-on-error: true", installStep);
+        Assert.Contains(
+            "run: eng/restore-iltools.sh --rid linux-x64 >> \"$GITHUB_PATH\"",
+            installStep);
 
         string checkStep = job[terminalCheck..];
         Assert.Contains("if: steps.iltools.outcome == 'failure'", checkStep);
         Assert.Contains("exit 1", checkStep);
+        Assert.DoesNotContain("continue-on-error:", checkStep);
         Assert.DoesNotContain("\n      - ", checkStep);
     }
 
