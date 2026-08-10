@@ -202,46 +202,53 @@ header-ok
 rows-ok
 ```
 
-The interesting case is more than one source. Here `Markout` is on nuget.org and
-on a private feed, with one version present on both:
+The interesting case is more than one source. `System.CommandLine` is available
+from both nuget.org and the public `dotnet-public` feed:
 
 ```bash
-dotnet-inspect package Markout --versions-with-feed 4 \
+dotnet-inspect package System.CommandLine --versions-with-feed 4 \
   --source https://api.nuget.org/v3/index.json \
-  --source https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
+  --source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-public/nuget/v3/index.json
 ```
 
-```text
-Version      Feed
-<version-a>  nuget.org
-<version-b>  pkgs.dev.azure.com
-<version-c>  nuget.org
-<version-c>  pkgs.dev.azure.com
-<version-d>  nuget.org
+```expect
+nuget.org
+pkgs.dev.azure.com
 ```
 
-Two things to note. The limit counts **versions, not rows** — `4` asked for four
-versions and produced five rows, because one version was served twice. And the feed
-label is the source's configured name when it has a meaningful one, otherwise the
-host; sources passed as bare `--source` URLs all carry the same internal name, so
-the host is what distinguishes them.
+```query
+awk 'NR > 1 { if (!seenFeed[$2]++) feedCount++; if (++versionRows[$1] == 2) duplicate = 1 } END { if (feedCount >= 2) print "multiple-feeds"; if (duplicate) print "duplicate-version" }'
+```
 
-### 3c. Listing status is per feed
+```expect
+multiple-feeds
+duplicate-version
+```
+
+Two things to note. The limit counts **versions, not rows**, so `4` can produce
+more than four rows when a version is served by both feeds. And the feed label
+is the source's configured name when it has a meaningful one, otherwise the
+host; sources passed as bare `--source` URLs all carry the same internal name,
+so the host is what distinguishes them.
+
+### 3c. Listing status accompanies each feed row
 
 Unlisted versions are hidden here exactly as they are from `--versions`. Add
 `--include-unlisted` to show them, and a `Listing` column appears:
 
 ```bash
 dotnet-inspect package Markout --versions-with-feed 3 --include-unlisted \
-  --source https://api.nuget.org/v3/index.json \
-  --source https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
+  --source https://api.nuget.org/v3/index.json
 ```
 
-```text
-Version      Feed                Listing
-<version-a>  nuget.org           unlisted
-<version-b>  nuget.org           listed
-<version-c>  pkgs.dev.azure.com  listed
+```expect
+Version
+Feed
+Listing
+10.0.2
+unlisted
+0.35.0
+listed
 ```
 
 The column is applied **per feed**, which is the one thing this view can express

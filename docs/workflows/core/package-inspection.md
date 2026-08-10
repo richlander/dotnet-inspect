@@ -204,7 +204,7 @@ Use `--path` to resolve package-relative file locations, then add `--content`
 to print selected file bodies. Markdown content can be scoped to the YAML header
 or body:
 
-```bash
+```text
 dotnet-inspect package Markout -S "Package README file"
 dotnet-inspect package Markout -S "Package Info" --fields Version --value
 dotnet-inspect package Markout -S "Package README file" --print

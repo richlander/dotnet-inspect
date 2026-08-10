@@ -64,8 +64,8 @@ Tips:
 ```
 
 ```query
-grep -o 'Types: [0-9]*'
-grep -o 'Source: [A-Za-z]*'
+grep -oE 'Types: [0-9]+'
+grep -oE 'Source: [A-Za-z]+'
 ```
 
 ### 1b. Using `type` with table output
@@ -128,8 +128,8 @@ Tips:
 ```
 
 ```query
-grep -o 'Types: [0-9]*'
-grep -o 'Source: [A-Za-z]*'
+grep -oE 'Types: [0-9]+'
+grep -oE 'Source: [A-Za-z]+'
 ```
 
 ## 3. Filter types by pattern
@@ -202,7 +202,7 @@ Tips:
 
 ```query
 grep -o 'Kind: [a-z]*'
-grep -o 'Methods: [0-9]*'
+grep -oE 'Methods: [0-9]+'
 ```
 
 ### 4b. Using fully qualified type name
@@ -573,12 +573,16 @@ Tips:
 dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '{print $NF, $2}' | sort -rn | head -5
 ```
 
+```expect
+System.Text.Json.Utf8JsonWriter
+```
+
 ```query
-wc -l | tr -d ' '
+awk 'NR == 1 { previous = $1; rows = 1; next } { if ($1 > previous) bad = 1; previous = $1; rows++ } END { if (rows == 5 && !bad) print "descending-five" }'
 ```
 
 ```expect
-5
+descending-five
 ```
 
 ## 14. Filter types with unsafe signatures

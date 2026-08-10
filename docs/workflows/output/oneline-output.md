@@ -174,7 +174,7 @@ grep -oE '[0-9]+'
 ### 4c. Filter by member count threshold
 
 ```bash
-dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 0 {print $2, $3}'
+dotnet-inspect type System.Text.Json --tsv --no-headers | awk -F '\t' '$3 > 50 {print $2, $3}'
 ```
 
 ```expect
@@ -184,7 +184,11 @@ System.Text.Json.Utf8JsonWriter
 ```
 
 ```query
-wc -l
+awk '$2 <= 50 { bad = 1 } END { if (NR > 0 && !bad) print "threshold-ok" }'
+```
+
+```expect
+threshold-ok
 ```
 
 ### 4d. Sort structs by member count

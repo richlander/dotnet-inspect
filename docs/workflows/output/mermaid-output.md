@@ -43,7 +43,7 @@ dotnet-inspect depends Stream --mermaid
 
 ```expect
 graph TD
-System.MarshalByRefObject
+n0["System.MarshalByRefObject"]
 System.IAsyncDisposable
 System.IDisposable
 ```
@@ -62,9 +62,12 @@ Show the INumber interface hierarchy as a mermaid graph.
 dotnet-inspect depends 'INumber<TSelf>' --mermaid
 ```
 
+Known issue: #3918 — Mermaid output double-escapes generic names in standalone
+and embedded modes. Preserve the intended readable generic label below.
+
 ```expect
 graph TD
-System.IComparable
+n1["System.IComparable<TSelf>"]
 -->
 ```
 
@@ -99,19 +102,35 @@ dotnet-inspect depends Stream --markdown --mermaid
 graph TD
 ```
 
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
+```
+
 ### 2b. Deep hierarchy
 
 ```bash
 dotnet-inspect depends 'INumber<TSelf>' --markdown --mermaid -n 10
 ```
 
-Known issue: #3918 — embedded Mermaid double-escapes generic names. Preserve
-the intended readable generic labels below.
+Known issue: #3918 — Mermaid output double-escapes generic names in standalone
+and embedded modes. Preserve the intended readable generic label below.
 
 ```expect
 # INumber&lt;TSelf&gt;
-System.IComparable<TSelf>
+n1["System.IComparable<TSelf>"]
 graph TD
+```
+
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
 ```
 
 ## 3. Library reference graphs
@@ -143,6 +162,14 @@ dotnet-inspect depends --library System.Text.Json --markdown --mermaid -n 10
 ```expect
 # System.Text.Json
 graph TD
+```
+
+```query
+grep -Fx '```mermaid' | sed 's/.*/mermaid-fence/'
+```
+
+```expect
+mermaid-fence
 ```
 
 ## 4. Package dependency graphs
