@@ -106,9 +106,10 @@ jobs:
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
                     --jq '.changed_files'
                 ) || exit 1
-                case "$EXPECTED_FILES" in
-                  ''|*[!0-9]*) exit 1 ;;
-                esac
+                NON_DIGITS=${EXPECTED_FILES//[0-9]/}
+                if [ -z "$EXPECTED_FILES" ] || [ -n "$NON_DIGITS" ]; then
+                  exit 1
+                fi
                 RECORDS=$(
                   gh api --paginate \
                     "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
