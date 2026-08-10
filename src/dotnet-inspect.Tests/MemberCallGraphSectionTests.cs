@@ -9,25 +9,27 @@ namespace DotnetInspector.Tests;
 public class MemberCallGraphSectionTests
 {
     [Fact]
-    public async Task CallGraphSection_RendersBoundedTree_WhenExplicitlySelected()
+    public async Task CallGraphSection_RendersEdgeTableByDefault()
     {
         var result = await RunCallGraphAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.RootCall));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("| From | From Group | To | To Group | Label |", result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
         // External callees (outside this assembly) are recorded as bounded leaves.
         Assert.Contains("(external)", result.Output);
+        Assert.DoesNotContain("├─", result.Output);
     }
 
     [Fact]
     public async Task CallGraphSection_LowersToAnEdgeTable_UnderTabularOutput()
     {
-        // The section is a graph, not a fixed rendering: each sink picks its own lowering, so the
-        // same model that draws a tree in Markdown yields one row per edge under --tsv.
+        // The section is a graph, not a fixed rendering: Markdown and TSV both lower the same
+        // model to edge rows, with syntax selected only at the formatter boundary.
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
             TypeName = typeof(MemberCallGraphFixture).FullName!,
@@ -43,7 +45,7 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("From\tFrom Group\tTo\tTo Group", result.Output);
+        Assert.Contains("from\tfrom_group\tto\tto_group", result.Output);
         // Grouping carries the external boundary the tree spells in the label.
         Assert.Contains("\tExternal", result.Output);
         Assert.Contains($"{nameof(MemberCallGraphFixture.RootCall)}", result.Output);
@@ -81,11 +83,19 @@ public class MemberCallGraphSectionTests
                 TabularExplicitlySet = true,
                 FormatExplicitlySet = true,
             }));
+        var tree = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { Tree = true }));
+        var mermaid = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { MermaidOutput = true }));
 
         Assert.Equal(0, edgeTable.ExitCode);
         Assert.Equal(0, markdown.ExitCode);
         Assert.Equal(0, table.ExitCode);
+        Assert.Equal(0, tree.ExitCode);
+        Assert.Equal(0, mermaid.ExitCode);
         Assert.Equal(markdown.Output, table.Output);
+        Assert.Equal(markdown.Output, tree.Output);
+        Assert.Equal(markdown.Output, mermaid.Output);
         var edgeRows = edgeTable.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Skip(1)
@@ -97,7 +107,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeInTreeAndTable()
+    public async Task CallGraphSection_AbsoluteWindowSelectsTheSameEdgeAcrossLowerings()
     {
         var baseOptions = new MemberOptions
         {
@@ -110,8 +120,12 @@ public class MemberCallGraphSectionTests
             Verbosity = Verbosity.Normal,
         };
 
-        var tree = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
-        var table = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+        var markdown = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var tree = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { Tree = true }));
+        var mermaid = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { MermaidOutput = true }));
+        var tsv = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             baseOptions with
             {
                 Tabular = true,
@@ -122,20 +136,160 @@ public class MemberCallGraphSectionTests
         var count = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
             baseOptions with { Count = true }));
 
+        Assert.Equal(0, markdown.ExitCode);
         Assert.Equal(0, tree.ExitCode);
-        Assert.Equal(0, table.ExitCode);
+        Assert.Equal(0, mermaid.ExitCode);
+        Assert.Equal(0, tsv.ExitCode);
         Assert.Equal(0, count.ExitCode);
-        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), tree.Output);
-        Assert.Contains(nameof(MemberCallGraphFixture.Mid), tree.Output);
-        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), tree.Output);
-        Assert.Contains(nameof(MemberCallGraphFixture.RootCall), table.Output);
-        Assert.Contains(nameof(MemberCallGraphFixture.Mid), table.Output);
-        Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), table.Output);
+        foreach (var output in new[] { markdown.Output, tree.Output, mermaid.Output, tsv.Output })
+        {
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+            Assert.DoesNotContain(nameof(MemberCallGraphFixture.LoopHeavyCall), output);
+        }
         Assert.Equal("1", count.Output.Trim());
     }
 
     [Fact]
-    public async Task CallGraphSection_EmptyWindowDoesNotRenderFocusAsARow()
+    public async Task CallGraphSection_StandaloneTreeWritesOnlyTheTree()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Tree = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("├─", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+        Assert.DoesNotContain("| From |", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_StandaloneMermaidWritesOnlyTheDiagram()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            MermaidOutput = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.StartsWith("graph TD", result.Output, StringComparison.Ordinal);
+        Assert.Contains("classDef markoutFocus", result.Output);
+        Assert.DoesNotContain("```mermaid", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EmbeddedMermaidComposesWithOtherMarkdownSections()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
+            EmbeddedMermaid = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Signature", result.Output);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("```mermaid", result.Output);
+        Assert.Contains("graph TD", result.Output);
+        Assert.DoesNotContain("| From | From Group |", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_PrettyTableTsvAndJsonlUseTheSameRows()
+    {
+        var baseOptions = new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Tabular = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        };
+
+        var table = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(baseOptions));
+        var tsv = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { Tsv = true }));
+        var jsonl = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            baseOptions with { Jsonl = true }));
+
+        Assert.Equal(0, table.ExitCode);
+        Assert.Equal(0, tsv.ExitCode);
+        Assert.Equal(0, jsonl.ExitCode);
+        foreach (var output in new[] { table.Output, tsv.Output, jsonl.Output })
+        {
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+            Assert.Contains(nameof(MemberCallGraphFixture.Inner), output);
+        }
+        Assert.Contains("From", table.Output);
+        Assert.StartsWith("from\t", tsv.Output, StringComparison.Ordinal);
+        Assert.StartsWith("{\"from\":", jsonl.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_TreeRejectsAnotherOutputFormat()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "Missing.Type",
+            AssemblyPath = "missing.dll",
+            IncludeSections = [SectionNames.CallGraph],
+            Tree = true,
+            FormatExplicitlySet = true,
+            FormatFlagExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--tree is a standalone output format", result.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_StandaloneMermaidRequiresOnlyCallGraph()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "Missing.Type",
+            AssemblyPath = "missing.dll",
+            IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
+            MermaidOutput = true,
+            FormatFlagExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("--mermaid requires exactly one selected graph", result.Error);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EmptyMarkdownWindowRendersTableHeadersWithoutFocusRow()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -151,8 +305,29 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
         var section = result.Output[result.Output.IndexOf("## Call Graph", StringComparison.Ordinal)..];
-        Assert.Contains("No inbound callers or outbound calls found for this method.", section);
+        Assert.Contains("| From | From Group | To | To Group | Label |", section);
+        Assert.DoesNotContain("No inbound callers or outbound calls found for this method.", section);
         Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), section);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EmptyTreeWindowRendersEmptyStateWithoutFocusRow()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Rows = RowWindow.Range(100, 100),
+            Tree = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), result.Output);
     }
 
     [Fact]
