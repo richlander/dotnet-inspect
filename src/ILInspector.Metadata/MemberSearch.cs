@@ -33,7 +33,11 @@ public sealed record MemberSearchResult
     /// <summary>Durable 10-char overload digest, when the surface projected member identity.</summary>
     public string? Digest { get; init; }
 
-    /// <summary>The assembly file name without extension that declared the member.</summary>
+    /// <summary>
+    /// The declaring assembly name supplied by the caller. Path-based searches
+    /// use the file name without extension; content-backed callers may use the
+    /// assembly identity.
+    /// </summary>
     public required string Assembly { get; init; }
 
     /// <summary>True when <see cref="Pattern"/> was a glob (contained <c>*</c> or <c>?</c>).</summary>
@@ -96,7 +100,12 @@ public static class MemberSearch
                 continue;
             }
 
-            CollectFromSurface(surface, path, patterns, limit, results);
+            CollectFromSurface(
+                surface,
+                Path.GetFileNameWithoutExtension(path),
+                patterns,
+                limit,
+                results);
         }
 
         return new MemberSearchOutcome(results, skipped);
@@ -121,20 +130,41 @@ public static class MemberSearch
 
         var surface = AssemblyReader.ExtractApiSurface(assemblyPath, includeAll, typesOnly: false);
         if (surface is not null)
-            CollectFromSurface(surface, assemblyPath, patterns, limit: null, results);
+            CollectFromSurface(
+                surface,
+                Path.GetFileNameWithoutExtension(assemblyPath),
+                patterns,
+                limit: null,
+                results);
 
+        return results;
+    }
+
+    /// <summary>
+    /// Searches an already-produced API surface without reopening its assembly.
+    /// </summary>
+    public static IReadOnlyList<MemberSearchResult> Search(
+        ApiSurface surface,
+        string assemblyName,
+        IReadOnlyList<string> patterns,
+        int? limit = null)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentNullException.ThrowIfNull(patterns);
+
+        var results = new List<MemberSearchResult>();
+        CollectFromSurface(surface, assemblyName, patterns, limit, results);
         return results;
     }
 
     private static void CollectFromSurface(
         ApiSurface surface,
-        string assemblyPath,
+        string assemblyName,
         IReadOnlyList<string> patterns,
         int? limit,
         List<MemberSearchResult> results)
     {
-        var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
-
         foreach (var type in surface.Types)
         {
             foreach (var member in type.Members)
