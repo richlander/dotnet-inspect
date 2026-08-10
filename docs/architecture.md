@@ -79,13 +79,17 @@ Inspects a restored project through `project.assets.json`:
 - `Package Docs` from version-resolved README/PROJECT documents, optionally
   focused with `--package`
 
-The CLI host owns restored-assets parsing, filesystem access, and package
-acquisition. Typed project queries consume already-acquired documents, and the
-section pipeline requests only the producer needed by the selected section.
-`Package Docs` is explicit-only and unbounded; the network-free default does
-not authorize package acquisition. Effective discovery probes only the bounded
-Skills and Agent Guidance providers, dropping sections with no documents;
-Package Docs remains structural so discovery never acquires it.
+The CLI host resolves the restored assets and direct dependency set, then
+delegates section-specific filesystem access and package acquisition to
+bespoke Skills, Agent Guidance, and Package Docs providers. Typed project
+queries consume provider-owned document rows, and the section pipeline invokes
+only the provider needed by the selected section. Count and path projections
+retain row metadata without reading document payloads; print selection reads
+only its chosen row. `Package Docs` is explicit-only and unbounded; the
+network-free default does not authorize package acquisition. Effective
+discovery probes only the bounded Skills and Agent Guidance providers, dropping
+sections with no documents; Package Docs remains structural so discovery never
+acquires it.
 
 ### library
 
