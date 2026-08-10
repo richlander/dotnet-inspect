@@ -79,6 +79,7 @@ public class SymbolPackageDownloader
         Action<string>? log = null,
         bool isPlatformAssembly = false,
         bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -114,7 +115,9 @@ public class SymbolPackageDownloader
         }
 
         // Try downloading symbol package (.snupkg)
-        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
+        if (!string.IsNullOrEmpty(packageName)
+            && !string.IsNullOrEmpty(packageVersion)
+            && IsNuGetOrgEligibleForPackage(sourceOptions, packageName))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
                 packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly, cancellationToken).ConfigureAwait(false);
@@ -137,6 +140,26 @@ public class SymbolPackageDownloader
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PdbDownloadResult(null, windowsPdbDetected);
+    }
+
+    private static bool IsNuGetOrgEligibleForPackage(
+        NuGetSourceOptions? sourceOptions,
+        string packageName)
+    {
+        try
+        {
+            return NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageName)
+                .Any(source => source.IsNuGetOrg);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            return false;
+        }
     }
 
     private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(

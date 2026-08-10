@@ -1595,6 +1595,53 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ExtractPackageAsync_PackageSourceMappingSelectsEligibleSource()
+    {
+        const string PackageName = "gamma.mapped";
+        const string Version = "1.0.0";
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"acquisition-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="refusing" value="https://refusing.example/v3/index.json" />
+                <add key="serving" value="https://serving.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="serving">
+                  <package pattern="gamma.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        var handler = new RefusesOnePackageHandler(
+            PackageName,
+            CreatePackageArchive(PackageName, Version));
+        using var client = new HttpClient(handler);
+
+        try
+        {
+            PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+                client,
+                PackageName,
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath },
+                version: Version);
+
+            Assert.True(outcome.IsSuccess);
+            Assert.DoesNotContain(
+                handler.Requests,
+                url => url.Contains("refusing.example", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
     public async Task ExtractPackageAsync_OneSourceRefusesAndAnotherAnswers_SucceedsWithoutBlamingTheRefusal()
     {
         const string PackageName = "gamma.available";
@@ -1669,10 +1716,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         string refusedPackageId,
         byte[] refusedPackageArchive) : HttpMessageHandler
     {
+        public List<string> Requests { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Uri uri = request.RequestUri!;
+            Requests.Add(uri.AbsoluteUri);
             HttpResponseMessage response;
 
             if (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.OrdinalIgnoreCase))

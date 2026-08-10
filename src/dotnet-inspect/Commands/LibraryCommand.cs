@@ -525,7 +525,8 @@ public class LibraryCommand
                     logger.Log,
                     options.PlatformFramework,
                     useRuntimeAssemblies: true,
-                    platformVersion: options.PlatformVersion);
+                    platformVersion: options.PlatformVersion,
+                    sourceOptions: options.SourceOptions);
 
                 if (error != null)
                 {
@@ -542,7 +543,12 @@ public class LibraryCommand
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        resolvedPath!,
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: true,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected. Computed once and reused for the
                 // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
@@ -636,8 +642,14 @@ public class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
-                        packageName: packageName, packageVersion: packageVersion);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        assemblyPaths[0],
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: false,
+                        packageName: packageName,
+                        packageVersion: packageVersion,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
                 string? inspectedContentHash = fullEffectiveDiscovery && assemblyPaths.Count > 0
@@ -746,7 +758,12 @@ public class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        assemblyPath!,
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: false,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
                 string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
