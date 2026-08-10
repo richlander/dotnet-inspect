@@ -2,6 +2,7 @@ using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -16,6 +17,46 @@ namespace ILInspector.Decompiler.Tests;
 [Collection(ConsoleMutatorCollection.Name)]
 public class FidelityCheckGeneratedFilterTests
 {
+    [Fact]
+    public void CompilerReferenceResolver_DoesNotWildcardMissingIdentityFields()
+    {
+        var expected = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+
+        Assert.True(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 0, 0, 0),
+                    Culture: "neutral",
+                    PublicKeyToken: null)));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                expected with
+                {
+                    Culture = "fr"
+                }));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected,
+                expected with
+                {
+                    PublicKeyToken = "0011223344556677"
+                }));
+        Assert.False(
+            FidelityCheck.CompilerReferenceIdentityMatchesForTest(
+                expected with
+                {
+                    Version = null
+                },
+                expected));
+    }
+
     [Fact]
     public void Evaluate_PreservesIteratorPropertyDeclarationOrder()
     {
@@ -1620,22 +1661,56 @@ public class FidelityCheckGeneratedFilterTests
             """
             namespace NetModuleFixture;
 
+            public class CustomException : System.Exception
+            {
+            }
+
             public static class Arithmetic
             {
                 public static int Add(int left, int right)
                     => left + right;
             }
+
+            public static class Thrower
+            {
+                public static int Go(int value)
+                {
+                    if (value < 0)
+                        throw new CustomException();
+                    return value + 1;
+                }
+            }
             """,
             OutputKind.NetModule);
         try
         {
-            var result = Assert.Single(
-                FidelityCheck.Evaluate(assemblyPath),
+            var results = FidelityCheck.Evaluate(assemblyPath);
+            var add = Assert.Single(
+                results,
                 result => result.Type == "NetModuleFixture.Arithmetic"
                     && result.Method == "Add");
+            var constructor = Assert.Single(
+                results,
+                result => result.Type == "NetModuleFixture.CustomException"
+                    && result.Method == ".ctor");
+            var go = Assert.Single(
+                results,
+                result => result.Type == "NetModuleFixture.Thrower"
+                    && result.Method == "Go");
             Assert.Equal(
                 FidelityCheck.CompileBackStatus.Exact,
-                result.Status);
+                add.Status);
+            Assert.True(
+                constructor.Status is
+                    FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
+                constructor.Detail);
+            Assert.DoesNotContain(
+                "System.Object::.ctor()",
+                constructor.Detail);
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                go.Status);
         }
         finally
         {

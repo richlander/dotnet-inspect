@@ -422,6 +422,42 @@ public class ApiMemberIdentityTests
         Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
     }
 
+    [Fact]
+    public void Extract_PreservesOrdinaryAccessorPrefixedMethods()
+    {
+        using var stream = File.OpenRead(
+        typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(
+        peReader,
+        includeAll: true);
+
+        var type = surface.Types.Single(
+        type => type.Name.EndsWith(
+            nameof(OrdinaryAccessorPrefixFixture),
+            StringComparison.Ordinal));
+
+        Assert.Contains(
+        type.Members,
+        member => member is
+            { Kind: "method", Name: "get_Standalone" });
+        Assert.Contains(
+        type.Members,
+        member => member is
+            { Kind: "method", Name: "set_Standalone" });
+        Assert.Contains(
+        type.Members,
+        member => member is
+            { Kind: "method", Name: "add_Standalone" });
+        Assert.Contains(
+        type.Members,
+        member => member is
+            { Kind: "method", Name: "remove_Standalone" });
+        Assert.DoesNotContain(
+        type.Members,
+        member => member.Name == "get_Value");
+    }
+
     [Theory]
     // main uses a single combined depth counter over '<'/'>'/'('/')' , so an F#
     // quoted name like ``x<)`` (emitted verbatim as "System.Int32 x<)") relies on
@@ -512,5 +548,24 @@ public class ApiMemberIdentityTests
             [System.Runtime.InteropServices.Optional]
             [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
             DateTime when] => when.Year;
+    }
+
+    sealed class OrdinaryAccessorPrefixFixture
+    {
+        public int Value { get; set; }
+
+        public int get_Standalone() => 1;
+
+        public void set_Standalone(int value)
+        {
+        }
+
+        public void add_Standalone(Action handler)
+        {
+        }
+
+        public void remove_Standalone(Action handler)
+        {
+        }
     }
 }

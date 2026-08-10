@@ -388,15 +388,26 @@ identity and copies only non-generic class, public accessibility, and
 accessible-parameterless-constructor facts onto transient `ApiBaseTypeResolution`; it does
 not export catalog keys or metadata handles.
 Missing or ambiguous base bindings produce no evidence, so the harness cannot substitute a
-same-named type from another assembly. Selected targets may consume that evidence directly;
-unselected `System.Exception` support types additionally require the resolved assembly to bind
-through the platform scope before retaining their base clause.
+same-named type from another assembly. The compile-back reference resolver matches culture and
+public-key token exactly (normalizing only neutral culture), and authenticated external bases are
+spelled through generated reference aliases so a target-local type with the same structured name
+cannot shadow the resolved definition. Selected targets may consume that evidence directly.
+Unselected `System.Exception` support types additionally require the referenced assembly to bind
+through the platform scope before retaining their base clause; manifest-less modules authenticate
+that platform reference directly from the base `TypeRef` while retaining the legacy target index.
+Method names that merely start with `get_`, `set_`, `add_`, or `remove_` remain ordinary methods
+unless property or event MethodSemantics identify them as accessors.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
 `Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase` gates malformed open-generic bases,
-`Evaluate_RetainsExceptionBaseClause` gates the authenticated exception support path, while
+`Evaluate_RetainsExceptionBaseClause` and `Evaluate_FallsBackForNetModule` gate the authenticated
+exception support paths, while
 `SkeletonDoesNotSubstituteSameNamedBaseFromWrongAssembly` and
-`SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gate fail-closed compile-back
-consumption.
+`SkeletonRejectsCultureMismatchedBaseAssembly` gate exact assembly identity,
+`SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike` gates alias-qualified
+spelling, `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and
+`SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
+consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
+MethodSemantics-based accessor exclusion.
 
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies

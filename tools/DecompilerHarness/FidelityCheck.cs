@@ -707,18 +707,30 @@ static class FidelityCheck
     sealed record ReferenceSet(
         ImmutableArray<MetadataReference> Metadata,
         SignatureSpellability Accessibility,
-        IAssemblyReferenceResolver Resolver,
+        CompilerReferenceResolver Resolver,
         IReadOnlyDictionary<int, (ApiType Type, ApiMember Member)> TargetApi,
         IReadOnlyDictionary<MetadataTypeDefinitionName, ApiType> TargetTypes,
         bool TargetApiIsResolutionAware);
 
-    sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
+    sealed record CompilerReference(
+        ResolvedAssemblyReference Reference,
+        string Alias,
+        bool PlatformTrusted);
 
     sealed class CompilerReferenceResolver(IEnumerable<CompilerReference> references) : IAssemblyReferenceResolver
     {
         readonly IReadOnlyList<CompilerReference> _references = references.ToList();
 
+        public IEnumerable<string> Aliases =>
+            _references.Select(reference => reference.Alias);
+
         public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => Match(identity, scope)?.Reference;
+
+        public string? ResolveAlias(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+            => Match(identity, scope)?.Alias;
+
+        CompilerReference? Match(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
         {
             foreach (var candidate in _references)
             {
@@ -726,26 +738,33 @@ static class FidelityCheck
                     continue;
 
                 var reference = candidate.Reference;
-                if (!reference.Identity.Name.Equals(identity.Name, StringComparison.OrdinalIgnoreCase))
+                if (!IdentityMatches(
+                    identity,
+                    reference.Identity))
                     continue;
-                if (!CultureMatches(identity.Culture, reference.Identity.Culture))
-                    continue;
-                if (identity.PublicKeyToken is { Length: > 0 }
-                    && !string.Equals(identity.PublicKeyToken, reference.Identity.PublicKeyToken, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (identity.Version is not null && reference.Identity.Version != identity.Version)
-                    continue;
-                return reference;
+                return candidate;
             }
 
             return null;
         }
 
+        internal static bool IdentityMatches(
+            AssemblyReferenceIdentity expected,
+            AssemblyReferenceIdentity actual) =>
+            actual.Name.Equals(
+                expected.Name,
+                StringComparison.OrdinalIgnoreCase)
+            && actual.Version == expected.Version
+            && CultureMatches(
+                expected.Culture,
+                actual.Culture)
+            && string.Equals(
+                expected.PublicKeyToken ?? "",
+                actual.PublicKeyToken ?? "",
+                StringComparison.OrdinalIgnoreCase);
+
         static bool CultureMatches(string? expected, string? actual)
         {
-            if (string.IsNullOrEmpty(expected))
-                return true;
-
             static string Normalize(string? culture)
                 => string.IsNullOrEmpty(culture) || culture.Equals("neutral", StringComparison.OrdinalIgnoreCase)
                     ? ""
@@ -754,6 +773,13 @@ static class FidelityCheck
             return Normalize(expected).Equals(Normalize(actual), StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    internal static bool CompilerReferenceIdentityMatchesForTest(
+        AssemblyReferenceIdentity expected,
+        AssemblyReferenceIdentity actual) =>
+        CompilerReferenceResolver.IdentityMatches(
+            expected,
+            actual);
 
     internal sealed class ZeroSignalGuard
     {
@@ -2892,6 +2918,8 @@ static class FidelityCheck
         var sb = new StringBuilder();
         var productWholeMembers = new HashSet<MethodDefinitionHandle>();
         sb.AppendLine("#pragma warning disable");
+        foreach (string alias in references.Resolver.Aliases)
+            sb.AppendLine($"extern alias {alias};");
         // The product printer spells framework types by their short name
         // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
         // decompiler-output using set. The skeleton imports the same namespaces so
@@ -2936,6 +2964,7 @@ static class FidelityCheck
                     fieldInits,
                     fieldInitType,
                     references.Accessibility,
+                    references.Resolver,
                     targetApiTypes,
                     productWholeMembers,
                     sb,
@@ -2951,6 +2980,7 @@ static class FidelityCheck
                     fieldInits,
                     fieldInitType,
                     references.Accessibility,
+                    references.Resolver,
                     targetApiTypes,
                     productWholeMembers,
                     sb,
@@ -2983,7 +3013,8 @@ static class FidelityCheck
         MetadataReader reader,
         TypeDefinition typeDef,
         TypeKind kind,
-        ApiType? targetApiType)
+        ApiType? targetApiType,
+        CompilerReferenceResolver resolver)
     {
         if (kind != TypeKind.Class || typeDef.BaseType.IsNil)
             return "";
@@ -3011,15 +3042,46 @@ static class FidelityCheck
                      {
                          IsPubliclyAccessible: true,
                          HasAccessibleParameterlessConstructor: true
-                     }
+                     } resolution
                  })
         {
-            return resolvedBaseType is "System.Object" or "object"
-                ? ""
-                : $" : {Clean(resolvedBaseType)}";
+            return AliasedBaseClause(
+                resolvedBaseType,
+                resolver.ResolveAlias(
+                    resolution.Assembly,
+                    AssemblyResolutionScope.Any));
         }
+
+        if (typeDef.BaseType.Kind == HandleKind.TypeReference)
+        {
+            var baseReference = reader.GetTypeReference(
+                (TypeReferenceHandle)typeDef.BaseType);
+            if (FullName(reader, baseReference) == "System.Exception"
+                && baseReference.ResolutionScope.Kind
+                    == HandleKind.AssemblyReference)
+            {
+                string? alias = resolver.ResolveAlias(
+                    AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)
+                            baseReference.ResolutionScope),
+                    AssemblyResolutionScope.Platform);
+                return AliasedBaseClause(
+                    "System.Exception",
+                    alias);
+            }
+        }
+
         return ""; // external bases need exact, accessible, constructible resolution evidence
     }
+
+    static string AliasedBaseClause(
+        string baseType,
+        string? alias) =>
+        baseType is "System.Object" or "object"
+            || alias is null
+                ? ""
+                : $" : {alias}::{Clean(baseType)}";
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
     {
@@ -3270,6 +3332,7 @@ static class FidelityCheck
         IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
         IReadOnlyList<(string Field, string Value)> fieldInits, TypeDefinitionHandle fieldInitType,
         SignatureSpellability accessibility,
+        CompilerReferenceResolver resolver,
         IReadOnlyDictionary<TypeDefinitionHandle, ApiType> targetApiTypes,
         ISet<MethodDefinitionHandle> productWholeMembers,
         StringBuilder sb,
@@ -3305,6 +3368,7 @@ static class FidelityCheck
                 genParams,
                 whereClauses,
                 accessibility,
+                resolver,
                 targetApiTypes,
                 sb,
                 pad,
@@ -3321,7 +3385,8 @@ static class FidelityCheck
             reader,
             typeDef,
             kind,
-            targetApiTypes.GetValueOrDefault(typeHandle));
+            targetApiTypes.GetValueOrDefault(typeHandle),
+            resolver);
         string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
@@ -3461,6 +3526,7 @@ static class FidelityCheck
                 fieldInits,
                 fieldInitType,
                 accessibility,
+                resolver,
                 targetApiTypes,
                 productWholeMembers,
                 sb,
@@ -3517,6 +3583,7 @@ static class FidelityCheck
     static void EmitInterface(MetadataReader reader, TypeDefinitionHandle typeHandle,
         string name, string genParams, string whereClauses,
         SignatureSpellability accessibility,
+        CompilerReferenceResolver resolver,
         IReadOnlyDictionary<TypeDefinitionHandle, ApiType> targetApiTypes,
         StringBuilder sb, string pad, int indent)
     {
@@ -3577,6 +3644,7 @@ static class FidelityCheck
                 [],
                 default,
                 accessibility,
+                resolver,
                 targetApiTypes,
                 new HashSet<MethodDefinitionHandle>(),
                 sb,
@@ -5147,11 +5215,26 @@ static class FidelityCheck
             try
             {
                 var fullPath = Path.GetFullPath(path);
-                var reference = MetadataReference.CreateFromFile(fullPath);
+                AssemblyReferenceIdentity? identity =
+                    TryReadAssemblyIdentity(fullPath);
+                string? alias = identity is null
+                    ? null
+                    : $"__di_ref_{resolvedReferences.Count}";
+                var reference = alias is null
+                    ? MetadataReference.CreateFromFile(fullPath)
+                    : MetadataReference.CreateFromFile(
+                        fullPath,
+                        new MetadataReferenceProperties(
+                            MetadataImageKind.Assembly,
+                            aliases: ImmutableArray.Create(
+                                "global",
+                                alias)));
                 if (seen.Add(simple))
                 {
                     builder.Add(reference);
-                    if (TryReadAssemblyIdentity(fullPath) is { } identity)
+                    if (identity is not null
+                        && alias is not null)
+                    {
                         resolvedReferences.Add(new CompilerReference(
                             ResolvedAssemblyReference.Create(
                                 identity,
@@ -5159,8 +5242,10 @@ static class FidelityCheck
                                 () => File.OpenRead(fullPath),
                                 AssemblyResolutionProvenance.Local(
                                     provenance?.ToString() ?? "CompilerReference")),
+                            alias,
                             PlatformTrusted: provenance is AssemblyDependencyProvenance.TrustedPlatformAssembly
                                 or AssemblyDependencyProvenance.SharedFramework));
+                    }
                 }
             }
             catch (IOException) { }

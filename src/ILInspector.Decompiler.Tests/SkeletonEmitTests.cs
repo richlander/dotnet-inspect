@@ -277,6 +277,207 @@ public class SkeletonEmitTests
         }
     }
 
+    [Fact]
+    public void SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-lookalike-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath = Path.Combine(root, "LookalikeGood.dll");
+        string targetPath = Path.Combine(root, "LookalikeTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "LookalikeGood",
+                """
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 10;
+                }
+                """);
+            MetadataReference dependency =
+                MetadataReference.CreateFromFile(
+                    dependencyPath,
+                    new MetadataReferenceProperties(
+                        MetadataImageKind.Assembly,
+                        aliases:
+                            System.Collections.Immutable.ImmutableArray
+                                .Create("good")));
+            EmitLibrary(
+                targetPath,
+                "LookalikeTarget",
+                """
+                extern alias good;
+                namespace N;
+                public class Base
+                {
+                    public virtual int M() => 10;
+                }
+                public class Derived : good::N.Base
+                {
+                    public override int M() => 20;
+                }
+                """,
+                [dependency]);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "N.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.Exact,
+                result.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-accessor-prefix-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "AccessorPrefixDependency.dll");
+        string targetPath =
+            Path.Combine(root, "AccessorPrefixTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "AccessorPrefixDependency",
+                """
+                namespace Prefix;
+                public class Base
+                {
+                    public virtual int get_Standalone() => 1;
+                    public virtual int set_Standalone(int value) => value + 1;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "AccessorPrefixTarget",
+                """
+                namespace Prefix;
+                public class Derived : Base
+                {
+                    public override int get_Standalone() => 2;
+                    public override int set_Standalone(int value) => value + 2;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            var present = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Prefix.Derived",
+                method => method.Method is
+                    "get_Standalone" or "set_Standalone");
+            Assert.Equal(2, present.Count);
+            Assert.All(
+                present,
+                result => Assert.Equal(
+                    FidelityCheck.CompileBackStatus.Exact,
+                    result.Status));
+
+            File.Delete(dependencyPath);
+            var missing = FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "Prefix.Derived",
+                method => method.Method is
+                    "get_Standalone" or "set_Standalone");
+            Assert.Equal(2, missing.Count);
+            Assert.All(
+                missing,
+                result =>
+                {
+                    Assert.Equal(
+                        FidelityCheck.CompileBackStatus.RecompileFail,
+                        result.Status);
+                    Assert.Contains("CS0115", result.Detail);
+                });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SkeletonRejectsCultureMismatchedBaseAssembly()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-culture-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "CultureDependency.dll");
+        string targetPath = Path.Combine(root, "CultureTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "CultureDependency",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+                namespace CultureCase;
+                public class Base
+                {
+                    public virtual int M() => 3;
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "CultureTarget",
+                """
+                namespace CultureCase;
+                public class Derived : Base
+                {
+                    public override int M() => 4;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+            EmitLibrary(
+                dependencyPath,
+                "CultureDependency",
+                """
+                using System.Reflection;
+                [assembly: AssemblyVersion("1.0.0.0")]
+                [assembly: AssemblyCulture("fr")]
+                namespace CultureCase;
+                public class Base
+                {
+                    public virtual int M() => 30;
+                }
+                """);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "CultureCase.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     static void EmitLibrary(
         string path,
         string assemblyName,

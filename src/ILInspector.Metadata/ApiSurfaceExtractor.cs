@@ -589,6 +589,33 @@ public static class ApiSurfaceExtractor
             // slot the C# `~Type()` destructor compiles to.
             var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
 
+            var accessorMethods = new HashSet<MethodDefinitionHandle>();
+            foreach (var propertyHandle in typeDef.GetProperties())
+            {
+                var accessors = reader.GetPropertyDefinition(
+                    propertyHandle).GetAccessors();
+                AddAccessor(accessors.Getter);
+                AddAccessor(accessors.Setter);
+                foreach (var accessor in accessors.Others)
+                    AddAccessor(accessor);
+            }
+            foreach (var eventHandle in typeDef.GetEvents())
+            {
+                var accessors = reader.GetEventDefinition(
+                    eventHandle).GetAccessors();
+                AddAccessor(accessors.Adder);
+                AddAccessor(accessors.Remover);
+                AddAccessor(accessors.Raiser);
+                foreach (var accessor in accessors.Others)
+                    AddAccessor(accessor);
+            }
+
+            void AddAccessor(MethodDefinitionHandle accessor)
+            {
+                if (!accessor.IsNil)
+                    accessorMethods.Add(accessor);
+            }
+
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -601,8 +628,7 @@ public static class ApiSurfaceExtractor
                 string methodName = reader.GetString(method.Name);
 
                 // Skip property accessors and event accessors
-                if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
-                    methodName.StartsWith("add_") || methodName.StartsWith("remove_"))
+                if (accessorMethods.Contains(methodHandle))
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
