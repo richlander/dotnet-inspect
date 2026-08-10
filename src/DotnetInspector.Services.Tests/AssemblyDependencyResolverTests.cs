@@ -1,9 +1,121 @@
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
 
 public class AssemblyDependencyResolverTests
 {
+    [Fact]
+    public void Select_NameMatchingUnreadableCandidateIsUnavailable()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(root, "System.Runtime.dll"),
+                "not a managed assembly");
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            var selection = Assert.IsType<
+                AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(
+                                new AssemblyReferenceIdentity(
+                                    "System.Runtime",
+                                    Version: null,
+                                    Culture: null,
+                                    PublicKeyToken: null)),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                selection.Failure.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_CaseDistinctCandidatesAreMatchedBeforeDeduplication()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string upperPath = Path.Combine(root, "Dep.dll");
+            string lowerPath = Path.Combine(root, "dep.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllBytes(upperPath, BuildAssembly("Dep", [1, 2, 3]));
+            File.WriteAllBytes(lowerPath, BuildAssembly("Dep", [1, 2, 3]));
+            string[] candidates = Directory.EnumerateFiles(root, "*.dll")
+                .Where(path => Path.GetFileNameWithoutExtension(path).Equals(
+                    "Dep",
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (candidates.Length != 2)
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            byte[] rejectedKey = [1, 2, 3];
+            byte[] selectedKey = [4, 5, 6];
+            File.WriteAllBytes(
+                candidates[0],
+                BuildAssembly("Dep", rejectedKey));
+            File.WriteAllBytes(
+                candidates[1],
+                BuildAssembly("Dep", selectedKey));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            var selection = Assert.IsType<
+                AssemblyBindingSelection.Selected>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(
+                                new AssemblyReferenceIdentity(
+                                    "Dep",
+                                    new Version(1, 0, 0, 0),
+                                    Culture: null,
+                                    AssemblyReferenceIdentity
+                                        .ComputePublicKeyToken(selectedKey))),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(candidates[1], selection.Assembly.Path);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Acquire_SnapshotBudgetExhaustionIsTyped()
     {
@@ -661,6 +773,42 @@ public class AssemblyDependencyResolverTests
         string path = Path.Combine(assetDir, fileName);
         File.WriteAllText(path, "");
         return path;
+    }
+
+    static byte[] BuildAssembly(
+        string assemblyName,
+        byte[] publicKey)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: metadata.GetOrAddBlob(publicKey),
+            flags: AssemblyFlags.PublicKey,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]

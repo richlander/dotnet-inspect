@@ -223,10 +223,15 @@ public sealed class AssemblyDependencyResolver :
     }
 
     public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
+        => ResolveCore(identity, scope).Assembly;
+
+    AssemblyResolutionAttempt ResolveCore(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
     {
-        var candidates = scope == AssemblyResolutionScope.Platform
-            ? _allCandidates ??= CollectDependencies(deduplicate: false)
-            : ResolveAll();
+        var candidates =
+            _allCandidates ??= CollectDependencies(deduplicate: false);
+        bool candidateUnavailable = false;
 
         foreach (var dependency in candidates)
         {
@@ -242,8 +247,12 @@ public sealed class AssemblyDependencyResolver :
             ResolvedAssemblyReference? selected = Descriptor(
                 dependency.Path,
                 ResolutionProvenance(dependency));
-            if (selected is null
-                || !MatchesIdentity(
+            if (selected is null)
+            {
+                candidateUnavailable = true;
+                continue;
+            }
+            if (!MatchesIdentity(
                     identity,
                     selected.Identity,
                     allowVersionRollForward,
@@ -252,7 +261,9 @@ public sealed class AssemblyDependencyResolver :
                 continue;
             }
 
-            return selected;
+            return new AssemblyResolutionAttempt(
+                selected,
+                CandidateUnavailable: false);
         }
 
         // The target may reference an older platform contract than the running
@@ -273,19 +284,26 @@ public sealed class AssemblyDependencyResolver :
                         framework ?? "InstalledPlatform",
                         frameworkVersion: null,
                         AssemblyDependencyProvenance.InstalledPlatformAssembly.ToString()));
-                if (selected is not null
-                    && MatchesIdentity(
+                if (selected is null)
+                {
+                    candidateUnavailable = true;
+                }
+                else if (MatchesIdentity(
                         identity,
                         selected.Identity,
                         _options.AllowPlatformAssemblyVersionRollForward,
                         _options.IgnoreAssemblyVersion))
                 {
-                    return selected;
+                    return new AssemblyResolutionAttempt(
+                        selected,
+                        CandidateUnavailable: false);
                 }
             }
         }
 
-        return null;
+        return new AssemblyResolutionAttempt(
+            Assembly: null,
+            candidateUnavailable);
     }
 
     AssemblyBindingSelection SelectCore(
@@ -296,10 +314,7 @@ public sealed class AssemblyDependencyResolver :
             return request.Target switch
             {
                 AssemblyBindingTarget.AssemblyReference reference =>
-                    Resolve(reference.Identity, request.Scope) is
-                        { } assembly
-                        ? AssemblyBindingSelection.Found(assembly)
-                        : AssemblyBindingSelection.NotFound(),
+                    SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
                     SelectIntrinsicCoreLibrary(request.Scope),
                 _ => AssemblyBindingSelection.Invalid(
@@ -323,6 +338,20 @@ public sealed class AssemblyDependencyResolver :
         }
     }
 
+    AssemblyBindingSelection SelectReference(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        if (attempt.Assembly is { } assembly)
+            return AssemblyBindingSelection.Found(assembly);
+        return attempt.CandidateUnavailable
+            ? AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable))
+            : AssemblyBindingSelection.NotFound();
+    }
+
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
         AssemblyResolutionScope scope)
     {
@@ -338,9 +367,7 @@ public sealed class AssemblyDependencyResolver :
                     AssemblyBindingFailureKind.CandidateUnavailable))
             : IntrinsicCoreLibraryBinding.Select(
                 target,
-                facade => Resolve(facade, scope) is { } selected
-                    ? AssemblyBindingSelection.Found(selected)
-                    : AssemblyBindingSelection.NotFound());
+                facade => SelectReference(facade, scope));
     }
 
     static AssemblyResolutionProvenance ResolutionProvenance(
@@ -511,6 +538,10 @@ public sealed class AssemblyDependencyResolver :
                     "Unknown assembly-binding origin."),
             };
     }
+
+    readonly record struct AssemblyResolutionAttempt(
+        ResolvedAssemblyReference? Assembly,
+        bool CandidateUnavailable);
 
     static bool CultureMatches(string? expected, string? actual)
     {

@@ -258,7 +258,9 @@ culture and public-key-token constraints still bind. It excludes the inspecting
 process's own trusted platform assembly closure. Platform lookup matches
 requested names against enumerated file names. The
 `AssemblyReferenceTreeResolutionTests.TraversingAssemblyRefName_IsIdentityAndCannotEscapeTheAssemblyDirectory`
-and the sibling/platform scope tests in that class, plus
+and the sibling/platform/failure-state tests in that class,
+`AssemblyDependencyResolverTests.Select_CaseDistinctCandidatesAreMatchedBeforeDeduplication`,
+plus
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gates enforce both seams.
 

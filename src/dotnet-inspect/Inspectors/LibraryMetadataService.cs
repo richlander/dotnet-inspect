@@ -731,11 +731,15 @@ internal static class LibraryMetadataService
             }
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
-            if (selection is AssemblyBindingSelection.Unavailable
-                or AssemblyBindingSelection.Rejected)
+            if (selection is AssemblyBindingSelection.Unavailable)
             {
                 logger.LogWarning(
-                    "An assembly reference could not be resolved because the candidate catalog was unavailable.");
+                    "An assembly reference could not be resolved because a candidate was unavailable.");
+            }
+            else if (selection is AssemblyBindingSelection.Rejected)
+            {
+                logger.LogWarning(
+                    "An assembly reference could not be resolved because binding was rejected.");
             }
 
             node.Path = resolved?.Path;

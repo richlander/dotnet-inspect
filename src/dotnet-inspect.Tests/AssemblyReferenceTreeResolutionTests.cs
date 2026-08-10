@@ -276,6 +276,43 @@ public class AssemblyReferenceTreeResolutionTests
         }
     }
 
+    [Fact]
+    public void UnreadableSibling_DoesNotFallBackToAPlatformAssembly()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-reference-tree-").FullName;
+        try
+        {
+            var (platformPath, _, _, error) =
+                PlatformResolver.ResolveAssembly("System.Runtime");
+            Assert.Null(error);
+            Assert.NotNull(platformPath);
+            AssemblyReferenceIdentity platformIdentity =
+                ReadIdentity(platformPath);
+            string ownerPath = Path.Combine(root, "Owner.dll");
+            File.WriteAllBytes(
+                ownerPath,
+                BuildAssembly(
+                    "Owner",
+                    new Version(1, 0, 0, 0),
+                    platformIdentity));
+            File.WriteAllText(
+                Path.Combine(root, $"{platformIdentity.Name}.dll"),
+                "not a managed assembly");
+
+            AssemblyReferenceNode platform = Assert.Single(
+                BuildTree(ownerPath),
+                node => node.Name == platformIdentity.Name);
+
+            Assert.Null(platform.Path);
+            Assert.Null(platform.ResolvedFrom);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static (
         string ParentPath,
         AssemblyReference ChildReference,
