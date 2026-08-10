@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
@@ -26,6 +27,11 @@ public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
+
+public sealed record ImplementationAssemblyInput(
+    ResolvedAssemblyReference Assembly,
+    IAssemblyReferenceResolver Resolver,
+    LibraryBodyIndex BodyIndex);
 
 public sealed record ImplementationDiffResult(
     IReadOnlyList<ImplementationDiffMember> Members,
@@ -284,6 +290,42 @@ public static class ImplementationDiff
         return FromResearchComparison(research, options);
     }
 
+    public static ImplementationDiffResult Compare(
+        IReadOnlyList<ImplementationAssemblyInput> oldAssemblies,
+        IReadOnlyList<ImplementationAssemblyInput> newAssemblies,
+        ImplementationDiffOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldAssemblies);
+        ArgumentNullException.ThrowIfNull(newAssemblies);
+
+        var oldContents = OpenAssemblyContents(oldAssemblies);
+        try
+        {
+            var newContents = OpenAssemblyContents(newAssemblies);
+            try
+            {
+                return Compare(
+                    new ResearchDiffInput([])
+                    {
+                        AssemblyContents = oldContents,
+                    },
+                    new ResearchDiffInput([])
+                    {
+                        AssemblyContents = newContents,
+                    },
+                    options);
+            }
+            finally
+            {
+                DisposeAssemblyContents(newContents);
+            }
+        }
+        finally
+        {
+            DisposeAssemblyContents(oldContents);
+        }
+    }
+
     public static ImplementationDiffResult FromResearchComparison(
         ResearchComparison research,
         ImplementationDiffOptions? options = null)
@@ -329,6 +371,41 @@ public static class ImplementationDiff
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
+    }
+
+    static IReadOnlyList<ResearchAssemblyContent> OpenAssemblyContents(
+        IReadOnlyList<ImplementationAssemblyInput> assemblies)
+    {
+        var contents = new List<ResearchAssemblyContent>(assemblies.Count);
+        try
+        {
+            foreach (var assembly in assemblies)
+            {
+                ArgumentNullException.ThrowIfNull(assembly);
+                ArgumentNullException.ThrowIfNull(assembly.Assembly);
+                ArgumentNullException.ThrowIfNull(assembly.Resolver);
+                ArgumentNullException.ThrowIfNull(assembly.BodyIndex);
+                contents.Add(new ResearchAssemblyContent(
+                    MetadataSource.OpenWithoutSymbols(
+                        assembly.Assembly,
+                        assembly.Resolver),
+                    assembly.BodyIndex));
+            }
+
+            return contents;
+        }
+        catch
+        {
+            DisposeAssemblyContents(contents);
+            throw;
+        }
+    }
+
+    static void DisposeAssemblyContents(
+        IReadOnlyList<ResearchAssemblyContent> contents)
+    {
+        foreach (var content in contents)
+            content.Source.Dispose();
     }
 
     public static ImplementationDiffResult WithAuthoredSourceComparisons(
