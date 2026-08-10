@@ -884,9 +884,11 @@ public sealed class TryFinally : IrNode
 /// <summary>
 /// A raised <c>switch</c> statement, produced by the switch pass from an IL
 /// jump table. The value is the switch operand; each section carries its case
-/// labels (the zero-based jump-table indices) or is the default, and a body
-/// container the structuring pass raises. A section that leaves the switch
-/// does so through a <see cref="Break"/>.
+/// labels or is the default, and a body container the structuring pass raises.
+/// Labels are normally the zero-based jump-table indices; when the compiler
+/// normalized an enum by adding or subtracting its lowest case value, the pass
+/// restores the enum operand and translates the labels back to enum values. A
+/// section that leaves the switch does so through a <see cref="Break"/>.
 /// </summary>
 public sealed class Switch : IrNode
 {
@@ -905,8 +907,8 @@ public sealed class Switch : IrNode
 
 /// <summary>
 /// One section of a <see cref="Switch"/>: its case labels (empty for the
-/// default) and body. A label is a compile-time <see cref="Constant"/> — the
-/// zero-based jump-table index for an IL jump table, or the literal string for a
+/// default) and body. A label is a compile-time <see cref="Constant"/> — a
+/// jump-table index or restored enum value, or the literal string for a
 /// switch-on-string raised from the op_Equality chain.
 /// </summary>
 public sealed class SwitchSection : IrNode
@@ -930,9 +932,10 @@ public sealed class SwitchSection : IrNode
 /// produced by the switch pass from a value-producing IL jump table: every case
 /// target (and the default) assigns one local that a single downstream read
 /// consumes at the join, so the whole dispatch yields one value. Each arm carries
-/// its case labels (the zero-based jump-table indices) or is the default, and the
-/// expression it yields. Unlike <see cref="Switch"/> (a statement) this is an
-/// expression, so it appears as the value of a <see cref="Return"/> or a store.
+/// its case labels (jump-table indices or restored enum values) or is the default,
+/// and the expression it yields. Unlike <see cref="Switch"/> (a statement) this
+/// is an expression, so it appears as the value of a <see cref="Return"/> or a
+/// store.
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundConvertedSwitchExpression,
