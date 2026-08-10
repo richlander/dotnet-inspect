@@ -16481,6 +16481,22 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Discover_DisjointSelectionProducesNoRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project", "missing-project",
+            "-D", "Agent Guidance",
+            "-S", "Skills",
+            "--jsonl");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "section 'Agent Guidance' has no data for this query",
+            error);
+    }
+
+    [Fact]
     public async Task Project_DiscoverSchema_RemainsCompleteWithSelection()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -16554,6 +16570,49 @@ public partial class CommandExecutionTests
             Assert.Contains("Package Docs", output);
             Assert.DoesNotContain("Skills", output);
             Assert.DoesNotContain("Agent Guidance", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_EffectiveDiscovery_DisjointSelectionRunsNoQueries()
+    {
+        const string id = "Test.Project.Discovery.Disjoint";
+        const string missingSkill = "skills/missing/SKILL.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc(missingSkill, "skill")]));
+        File.Delete(Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            missingSkill.Replace('/', Path.DirectorySeparatorChar)));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "-D", "Package Docs",
+                "--effective",
+                "-S", "Agent Guidance",
+                "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "section 'Package Docs' has no data for this query",
+                error);
+            Assert.DoesNotContain(
+                "the restored assets file declares the skill",
+                error);
         }
         finally
         {

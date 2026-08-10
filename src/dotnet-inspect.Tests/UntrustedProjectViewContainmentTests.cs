@@ -165,4 +165,34 @@ public class UntrustedProjectViewContainmentTests : IDisposable
 
         HostileOutputAssert.NoRenderingHazard(output, "UntrustedProjectViewContainmentTests");
     }
+
+    [Fact]
+    public async Task ProjectPrint_WithHostileFraming_ContainsMetadataOnly()
+    {
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ProjectCommand.ExecuteAsync(new ProjectOptions
+            {
+                ProjectPath = _assets,
+                Select = ["Skills"],
+                Print = true,
+                Jsonl = true,
+            }));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        string framing =
+            root.GetProperty("label").GetString()
+            + root.GetProperty("path").GetString();
+        Assert.Contains("INJECTEDPKGID", framing);
+        Assert.Contains("INJECTEDSKILLPATH", framing);
+        HostileOutputAssert.NoRenderingHazard(
+            framing,
+            "UntrustedProjectViewContainmentTests.PrintFraming");
+
+        string content = root.GetProperty("content").GetString()!;
+        Assert.Contains(Bidi, content);
+    }
 }

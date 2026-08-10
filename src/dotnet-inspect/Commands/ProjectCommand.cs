@@ -6,6 +6,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.CSharp;
 
 namespace DotnetInspector.Commands;
 
@@ -66,9 +67,11 @@ public class ProjectCommand
         {
             var schema = ProjectSections.CreateSchema();
             List<string> discoverableSections =
-                pipeline.GetDiscoverableSections(
-                    new ProjectInspection(),
-                    candidateSections);
+                candidateSections.Count == 0
+                    ? []
+                    : pipeline.GetDiscoverableSections(
+                        new ProjectInspection(),
+                        candidateSections);
             return DiscoverOutput.ExecuteEffective(
                 options.Discover!,
                 discoverableSections,
@@ -136,10 +139,12 @@ public class ProjectCommand
                 commandContext,
                 token));
         HashSet<InspectionQueryDefinition> requestedQueries =
-            pipeline.GetRequiredQueries(
-                options.Verbosity,
-                candidateSections,
-                excludeUnbounded: options.Discover is not null);
+            candidateSections.Count == 0
+                ? []
+                : pipeline.GetRequiredQueries(
+                    options.Verbosity,
+                    candidateSections,
+                    excludeUnbounded: options.Discover is not null);
         InspectionQueryResults queryResults = await catalog.QueryRegistry.RunAsync(
             requestedQueries,
             queryContext,
@@ -152,7 +157,11 @@ public class ProjectCommand
         if (options.Discover is not null)
         {
             List<string> effectiveSections =
-                pipeline.GetDiscoverableSections(inspection, candidateSections);
+                candidateSections.Count == 0
+                    ? []
+                    : pipeline.GetDiscoverableSections(
+                        inspection,
+                        candidateSections);
             int discoverExitCode = DiscoverOutput.ExecuteEffective(
                 options.Discover,
                 effectiveSections,
@@ -830,8 +839,8 @@ public class ProjectCommand
         => new(
             row,
             section,
-            label,
-            path,
+            CSharpIdentifier.ContainRenderedText(label),
+            CSharpIdentifier.ContainRenderedText(path),
             null,
             GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
                 MarkdownContent.ApplyScope(content, scope)));
