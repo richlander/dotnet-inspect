@@ -16622,6 +16622,209 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_SignatureCountIgnoresPresentationAndWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Signature.Count.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var json = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count");
+            var defaultFormat = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--count");
+            var tsv = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--tsv",
+                "--count");
+            var windowed = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Signature",
+                "--json",
+                "--count",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, json.Exit);
+            Assert.Equal(0, defaultFormat.Exit);
+            Assert.Equal(0, tsv.Exit);
+            Assert.Equal(0, windowed.Exit);
+            Assert.Empty(json.Error);
+            Assert.Empty(defaultFormat.Error);
+            Assert.Empty(tsv.Error);
+            Assert.Empty(windowed.Error);
+            Assert.Equal(json.Output, defaultFormat.Output);
+            Assert.Equal(json.Output, tsv.Output);
+            Assert.True(
+                int.Parse(json.Output, CultureInfo.InvariantCulture) > 1);
+            Assert.Equal("1", windowed.Output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FixedOverviewCountIncludesPackageFiles()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Overview.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "--tsv",
+                "--count");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| Package nuspec file | 2 |", output);
+            Assert.Contains("| Package README file | 2 |", output);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_FilesJsonlWindowsCombinedRows()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Jsonl.Window.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--jsonl",
+                "--rows",
+                "1");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            string row = Assert.Single(
+                output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+            using var _ = JsonDocument.Parse(row);
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_PackageInfoFieldsAgreeWithCount()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.One",
+                "README.md",
+                "one");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.Fields.Two",
+                "README.md",
+                "two");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Version",
+                "--tsv",
+                "--count");
+            var rendered = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "-S",
+                "Package Info",
+                "--fields",
+                "Version",
+                "--tsv");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Equal(0, rendered.Exit);
+            Assert.Empty(count.Error);
+            Assert.Empty(rendered.Error);
+            Assert.Equal("2", count.Output.Trim());
+            string[] rows = rendered.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(3, rows.Length);
+            Assert.All(
+                rows.Skip(1),
+                row => Assert.Contains(
+                    "\tVersion\t",
+                    row,
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_TableCombinesPackageInfoRows()
     {
         var (firstPackage, firstDir) = CreateLocalReadmePackage("Test.Info.One", "README.md", "one");

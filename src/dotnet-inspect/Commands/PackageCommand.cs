@@ -167,7 +167,10 @@ public class PackageCommand
             if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
-            if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
+            if (!options.Count
+                && !OutputFormatResolver.ValidateSingleSectionForTabular(
+                    options.TabularExplicitlySet,
+                    options.IncludeSections))
                 return 1;
 
             // Auto-promote verbosity when -S targets specific sections
@@ -861,13 +864,17 @@ public class PackageCommand
         if (options.ShowContent)
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
-        if (!TryResolveMultiPackageRowSection(options, out var rowSection))
+        string? rowSection = null;
+        if (!options.Count
+            && !TryResolveMultiPackageRowSection(options, out rowSection))
             return 1;
         bool wantsFilesSection = HasPathFilter(options)
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
+            || (options.FixedOverview
+                && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        if (!options.JsonOutput && rowSection == null)
+        if (!options.Count && !options.JsonOutput && rowSection == null)
         {
             CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
             CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
@@ -914,8 +921,17 @@ public class PackageCommand
             return PackageIntegrityExitCode([.. results]);
         }
 
-        WriteMultiPackageTable(results, rowSection!, options);
-        return PackageIntegrityExitCode([.. results]);
+        try
+        {
+            WriteMultiPackageTable(results, rowSection!, options);
+            return PackageIntegrityExitCode([.. results]);
+        }
+        catch (InvalidOperationException ex) when (
+            IsUnmatchedColumnProjection(options, ex))
+        {
+            CommandError.Write(ex.Message);
+            return 1;
+        }
     }
 
     internal static int PackageIntegrityExitCode(params InspectionResult[] results)
@@ -2241,6 +2257,7 @@ public class PackageCommand
             Count = false,
             JsonOutput = false,
             OutputPath = null,
+            Rows = null,
         };
         var markdownDocuments = results
             .Select(
@@ -2267,6 +2284,15 @@ public class PackageCommand
                 }
             }
 
+            if (options.Rows != null)
+            {
+                foreach (string section in counts.Keys.ToArray())
+                {
+                    counts[section] =
+                        ApplyRowWindow(counts[section], options.Rows);
+                }
+            }
+
             CountOutput.WriteCountMap(
                 counts,
                 orderedSections,
@@ -2275,7 +2301,9 @@ public class PackageCommand
         }
 
         CountOutput.WriteCount(
-            markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
+            ApplyRowWindow(
+                markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
+                options.Rows),
             options.OutputPath);
     }
 
@@ -2379,6 +2407,7 @@ public class PackageCommand
 
     private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
+        var rows = new List<PackageFileMultiJsonRow>();
         foreach (var result in results)
         {
             var files = GetPackageFileRows(result, section);
@@ -2386,17 +2415,34 @@ public class PackageCommand
             {
                 if (!options.SkipEmpty)
                 {
-                    var empty = new PackageFileMultiJsonRow(result.PackageName, result.Version, "", null);
-                    Console.WriteLine(JsonSerializer.Serialize(empty, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+                    rows.Add(
+                        new PackageFileMultiJsonRow(
+                            result.PackageName,
+                            result.Version,
+                            "",
+                            null));
                 }
                 continue;
             }
 
             foreach (var file in files)
             {
-                var row = new PackageFileMultiJsonRow(result.PackageName, result.Version, file.Path, file.Size);
-                Console.WriteLine(JsonSerializer.Serialize(row, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+                rows.Add(
+                    new PackageFileMultiJsonRow(
+                        result.PackageName,
+                        result.Version,
+                        file.Path,
+                        file.Size));
             }
+        }
+
+        foreach (var row in RowWindow.Apply(options.Rows, rows))
+        {
+            Console.WriteLine(
+                JsonSerializer.Serialize(
+                    row,
+                    PackageFileMultiJsonRowContext.Default
+                        .PackageFileMultiJsonRow));
         }
     }
 
@@ -2507,8 +2553,17 @@ public class PackageCommand
 
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
+        HashSet<string>? selectedFields =
+            options.Fields is { Length: > 0 }
+                ? new HashSet<string>(
+                    options.Fields,
+                    StringComparer.OrdinalIgnoreCase)
+                : null;
         var rows = results
             .SelectMany(result => new InspectionResultView(result).Metadata
+                .Where(
+                    field => selectedFields == null
+                        || selectedFields.Contains(field.Key))
                 .Select(field => new[]
                 {
                     result.PackageName,
@@ -2517,16 +2572,24 @@ public class PackageCommand
                 }))
             .ToArray();
 
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
-        {
-            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(
-                ["Package", "Field", "Value"],
-                ["package", "field", "value"],
-                rows);
-            markoutWriter.Flush();
-        }, options.Rows);
+        OutputFormatter.WriteProjectedTable(
+            Console.Out,
+            !options.NoHeader,
+            options.Tsv,
+            options.Jsonl,
+            options.Columns,
+            fields: null,
+            (writer, formatter, writerOptions) =>
+            {
+                var markoutWriter =
+                    new MarkoutWriter(writer, formatter, writerOptions);
+                markoutWriter.WriteTable(
+                    ["Package", "Field", "Value"],
+                    ["package", "field", "value"],
+                    rows);
+                markoutWriter.Flush();
+            },
+            options.Rows);
     }
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
