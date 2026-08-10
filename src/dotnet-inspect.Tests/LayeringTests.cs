@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
+using ILInspector.Research;
 using DotnetInspector.Models;
 using DotnetInspector.Queries;
 
@@ -38,6 +39,18 @@ public sealed class LayeringTests
         Assert.Equal(
             "DotnetInspector.Queries",
             typeof(ApiComparisonQuery).Assembly.GetName().Name);
+    }
+
+    [Fact]
+    public void ImplementationQuery_ReturnsResearchOwnedPresentationNeutralResult()
+    {
+        Assert.Equal(
+            "ILInspector.Research",
+            typeof(ImplementationDiffResult).Assembly.GetName().Name);
+        Assert.DoesNotContain(
+            typeof(ImplementationDiffResult).Assembly
+                .GetReferencedAssemblies(),
+            reference => reference.Name == "Markout");
     }
 
     [Fact]

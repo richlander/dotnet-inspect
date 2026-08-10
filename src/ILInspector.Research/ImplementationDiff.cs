@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
@@ -26,6 +27,11 @@ public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
     IReadOnlySet<string>? TypeFilters = null,
     IReadOnlySet<string>? MemberTargetIdentities = null);
+
+public sealed record ImplementationAssemblyInput(
+    ResolvedAssemblyReference Assembly,
+    IAssemblyReferenceResolver Resolver,
+    LibraryBodyIndex BodyIndex);
 
 public sealed record ImplementationDiffResult(
     IReadOnlyList<ImplementationDiffMember> Members,
@@ -277,11 +283,54 @@ public static class ImplementationDiff
         ArgumentNullException.ThrowIfNull(newInput);
 
         options ??= new ImplementationDiffOptions();
-        var research = ResearchDiff.Compare(oldInput, newInput, new ResearchDiffOptions(
-            ToResearchMechanisms(options.Mechanisms),
-            TypeFilters: options.TypeFilters,
-            MemberTargetIdentities: options.MemberTargetIdentities));
+        var research = ResearchDiff.Compare(
+            oldInput,
+            newInput,
+            new ResearchDiffOptions(
+                ToResearchMechanisms(options.Mechanisms),
+                TypeFilters: options.TypeFilters,
+                MemberTargetIdentities: options.MemberTargetIdentities)
+            {
+                RetainedComparisonDescriptorIds =
+                    RetainedComparisonDescriptorIds(options.Mechanisms),
+            });
         return FromResearchComparison(research, options);
+    }
+
+    public static ImplementationDiffResult Compare(
+        IReadOnlyList<ImplementationAssemblyInput> oldAssemblies,
+        IReadOnlyList<ImplementationAssemblyInput> newAssemblies,
+        ImplementationDiffOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldAssemblies);
+        ArgumentNullException.ThrowIfNull(newAssemblies);
+
+        var oldContents = OpenAssemblyContents(oldAssemblies);
+        try
+        {
+            var newContents = OpenAssemblyContents(newAssemblies);
+            try
+            {
+                return Compare(
+                    new ResearchDiffInput([])
+                    {
+                        AssemblyContents = oldContents,
+                    },
+                    new ResearchDiffInput([])
+                    {
+                        AssemblyContents = newContents,
+                    },
+                    options);
+            }
+            finally
+            {
+                DisposeAssemblyContents(newContents);
+            }
+        }
+        finally
+        {
+            DisposeAssemblyContents(oldContents);
+        }
     }
 
     public static ImplementationDiffResult FromResearchComparison(
@@ -329,6 +378,89 @@ public static class ImplementationDiff
             .ToArray();
 
         return new ImplementationDiffResult(members, research);
+    }
+
+    static IReadOnlyList<ResearchAssemblyContent> OpenAssemblyContents(
+        IReadOnlyList<ImplementationAssemblyInput> assemblies)
+    {
+        var contents = new List<ResearchAssemblyContent>(assemblies.Count);
+        try
+        {
+            foreach (var assembly in assemblies)
+            {
+                ArgumentNullException.ThrowIfNull(assembly);
+                ArgumentNullException.ThrowIfNull(assembly.Assembly);
+                ArgumentNullException.ThrowIfNull(assembly.Resolver);
+                ArgumentNullException.ThrowIfNull(assembly.BodyIndex);
+                var source = MetadataSource.OpenWithoutSymbols(
+                    assembly.Assembly,
+                    assembly.Resolver);
+                try
+                {
+                    ValidateBodyIndex(source, assembly.BodyIndex);
+                    contents.Add(new ResearchAssemblyContent(
+                        source,
+                        assembly.BodyIndex));
+                }
+                catch
+                {
+                    source.Dispose();
+                    throw;
+                }
+            }
+
+            return contents;
+        }
+        catch
+        {
+            DisposeAssemblyContents(contents);
+            throw;
+        }
+    }
+
+    static void DisposeAssemblyContents(
+        IReadOnlyList<ResearchAssemblyContent> contents)
+    {
+        foreach (var content in contents)
+            content.Source.Dispose();
+    }
+
+    static void ValidateBodyIndex(
+        MetadataSource source,
+        LibraryBodyIndex bodyIndex)
+    {
+        MethodIdentity? indexedMethod =
+            bodyIndex.DeclaredMethods.FirstOrDefault()
+            ?? bodyIndex.Methods.FirstOrDefault();
+        if (indexedMethod is null)
+            return;
+
+        Guid sourceMvid = source.Reader.GetGuid(
+            source.Reader.GetModuleDefinition().Mvid);
+        if (StringComparer.OrdinalIgnoreCase.Equals(
+                source.AssemblyName,
+                indexedMethod.AssemblyName)
+            && sourceMvid == indexedMethod.ModuleVersionId)
+        {
+            return;
+        }
+
+        throw new ArgumentException(
+            $"The body index for '{indexedMethod.AssemblyName}' does not match "
+            + $"assembly content '{source.AssemblyName}'.",
+            nameof(bodyIndex));
+    }
+
+    static ImmutableHashSet<string> RetainedComparisonDescriptorIds(
+        ImplementationDiffMechanism mechanisms)
+    {
+        var descriptors = ImmutableHashSet.CreateBuilder<string>(
+            StringComparer.Ordinal);
+        if (mechanisms.HasFlag(ImplementationDiffMechanism.CSharp))
+            descriptors.Add(CSharpFindings.LineDescriptor.Id);
+        if (mechanisms.HasFlag(ImplementationDiffMechanism.IlBody))
+            descriptors.Add(IlFindings.OperationDescriptor.Id);
+        return descriptors.ToImmutable();
     }
 
     public static ImplementationDiffResult WithAuthoredSourceComparisons(
