@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-private-feeds
 version: 0.1.0
-description: Inspect packages from private and custom NuGet feeds safely — select sources, use credential providers or explicit configuration, diagnose authentication failures, and reason about source-bound caches and offline operation.
+description: Inspect packages from private and custom NuGet feeds safely — select and map sources, use credential providers or explicit configuration, diagnose authentication failures, and reason about source-bound caches and offline operation.
 ---
 
 # dotnet-inspect: private NuGet feeds
@@ -40,6 +40,29 @@ dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
 Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
+
+### Restrict package ids to feeds
+
+dotnet-inspect honors `<packageSourceMapping>` from the selected NuGet
+configuration:
+
+```xml
+<packageSourceMapping>
+  <packageSource key="private">
+    <package pattern="MyCompany.*" />
+  </packageSource>
+  <packageSource key="nuget.org">
+    <package pattern="*" />
+  </packageSource>
+</packageSourceMapping>
+```
+
+An exact package id wins over prefixes; otherwise the longest matching prefix
+wins. Mapping is applied independently to top-level packages, dependencies,
+RID companions, platform packs, tool redirects, searches, and routing probes.
+Every package id must match an active named source. `--source` and
+`--add-source` do not disable mapping; an override must match the configured
+endpoint to retain its mapped source name.
 
 ## Azure Artifacts credential provider
 
