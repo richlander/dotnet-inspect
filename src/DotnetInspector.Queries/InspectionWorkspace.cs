@@ -328,12 +328,12 @@ public sealed class AssemblyContextGroup : IDisposable
         {
             try
             {
-                EndCallback(operationFailure);
+                if (participant is not null)
+                    ReleaseSnapshot(participant);
             }
             finally
             {
-                if (participant is not null)
-                    ReleaseSnapshot(participant);
+                EndCallback(operationFailure);
             }
         }
     }
@@ -493,6 +493,17 @@ public sealed class AssemblyContextGroup : IDisposable
 
     void ReleaseSnapshot(ParticipantState participant)
     {
+        lock (_lifetimeGate)
+        {
+            if (_disposed)
+                return;
+        }
+
+        ReleaseSnapshotCore(participant);
+    }
+
+    void ReleaseSnapshotCore(ParticipantState participant)
+    {
         long imageSize;
         lock (participant.ImageLoadGate)
             imageSize = participant.Release();
@@ -603,9 +614,7 @@ public sealed class AssemblyContextGroup : IDisposable
         foreach (ParticipantState participant
             in _participantByRegistration.Values)
         {
-            long imageSize = participant.Release();
-            if (imageSize != 0)
-                ReleaseImage(imageSize);
+            ReleaseSnapshotCore(participant);
         }
 
         if (failures is not null)

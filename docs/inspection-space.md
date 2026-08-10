@@ -285,6 +285,9 @@ per-participant single-flight acquisition, and typed acquisition failures.
 derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
 gates that order when asynchronous host work releases its participant.
+`InspectionWorkspaceTests.ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder`
+gates the disposal race after callback completion but before participant
+release.
 `InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
 all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`

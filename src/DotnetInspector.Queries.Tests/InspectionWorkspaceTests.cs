@@ -1,4 +1,5 @@
 using ILInspector.Metadata;
+using System.Reflection;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -623,6 +624,53 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
+    {
+        TestAssembly source = TestAssembly.Create();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        var resource = new BlockingResource();
+        group.RegisterOwnedResource(resource);
+
+        object participant =
+            InvokeGroupMethod(
+                group,
+                "FindParticipant",
+                source.Assembly)!;
+
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        Task disposal = Task.Run(
+            workspace.Dispose,
+            cancellationToken);
+        try
+        {
+            Assert.True(
+                resource.Entered.Wait(
+                    TimeSpan.FromSeconds(10),
+                    cancellationToken));
+            InvokeGroupMethod(
+                group,
+                "ReleaseSnapshot",
+                participant);
+            Assert.True(group.RetainedImageBytes > 0);
+        }
+        finally
+        {
+            resource.Resume.Set();
+            await disposal.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                cancellationToken);
+        }
+
+        Assert.Equal(0, group.RetainedImageBytes);
+    }
+
+    [Fact]
     public void WorkspaceDisposal_ContinuesAfterAGroupFails()
     {
         TestAssembly first = TestAssembly.Create();
@@ -687,6 +735,20 @@ public sealed class InspectionWorkspaceTests
     {
         Assert.True(typeof(AssemblyImageView).IsByRefLike);
         Assert.True(typeof(AssemblyImageSpanResult).IsByRefLike);
+    }
+
+    static object? InvokeGroupMethod(
+        AssemblyContextGroup group,
+        string methodName,
+        params object?[]? arguments)
+    {
+        MethodInfo method =
+            typeof(AssemblyContextGroup).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                $"AssemblyContextGroup.{methodName} was not found.");
+        return method.Invoke(group, arguments);
     }
 
     sealed class TestAssembly
@@ -775,6 +837,18 @@ public sealed class InspectionWorkspaceTests
         public void Dispose() =>
             throw new InvalidOperationException(
                 "Synthetic owned-resource disposal failure.");
+    }
+
+    sealed class BlockingResource : IDisposable
+    {
+        internal ManualResetEventSlim Entered { get; } = new();
+        internal ManualResetEventSlim Resume { get; } = new();
+
+        public void Dispose()
+        {
+            Entered.Set();
+            Resume.Wait(TestContext.Current.CancellationToken);
+        }
     }
 
     sealed class RetainedImageAssertingResource(
