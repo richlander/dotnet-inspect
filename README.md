@@ -248,7 +248,8 @@ of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`.
+`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--rows` selects the same ordered relationships in tree and table output.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -323,7 +324,8 @@ Common `--triage-shape` values include `capturing-delegate`,
 
 `member -S @Source` raises a method body to C# and shows the supporting
 evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
-hidden-fact comments and interleaved IL), `Original Source` (SourceLink-backed),
+hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
+rendering as a machine payload), `Original Source` (SourceLink-backed),
 and `IL`. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
@@ -351,10 +353,28 @@ drops its interleaved IL for any member a byte-divergent lens actually rewrote.
 See
 [docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
 
+`Annotated Source Document` is the machine form of that same view, emitted
+directly as JSON when it is the only selected section. It is a text buffer plus
+overlays: `text` is the exact interleaved rendering, and every coordinate is an
+absolute, end-exclusive UTF-16 span into it, so lines and columns are derived by
+counting newlines rather than stored. `text` is well-formed UTF-16 — an unpaired
+surrogate is rejected, never repaired, because JSON would replace it with U+FFFD
+and shift every later span; malformed IL operand and fact text arrives already
+contained as a visible `\uXXXX` spelling. `nodes` name text structure (C# syntax
+kinds, plus one `Instruction` node per rendered IL line carrying its `il_offset`),
+`regions` name construct parts, `facts` are the semantic observations stated once
+each, and `targets` is the only join between them — fact to node, then node spans
+to text. A node carries several spans when interleaved IL splits its construct,
+and the C# line breaks it printed stay inside those spans, so concatenating them
+reproduces the rendered source verbatim. `Instruction` is exactly the nodes that
+carry an `il_offset`, and a fact with no target is explicitly unanchored rather
+than missing.
+
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Annotated Source Document" --json
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Fidelity Causes"
 dotnet-inspect library MyLib.dll --il-offset 0x06000001+0x5
 ```

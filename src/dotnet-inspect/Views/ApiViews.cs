@@ -851,6 +851,18 @@ public class MemberCodeView
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
 
+    [MarkoutSection(Name = SectionNames.AnnotatedSourceDocument)]
+    public CodeSection AnnotatedSourceDocumentCode { get; set; }
+
+    /// <summary>The structured value backing <see cref="AnnotatedSourceDocumentCode"/>.</summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.AnnotatedSourceDocument? AnnotatedSourceDocument { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.DecompilerResult? AnnotatedSourceDocumentFailure { get; set; }
+
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }
 
@@ -907,7 +919,10 @@ public class MemberCodeView
 
     [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = "No inbound callers or outbound calls found for this method.")]
     public Markout.Graph? CallGraph { get; set; }
- 
+
+    [MarkoutIgnore]
+    public int? CallGraphRowCount { get; set; }
+
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }
 

@@ -37,7 +37,8 @@ public static partial class ResearchViews
         ResearchFactRegistry? Registry = null,
         int? MethodToken = null,
         PrinterOptions? PrinterOptions = null,
-        string? CaretFocus = null);
+        string? CaretFocus = null,
+        bool SourceDocument = false);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -53,7 +54,19 @@ public static partial class ResearchViews
         /// renders — so without this a mistyped focus is indistinguishable from
         /// a correct one.
         /// </summary>
-        IReadOnlyList<string>? UnmatchedFocusAlternatives = null);
+        IReadOnlyList<string>? UnmatchedFocusAlternatives = null,
+
+        /// <summary>
+        /// Portable interleaved source, produced only when
+        /// <see cref="MemberProjectionRequest.SourceDocument"/> is requested.
+        /// </summary>
+        AnnotatedSourceDocument? SourceDocument = null,
+
+        /// <summary>
+        /// Failure isolated to portable-document production. Sibling projections
+        /// remain available when the document's C# printer cannot produce output.
+        /// </summary>
+        DecompilerResult? SourceDocumentFailure = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -79,9 +92,59 @@ public static partial class ResearchViews
             var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
             var context = new ResearchFactContext(request.Source, imported, assembly);
             var facts = effectiveRegistry.Collect(context);
-            var headerFacts = request.CostOverlay || request.FactRows
-                ? effectiveRegistry.CollectHeaderFacts(context)
-                : [];
+            IReadOnlyList<ResearchHeaderFact> headerFacts = [];
+            DecompilerResult? headerFactsFailure = null;
+            if (request.FactRows)
+            {
+                headerFacts = effectiveRegistry.CollectHeaderFacts(context);
+            }
+            else if (request.CostOverlay)
+            {
+                try
+                {
+                    headerFacts = effectiveRegistry.CollectHeaderFacts(context);
+                }
+                catch (Exception ex)
+                {
+                    headerFactsFailure = DecompilerResult.Failure(
+                        DiagnosticIds.InternalError,
+                        $"{ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            AnnotatedSourceDocument? sourceDocument = null;
+            DecompilerResult? sourceDocumentFailure = null;
+            if (request.SourceDocument)
+            {
+                // Printing mutates the raised graph. Produce the portable
+                // document first and from its own import so selecting it cannot
+                // reshape any sibling projection.
+                (sourceDocument, sourceDocumentFailure) = CaptureSourceDocument(() =>
+                {
+                    var documentFunction = ImportFunction()
+                        ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
+                    if (headerFactsFailure is not null)
+                        throw new InvalidOperationException(
+                            string.Join(
+                                "; ",
+                                headerFactsFailure.Diagnostics.Select(diagnostic => diagnostic.ToString())));
+                    var documentHeaderFacts = request.FactRows || request.CostOverlay
+                        ? headerFacts
+                        : effectiveRegistry.CollectHeaderFacts(context);
+                    return BuildAnnotatedSourceDocument(
+                        request.Source,
+                        request.Type,
+                        request.Method,
+                        documentFunction,
+                        facts,
+                        documentHeaderFacts,
+                        request.AnnotatedStage,
+                        request.OverloadIndex,
+                        request.PublicOnly,
+                        request.MethodToken,
+                        request.PrinterOptions);
+                });
+            }
 
             DecompilerResult? annotatedSource = null;
             if (request.AnnotatedSource)
@@ -115,21 +178,30 @@ public static partial class ResearchViews
             CostOverlayResult? costOverlay = null;
             if (request.CostOverlay)
             {
-                var costAnnotations = facts
-                    .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
-                    .ToList();
-                var costHeaderFacts = headerFacts
-                    .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
-                    .ToList();
-                var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(
-                        imported,
-                        costAnnotations,
-                        request.Source,
-                        OverlayPrinterOptions(request.PrinterOptions),
-                        gestures), emptyOutputIsFailure: false),
-                    request.Source);
-                costOverlay = new CostOverlayResult(body, costHeaderFacts);
+                if (headerFactsFailure is not null)
+                {
+                    costOverlay = new CostOverlayResult(
+                        WithTrace(headerFactsFailure, request.Source),
+                        []);
+                }
+                else
+                {
+                    var costAnnotations = facts
+                        .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Cost)
+                        .ToList();
+                    var costHeaderFacts = headerFacts
+                        .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
+                        .ToList();
+                    var body = WithTrace(
+                        RunProjection(() => RenderRaisedOverlay(
+                            imported,
+                            costAnnotations,
+                            request.Source,
+                            OverlayPrinterOptions(request.PrinterOptions),
+                            gestures), emptyOutputIsFailure: false),
+                        request.Source);
+                    costOverlay = new CostOverlayResult(body, costHeaderFacts);
+                }
             }
 
             DecompilerResult? semanticsOverlay = null;
@@ -158,7 +230,9 @@ public static partial class ResearchViews
                 semanticsOverlay,
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
-                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts));
+                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
+                sourceDocument,
+                sourceDocumentFailure);
         }
         catch (Exception ex)
         {
@@ -175,7 +249,8 @@ public static partial class ResearchViews
                 request.CostOverlay ? new CostOverlayResult(failure, []) : null,
                 request.SemanticsOverlay ? failure : null,
                 request.FactRows ? [] : null,
-                failure.Trace);
+                failure.Trace,
+                SourceDocumentFailure: request.SourceDocument ? failure : null);
         }
     }
 
@@ -304,6 +379,453 @@ public static partial class ResearchViews
         var extents = AnnotationAnchor.ComputeCaretExtents(
             annotations, AnnotationAnchor.ComputeSpans(imported), printedRanges);
         return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
+    }
+
+    static AnnotatedSourceDocument BuildAnnotatedSourceDocument(
+        MetadataSource source,
+        string type,
+        string method,
+        IrFunction imported,
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlyList<ResearchHeaderFact> headerFacts,
+        AnnotationStage stage,
+        int overloadIndex,
+        bool publicOnly,
+        int? methodToken,
+        PrinterOptions? printerOptions)
+    {
+        IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
+        var csResult = stage == AnnotationStage.Lowered
+            ? CSharpPrinter.PrintLowered(
+                imported,
+                out var printedRanges,
+                importMethodBody: ImportMethodBody,
+                options: printerOptions)
+            : CSharpPrinter.PrintRaised(
+                imported,
+                out printedRanges,
+                importMethodBody: ImportMethodBody,
+                typesProvablyDisjoint: source.AreProvablyDisjoint,
+                options: printerOptions);
+        string csText = RequireSuccessfulDocumentOutput(csResult);
+
+        bool lensApplied = csResult.Metadata.Decisions
+            .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
+        var ilLines = lensApplied
+            ? []
+            : methodToken is null
+                ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+                : IlProjection.RenderIlBodyLines(source, methodToken.Value);
+
+        var stream = CorrelatePortableSource(imported, csText, printedRanges, annotations, ilLines);
+        var csharpMap = PrintedBodyMap.Create(printedRanges, imported, annotations);
+        return MakeDocument(stream, csharpMap, headerFacts);
+    }
+
+    internal static string RequireSuccessfulDocumentOutput(DecompilerResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Annotated source document C# projection failed: {string.Join("; ", result.Diagnostics)}");
+        }
+        return result.Output!;
+    }
+
+    internal static (AnnotatedSourceDocument? Document, DecompilerResult? Failure) CaptureSourceDocument(
+        Func<AnnotatedSourceDocument> produce)
+    {
+        ArgumentNullException.ThrowIfNull(produce);
+        try
+        {
+            return (produce(), null);
+        }
+        catch (Exception ex)
+        {
+            return (
+                null,
+                DecompilerResult.Failure(
+                    DiagnosticIds.InternalError,
+                    $"{ex.GetType().Name}: {ex.Message}"));
+        }
+    }
+
+    static IReadOnlyList<BoundSourceLine> CorrelatePortableSource(
+        IrFunction imported,
+        string csText,
+        PrintedRangeMap printedRanges,
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlyList<SourceLine> ilLines)
+    {
+        var spans = AnnotationAnchor.ComputeSpans(imported);
+        IReadOnlyList<SourceLine> csharpLines = csText.Length == 0
+            ? []
+            : RenderCSharpBodyLines(csText, printedRanges);
+        var factsByOffset = FactsByOffset(annotations);
+        var positionedIl = new List<(int TargetLine, bool BeforeLine, SourceLine Line)>(ilLines.Count);
+        foreach (var line in ilLines.OrderBy(line => line.Offset))
+        {
+            int targetLine = csharpLines.Count - 1;
+            bool beforeLine = false;
+            if (AnnotationAnchor.Best(spans, line.Offset) is { } owner)
+            {
+                if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out targetLine))
+                {
+                    beforeLine = printedRanges.TryGetInsertionLine(owner, out targetLine);
+                    if (!beforeLine)
+                        targetLine = csharpLines.Count - 1;
+                }
+            }
+            positionedIl.Add((Math.Max(0, targetLine), beforeLine, line));
+        }
+
+        var stream = new List<BoundSourceLine>(csharpLines.Count + positionedIl.Count);
+        int nextIl = 0;
+        void AddIl(SourceLine il) => stream.Add(new BoundSourceLine(
+            il.Text,
+            il.Offset,
+            SourceLineKind.Il,
+            factsByOffset.GetValueOrDefault(il.Offset) ?? []));
+
+        for (int csharpLine = 0; csharpLine < csharpLines.Count; csharpLine++)
+        {
+            // Silent nodes carry insertion points rather than printed ranges. If
+            // one occurs in the offset-ordered prefix now eligible for this line,
+            // emit through it before the line. Directly placed instructions that
+            // precede it move with it because splitting that prefix would regress
+            // IL offsets. An instruction targeting a later line still blocks the
+            // prefix until that target appears.
+            int beforeThrough = nextIl - 1;
+            for (int i = nextIl;
+                i < positionedIl.Count && positionedIl[i].TargetLine <= csharpLine;
+                i++)
+            {
+                if (positionedIl[i].BeforeLine)
+                    beforeThrough = i;
+            }
+            while (nextIl <= beforeThrough)
+                AddIl(positionedIl[nextIl++].Line);
+
+            var line = csharpLines[csharpLine];
+            stream.Add(new BoundSourceLine(
+                line.Text,
+                line.Offset,
+                SourceLineKind.CSharp));
+
+            // IL stays in method order. If an earlier instruction targets a
+            // later C# line, it blocks later instructions until that target has
+            // appeared rather than letting the stream regress.
+            while (nextIl < positionedIl.Count
+                && positionedIl[nextIl].TargetLine <= csharpLine)
+            {
+                AddIl(positionedIl[nextIl++].Line);
+            }
+        }
+
+        while (nextIl < positionedIl.Count)
+            AddIl(positionedIl[nextIl++].Line);
+        return stream;
+    }
+
+    /// <summary>
+    /// Folds the correlated stream, the printer's body-local projection, and the
+    /// member-header facts into the portable document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rendered stream is flattened into one text buffer, and every
+    /// coordinate the document carries is an absolute span over it. The printer
+    /// works in C#-local line/column coordinates, so each extent is rebased here:
+    /// every covered C# line is mapped to the interleaved line it actually
+    /// became, and consecutive lines are merged into one span only while the
+    /// interleave leaves them adjacent. An IL line woven into the middle of a
+    /// construct therefore splits it into several spans rather than being
+    /// swallowed by one — the exact characters stay exact, and no consumer has to
+    /// filter a medium before reading a coordinate.
+    /// </para>
+    /// <para>
+    /// Every IL line becomes an <c>Instruction</c> node carrying its own offset,
+    /// because a fact anchors to structure and the interleaved line is no longer
+    /// an addressable thing. C# nodes keep the ids the printer projection minted
+    /// while <c>IrNode</c> identity was still alive, so a C# target is the node
+    /// the fact was actually anchored to rather than a coordinate re-match that
+    /// would be ambiguous whenever two nodes print the same characters.
+    /// </para>
+    /// <para>
+    /// Facts are deduplicated on their full semantic identity, including origin,
+    /// after portable escaping — escaping first, because two descriptors that
+    /// differ only in an unpaired surrogate must not merge after they are
+    /// encoded the same way. One fact observed in both media therefore becomes
+    /// one fact row targeting a C# node and an instruction node, which is what
+    /// makes "this is one observation" readable from the payload. A fact neither
+    /// medium could anchor simply has no target.
+    /// </para>
+    /// </remarks>
+    static AnnotatedSourceDocument MakeDocument(
+        IReadOnlyList<BoundSourceLine> stream,
+        PrintedBodyMap csharpMap,
+        IReadOnlyList<ResearchHeaderFact> headerFacts)
+    {
+        int csharpLineCount = stream.Count(line => line.Kind == SourceLineKind.CSharp);
+        if (csharpLineCount != csharpMap.Lines.Count)
+        {
+            throw new InvalidOperationException(
+                $"The correlated stream has {csharpLineCount} C# lines but the printed map has {csharpMap.Lines.Count}.");
+        }
+
+        string text = string.Join('\n', stream.Select(line => line.Text));
+
+        // One pass fixes the whole coordinate space: where each rendered line
+        // starts in the buffer, and which rendered line each C#-local line became.
+        var lineStarts = new int[stream.Count];
+        var csharpLines = new int[csharpLineCount];
+        int start = 0;
+        int csharpLine = 0;
+        for (int index = 0; index < stream.Count; index++)
+        {
+            lineStarts[index] = start;
+            start += stream[index].Text.Length + 1;
+            if (stream[index].Kind == SourceLineKind.CSharp)
+                csharpLines[csharpLine++] = index;
+        }
+
+        var nodes = new List<AnnotatedSourceNode>(csharpMap.Nodes.Count + stream.Count - csharpLineCount);
+        foreach (var node in csharpMap.Nodes)
+            nodes.Add(new AnnotatedSourceNode(node.Id, node.Kind, SourceLineKind.CSharp, ToSpans(node.Extent)));
+
+        var instructionNodes = new Dictionary<int, int>(stream.Count - csharpLineCount);
+        for (int index = 0; index < stream.Count; index++)
+        {
+            var line = stream[index];
+            if (line.Kind != SourceLineKind.Il || line.Text.Length == 0)
+                continue;
+            instructionNodes[index] = nodes.Count;
+            nodes.Add(new AnnotatedSourceNode(
+                nodes.Count,
+                AnnotatedSourceNode.InstructionKind,
+                SourceLineKind.Il,
+                [new AnnotatedSourceSpan(lineStarts[index], line.Text.Length)],
+                line.Offset));
+        }
+
+        var regions = csharpMap.Regions
+            .Select(region => new AnnotatedSourceRegion(region.Role, ToSpans(region.Extent)))
+            .ToArray();
+
+        // Keyed by semantic identity so the same observation seen on a C# node
+        // and on its instruction collapses to one fact carrying both targets.
+        var collected = new Dictionary<FactIdentity, SortedSet<int>>();
+        SortedSet<int> Anchors(FactIdentity identity)
+        {
+            if (!collected.TryGetValue(identity, out var anchors))
+                collected[identity] = anchors = [];
+            return anchors;
+        }
+
+        foreach (var annotation in csharpMap.Annotations)
+        {
+            var identity = FactIdentity.From(MakePortable(annotation), AnnotatedSourceFactOrigin.Body);
+            var anchors = Anchors(identity);
+
+            // An unanchored C# fact contributes nothing yet: the IL plane may
+            // still anchor it, and deciding that here would make the outcome
+            // depend on which medium was folded first.
+            if (annotation.NodeId is { } nodeId)
+                anchors.Add(nodeId);
+        }
+
+        for (int index = 0; index < stream.Count; index++)
+        {
+            if (!instructionNodes.TryGetValue(index, out int nodeId))
+                continue;
+            foreach (var annotation in stream[index].Annotations)
+            {
+                var identity = new FactIdentity(
+                    MakePortableText(annotation.Descriptor.Id),
+                    annotation.Descriptor.Category.ToString(),
+                    annotation.Conditionality,
+                    annotation.Detail is null ? null : MakePortableText(annotation.Detail),
+                    annotation.SourceOffset,
+                    AnnotatedSourceFactOrigin.Body);
+                Anchors(identity).Add(nodeId);
+            }
+        }
+
+        foreach (var fact in headerFacts)
+        {
+            var identity = new FactIdentity(
+                MakePortableText(fact.Descriptor.Id),
+                fact.Descriptor.Category.ToString(),
+                AnnotationConditionality.Always,
+                fact.Detail is null ? null : MakePortableText(fact.Detail),
+                SourceOffset: -1,
+                AnnotatedSourceFactOrigin.MemberHeader);
+
+            // A header fact is about the member, so it is stated and left
+            // unanchored rather than given somewhere in the body to point at.
+            Anchors(identity);
+        }
+
+        var ordered = collected.Keys.ToList();
+        ordered.Sort(CompareFactIdentities);
+
+        var facts = new AnnotatedSourceFact[ordered.Count];
+        var targets = new List<AnnotatedSourceTarget>(ordered.Count);
+        for (int id = 0; id < ordered.Count; id++)
+        {
+            var identity = ordered[id];
+            facts[id] = new AnnotatedSourceFact(
+                id,
+                identity.Descriptor,
+                identity.Category,
+                identity.Conditionality,
+                identity.Detail,
+                identity.SourceOffset,
+                identity.Origin);
+
+            foreach (int nodeId in collected[identity])
+                targets.Add(new AnnotatedSourceTarget(id, nodeId));
+        }
+
+        targets.Sort(static (a, b) =>
+        {
+            int c = a.FactId.CompareTo(b.FactId);
+            return c != 0 ? c : a.NodeId.CompareTo(b.NodeId);
+        });
+
+        return new AnnotatedSourceDocument(text, nodes, regions, facts, targets);
+
+        IReadOnlyList<AnnotatedSourceSpan> ToSpans(PrintedExtent extent)
+        {
+            var spans = new List<AnnotatedSourceSpan>();
+            int runStart = 0;
+            int runEnd = 0;
+            int previousLine = -1;
+            bool previousRanToEnd = false;
+            for (int line = extent.StartLine; line <= extent.EndLine; line++)
+            {
+                int streamLine = csharpLines[line];
+                string lineText = stream[streamLine].Text;
+
+                // The rendered stream trims trailing whitespace off each printed
+                // line, so a column past its end selects nothing here instead of
+                // running off the buffer.
+                int from = Math.Min(line == extent.StartLine ? extent.StartColumn : 0, lineText.Length);
+                int through = Math.Max(
+                    from,
+                    Math.Min(line == extent.EndLine ? extent.EndColumn : lineText.Length, lineText.Length));
+
+                // The line break after a C# line is the construct's own text
+                // whenever the construct continues onto a later C# line. IL woven
+                // in ends the run here, but it must not eat that newline: without
+                // it the runs concatenate `for (...)` straight onto `{`, and the
+                // reconstructed C# is not the C# that was printed. Exactly the
+                // one rendered newline, never a character of the IL that follows.
+                bool ranToEnd = through == lineText.Length;
+                int runThrough = lineStarts[streamLine] + through + (ranToEnd && line < extent.EndLine ? 1 : 0);
+
+                // Adjacent rendered lines are one run of text, newline included.
+                // An IL line woven between them is exactly what ends a run.
+                if (previousLine >= 0 && streamLine == previousLine + 1 && previousRanToEnd && from == 0)
+                {
+                    runEnd = runThrough;
+                }
+                else
+                {
+                    if (runEnd > runStart)
+                        spans.Add(new AnnotatedSourceSpan(runStart, runEnd - runStart));
+                    runStart = lineStarts[streamLine] + from;
+                    runEnd = runThrough;
+                }
+
+                previousLine = streamLine;
+                previousRanToEnd = ranToEnd;
+            }
+
+            if (runEnd > runStart)
+                spans.Add(new AnnotatedSourceSpan(runStart, runEnd - runStart));
+            if (spans.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Printed extent {extent} selects no characters of the rendered text.");
+            }
+            return spans;
+        }
+    }
+
+    static int CompareFactIdentities(FactIdentity left, FactIdentity right)
+    {
+        int c = left.SourceOffset.CompareTo(right.SourceOffset);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Descriptor, right.Descriptor);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Category, right.Category);
+        if (c != 0) return c;
+        c = left.Conditionality.CompareTo(right.Conditionality);
+        if (c != 0) return c;
+        c = string.CompareOrdinal(left.Detail, right.Detail);
+        return c != 0 ? c : left.Origin.CompareTo(right.Origin);
+    }
+
+    static PrintedAnnotationSpan MakePortable(PrintedAnnotationSpan annotation)
+        => annotation with
+        {
+            Descriptor = MakePortableText(annotation.Descriptor),
+            Detail = annotation.Detail is null ? null : MakePortableText(annotation.Detail),
+        };
+
+    static string MakePortableText(string value)
+    {
+        var result = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            char current = value[i];
+            if (current == '\\')
+            {
+                result.Append("\\\\");
+            }
+            else if (char.IsHighSurrogate(current)
+                && i + 1 < value.Length
+                && char.IsLowSurrogate(value[i + 1]))
+            {
+                result.Append(current).Append(value[++i]);
+            }
+            else if (char.IsSurrogate(current))
+            {
+                result.Append("\\u").Append(((int)current).ToString("X4"));
+            }
+            else
+            {
+                result.Append(current);
+            }
+        }
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// Everything that distinguishes one observation from another. Deliberately
+    /// excludes coordinates and node kinds: those describe where a fact is shown,
+    /// which is the target's business, and folding them in here would split
+    /// one cross-medium observation into two.
+    /// </summary>
+    readonly record struct FactIdentity(
+        string Descriptor,
+        string Category,
+        AnnotationConditionality Conditionality,
+        string? Detail,
+        int SourceOffset,
+        AnnotatedSourceFactOrigin Origin)
+    {
+        internal static FactIdentity From(
+            PrintedAnnotationSpan annotation,
+            AnnotatedSourceFactOrigin origin) => new(
+            annotation.Descriptor,
+            annotation.Category,
+            annotation.Conditionality,
+            annotation.Detail,
+            annotation.SourceOffset,
+            origin);
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
