@@ -39,10 +39,12 @@ public class SkillCommand
     public static readonly IReadOnlyList<SkillEntry> Skills =
     [
         new SkillEntry("query", "dotnet-inspect.skills.query.md"),
+        new SkillEntry("private-feeds", "dotnet-inspect.skills.private-feeds.md"),
         new SkillEntry("compatibility", "dotnet-inspect.skills.compatibility.md"),
         new SkillEntry("correctness", "dotnet-inspect.skills.correctness.md"),
         new SkillEntry("signals", "dotnet-inspect.skills.signals.md"),
         new SkillEntry("sourcelink", "dotnet-inspect.skills.sourcelink.md"),
+        new SkillEntry("metadata", "dotnet-inspect.skills.metadata.md"),
         new SkillEntry("decompiler", "dotnet-inspect.skills.decompiler.md"),
         new SkillEntry("deep-inspect", "dotnet-inspect.skills.deep-inspect.md"),
         new SkillEntry("performance", "dotnet-inspect.skills.performance.md"),

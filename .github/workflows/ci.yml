@@ -303,6 +303,10 @@ jobs:
             case "$file" in
               src/*) CODE=true ;;
               tests/*) CODE=true ;;
+              # SkillCommandTests enforces equality among focused skill files,
+              # runtime registration, and embedded resources. A skills-only
+              # addition must run that gate rather than pass on a skipped lane.
+              skills/*) CODE=true ;;
               tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
               tools/DecompilerHarness/*) CODE=true ;;
               eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
