@@ -207,6 +207,11 @@ unified line with `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`
 columns. `Difference` contains the IL body outcome for IL rows and is empty for
 C# rows, keeping mechanism, result, edit kind, and evidence as separate
 dimensions.
+The section binds `ImplementationComparisonQuery`, whose input carries retained
+assembly descriptors, reference resolvers, and body indexes. The query opens
+those descriptors for the offline C# and IL producers and returns
+`ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
+are an acquisition boundary, not part of the query contract.
 With `--authored-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled

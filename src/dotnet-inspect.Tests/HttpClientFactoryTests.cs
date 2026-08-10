@@ -79,7 +79,8 @@ public class HttpClientFactoryTests : IDisposable
     {
         const string ClosedPort = "http://127.0.0.1:1/";
         var observeCreation = new AsyncLocal<bool>();
-        using var decoratorEntered = new ManualResetEventSlim();
+        var decoratorEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var continueCreation = new ManualResetEventSlim();
 
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
@@ -92,7 +93,7 @@ public class HttpClientFactoryTests : IDisposable
             if (!observeCreation.Value)
                 return handler;
 
-            decoratorEntered.Set();
+            decoratorEntered.SetResult();
             if (!continueCreation.Wait(
                 TimeSpan.FromSeconds(10),
                 TestContext.Current.CancellationToken))
@@ -103,7 +104,7 @@ public class HttpClientFactoryTests : IDisposable
         using HttpClient unrelated = await Task.Run(
             DotnetInspector.Core.HttpClientFactory.CreateClient,
             TestContext.Current.CancellationToken);
-        Assert.False(decoratorEntered.IsSet);
+        Assert.False(decoratorEntered.Task.IsCompleted);
 
         Task<HttpClient> creation = Task.Run(
             () =>
@@ -114,9 +115,9 @@ public class HttpClientFactoryTests : IDisposable
             TestContext.Current.CancellationToken);
         try
         {
-            Assert.True(decoratorEntered.Wait(
+            await decoratorEntered.Task.WaitAsync(
                 TimeSpan.FromSeconds(10),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
 
             DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions
             {

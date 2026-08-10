@@ -99,6 +99,47 @@ public static class CSharpFindings
             includeNonPublic,
             typeFilters,
             "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities,
+            acceptanceThreshold);
+    }
+
+    public static CSharpAssemblyFindingComparisonResult CompareAssemblies(
+        IReadOnlyList<MetadataSource> oldSources,
+        IReadOnlyList<MetadataSource> newSources,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldSources);
+        ArgumentNullException.ThrowIfNull(newSources);
+
+        var oldIndex = CSharpBodyDiff.BuildMethodIndexWithFailures(
+            oldSources,
+            includeNonPublic,
+            typeFilters,
+            "old");
+        var newIndex = CSharpBodyDiff.BuildMethodIndexWithFailures(
+            newSources,
+            includeNonPublic,
+            typeFilters,
+            "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities,
+            acceptanceThreshold);
+    }
+
+    static CSharpAssemblyFindingComparisonResult CompareMethodIndexes(
+        CSharpBodyDiff.CSharpMethodIndex oldIndex,
+        CSharpBodyDiff.CSharpMethodIndex newIndex,
+        IReadOnlySet<string>? memberTargetIdentities,
+        int acceptanceThreshold)
+    {
         var oldMethods = oldIndex.Methods;
         var newMethods = newIndex.Methods;
         var comparisons = ImmutableArray.CreateBuilder<CSharpMemberFindingComparison>();
@@ -120,10 +161,10 @@ public static class CSharpFindings
                 representative.Display);
             var oldInspection = oldMethod is null
                 ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
-                : Inspect(sources.Open(oldMethod.Path), oldMethod.MethodHandle, subject);
+                : Inspect(sources.Open(oldMethod), oldMethod.MethodHandle, subject);
             var newInspection = newMethod is null
                 ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
-                : Inspect(sources.Open(newMethod.Path), newMethod.MethodHandle, subject);
+                : Inspect(sources.Open(newMethod), newMethod.MethodHandle, subject);
             comparisons.Add(new CSharpMemberFindingComparison(
                 key,
                 representative.Anchor,
