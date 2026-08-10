@@ -231,11 +231,15 @@ public class SwitchRaisingSharedGuardTests
 
         Assert.Single(function.Descendants.OfType<Switch>());
         Assert.Empty(function.Descendants.OfType<SwitchBranch>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
         string output = CSharpPrinter.Print(function).Output!;
         Assert.Contains("switch (algorithm)", output);
+        Assert.Contains("case SharedGuardAlgorithm.Low6:", output);
+        Assert.Contains("case SharedGuardAlgorithm.Low7:", output);
         Assert.Contains("case SharedGuardAlgorithm.Dense24:", output);
         Assert.Contains("case SharedGuardAlgorithm.Dense41:", output);
         Assert.DoesNotContain("Dense24Alias", output);
+        Assert.DoesNotContain("case (SharedGuardAlgorithm)", output);
         Assert.DoesNotContain("algorithm - 24", output);
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
@@ -572,6 +576,143 @@ public class SwitchRaisingSharedGuardTests
         Assert.DoesNotContain("__switchValue", output);
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain("IL_", output);
+    }
+
+    [Fact]
+    public void EnumRangeGuardSharingContinuation_IsAbsorbedIntoSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(enumType, useEnumRangeGuard: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(
+            [6, 7, 24, 25],
+            node.Sections.SelectMany(section => section.Labels).Select(label => label.Value).Order());
+    }
+
+    [Fact]
+    public void OverlappingEnumRangeGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            switchOffset: 6,
+            useEnumRangeGuard: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([6, 7, 8, 9], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void SignedEnumRangeGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            guardIsUnsigned: false);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardWithInterveningMutation_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            mutateBeforeSwitch: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Single(function.Descendants.OfType<StoreArgument>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardOverDifferentVariable_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            guardUsesOtherArgument: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void OutOfRangeNarrowEnumGuard_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "ByteGuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            switchOffset: 252,
+            useEnumRangeGuard: true,
+            guardOffset: 300);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>
+        {
+            [enumType] = TypeRef.CoreLib("System", "Byte"),
+        };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([252, 253, 254, 255], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
+    }
+
+    [Fact]
+    public void EnumRangeGuardWithExternalDispatchEntry_RemainsSeparateFromSwitch()
+    {
+        var enumType = TypeRef.Definition("Synthetic", "", "GuardedAlgorithm");
+        var function = BuildSharedGuardSwitch(
+            enumType,
+            useEnumRangeGuard: true,
+            externalDispatchEntry: true);
+        function.TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum };
+        function.EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = s_int };
+
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        var node = Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Equal([24, 25, 26, 27], node.Sections.SelectMany(section => section.Labels).Select(label => label.Value));
     }
 
     [Fact]
@@ -1090,27 +1231,54 @@ public class SwitchRaisingSharedGuardTests
         bool guardTargetsCaseBody = false,
         bool defaultExitsToContinuation = false,
         bool defaultContainsNestedLoopBreak = false,
-        IrExpression? switchValue = null)
+        IrExpression? switchValue = null,
+        bool useEnumRangeGuard = false,
+        bool guardIsUnsigned = true,
+        bool mutateBeforeSwitch = false,
+        bool guardUsesOtherArgument = false,
+        int guardOffset = 6,
+        bool externalDispatchEntry = false)
     {
         governingType ??= s_int;
         var body = new BlockContainer();
 
+        if (externalDispatchEntry)
+        {
+            var externalDispatch = new Block(-0x10);
+            externalDispatch.Add(new SwitchBranch(
+                new Constant(0, s_int),
+                [0x0D]));
+            body.Add(externalDispatch);
+        }
+
         var guard = new Block(0);
         guard.Add(new ConditionalBranch(
-            new Comparison(
-                ComparisonKind.LessThanOrEqual,
-                isUnsigned: true,
-                new Binary(
-                    BinaryKind.Subtract,
-                    isChecked: false,
-                    isUnsigned: false,
-                    new LoadArgument(0, "algorithm", governingType),
-                    new Constant(6, s_int)),
-                new Constant(1, s_int)),
+            useEnumRangeGuard
+                ? new Comparison(
+                    ComparisonKind.LessThanOrEqual,
+                    isUnsigned: guardIsUnsigned,
+                    new Binary(
+                        BinaryKind.Subtract,
+                        isChecked: false,
+                        isUnsigned: false,
+                        guardUsesOtherArgument
+                            ? new LoadArgument(2, "otherAlgorithm", governingType)
+                            : new LoadArgument(0, "algorithm", governingType),
+                        new Constant(guardOffset, s_int)),
+                    new Constant(1, s_int))
+                : new LoadArgument(1, "skip", s_bool),
             guardTargetsCaseBody ? 0x20 : 0x30));
         body.Add(guard);
 
         var dispatch = new Block(0x0D);
+        if (mutateBeforeSwitch)
+        {
+            dispatch.Add(new StoreArgument(
+                0,
+                "algorithm",
+                governingType,
+                new Constant(24, governingType)));
+        }
         dispatch.Add(new SwitchBranch(
             new Binary(
                 BinaryKind.Subtract,
@@ -1148,7 +1316,11 @@ public class SwitchRaisingSharedGuardTests
             TypeRef.Definition("Synthetic", "", "T"),
             new MethodSignature(
                 s_void,
-                [new Parameter("algorithm", governingType)],
+                [
+                    new Parameter("algorithm", governingType),
+                    new Parameter("skip", s_bool),
+                    new Parameter("otherAlgorithm", governingType),
+                ],
                 HasThis: false,
                 GenericParameterCount: 0),
             defaultExitsToContinuation ? [s_int] : [],
