@@ -527,6 +527,13 @@ contained surrogate and therefore reversible. That containment is what makes the
 document's own rule — `Text` is well-formed UTF-16, and an unpaired surrogate is
 rejected rather than repaired — one a producer already satisfies: the malformed
 value is visible ASCII by the time a document is built.
+
+The first independent consumer is
+`prototypes/annotated-source-viewer/`. It derives lines from `Text`, uses the
+absolute spans directly as JavaScript UTF-16 indexes, follows
+`fact → target → node → spans → text`, highlights separated runs without
+selecting interleaved IL, and keeps targetless facts visible. Its model tests
+pin those consumer-side assumptions without importing the decompiler.
 Production is opt-in and uses
 an isolated import: printing and style lenses mutate IR, so sharing that graph
 would let selecting the payload alter sibling projections.

@@ -1683,12 +1683,15 @@ public class SectionPipelineTests
                 query => query.Name,
                 StringComparer.Ordinal));
         Assert.Equal(
-            [ApiComparisonQuery.Definition],
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
             catalog.Pipeline.DeclaredQueries);
     }
 
     [Fact]
-    public void DiffChangesSection_DemandsOnlyApiComparisonQuery()
+    public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
         var changes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1706,32 +1709,54 @@ public class SectionPipelineTests
         Assert.Equal(
             [ApiComparisonQuery.Definition],
             catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
-        Assert.Empty(
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
             catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
         Assert.Equal(
             SectionCost.NetworkFree,
             Assert.Single(
                 catalog.Pipeline.SectionCosts,
                 section => section.Name == DiffSections.Changes.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name == DiffSections.AnalysisDiff.Name).Cost);
     }
 
     [Fact]
     public void DiffQueryRegistry_RunsOnlySelectedSectionDemand()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
-        var context = new DiffQueryContext(new ApiSurface(), new ApiSurface());
-        List<InspectionQueryDefinition> executed = [];
         var analysis = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             DiffSections.AnalysisDiff.Name,
         };
+        int analysisInputsCreated = 0;
+        var analysisContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                analysisInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> analysisExecuted = [];
 
         catalog.QueryRegistry.Run(
             catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
-            context,
-            (query, _) => executed.Add(query));
-        Assert.Empty(executed);
+            analysisContext,
+            (query, _) => analysisExecuted.Add(query));
 
+        Assert.Equal([BodySignalComparisonQuery.Definition], analysisExecuted);
+        Assert.Equal(1, analysisInputsCreated);
+
+        var changesContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Analysis indexes."));
+        List<InspectionQueryDefinition> changesExecuted = [];
         catalog.QueryRegistry.Run(
             catalog.Pipeline.GetRequiredQueries(
                 Verbosity.Minimal,
@@ -1739,14 +1764,43 @@ public class SectionPipelineTests
                 {
                     DiffSections.Changes.Name,
                 }),
-            context,
-            (query, _) => executed.Add(query));
+            changesContext,
+            (query, _) => changesExecuted.Add(query));
 
-        Assert.Equal([ApiComparisonQuery.Definition], executed);
+        Assert.Equal([ApiComparisonQuery.Definition], changesExecuted);
+
+        int composedInputsCreated = 0;
+        var composedContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            () =>
+            {
+                composedInputsCreated++;
+                return new BodySignalComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> composedExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.Changes.Name,
+                    DiffSections.AnalysisDiff.Name,
+                }),
+            composedContext,
+            (query, _) => composedExecuted.Add(query));
+
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
+            composedExecuted);
+        Assert.Equal(1, composedInputsCreated);
     }
 
     [Fact]
-    public void DiffCommand_AllocRegressionsDoesNotRequestUnusedChangesQuery()
+    public void DiffCommand_AllocRegressionsRequestsAnalysisWithoutUnusedChanges()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
 
@@ -1775,10 +1829,30 @@ public class SectionPipelineTests
                         DiffSections.AnalysisDiff.Name,
                     },
                 });
+        HashSet<InspectionQueryDefinition> implementationSelection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
 
-        Assert.Empty(singleSection);
         Assert.Equal(
-            [ApiComparisonQuery.Definition],
+            [BodySignalComparisonQuery.Definition],
+            singleSection);
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            implementationSelection);
+        Assert.Equal(
+            [
+                ApiComparisonQuery.Definition,
+                BodySignalComparisonQuery.Definition,
+            ],
             composedDocument);
     }
 

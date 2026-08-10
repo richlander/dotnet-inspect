@@ -254,7 +254,8 @@ of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`.
+`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--rows` selects the same ordered relationships in tree and table output.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
