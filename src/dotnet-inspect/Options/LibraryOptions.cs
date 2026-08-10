@@ -25,9 +25,20 @@ public record LibraryOptions : IProjectionOptions
     public bool IncludeReferences { get; init; }
 
     /// <summary>
-    /// Show assembly dependencies as a clean deduplicated tree.
+    /// Legacy CLI request for the References tree projection.
     /// </summary>
     public bool IncludeDependencies { get; init; }
+
+    /// <summary>
+    /// Internal execution demand for the resolved transitive reference tree.
+    /// </summary>
+    internal bool CollectReferenceTree { get; init; }
+
+    /// <summary>
+    /// Maximum reference-tree depth, where 1 includes direct references only.
+    /// Null traverses the complete resolvable graph.
+    /// </summary>
+    public int? ReferenceTreeDepth { get; init; }
 
     /// <summary>
     /// Path to a NuGet package to extract the assembly from.
@@ -179,9 +190,37 @@ public record LibraryOptions : IProjectionOptions
     public HashSet<string>? IncludeSections { get; init; }
 
     /// <summary>
+    /// The user's resolved section selection before internal discovery scope is synthesized.
+    /// Capability authorization keys off this value so an internal base-category expansion cannot
+    /// authorize PDB or source network work. Null falls back to <see cref="IncludeSections"/> for
+    /// callers that do not perform internal scope expansion.
+    /// </summary>
+    public HashSet<string>? UserIncludeSectionsOverride { get; init; }
+
+    /// <summary>The section selection that came from the user's gesture.</summary>
+    public HashSet<string>? UserIncludeSections
+        => UserIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
+    /// Canonical sections reached through an exact selector or compatible legacy alias. An empty
+    /// set records that selection came only through categories, globs, or a preset. Null preserves
+    /// exact-selection behavior for typed callers that supply <see cref="IncludeSections"/> directly.
+    /// </summary>
+    public HashSet<string>? ExactIncludeSectionsOverride { get; init; }
+
+    /// <summary>The selected sections that retain exact-selector provenance.</summary>
+    public HashSet<string>? ExactIncludeSections
+        => ExactIncludeSectionsOverride ?? IncludeSections;
+
+    /// <summary>
     /// Discovery flag values. Null means not specified, empty array means bare -D, populated means section name.
     /// </summary>
     public string[]? Discover { get; init; }
+
+    /// <summary>
+    /// Run the producers needed to establish actual section effectiveness during discovery.
+    /// </summary>
+    public bool Effective { get; init; }
 
     public bool Tree { get; init; }
 
@@ -216,6 +255,11 @@ public record LibraryOptions : IProjectionOptions
     /// Output the number of rendered table rows for a single selected section.
     /// </summary>
     public bool Count { get; init; }
+
+    /// <summary>
+    /// Path to write a projected payload to instead of stdout.
+    /// </summary>
+    public string? OutputPath { get; init; }
 
     public bool Print { get; init; }
 

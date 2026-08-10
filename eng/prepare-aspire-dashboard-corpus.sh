@@ -6,7 +6,7 @@ set -euo pipefail
 out="${1:-}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+packages="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 
 cat > "$tmp/corpus.csproj" <<'EOF'
 <Project Sdk="Microsoft.NET.Sdk">
@@ -20,9 +20,10 @@ cat > "$tmp/corpus.csproj" <<'EOF'
 </Project>
 EOF
 
-dotnet restore "$tmp/corpus.csproj" --configfile "$root/nuget.config" --verbosity quiet >/dev/null
+dotnet restore "$tmp/corpus.csproj" \
+  "-p:RestorePackagesPath=$packages" \
+  --verbosity quiet >/dev/null
 
-packages="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 assembly="$packages/aspire.dashboard.sdk.linux-x64/9.0.0/tools/Aspire.Dashboard.dll"
 if [ ! -f "$assembly" ]; then
   echo "Missing corpus assembly: $assembly" >&2

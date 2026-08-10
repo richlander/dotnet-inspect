@@ -1,7 +1,12 @@
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using DotnetInspector.Views;
 
 namespace DotnetInspector.Sections;
+
+public sealed record PackageSectionCatalog(
+    SectionPipeline<InspectionResult> Pipeline,
+    InspectionQueryRegistry<SourceLinkQueryContext> QueryRegistry);
 
 /// <summary>
 /// Section descriptors for the package command.
@@ -17,8 +22,28 @@ public static class PackageSectionDescriptors
     /// <summary>Builds the section pipeline with all package sections registered.</summary>
     public static SectionPipeline<InspectionResult> CreatePipeline()
     {
+        var queryRegistry = CreateQueryRegistry();
+        return CreatePipeline(queryRegistry.CostOf);
+    }
+
+    public static PackageSectionCatalog CreateCatalog()
+    {
+        var queryRegistry = CreateQueryRegistry();
+        return new PackageSectionCatalog(
+            CreatePipeline(queryRegistry.CostOf),
+            queryRegistry);
+    }
+
+    public static InspectionQueryRegistry<SourceLinkQueryContext> CreateQueryRegistry()
+        => new InspectionQueryRegistry<SourceLinkQueryContext>()
+            .AddSourceLinkQueries(static context => context);
+
+    private static SectionPipeline<InspectionResult> CreatePipeline(
+        Func<InspectionQueryDefinition, InspectionCost> queryCost)
+    {
         return new SectionPipeline<InspectionResult>()
             .UseCuratedCatalog()
+            .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<Summary>()
             .Add<PackageInfo>()
@@ -29,6 +54,15 @@ public static class PackageSectionDescriptors
             .Add<NuspecFiles>()
             .Add<SkillFiles>()
             .Add<SourceFiles>()
+            .Add<SourceLinkAvailability>(
+                SourceAvailabilityQuery.Definition,
+                HasLibraries)
+            .Add<SourceLinkIntegrity>(
+                SourceIntegrityQuery.Definition,
+                HasLibraries)
+            .Add<SourceLinkMissingFiles>(
+                SourceAvailabilityQuery.Definition,
+                HasLibraries)
             .Add<Signature>()
             .Add<Dependencies>()
             .Add<Vulnerabilities>()
@@ -39,11 +73,12 @@ public static class PackageSectionDescriptors
             // so it is deliberately not a member: including it would make
             // -S @Files render most rows twice.
             .AddCategory(SectionCategoryNames.Files, PackageFileFamily.SectionNames)
-            // SourceLink: Files carries the "SourceLink:" prefix, which advertises a door,
-            // so the door has to exist here too. It is a one-member family today only
-            // because the package command has not yet grown the other three sections the
-            // library command exposes; the name matching across commands is the point.
-            .AddCategory(SectionCategoryNames.SourceLink, [PackageSections.SourceLinkFiles]);
+            .AddCategory(
+                SectionCategoryNames.SourceLink,
+                PackageSections.SourceLinkFiles,
+                PackageSections.SourceLinkAvailability,
+                PackageSections.SourceLinkMissingFiles,
+                PackageSections.SourceLinkIntegrity);
     }
 
     // ===== Primary sections (Summary preamble + Package Info) =====
@@ -158,6 +193,42 @@ public static class PackageSectionDescriptors
                || model.AssemblyCount > 0;
     }
 
+    public sealed class SourceLinkAvailability : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.SourceLinkAvailability;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.SourceAvailability != null;
+    }
+
+    public sealed class SourceLinkIntegrity : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.SourceLinkIntegrity;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.SourceIntegrity != null;
+    }
+
+    public sealed class SourceLinkMissingFiles : ISectionDescriptor<InspectionResult>
+    {
+        public static string Name => PackageSections.SourceLinkMissingFiles;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Terse;
+        public static string? ScannerKey => null;
+        public static bool CanRender(InspectionResult model)
+            => model.SourceAvailability is { } availability
+               && (availability.MissingFiles is { Count: > 0 }
+                   || availability.UnavailableLibraries is { Count: > 0 }
+                   || availability.FailedLibraries is { Count: > 0 });
+    }
+
     public sealed class Signature : ISectionDescriptor<InspectionResult>
     {
         public static string Name => PackageSections.Signature;
@@ -240,4 +311,8 @@ public static class PackageSectionDescriptors
     private static bool Matches(InspectionResult model, string section)
         => PackageFileFamily.PredicateFor(section) is { } predicate
            && model.PackageFiles?.Any(predicate) == true;
+
+    private static bool HasLibraries(InspectionResult model)
+        => model.LibraryFiles is { Count: > 0 }
+           || model.AssemblyCount > 0;
 }

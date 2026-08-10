@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
+using System.Reflection.Metadata;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
@@ -42,6 +43,22 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool PreferImplementationAssemblies { get; init; }
     public bool AllowPlatformAssemblyVersionRollForward { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
+    /// <summary>
+    /// Retains the bytes acquired for each descriptor so later opens observe
+    /// the same image even if its source path changes.
+    /// </summary>
+    public bool SnapshotAssemblyImages { get; init; }
+    public long MaxSnapshotImageBytes { get; init; } =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
+}
+
+public sealed class AssemblyDependencySnapshotBudgetExceededException(
+    long maxSnapshotImageBytes) : InvalidOperationException(
+        $"The assembly dependency snapshot budget of "
+        + $"{maxSnapshotImageBytes} bytes was exhausted.")
+{
+    public long MaxSnapshotImageBytes { get; } =
+        maxSnapshotImageBytes;
 }
 
 /// <summary>
@@ -50,7 +67,9 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
 /// assemblies) and exposes only paths/descriptors plus the metadata identity
 /// callback needed by Metadata/Decompiler/Research.
 /// </summary>
-public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
+public sealed class AssemblyDependencyResolver :
+    IAssemblyReferenceResolver,
+    IAssemblyBindingPolicy
 {
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
@@ -59,15 +78,39 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
+    readonly ConcurrentDictionary<
+        AssemblyBindingRequestKey,
+        Lazy<AssemblyBindingSelection>> _bindingSelections = [];
+    readonly object _snapshotBudgetLock = new();
+    long _snapshotImageBytes;
 
     public AssemblyDependencyResolver(AssemblyDependencyResolutionOptions options)
-        => _options = options;
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            options.MaxSnapshotImageBytes);
+        _options = options;
+    }
 
     /// <summary>
     /// The resolution options this resolver was constructed with. Exposed for tests that pin how
     /// callers forward inputs (e.g. project-assets/TFM) into the resolver.
     /// </summary>
     internal AssemblyDependencyResolutionOptions Options => _options;
+
+    public AssemblyBindingPolicyVersion Version { get; } = new();
+
+    public AssemblyBindingSelection Select(
+        AssemblyBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var key = AssemblyBindingRequestKey.From(request);
+        return _bindingSelections.GetOrAdd(
+            key,
+            _ => new Lazy<AssemblyBindingSelection>(
+                () => SelectCore(request),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
 
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
     {
@@ -77,6 +120,28 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         _resolved = CollectDependencies(deduplicate: true);
         return _resolved;
     }
+
+    /// <summary>
+    /// Acquires the structured descriptor for an entry returned by
+    /// <see cref="ResolveAll"/>.
+    /// </summary>
+    public ResolvedAssemblyReference? Acquire(
+        ResolvedAssemblyDependency dependency)
+    {
+        ArgumentNullException.ThrowIfNull(dependency);
+        return Descriptor(
+            dependency.Path,
+            ResolutionProvenance(dependency));
+    }
+
+    /// <summary>
+    /// Acquires the target assembly in this resolver's acquisition generation.
+    /// The target remains excluded from <see cref="ResolveAll"/> when requested.
+    /// </summary>
+    public ResolvedAssemblyReference? AcquireTargetAssembly() =>
+        Descriptor(
+            Path.GetFullPath(_options.TargetAssemblyPath),
+            AssemblyResolutionProvenance.Local("target assembly"));
 
     IReadOnlyList<ResolvedAssemblyDependency> CollectDependencies(bool deduplicate)
     {
@@ -215,6 +280,61 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         return null;
     }
 
+    AssemblyBindingSelection SelectCore(
+        AssemblyBindingRequest request)
+    {
+        try
+        {
+            return request.Target switch
+            {
+                AssemblyBindingTarget.AssemblyReference reference =>
+                    Resolve(reference.Identity, request.Scope) is
+                        { } assembly
+                        ? AssemblyBindingSelection.Found(assembly)
+                        : AssemblyBindingSelection.NotFound(),
+                AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                    SelectIntrinsicCoreLibrary(request.Scope),
+                _ => AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            };
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or OverflowException
+                or InvalidOperationException
+                or NotSupportedException
+                or ArgumentException
+                or System.Security.SecurityException)
+        {
+            return AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable));
+        }
+    }
+
+    AssemblyBindingSelection SelectIntrinsicCoreLibrary(
+        AssemblyResolutionScope scope)
+    {
+        string targetPath = Path.GetFullPath(
+            _options.TargetAssemblyPath);
+        ResolvedAssemblyReference? target = Descriptor(
+            targetPath,
+            AssemblyResolutionProvenance.Local(
+                "intrinsic core library"));
+        return target is null
+            ? AssemblyBindingSelection.CannotSelect(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.CandidateUnavailable))
+            : IntrinsicCoreLibraryBinding.Select(
+                target,
+                facade => Resolve(facade, scope) is { } selected
+                    ? AssemblyBindingSelection.Found(selected)
+                    : AssemblyBindingSelection.NotFound());
+    }
+
     static AssemblyResolutionProvenance ResolutionProvenance(
         ResolvedAssemblyDependency dependency) =>
         dependency.Provenance switch
@@ -244,16 +364,93 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         AssemblyResolutionProvenance provenance) =>
         _descriptors.GetOrAdd(
             path,
-            static (path, provenance) =>
+            (path, provenance) =>
                 new Lazy<ResolvedAssemblyReference?>(
-                    () => ResolvedAssemblyReference.TryCreateFromPath(
-                        path,
-                        provenance,
-                        out ResolvedAssemblyReference? reference)
-                            ? reference
-                            : null,
+                    () => CreateDescriptor(path, provenance),
                     LazyThreadSafetyMode.ExecutionAndPublication),
             provenance).Value;
+
+    ResolvedAssemblyReference? CreateDescriptor(
+        string path,
+        AssemblyResolutionProvenance provenance)
+    {
+        if (!_options.SnapshotAssemblyImages)
+        {
+            return ResolvedAssemblyReference.TryCreateFromPath(
+                path,
+                provenance,
+                out ResolvedAssemblyReference? reference)
+                    ? reference
+                    : null;
+        }
+
+        long reservedBytes = 0;
+        try
+        {
+            using var source = File.OpenRead(path);
+            long length = source.Length;
+            if (length > int.MaxValue
+                || !TryReserveSnapshotBytes(length))
+            {
+                throw new AssemblyDependencySnapshotBudgetExceededException(
+                    _options.MaxSnapshotImageBytes);
+            }
+            reservedBytes = length;
+
+            byte[] image =
+                GC.AllocateUninitializedArray<byte>((int)length);
+            source.ReadExactly(image);
+
+            using var stream = new MemoryStream(image, writable: false);
+            using var reader =
+                new System.Reflection.PortableExecutable.PEReader(stream);
+            if (!reader.HasMetadata)
+                return null;
+
+            ResolvedAssemblyReference result =
+                ResolvedAssemblyReference.Create(
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    reader.GetMetadataReader()),
+                Path.GetFullPath(path),
+                () => new MemoryStream(image, writable: false),
+                provenance);
+            reservedBytes = 0;
+            return result;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            return null;
+        }
+        finally
+        {
+            if (reservedBytes != 0)
+                ReleaseSnapshotBytes(reservedBytes);
+        }
+    }
+
+    bool TryReserveSnapshotBytes(long bytes)
+    {
+        lock (_snapshotBudgetLock)
+        {
+            if (bytes
+                > _options.MaxSnapshotImageBytes - _snapshotImageBytes)
+            {
+                return false;
+            }
+
+            _snapshotImageBytes += bytes;
+            return true;
+        }
+    }
+
+    void ReleaseSnapshotBytes(long bytes)
+    {
+        lock (_snapshotBudgetLock)
+            _snapshotImageBytes -= bytes;
+    }
 
     static bool MatchesIdentity(
         AssemblyReferenceIdentity expected,
@@ -280,6 +477,29 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             return false;
 
         return true;
+    }
+
+    readonly record struct AssemblyBindingRequestKey(
+        AssemblyBindingTarget Target,
+        AssemblyAcquisitionRegistration? Origin,
+        bool GlobalOrigin,
+        AssemblyResolutionScope Scope)
+    {
+        internal static AssemblyBindingRequestKey From(
+            AssemblyBindingRequest request) =>
+            request.Origin switch
+            {
+                AssemblyBindingOrigin.GlobalOrigin =>
+                    new(request.Target, null, true, request.Scope),
+                AssemblyBindingOrigin.RequestingAssembly requesting =>
+                    new(
+                        request.Target,
+                        requesting.Registration,
+                        false,
+                        request.Scope),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding origin."),
+            };
     }
 
     static bool CultureMatches(string? expected, string? actual)
@@ -684,14 +904,20 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         string exactDirectory = Path.Combine(frameworkRoot, runtimeVersion);
         if (Directory.Exists(exactDirectory))
             return exactDirectory;
-        if (!Version.TryParse(VersionCore(runtimeVersion), out var runtime))
+        if (!System.Version.TryParse(
+            VersionCore(runtimeVersion),
+            out var runtime))
             return null;
 
         return Directory.EnumerateDirectories(frameworkRoot)
             .Select(directory => new
             {
                 Directory = directory,
-                Version = Version.TryParse(VersionCore(Path.GetFileName(directory)), out var version) ? version : null,
+                Version = System.Version.TryParse(
+                    VersionCore(Path.GetFileName(directory)),
+                    out var version)
+                        ? version
+                        : null,
             })
             .Where(candidate => candidate.Version is not null
                 && candidate.Version.Major == runtime.Major

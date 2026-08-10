@@ -23,10 +23,174 @@ public class SourceResolverTests : IDisposable
     public void ResolveSources_NoArgs_ReturnsNuGetOrg()
     {
         // Isolated temp dir avoids picking up repo nuget.config
-        var sources = SourceResolver.ResolveSources();
+        var sources = SourceResolver.ResolveSources(workingDirectory: _tempDir);
 
         Assert.NotEmpty(sources);
         Assert.Contains(sources, s => s.IsNuGetOrg);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_NoConfig_PreservesDefault()
+    {
+        var sources = SourceResolver.MergeConfigFiles([], PackageSources.Default);
+
+        Assert.True(Assert.Single(sources).IsNuGetOrg);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_AddWithoutClear_PrecedesDefault()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://private.example.com/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Default);
+
+        Assert.Equal(["PrivateFeed", "nuget.org"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void MergeConfigFiles_RedeclaredDefault_KeepsDeclarationOrder()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://private.example.com/v3/index.json" />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Default);
+
+        Assert.Equal(["PrivateFeed", "nuget.org"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void MergeConfigFiles_CaseVariantName_OverridesDefault()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="NuGet.Org" value="https://mirror.example.com/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Default);
+
+        PackageSource source = Assert.Single(sources);
+        Assert.Equal("NuGet.Org", source.Name);
+        Assert.Equal("https://mirror.example.com/v3/index.json", source.Url);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_CaseVariantName_DisablesDefault()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://private.example.com/v3/index.json" />
+              </packageSources>
+              <disabledPackageSources>
+                <add key="NuGet.Org" value="true" />
+              </disabledPackageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Default);
+
+        PackageSource source = Assert.Single(sources);
+        Assert.Equal("PrivateFeed", source.Name);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_NearerCaseVariant_OverridesSource()
+    {
+        var parentConfig = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://parent.example.com/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+        var childConfig = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="privatefeed" value="https://child.example.com/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles(
+            [childConfig, parentConfig],
+            PackageSources.Empty);
+
+        PackageSource source = Assert.Single(sources);
+        Assert.Equal("https://child.example.com/v3/index.json", source.Url);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_CaseVariantCredentialName_MatchesSource()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <add key="PrivateFeed" value="https://private.example.com/v3/index.json" />
+              </packageSources>
+              <packageSourceCredentials>
+                <privatefeed>
+                  <add key="Username" value="user" />
+                  <add key="ClearTextPassword" value="password" />
+                </privatefeed>
+              </packageSourceCredentials>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles([configPath], PackageSources.Empty);
+
+        PackageSourceCredential credential =
+            Assert.IsType<PackageSourceCredential>(Assert.Single(sources).Credential);
+        Assert.Equal("user", credential.Username);
+        Assert.Equal("password", credential.Password);
+    }
+
+    [Fact]
+    public void MergeConfigFiles_NearerFalse_ReenablesDefault()
+    {
+        var parentConfig = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <disabledPackageSources>
+                <add key="nuget.org" value="true" />
+              </disabledPackageSources>
+            </configuration>
+            """);
+        var childConfig = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <disabledPackageSources>
+                <add key="NuGet.Org" value="false" />
+              </disabledPackageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.MergeConfigFiles(
+            [childConfig, parentConfig],
+            PackageSources.Default);
+
+        Assert.True(Assert.Single(sources).IsNuGetOrg);
     }
 
     [Fact]
@@ -43,7 +207,8 @@ public class SourceResolverTests : IDisposable
     public void ResolveSources_AdditionalSources_AreCombined()
     {
         var sources = SourceResolver.ResolveSources(
-            additionalSources: ["https://extra.example.com/v3/index.json"]);
+            additionalSources: ["https://extra.example.com/v3/index.json"],
+            workingDirectory: _tempDir);
 
         Assert.Contains(sources, s => s.Url == "https://extra.example.com/v3/index.json");
         // Should also include nuget.org (or whatever the default config provides)
@@ -67,6 +232,23 @@ public class SourceResolverTests : IDisposable
         Assert.Single(sources);
         Assert.Equal("MyFeed", sources[0].Name);
         Assert.Equal("https://my-feed.example.com/v3/index.json", sources[0].Url);
+    }
+
+    [Fact]
+    public void ResolveSources_ExplicitConfigWithClear_RemainsEmpty()
+    {
+        var configPath = WriteConfig("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.ResolveSources(configPath: configPath);
+
+        Assert.Empty(sources);
     }
 
     [Fact]
@@ -132,13 +314,12 @@ public class SourceResolverTests : IDisposable
     }
 
     [Fact]
-    public void ResolveSources_NonExistentConfigFile_FallsBackToDefaults()
+    public void ResolveSources_NonExistentExplicitConfig_DoesNotUseDefaults()
     {
         var sources = SourceResolver.ResolveSources(
             configPath: "/nonexistent/path/nuget.config");
 
-        // Should still get nuget.org from default resolution
-        Assert.NotEmpty(sources);
+        Assert.Empty(sources);
     }
 
     [Fact]
@@ -302,36 +483,226 @@ public class SourceResolverTests : IDisposable
             </configuration>
             """);
 
-        // FindConfigFiles returns nearest-first, so subDir config comes first
-        var configFiles = SourceResolver.FindConfigFiles(subDir);
+        var sources = SourceResolver.ResolveSources(workingDirectory: subDir);
 
-        // Use the found configs to resolve sources
-        var sources = SourceResolver.ResolveSources(configPath: null,
-            additionalSources: null);
+        PackageSource source = Assert.Single(sources);
+        Assert.Equal("ChildFeed", source.Name);
+    }
 
-        // Load manually using the found config files to test cross-file clear
-        Dictionary<string, string> mergedSources = [];
-        HashSet<string> disabled = [];
-        Dictionary<string, PackageSourceCredential> credentials = [];
+    [Fact]
+    public void ResolveSources_ClearInAmbientConfig_RemovesDefault()
+    {
+        var workingDirectory = Path.Combine(_tempDir, "ambient-clear");
+        Directory.CreateDirectory(workingDirectory);
+        File.WriteAllText(Path.Combine(workingDirectory, "NuGet.Config"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+              </packageSources>
+            </configuration>
+            """);
 
-        foreach (string file in configFiles)
-        {
-            foreach (var source in SourceResolver.LoadSourcesFromConfig(file))
-            {
-                mergedSources[source.Name] = source.Url;
-            }
-        }
+        var sources = SourceResolver.ResolveSources(workingDirectory: workingDirectory);
 
-        // The nearest config (subDir) has <clear/> so when we use ResolveSources
-        // with the directory hierarchy, ParentFeed should come after ChildFeed's clear
-        // Let's test via the config files directly
-        var nearestFile = configFiles.FirstOrDefault(f => f.Contains("sub"));
-        Assert.NotNull(nearestFile);
+        Assert.Empty(sources);
+    }
 
-        // The child config alone should only have ChildFeed
-        var childSources = SourceResolver.LoadSourcesFromConfig(nearestFile!);
-        Assert.Single(childSources);
-        Assert.Equal("ChildFeed", childSources[0].Name);
+    [Fact]
+    public void ResolveSources_AddSourceAfterAmbientClear_UsesOnlyAddedSource()
+    {
+        var workingDirectory = Path.Combine(_tempDir, "ambient-clear-add");
+        Directory.CreateDirectory(workingDirectory);
+        File.WriteAllText(Path.Combine(workingDirectory, "NuGet.Config"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+              </packageSources>
+            </configuration>
+            """);
+
+        var sources = SourceResolver.ResolveSources(
+            additionalSources: ["https://additional.example.com/v3/index.json"],
+            workingDirectory: workingDirectory);
+
+        PackageSource source = Assert.Single(sources);
+        Assert.Equal("https://additional.example.com/v3/index.json", source.Url);
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_Absent_IsDisabled()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSources>
+                    <add key="private" value="https://private.example/v3/index.json" />
+                  </packageSources>
+                </configuration>
+                """));
+
+        Assert.False(mapping.IsEnabled);
+        Assert.Empty(mapping.GetConfiguredPackageSources("Example.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_UsesExactThenLongestPrefixThenDefault()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSourceMapping>
+                    <packageSource key="default">
+                      <package pattern="*" />
+                    </packageSource>
+                    <packageSource key="family">
+                      <package pattern="Contoso.*" />
+                    </packageSource>
+                    <packageSource key="specific">
+                      <package pattern="Contoso.Tools.*" />
+                    </packageSource>
+                    <packageSource key="exact">
+                      <package pattern="Contoso.Tools.Build" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """));
+
+        Assert.Equal(
+            ["exact"],
+            mapping.GetConfiguredPackageSources("contoso.tools.build"));
+        Assert.Equal(
+            ["specific"],
+            mapping.GetConfiguredPackageSources("CONTOSO.Tools.Compiler"));
+        Assert.Equal(
+            ["family"],
+            mapping.GetConfiguredPackageSources("Contoso.Core"));
+        Assert.Equal(
+            ["default"],
+            mapping.GetConfiguredPackageSources("Other.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_ReturnsEverySourceWithWinningPattern()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSourceMapping>
+                    <packageSource key="primary">
+                      <package pattern="Contoso.*" />
+                    </packageSource>
+                    <packageSource key="mirror">
+                      <package pattern="contoso.*" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """));
+
+        Assert.Equal(
+            ["primary", "mirror"],
+            mapping.GetConfiguredPackageSources("Contoso.Core"));
+    }
+
+    [Fact]
+    public void MergePackageSourceMappings_NearestSourceKeyReplacesPatternListCaseInsensitively()
+    {
+        string parent = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="Private">
+                  <package pattern="Parent.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        string child = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Child.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        PackageSourceMapping mapping =
+            SourceResolver.MergePackageSourceMappings([child, parent]);
+
+        Assert.Empty(mapping.GetConfiguredPackageSources("Parent.Package"));
+        Assert.Equal(
+            ["private"],
+            mapping.GetConfiguredPackageSources("Child.Package"));
+    }
+
+    [Fact]
+    public void MergePackageSourceMappings_ClearRemovesInheritedMappings()
+    {
+        string parent = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="parent">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        string child = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <clear />
+                <packageSource key="child">
+                  <package pattern="Child.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        PackageSourceMapping mapping =
+            SourceResolver.MergePackageSourceMappings([child, parent]);
+
+        Assert.Empty(mapping.GetConfiguredPackageSources("Other.Package"));
+        Assert.Equal(
+            ["child"],
+            mapping.GetConfiguredPackageSources("Child.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_SourceWithoutPatternsFails()
+    {
+        string config = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private" />
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(
+            () => SourceResolver.ResolvePackageSourceMapping(configPath: config));
+
+        Assert.Contains("must contain at least one package pattern", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Contoso.*.Tools")]
+    [InlineData("Contoso**")]
+    public void ResolvePackageSourceMapping_InvalidPatternFails(string pattern)
+    {
+        string config = WriteConfig($"""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="{pattern}" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        Assert.Throws<InvalidDataException>(
+            () => SourceResolver.ResolvePackageSourceMapping(configPath: config));
     }
 
     private string WriteConfig(string xml)

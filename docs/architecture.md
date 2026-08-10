@@ -584,6 +584,11 @@ Research overlay bridge, and the application layer:
 │  Inspectors/      App-specific inspection logic             │
 │  Options/         CLI option types                          │
 ├─────────────────────────────────────────────────────────────┤
+│  DotnetInspector.Queries (L1 inspection coordination)       │
+│                                                             │
+│  Workspace and binding-consistent assembly context groups   │
+│  Typed per-assembly and group-query coordination             │
+├─────────────────────────────────────────────────────────────┤
 │  ILInspector.Research (Fact overlay bridge)                 │
 │                                                             │
 │  ResearchFactRegistry       ordered fact producers           │
@@ -625,7 +630,7 @@ Research overlay bridge, and the application layer:
 ├─────────────────────────────────────────────────────────────┤
 │  CSharpText (C# textual grammar)                            │
 │                                                             │
-│  Signature/XML-doc notation, lexer, declaration/source spans│
+│  Names, signatures, XML docs, lexer, source spans and layout│
 ├─────────────────────────────────────────────────────────────┤
 │  ILInspector.SourceLink (source decoration)                 │
 │                                                             │
@@ -645,9 +650,12 @@ Research overlay bridge, and the application layer:
 ### Layer rules
 
 - **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
+- **Queries** owns content-shaped workspace lifetimes and typed inspection
+  request/result contracts. It coordinates domain providers without taking
+  filesystem paths or presentation dependencies.
 - **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
 - **CSharp** owns model-bound C# spelling through `CSharpFormatter` and exact typed-request composition through `CSharpTypePrinter`, including skeleton, full, stub, mixed-accessor, primary-constructor, and nested-type shapes. It does not depend on Decompiler or Research.
-- **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
+- **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
 - **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
 - **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
 - **ReturnToSender** remains tools-only and owns closure discovery, cluster membership, synthesis, accessibility flattening, and body-policy selection. It passes typed requests to CSharp rather than maintaining a parallel declaration model.

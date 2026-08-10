@@ -1,4 +1,4 @@
-using ILInspector.CSharp;
+using CSharpText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;

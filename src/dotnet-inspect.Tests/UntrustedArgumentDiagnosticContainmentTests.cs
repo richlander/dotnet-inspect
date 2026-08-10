@@ -172,11 +172,16 @@ public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
     /// diagnostic assertion order-dependent (#3726).
     /// </remarks>
     [Fact]
-    public void ChildCli_UsesThePerTestCache()
+    public void ChildCli_UsesThePerTestCacheAndCleansSilently()
     {
+        string obsolete = Path.Combine(_cacheDirectory, "package-content-v4");
+        Directory.CreateDirectory(obsolete);
+        File.WriteAllText(Path.Combine(obsolete, "stale.txt"), "stale");
+
         var (output, error) = RunCli(["cache", "--json", "-T:q"]);
 
         Assert.Empty(error);
+        Assert.False(Directory.Exists(obsolete));
         using var document = JsonDocument.Parse(output);
         Assert.Equal(
             _cacheDirectory,

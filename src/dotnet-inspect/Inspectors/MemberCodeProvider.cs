@@ -19,7 +19,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, bool SourceDocument = false, string? ProjectAssetsPath = null, string? TargetFramework = null, string? CaretFocus = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -40,12 +40,12 @@ internal static class MemberCodeProvider
         FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
         IReadOnlyList<Decompiler.DecompilerDecision>? AppliedTaste = null,
         bool RequiresAsyncBodyModifier = false,
-        // True when a config-consuming styled projection (Decompiled Source or
-        // Applied Taste, never the style-invariant fidelity-only read) actually
-        // printed a body. The resolved-config warnings should surface whenever
-        // this holds, even for an Applied-Taste-only run that renders no Decompiled
-        // Source section, so a bad .dotnet-inspectconfig never fails silently.
-        bool StyledProjectionProduced = false);
+        // True when a config-consuming styled projection actually printed a
+        // body. The resolved-config warnings should surface whenever this holds,
+        // including document-only and Applied-Taste-only runs.
+        bool StyledProjectionProduced = false,
+        Decompiler.AnnotatedSourceDocument? SourceDocument = null,
+        Decompiler.DecompilerResult? SourceDocumentFailure = null);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -202,7 +202,7 @@ internal static class MemberCodeProvider
             }
 
             ILInspector.Research.ResearchViews.MemberProjectionResult? researchProjection = null;
-            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.Facts) && pipelineSource is not null)
+            if ((request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.Facts || request.SourceDocument) && pipelineSource is not null)
             {
                 researchProjection = ILInspector.Research.ResearchViews.ProjectMember(
                     new ILInspector.Research.ResearchViews.MemberProjectionRequest(
@@ -216,13 +216,18 @@ internal static class MemberCodeProvider
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts,
                         MethodToken: methodToken,
-                        // Annotated Source spells the same member as Decompiled
-                        // Source, so it renders with the same resolved style options
-                        // -- otherwise the two views of one member disagree. The
-                        // other projections here (cost/semantics overlays, fact rows)
-                        // are style-invariant evidence and keep the shipped defaults.
-                        PrinterOptions: request.AnnotatedSource ? renderOptions : null,
-                        CaretFocus: request.CaretFocus));
+                        // Every C# body view uses the same local-name policy, so one
+                        // document never mixes readable names with V_index. Research
+                        // keeps overlays isolated from byte-divergent lenses and other
+                        // spelling knobs; fact rows remain style-invariant.
+                        PrinterOptions: request.AnnotatedSource
+                            || request.SourceDocument
+                            || request.CostOverlay
+                            || request.SemanticsOverlay
+                            ? renderOptions
+                            : null,
+                        CaretFocus: request.CaretFocus,
+                        SourceDocument: request.SourceDocument));
 
                 // Promotion never hides a fact, so a focus that matched nothing
                 // renders identically to no focus at all. Say so, and name the
@@ -248,6 +253,15 @@ internal static class MemberCodeProvider
             if (request.AnnotatedSource && annotatedResult?.Output is not null)
                 styledProjectionProduced = true;
 
+            var sourceDocument = request.SourceDocument
+                ? researchProjection?.SourceDocument
+                : null;
+            var sourceDocumentFailure = request.SourceDocument
+                ? researchProjection?.SourceDocumentFailure
+                : null;
+            if (sourceDocument?.Text.Length > 0)
+                styledProjectionProduced = true;
+
             Decompiler.DecompilerResult? costOverlayResult = null;
             IReadOnlyList<string>? costOverlayHeaderComments = null;
             if (request.CostOverlay && researchProjection?.CostOverlay is { } overlay)
@@ -266,6 +280,12 @@ internal static class MemberCodeProvider
                 && researchProjection?.SemanticsOverlay is { } semantics
                     ? TrimOutput(semantics)
                     : null;
+
+            if ((request.CostOverlay && costOverlayResult?.Output is not null)
+                || (request.SemanticsOverlay && semanticsOverlayResult?.Output is not null))
+            {
+                styledProjectionProduced = true;
+            }
 
             string? ilText = null, ilDiagnostic = null;
             if (request.IL)
@@ -318,7 +338,9 @@ internal static class MemberCodeProvider
                 fidelityCauses,
                 appliedTaste,
                 requiresAsyncBodyModifier,
-                styledProjectionProduced)));
+                styledProjectionProduced,
+                sourceDocument,
+                sourceDocumentFailure)));
         }
 
         return results;
@@ -362,7 +384,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste && !request.SourceDocument)
             return null;
         try
         {

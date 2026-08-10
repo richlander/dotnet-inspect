@@ -1,4 +1,6 @@
 using DotnetInspector.Inspectors;
+using DotnetInspector.Fixtures;
+using ILInspector.CallGraph;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
@@ -115,10 +117,75 @@ public class MethodBodyInspectionSessionTests
         var index = Analysis.LibraryBodyIndex.Open(ProductPath);
         var token = CalledToken(index);
 
-        var expected = index.BuildCallerTree(token, [Analysis.LibraryBodyIndex.Open(TestPath)]);
-        var actual = MethodBodyInspectionSession.Open(ProductPath)
-            .CallerTree(token, [MethodBodyInspectionSession.Open(TestPath)]);
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        using Analysis.CatalogCallGraphScope scope =
+            MethodBodyInspectionSession.CreateCallGraphScope(
+                [target, caller]);
+        var expected = target.BodyIndex.BuildCallerTree(token, scope);
+        var actual = target.CallerTree(token, [caller]);
 
         Assert.Equal(expected.Children.Count(), actual.Children.Count());
+    }
+
+    [Fact]
+    public void CallerTree_SessionScopes_ProjectsWithUnscopedInstanceCallees()
+    {
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(ProductPath);
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(TestPath);
+        Analysis.MethodIdentity method =
+            target.BodyIndex.DeclaredMethods.Single(candidate =>
+                candidate.DeclaringType.Name
+                    == nameof(MethodBodyInspectionSession)
+                && candidate.Name
+                    == nameof(MethodBodyInspectionSession.CallerEdges)
+                && candidate.ParameterTypes.Length == 3);
+
+        Analysis.CallTreeNode callerRoot =
+            target.CallerTree(method.MetadataToken, [caller]);
+        Analysis.CallTreeNode calleeRoot =
+            target.BodyIndex.BuildCallTree(method.MetadataToken);
+        CallGraphProjection projection =
+            CallGraphProjection.Create(callerRoot, calleeRoot);
+
+        Assert.Equal(method.Name, projection.Focus.Member.Name);
+        Assert.True(projection.Focus.Member.HasThis);
+    }
+
+    [Fact]
+    public void CallerTree_VersionSkewedScopeRetainsIncompleteEvidence()
+    {
+        string targetV1 =
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        MethodBodyInspectionSession target =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath());
+        MethodBodyInspectionSession caller =
+            MethodBodyInspectionSession.Open(
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+                new DotnetInspector.Services.AssemblyDependencyResolver(
+                    new(
+                        FixtureCatalog.AnalysisCallerGraphCaller
+                            .AssemblyPath())));
+        MethodBodyInspectionSession targetV1Session =
+            MethodBodyInspectionSession.Open(targetV1);
+        Analysis.MethodIdentity ping =
+            target.BodyIndex.DeclaredMethods.Single(method =>
+                method.DeclaringType.Name == "Api"
+                && method.Name == "Ping"
+                && method.ParameterTypes.Length == 0);
+
+        Analysis.CallTreeNode tree = target.CallerTree(
+            ping.MetadataToken,
+            [caller, targetV1Session],
+            out Analysis.CatalogCallGraphDiagnostics diagnostics);
+
+        Assert.Empty(tree.Children);
+        Assert.True(diagnostics.IsIncomplete);
+        Assert.True(diagnostics.BindingIdentityConflictCount > 0);
     }
 }

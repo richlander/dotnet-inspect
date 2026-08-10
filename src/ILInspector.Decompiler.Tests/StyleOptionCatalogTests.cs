@@ -84,9 +84,9 @@ public class StyleOptionCatalogTests
             Assert.All(tokens, t => Assert.False(string.IsNullOrWhiteSpace(t)));
             Assert.Equal(tokens.Length, tokens.Distinct(StringComparer.Ordinal).Count());
             // The declared default must be a real token on the axis, and it must be
-            // the value in effect on the shipped default options.
+            // the value in effect on the registry-derived product defaults.
             Assert.Contains(o.DefaultValue, tokens);
-            Assert.Equal(o.DefaultValue, o.GetValue(PrinterOptions.Default));
+            Assert.Equal(o.DefaultValue, o.GetValue(StyleOptionCatalog.DefaultOptions));
         });
     }
 
@@ -102,11 +102,9 @@ public class StyleOptionCatalogTests
     {
         foreach (var o in Options)
         {
-            Assert.Equal(o.DefaultValue, o.GetValue(PrinterOptions.Default));
-
             foreach (var value in o.Values)
             {
-                var selected = o.WithValue(PrinterOptions.Default, value.Token);
+                var selected = o.WithValue(StyleOptionCatalog.DefaultOptions, value.Token);
                 Assert.Equal(value.Token, o.GetValue(selected));
 
                 // Returning to the default token clears the axis again.
@@ -114,6 +112,16 @@ public class StyleOptionCatalogTests
                 Assert.Equal(o.DefaultValue, o.GetValue(cleared));
             }
         }
+    }
+
+    [Fact]
+    public void ProductDefaults_EnableReadableNames_WithoutChangingLibraryDefaults()
+    {
+        var slotNames = Options.Single(o => o.Id == "slot-local-names");
+
+        Assert.Equal("false", slotNames.DefaultValue);
+        Assert.True(StyleOptionCatalog.DefaultOptions.ReadableLocalNames);
+        Assert.False(PrinterOptions.Default.ReadableLocalNames);
     }
 
     [Fact]
@@ -125,7 +133,7 @@ public class StyleOptionCatalogTests
         foreach (var subject in Options)
         {
             var nonDefault = subject.Values.First(v => !string.Equals(v.Token, subject.DefaultValue, StringComparison.Ordinal));
-            var mutated = subject.WithValue(PrinterOptions.Default, nonDefault.Token);
+            var mutated = subject.WithValue(StyleOptionCatalog.DefaultOptions, nonDefault.Token);
 
             foreach (var other in Options)
             {
@@ -150,7 +158,7 @@ public class StyleOptionCatalogTests
             Assert.Equal(onValue.Token, o.GetValue(enabled));
 
             var disabled = onValue.SetSelected(enabled, false);
-            Assert.Equal(o.DefaultValue, o.GetValue(disabled));
+            Assert.Equal("false", o.GetValue(disabled));
         }
     }
 
@@ -257,11 +265,12 @@ public class StyleOptionCatalogTests
     [Fact]
     public void ApplyFullTaste_SelectsExactlyTheEndorsedValueOnEachAxis()
     {
-        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+        var defaults = StyleOptionCatalog.DefaultOptions;
+        var full = StyleOptionCatalog.ApplyFullTaste(defaults);
 
         foreach (var o in Options)
         {
-            var expected = o.EndorsedValue?.Token ?? o.DefaultValue;
+            var expected = o.EndorsedValue?.Token ?? o.GetValue(defaults);
             Assert.Equal(expected, o.GetValue(full));
         }
     }

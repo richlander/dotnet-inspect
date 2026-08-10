@@ -97,8 +97,9 @@ identity is required. The round-trip design calls that pairing
 The Metadata delivery slices implement the single-image declaration,
 acquisition, binding, cross-assembly resolution, definition-correspondence, and
 definition-join currencies. Analysis retains decoder provenance and consumes
-Metadata-owned correspondence for direct callers. Member-level graph
-correspondence remains the unfinished Slice 6 boundary.
+Metadata-owned correspondence for direct callers. Analysis now composes the
+member-level currency into catalog-scoped graph storage without turning it
+into a display string or a durable identifier.
 
 #### Current `ILInspector.Analysis` forwarding provenance
 
@@ -110,6 +111,12 @@ correspondence remains the unfinished Slice 6 boundary.
 | `CatalogMemberCorrespondencePlan` | One source member's open signature | Which distinct type-resolution requests and recursive shapes are required to project member correspondence without traversing the signature again | A frozen answer, graph storage identity, or rendering |
 | `CatalogMemberJoinKey` and `CatalogTypeShape` | One frozen catalog generation | Hashable member correspondence across the open declaring type, member kind, canonical signature header, vararg required-parameter prefix, method generic arity, instance/static shape, parameters, return, modifiers, and function pointers | Physical graph storage, persistence, display, or use after its catalog generation |
 | `CatalogMemberJoinProjection` | One plan projected through one frozen context | Exact or indeterminate join currency, duplicate/unresolved evidence, or typed incomplete reasons including expansion and stale generation | Permission to drop an incomplete graph node or edge |
+| `GraphNodeStorageKey` | One physical graph occurrence | Total definition or call-site storage identity from acquisition registration, MVID, metadata token, and call-site coordinates | Logical member correspondence, display, or persistence |
+| `GraphNodeIdentity` | One graph projection domain | A closed choice of physical storage, catalog correspondence, or typed structural fallback identity | A string key, cross-generation persistence, or permission to mix domains |
+| `GraphNodeEvidence` and `GraphEdgeEvidence` | One retained graph generation | Which physical occurrences support a logical node/edge and whether correspondence was exact, indeterminate, or incomplete | A reason to discard unavailable evidence or count call sites as logical nodes |
+| `CatalogCallGraphDiagnostics` | One catalog graph snapshot | Stable incomplete-node, incomplete-edge, and primary-assembly identity-conflict counts that may outlive a temporary graph generation | Catalog currency, failure fabrication, or a replacement for retained physical evidence |
+| `GraphBindingIdentityConflictEvidence` | One retained graph generation | Which physical call site bound exactly to a different identity of the graph's primary assembly | Permission to join the selected identity to the primary assembly |
+| `CatalogCallGraphScope` | One fixed assembly group and catalog generation | One unioned correspondence acquisition and one physical graph shared by caller, callee, and format-neutral projection queries | Assembly discovery, presentation, or reuse after release/disposal |
 
 #### Current `ILInspector.Metadata` single-image declaration
 

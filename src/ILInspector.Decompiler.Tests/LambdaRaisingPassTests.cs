@@ -166,6 +166,123 @@ public class LambdaRaisingPassTests
         Assert.DoesNotContain("b__", output);                // no un-raised lambda-method reference
     }
 
+    [Fact]
+    public void CapturingVoidExpressionBody_RaisesAndElidesLocalEnvironment()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CapturingVoidExpressionLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("Action<int> action = x => Console.WriteLine(x + n);", output);
+        Assert.Contains("consume.Invoke(action, n);", output);
+        Assert.DoesNotContain("DisplayClass", output);
+        Assert.DoesNotContain("new Action", output);
+        Assert.DoesNotContain("b__", output);
+    }
+
+    [Fact]
+    public void CapturingVoidStatementBody_RaisesWithoutImplicitReturn()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CapturingVoidStatementLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("return x =>\n{", output);
+        Assert.Contains("Console.WriteLine(x);", output);
+        Assert.Contains("Console.WriteLine(n);", output);
+        Assert.DoesNotContain("return;", output);
+        Assert.DoesNotContain("new Action", output);
+    }
+
+    [Fact]
+    public void EmptyVoidBody_RaisesAsEmptyLambda()
+        => Assert.Equal(
+            "return () => { };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.EmptyVoidLambda), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void DiscardedNonVoidCall_StaysBlockBodied()
+        => Assert.Equal(
+            "return () => { Value(); };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.DiscardedNonVoidCall), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void DiscardedPropertyRead_StaysBlockBodiedAndExplicit()
+        => Assert.Equal(
+            "return () => { _ = Environment.ProcessId; };",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.DiscardedPropertyRead), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void CustomDelegateInObjectSink_PreservesDelegateIdentity()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.CustomDelegateInObjectSink),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("return (VoidCallback)(() => { });", output);
+        Assert.DoesNotContain("new VoidCallback", output);
+    }
+
+    [Fact]
+    public void ActionInObjectSink_PreservesDelegateIdentityAndTargetTyping()
+        => Assert.Equal(
+            "return (Action<int>)(x => Console.WriteLine(x));",
+            PrintRaised(nameof(VoidLambdaRaisingSamples.ActionInObjectSink), typeof(VoidLambdaRaisingSamples)));
+
+    [Fact]
+    public void ActionOverloadArgument_PreservesExactDelegateType()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.ActionOverloadArgument),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("Pick((Action<int>)(x => Console.WriteLine(x)));", output);
+    }
+
+    [Fact]
+    public void NestedWeakReturn_UsesEnclosingLambdaReturnType()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.NestedWeakReturn),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.Contains("() => (Action<int>)(x => Console.WriteLine(x))", output);
+    }
+
+    [Fact]
+    public void AsyncVoidLambda_StaysLoweredWithoutAsyncLambdaSupport()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.AsyncVoidLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Action", output);
+    }
+
+    [Fact]
+    public void ByRefVoidLambda_StaysLoweredUntilRefKindsCanPrint()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.ByRefVoidLambda),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new RefCallback", output);
+    }
+
+    [Fact]
+    public void VoidBodyWithNestedControlFlow_StaysLowered()
+    {
+        string output = PrintRaised(
+            nameof(VoidLambdaRaisingSamples.VoidLambdaWithConditional),
+            typeof(VoidLambdaRaisingSamples));
+
+        Assert.DoesNotContain("=>", output);
+        Assert.Contains("new Action", output);
+        Assert.Contains("b__", output);
+    }
+
     // Negative: the captured parameter is reassigned in the outer body, a second
     // store to the hoisted field. The single-store guard must keep the
     // environment lowered so the mutation is not lost to value substitution.
@@ -494,6 +611,68 @@ public class LambdaRaisingPassTests
             [],
             body);
     }
+}
+
+public static class VoidLambdaRaisingSamples
+{
+    public delegate void VoidCallback();
+    public delegate void RefCallback(ref int value);
+
+    // The captured parameter is also consumed by the outer body, keeping the
+    // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
+    public static void CapturingVoidExpressionLambda(
+        int n,
+        System.Action<System.Action<int>, int> consume)
+    {
+        System.Action<int> action = x => System.Console.WriteLine(x + n);
+        consume(action, n);
+    }
+
+    public static System.Action<int> CapturingVoidStatementLambda(int n)
+        => x =>
+        {
+            System.Console.WriteLine(x);
+            System.Console.WriteLine(n);
+        };
+
+    public static System.Action EmptyVoidLambda() => () => { };
+
+    public static System.Action DiscardedNonVoidCall() => () => { Value(); };
+
+    public static System.Action DiscardedPropertyRead() => () => { _ = System.Environment.ProcessId; };
+
+    public static object CustomDelegateInObjectSink() => (VoidCallback)(() => { });
+
+    public static object ActionInObjectSink() => (System.Action<int>)(x => System.Console.WriteLine(x));
+
+    public static void ActionOverloadArgument()
+        => Pick((System.Action<int>)(x => System.Console.WriteLine(x)));
+
+    public static System.Action<int> NestedWeakReturn(System.Action<System.Func<object>> consume)
+    {
+        System.Func<object> callback = () => (System.Action<int>)(x => System.Console.WriteLine(x));
+        consume(callback);
+        return null!;
+    }
+
+    static void Pick(System.Action<int> action) { }
+    static void Pick(System.Action<long> action) { }
+
+    public static System.Action<System.Threading.Tasks.Task> AsyncVoidLambda()
+        => async task => await task;
+
+    public static RefCallback ByRefVoidLambda() => (ref int value) => System.Console.WriteLine(value);
+
+    static int Value() => 1;
+
+    // A close negative: the current lambda slice admits straight-line bodies,
+    // not nested control flow.
+    public static System.Action<int> VoidLambdaWithConditional()
+        => x =>
+        {
+            if (x > 0)
+                System.Console.WriteLine(x);
+        };
 }
 
 // Negative fixtures for LambdaRaisingPass: a captured variable mutated after the

@@ -28,7 +28,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// delegate targets is left as-is.</item>
 /// </list>
 /// <para>In all cases the body must carry compiler-generated metadata evidence
-/// and be a single <c>return expr;</c> or a simple block ending in a return.
+/// and be a single <c>return expr;</c>, a void expression, or a simple block
+/// ending in a return.
 /// Captured outer locals still keep the zero-local guard: local-bearing lambda
 /// bodies print in a nested lambda scope, where an outer local slot would be
 /// ambiguous. A no-op when the seam is absent (stage dumps, the
@@ -356,11 +357,19 @@ public sealed class LambdaRaisingPass : IIrPass
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
+        if (body.RequiresAsyncBodyModifier
+            || body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef))
+            return null;
         if (body.Descendants.OfType<UnsupportedNode>().Any())
             return null;
         if (!IsPrintableBody(body, allowLocals))
             return null;
 
+        if (IsVoid(body.Signature.ReturnType)
+            && body.Body.Blocks is [{ Children: [.., Return { Value: null } trailingReturn] }])
+            trailingReturn.Detach();
+
+        bool returnsVoid = IsVoid(body.Signature.ReturnType);
         var container = body.Body;
         container.Detach();
 
@@ -381,7 +390,10 @@ public sealed class LambdaRaisingPass : IIrPass
             body.LocalNames,
             body.UsesUpdatedMemorySafetyRules,
             body.SkipLocalsInit,
-            container);
+            container)
+        {
+            ReturnsVoid = returnsVoid,
+        };
         lambda.InheritSourceOffset(provenance);
         return lambda;
     }
@@ -401,8 +413,9 @@ public sealed class LambdaRaisingPass : IIrPass
         for (int i = 0; i < statements.Count; i++)
         {
             var statement = statements[i];
-            if (statement is Return { Value: not null })
-                return i == statements.Count - 1;
+            if (statement is Return returnStatement)
+                return i == statements.Count - 1
+                    && (returnStatement.Value is not null || IsVoid(body.Signature.ReturnType));
             if (statement is ExpressionStatement)
                 continue;
             if (allowLocalStatements && statement is StoreLocal)
@@ -415,4 +428,6 @@ public sealed class LambdaRaisingPass : IIrPass
 
         return false;
     }
+
+    static bool IsVoid(TypeRef type) => type is { Namespace: "System", Name: "Void" };
 }

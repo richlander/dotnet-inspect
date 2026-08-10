@@ -5,6 +5,12 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class SectionCategoryNames
 {
+    /// <summary>
+    /// The library command's ordinary identity, relationship, diagnostic, and dense-signal
+    /// sections. Together with <see cref="Surface"/>, this forms the library base scope.
+    /// </summary>
+    public const string Library = "@Library";
+
     public const string Audit = "@Audit";
 
     /// <summary>
@@ -20,14 +26,18 @@ public static class SectionCategoryNames
     /// </summary>
     public const string SourceLink = "@SourceLink";
 
-    /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
+    /// <summary>
+    /// The command's ordinary API and metadata surface sections. At library scope this is a base
+    /// category alongside <see cref="Library"/>.
+    /// </summary>
     public const string Surface = "@Surface";
 
-    // No @Escape category: the escape/exception-safety family has exactly one member today
-    // (Array Pool Escapes), and a door with a single room behind it is pure indirection.
-    // The member is unprefixed for the same reason -- a Group: Leaf prefix advertises a
-    // category door, so a prefix with no door behind it makes a promise the catalog does not
-    // keep. Reintroduce the category, and the prefix, together when a second member lands.
+    /// <summary>
+    /// Coordinate-scoped evidence produced for an IL offset. The members use the
+    /// <c>Context: &lt;Leaf&gt;</c> family name and become effective only when the coordinate
+    /// carrier is present.
+    /// </summary>
+    public const string Context = "@Context";
 
     /// <summary>
     /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members

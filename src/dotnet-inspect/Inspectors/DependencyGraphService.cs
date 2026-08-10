@@ -169,7 +169,12 @@ internal static class DependencyGraphService
 
             var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-                httpClient, group.Dependencies, tfm, globalSeen, logger.Log);
+                httpClient,
+                group.Dependencies,
+                tfm,
+                globalSeen,
+                logger.Log,
+                sourceOptions);
 
             return new PackageDependencyGraphResult.Graph($"{packageName} ({version})", depNodes);
         }

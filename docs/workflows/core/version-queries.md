@@ -335,8 +335,20 @@ grep -oE 'Version: [^ |]+'
 
 ### 7b. Using nuget.config file
 
+```setup
+cat > /tmp/dotnet-inspect-version-queries.nuget.config <<'EOF'
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+</configuration>
+EOF
+```
+
 ```bash
-dotnet-inspect package System.CommandLine --nugetconfig ./nuget.config -v:q
+dotnet-inspect package System.CommandLine \
+  --nugetconfig /tmp/dotnet-inspect-version-queries.nuget.config -v:q
 ```
 
 ```expect

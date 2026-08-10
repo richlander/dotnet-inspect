@@ -409,8 +409,8 @@ public class NuGetSearchSourcesTests
     public void ResolveSources_WellFormedConfigDeclaringNoSources_ThrowsRatherThanDefaultingToNuGetOrg()
     {
         // Well-formed XML is not enough: any XML file parses, including a .csproj passed by
-        // mistake, and SourceResolver would then substitute nuget.org and answer with packages
-        // from a feed the user never chose.
+        // mistake. Explicit configuration starts empty, so such a file must fail rather than
+        // answer from an unrelated feed.
         string path = Path.Combine(Path.GetTempPath(), $"notaconfig-{Guid.NewGuid():N}.config");
         File.WriteAllText(path, "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup /></Project>");
         try
@@ -434,9 +434,7 @@ public class NuGetSearchSourcesTests
         try
         {
             Assert.Empty(NuGetFetch.SourceResolver.ResolveConfiguredSources(path));
-
-            // The fallback still belongs to ResolveSources, which discovered configs rely on.
-            Assert.Equal("nuget.org", Assert.Single(NuGetFetch.SourceResolver.ResolveSources(configPath: path)).Name);
+            Assert.Empty(NuGetFetch.SourceResolver.ResolveSources(configPath: path));
         }
         finally
         {
@@ -686,6 +684,166 @@ public class NuGetSearchSourcesTests
                 $"unexpected request to {url}"));
     }
 
+    [Fact]
+    public async Task SearchAsync_PackageSourceMappingFiltersEachResultByReportingAlias()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        const string results = """
+            {"data":[
+                {"id":"A.Package","version":"1.0.0"},
+                {"id":"B.Package","version":"1.0.0"},
+                {"id":"Unmapped.Package","version":"1.0.0"}
+            ]}
+            """;
+        using var config = new TempNuGetConfig(
+            [("a", indexA), ("b", indexB)],
+            mappings: [("a", "A.*"), ("b", "B.*")]);
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = results,
+            [searchB] = results,
+        };
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Package",
+            sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
+
+        Assert.Empty(outcome.Failures);
+        Assert.Equal(
+            ["A.Package", "B.Package"],
+            outcome.Results.Select(result => result.PackageId));
+    }
+
+    [Fact]
+    public async Task SearchAsync_ConflictingEligibleAliasCredentialsFail()
+    {
+        const string index = "https://feed.example/v3/index.json";
+        const string search = "https://feed.example/v3/query";
+        using var config = new TempNuGetConfig(
+            [("anonymous", index), ("authenticated", index)],
+            credentialedSource: "authenticated",
+            mappings: [("anonymous", "Contoso.*"), ("authenticated", "Contoso.*")]);
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        using var client = new HttpClient(handler);
+
+        PackageSourceMappingException exception =
+            await Assert.ThrowsAsync<PackageSourceMappingException>(
+                () => NuGetSearchService.SearchAsync(
+                    client,
+                    "Contoso",
+                    sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path }));
+
+        Assert.Equal(
+            PackageSourceMappingFailure.ConflictingCredentials,
+            exception.Failure);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_UsesSelectedSourcesAndFiltersTheirResults()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """
+                {"data":[
+                    {"id":"Contoso.Tools","version":"1.0.0"},
+                    {"id":"Other.Contoso","version":"1.0.0"}
+                ]}
+                """
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+        Assert.All(handler.Requested, url =>
+            Assert.StartsWith("https://private.example/", url, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_FiltersBeforeAggregateLimit()
+    {
+        const string index = "https://a.example/v3/index.json";
+        const string search = "https://a.example/v3/query";
+        var handler = new PrefixPagingHandler(index, search);
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            take: 1,
+            sourceOptions: new NuGetSourceOptions { Sources = [index] });
+
+        NuGetSearchResult result = Assert.Single(results);
+        Assert.Equal("Contoso.Tools", result.PackageId);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_DeduplicatesPackageIdsAcrossSources()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}""",
+            [searchB] = """{"data":[{"id":"contoso.tools","version":"2.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        List<NuGetSearchResult> results = await NuGetSearchService.SearchByPrefixAsync(
+            client,
+            "Contoso.",
+            sourceOptions: new NuGetSourceOptions { Sources = [indexA, indexB] });
+
+        Assert.Single(results);
+    }
+
+    [Fact]
+    public async Task SearchByPrefixAsync_FailsClosedWhenSelectedSourceIsUnsearchable()
+    {
+        const string index = "https://private.example/v3/index.json";
+        const string search = "https://private.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [index] = $$"""{"resources":[{"@id":"{{search}}","@type":"SearchQueryService"}]}""",
+            [search] = """{"data":[{"id":"Contoso.Tools","version":"1.0.0"}]}"""
+        };
+        using var client = new HttpClient(handler);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => NuGetSearchService.SearchByPrefixAsync(
+                client,
+                "Contoso.",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    Sources = [index, "/local/packages"],
+                }));
+
+        Assert.Contains("Could not search every configured NuGet source", error.Message);
+    }
+
     /// <summary>
     /// Regression: source resolution ran only when a source option was passed, so a NuGet.Config
     /// discovered from the working directory was ignored and search silently went to nuget.org —
@@ -721,12 +879,12 @@ public class NuGetSearchSourcesTests
     }
 
     /// <summary>
-    /// Two configured entries differing only by a trailing slash are separate entries that may
-    /// carry separate credentials. Slash tolerance decides candidacy, never authorization, so an
-    /// exact spelling wins outright rather than the first slash-tolerant candidate.
+    /// Two configured entries differing only by a trailing slash are aliases for one producer,
+    /// but package source mapping names those aliases independently. Both must survive source
+    /// selection until a package id chooses between them.
     /// </summary>
     [Fact]
-    public void ResolveSources_TrailingSlashAmbiguity_PrefersExactSpelling()
+    public void ResolveSources_TrailingSlashAliases_AreAllRetained()
     {
         const string bare = "https://feed.example/v3/index.json";
         const string slashed = "https://feed.example/v3/index.json/";
@@ -737,20 +895,18 @@ public class NuGetSearchSourcesTests
         List<PackageSource> sources = NuGetSourceResolver.ResolveSources(
             new NuGetSourceOptions { Sources = [slashed], ConfigFile = config.Path });
 
-        PackageSource only = Assert.Single(sources);
-        Assert.Equal(slashed, only.Url);
-        Assert.Equal("slashed", only.Name);
-        Assert.Null(only.Credential);
-        Assert.Null(only.GetAuthHeader());
+        Assert.Equal(["bare", "slashed"], sources.Select(source => source.Name));
+        Assert.All(sources, source => Assert.Equal(slashed, source.Url));
+        Assert.NotNull(sources[0].Credential);
+        Assert.Null(sources[1].Credential);
     }
 
     /// <summary>
-    /// With no exact spelling to prefer, an ambiguous slash-tolerant match adopts no credential at
-    /// all. Picking either candidate would be a guess that could send one entry's secret to the
-    /// other's spelling.
+    /// Repeated trailing slashes are a different producer identity. An unmatched explicit URL
+    /// therefore retains its literal spelling as the alias mapping must name.
     /// </summary>
     [Fact]
-    public void ResolveSources_TrailingSlashAmbiguity_WithoutExactMatch_AdoptsNoCredential()
+    public void ResolveSources_RepeatedTrailingSlash_UsesLiteralAlias()
     {
         using var config = new TempNuGetConfig(
             [("bare", "https://feed.example/v3/index.json"),
@@ -765,9 +921,163 @@ public class NuGetSearchSourcesTests
             });
 
         PackageSource only = Assert.Single(sources);
-        Assert.Equal("explicit", only.Name);
+        Assert.Equal("https://feed.example/v3/index.json//", only.Name);
         Assert.Null(only.Credential);
         Assert.Null(only.GetAuthHeader());
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_MappingAbsent_AllowsEveryProducer()
+    {
+        using var config = new TempNuGetConfig(
+            [("a", "https://a.example/v3/index.json"),
+             ("b", "https://b.example/v3/index.json")]);
+
+        List<PackageSource> sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            new NuGetSourceOptions { ConfigFile = config.Path },
+            "Contoso.Package");
+
+        Assert.Equal(["a", "b"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_MappingSelectsConfiguredName()
+    {
+        using var config = new TempNuGetConfig(
+            [("a", "https://a.example/v3/index.json"),
+             ("b", "https://b.example/v3/index.json")],
+            mappings: [("a", "A.*"), ("B", "B.*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "B.Package"));
+
+        Assert.Equal("b", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_UnmatchedPackageFails()
+    {
+        using var config = new TempNuGetConfig(
+            [("a", "https://a.example/v3/index.json")],
+            mappings: [("a", "A.*")]);
+
+        PackageSourceMappingException exception = Assert.Throws<PackageSourceMappingException>(
+            () => NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "B.Package"));
+
+        Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
+        Assert.Contains("no pattern", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_InactiveMappedSourceFails()
+    {
+        using var config = new TempNuGetConfig(
+            [("active", "https://active.example/v3/index.json")],
+            mappings: [("inactive", "*")]);
+
+        PackageSourceMappingException exception = Assert.Throws<PackageSourceMappingException>(
+            () => NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Any.Package"));
+
+        Assert.Equal(PackageSourceMappingFailure.InactiveSource, exception.Failure);
+        Assert.Contains("inactive", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("not active", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_ExplicitUrlRetainsAliasesUntilMappingSelectsOne()
+    {
+        const string bare = "https://feed.example/v3/index.json";
+        const string slashed = "https://feed.example/v3/index.json/";
+        using var config = new TempNuGetConfig(
+            [("bare", bare), ("slashed", slashed)],
+            credentialedSource: "bare",
+            mappings: [("bare", "Contoso.*"), ("slashed", "Other.*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [slashed],
+                },
+                "Contoso.Package"));
+
+        Assert.Equal("bare", source.Name);
+        Assert.Equal(slashed, source.Url);
+        Assert.NotNull(source.Credential);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_EligibleAliasesWithConflictingCredentialsFail()
+    {
+        const string bare = "https://feed.example/v3/index.json";
+        const string slashed = "https://feed.example/v3/index.json/";
+        using var config = new TempNuGetConfig(
+            [("bare", bare), ("slashed", slashed)],
+            credentialedSource: "bare",
+            mappings: [("bare", "*"), ("slashed", "*")]);
+
+        PackageSourceMappingException exception = Assert.Throws<PackageSourceMappingException>(
+            () => NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [slashed],
+                },
+                "Contoso.Package"));
+
+        Assert.Equal(PackageSourceMappingFailure.ConflictingCredentials, exception.Failure);
+        Assert.Contains("conflicting credentials", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_ExplicitUrlRetainsDisabledConfiguredAlias()
+    {
+        using var config = new TempNuGetConfig(
+            [("private", IndexUrl)],
+            credentialedSource: "private",
+            mappings: [("private", "Contoso.*")],
+            disabledSources: ["private"]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [IndexUrl],
+                },
+                "Contoso.Package"));
+
+        Assert.Equal("private", source.Name);
+        Assert.NotNull(source.Credential);
+    }
+
+    [Fact]
+    public void ReporterRestriction_IsAppliedAfterPackageSourceMapping()
+    {
+        const string sourceA = "https://a.example/v3/index.json";
+        const string sourceB = "https://b.example/v3/index.json";
+        using var config = new TempNuGetConfig(
+            [("a", sourceA), ("b", sourceB)],
+            mappings: [("a", "Contoso.*"), ("b", "Other.*")]);
+        NuGetSourceOptions? options = NuGetSourceResolver.RestrictToSources(
+            new NuGetSourceOptions { ConfigFile = config.Path },
+            [sourceB]);
+
+        List<PackageSource> mapped = NuGetSourceResolver.ResolveSourcesForPackage(
+            options,
+            "Contoso.Package");
+        IReadOnlyList<PackageSource> authorized =
+            NuGetSourceResolver.ResolveAuthorizedSources(options, mapped);
+
+        Assert.Equal(["a"], mapped.Select(source => source.Name));
+        Assert.Empty(authorized);
     }
 
     /// <summary>
@@ -778,19 +1088,22 @@ public class NuGetSearchSourcesTests
     /// requested URL never served — the same "searched the wrong feed" failure this change exists
     /// to remove.
     /// </summary>
-    [Fact]
-    public async Task SearchAsync_NuGetOrgHostButNotServiceIndex_DoesNotUseWellKnownEndpoint()
+    [Theory]
+    [InlineData("https://api.nuget.org/definitely-not-a-service-index")]
+    [InlineData("https://api.nuget.org/v3/index.json//")]
+    [InlineData("https://api.nuget.org/v3/index.json#custom")]
+    public async Task SearchAsync_NoncanonicalNuGetOrgSource_DoesNotUseWellKnownEndpoint(
+        string odd)
     {
-        const string odd = "https://api.nuget.org/definitely-not-a-service-index";
-
         var handler = new RouteHandler();
         using var client = new HttpClient(handler);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
             client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
 
-        // The named endpoint was consulted; nuget.org's well-known search endpoint was not.
-        Assert.Contains(handler.Requested, url => url.StartsWith(odd, StringComparison.Ordinal));
+        // The source was consulted through ordinary service-index discovery; nuget.org's
+        // well-known search endpoint was not substituted for it.
+        Assert.NotEmpty(handler.Requested);
         Assert.DoesNotContain(
             handler.Requested,
             url => url.Contains("api.nuget.org/v3/query", StringComparison.Ordinal));
@@ -809,7 +1122,9 @@ public class NuGetSearchSourcesTests
 
         public TempNuGetConfig(
             IReadOnlyList<(string Name, string Url)> sources,
-            string? credentialedSource = null)
+            string? credentialedSource = null,
+            IReadOnlyList<(string Source, string Pattern)>? mappings = null,
+            IReadOnlyList<string>? disabledSources = null)
         {
             string adds = string.Join(
                 Environment.NewLine,
@@ -823,6 +1138,29 @@ public class NuGetSearchSourcesTests
                     </{credentialedSource}>
                   </packageSourceCredentials>
                 """;
+            string mapping = mappings is null ? "" : $"""
+                  <packageSourceMapping>
+                {string.Join(
+                    Environment.NewLine,
+                    mappings
+                        .GroupBy(item => item.Source)
+                        .Select(group => $"""
+                    <packageSource key="{group.Key}">
+                {string.Join(
+                    Environment.NewLine,
+                    group.Select(item => $"""      <package pattern="{item.Pattern}" />"""))}
+                    </packageSource>
+                """))}
+                  </packageSourceMapping>
+                """;
+            string disabled = disabledSources is null ? "" : $"""
+                  <disabledPackageSources>
+                {string.Join(
+                    Environment.NewLine,
+                    disabledSources.Select(
+                        source => $"""    <add key="{source}" value="true" />"""))}
+                  </disabledPackageSources>
+                """;
 
             Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nuget-{Guid.NewGuid():N}.config");
             File.WriteAllText(Path, $"""
@@ -833,6 +1171,8 @@ public class NuGetSearchSourcesTests
                 {adds}
                   </packageSources>
                 {credentials}
+                {mapping}
+                {disabled}
                 </configuration>
                 """);
         }
@@ -876,9 +1216,20 @@ public class NuGetSearchSourcesTests
             string url = request.RequestUri!.ToString();
             _requests.Add((url, request.Headers.Authorization));
 
-            HttpResponseMessage response = _routes.TryGetValue(
-                WithoutQuery(url),
-                out (HttpStatusCode Status, string Body) route)
+            bool laterSearchPage = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Any(parameter =>
+                    parameter.StartsWith("skip=", StringComparison.OrdinalIgnoreCase)
+                    && parameter is not "skip=0");
+            HttpResponseMessage response = laterSearchPage
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"data":[]}""")
+                }
+                : _routes.TryGetValue(
+                    WithoutQuery(url),
+                    out (HttpStatusCode Status, string Body) route)
                 ? new HttpResponseMessage(route.Status) { Content = new StringContent(route.Body) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("") };
 
@@ -890,6 +1241,37 @@ public class NuGetSearchSourcesTests
         {
             int q = url.IndexOf('?', StringComparison.Ordinal);
             return q < 0 ? url : url[..q];
+        }
+    }
+
+    private sealed class PrefixPagingHandler(
+        string indexUrl,
+        string searchUrl) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            bool takeOne = request.RequestUri.Query
+                .TrimStart('?')
+                .Split('&')
+                .Contains("take=1", StringComparer.Ordinal);
+            string body = url.StartsWith(indexUrl, StringComparison.Ordinal)
+                ? $$"""{"resources":[{"@id":"{{searchUrl}}","@type":"SearchQueryService"}]}"""
+                : takeOne
+                    ? """{"data":[{"id":"Other.Package","version":"1.0.0"}]}"""
+                    : """
+                        {"data":[
+                            {"id":"Other.Package","version":"1.0.0"},
+                            {"id":"Contoso.Tools","version":"1.0.0"}
+                        ]}
+                        """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body),
+                RequestMessage = request
+            });
         }
     }
 }

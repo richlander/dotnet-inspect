@@ -168,7 +168,8 @@ public class LibraryBodyIndexTests
             string namedPath = Path.Combine(frameworkDir, referencedName + ".dll");
 
             // Only a TypeRef whose named assembly forwards rather than defines exercises the hop.
-            if (!File.Exists(namedPath) || !TypeForwardResolver.ForwardsType(namedPath, fullTypeName))
+            if (!File.Exists(namedPath)
+                || !AssemblyForwardsType(namedPath, ns, name))
                 continue;
 
             var definition = builder.TryResolveExternalTypeDefinition(handle);
@@ -198,7 +199,7 @@ public class LibraryBodyIndexTests
         string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
         string facade = Path.Combine(frameworkDir, "netstandard.dll");
         Assert.True(File.Exists(facade));
-        Assert.True(TypeForwardResolver.ForwardsType(facade, "System.Object"));
+        Assert.True(AssemblyForwardsType(facade, "System", "Object"));
 
         string targetPath = typeof(Console).Assembly.Location;
         using var stream = File.OpenRead(targetPath);
@@ -263,9 +264,9 @@ public class LibraryBodyIndexTests
 
     /// <summary>
     /// A chain that starts Platform-scoped stays Platform-scoped for every hop. This gates the
-    /// non-downgrade half of <see cref="LibraryBodyIndex.IndexBuilder.NextHopScope"/> against a
-    /// real framework forwarder chain; it does NOT gate tightening, because a framework TypeRef
-    /// makes <c>ScopeForReference</c> return Platform at hop 0 and the chain never starts at Any.
+    /// structured resolution engine's non-downgrade rule against a real framework forwarder
+    /// chain; it does NOT gate tightening, because a framework TypeRef starts at Platform and
+    /// the chain never begins at Any.
     /// <see cref="ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope"/> is the
     /// tightening gate.
     /// </summary>
@@ -297,9 +298,8 @@ public class LibraryBodyIndexTests
     }
 
     /// <summary>
-    /// The tightening gate, and the only test that fails if the <c>scope = NextHopScope(...)</c>
-    /// call is deleted from the forwarder loop: the unit tests below cover the function in
-    /// isolation and would all still pass with the wiring removed.
+    /// The tightening gate: the unit tests for scope classification would still pass if the
+    /// structured resolution engine stopped applying the forwarded target's scope at the hop.
     ///
     /// The chain is synthetic because no natural artifact pairs an Any-scoped TypeRef with a
     /// framework-signed forwarder target -- a real framework TypeRef is already Platform at hop 0.
@@ -389,6 +389,26 @@ public class LibraryBodyIndexTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    static bool AssemblyForwardsType(
+        string path,
+        string @namespace,
+        string name)
+    {
+        MetadataTypeDefinitionName structuredName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [name]))
+            .Name;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return peReader.HasMetadata
+            && MetadataTypeDeclarationProbe.Probe(
+                peReader.GetMetadataReader(),
+                structuredName)
+            is TypeDeclarationResult.Forwarded;
     }
 
     /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
@@ -628,14 +648,13 @@ public class LibraryBodyIndexTests
     [Fact]
     public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
     {
-        // Dropped by ReleaseCallGraphCaches(); _scopeGraph is also dropped by ReleaseScopeGraph().
+        // Dropped by ReleaseCallGraphCaches().
         string[] callGraphCaches =
         [
             "_directCallsByCaller",
             "_distinctCallerEdgesByCallee",
             "_distinctCallersByCallee",
             "_methodMap",
-            "_scopeGraph",
         ];
 
         // Evidence-domain caches the release methods deliberately retain.
@@ -655,10 +674,8 @@ public class LibraryBodyIndexTests
             MutableCacheFields().Select(field => field.Name).OrderBy(name => name, StringComparer.Ordinal));
 
         string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
-        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
-        var scope = LibraryBodyIndex.Open(testPath);
 
-        var index = Exercised(analysisPath, scope);
+        var index = Exercised(analysisPath);
         var before = PopulatedCaches(index);
 
         // The gate is only meaningful if the caches under test were populated to begin with.
@@ -670,23 +687,12 @@ public class LibraryBodyIndexTests
         index.ReleaseCallGraphCaches();
         Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
 
-        // ReleaseScopeGraph drops the scope graph and nothing else — that is the whole point of
-        // having it separately, since the single-assembly maps are the cheap, high-value half.
-        var scopeOnly = Exercised(analysisPath, scope);
-        var beforeScopeRelease = PopulatedCaches(scopeOnly);
-        Assert.Contains("_scopeGraph", beforeScopeRelease);
-
-        scopeOnly.ReleaseScopeGraph();
-        Assert.Equal(beforeScopeRelease.Where(name => name != "_scopeGraph"), PopulatedCaches(scopeOnly));
-
-        static LibraryBodyIndex Exercised(string path, LibraryBodyIndex scope)
+        static LibraryBodyIndex Exercised(string path)
         {
             var index = LibraryBodyIndex.Open(path);
             int token = index.Methods.First().MetadataToken;
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
-            index.BuildCallerTree(token, new[] { scope }, maxDepth: 2, maxNodes: 50);
-
             // The retained half of the contract is only gated on caches this workload actually
             // populates, and the call-tree builders alone reach just one of the seven. Touch the
             // evidence-domain producers too; OptimizationOpportunities is what pulls in
@@ -725,12 +731,11 @@ public class LibraryBodyIndexTests
         }
     }
 
-    // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
-    // counts, reverse edges, and the cross-assembly scope maps) are cached per index so a
-    // consumer that asks many questions of one index pays for them once. That is only sound if
-    // none of them depends on which member was selected or on a previously requested scope set.
-    // This walks one index through a sequence designed to poison a root- or scope-dependent
-    // cache, and requires every answer to match a fresh index that was asked nothing else.
+    // #3342: the same-assembly maps behind the call-tree builders are cached per index so a
+    // consumer that asks many questions pays for them once. Catalog-scoped storage now belongs
+    // to CatalogCallGraphScope and is gated separately by CatalogCallGraphScopeTests.
+    // This walks one index through a sequence designed to poison a root-dependent cache and
+    // requires every answer to match a fresh index that was asked nothing else.
     //
     // Scope note: this pins cache *independence*, not the bodiless-root contract itself. Serving
     // a bodiless root from the shared grouping is a correctness fault that a fresh index would
@@ -738,7 +743,7 @@ public class LibraryBodyIndexTests
     // BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod owns that, and
     // was confirmed to fail when the guard is removed.
     [Fact]
-    public void CallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
+    public void SameAssemblyCallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
     {
         string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
         string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
@@ -758,31 +763,15 @@ public class LibraryBodyIndexTests
         // Each expectation comes from an index that has answered nothing else.
         var expectedCallers = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
         var expectedCallees = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
-        var expectedScoped = Describe(LibraryBodyIndex.Open(analysisPath)
-            .BuildCallerTree(richToken, new[] { LibraryBodyIndex.Open(testPath) }, maxDepth: 2, maxNodes: 50));
-        var expectedUnscoped = Describe(LibraryBodyIndex.Open(analysisPath)
-            .BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
         var expectedBodiless = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
 
-        // Scoping must actually change the answer, or the scope-set comparisons prove nothing.
-        Assert.NotEqual(expectedScoped, expectedUnscoped);
-
-        // Now ask one index everything, in an order that would expose a leaked root or scope.
+        // Now ask one index both directions in an order that would expose a leaked root.
         var reused = LibraryBodyIndex.Open(analysisPath);
-        var scopeA = LibraryBodyIndex.Open(testPath);
         reused.BuildCallerTree(otherToken, maxDepth: 2, maxNodes: 50);
         reused.BuildCallTree(otherToken, maxDepth: 2, maxNodes: 50);
-        reused.BuildCallerTree(otherToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
-        reused.BuildCallerTree(otherToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
 
         Assert.Equal(expectedCallers, Describe(reused.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
         Assert.Equal(expectedCallees, Describe(reused.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
-
-        // Alternating scope sets on one index: the empty set must not be answered from the
-        // populated set's map, nor the reverse, however many times they interleave.
-        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
-        Assert.Equal(expectedUnscoped, Describe(reused.BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50)));
-        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
 
         // A bodiless root asked after body-rooted requests have populated the cache.
         var reusedTests = LibraryBodyIndex.Open(testPath);
@@ -796,31 +785,13 @@ public class LibraryBodyIndexTests
         // shared cache, so a body-rooted request after it still answers like a fresh index.
         Assert.Equal(expectedTestAsmCallers, Describe(reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50)));
 
-        // The scope cache keys on the caller's collection, which the caller still owns and may
-        // mutate. Holding that live list would make the key compare equal to itself while the
-        // built maps still describe the old contents, so the scope references are snapshotted.
-        var mutableScopes = new List<LibraryBodyIndex> { scopeA };
-        var mutated = LibraryBodyIndex.Open(analysisPath);
-        mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50);
-        mutableScopes[0] = LibraryBodyIndex.Open(analysisPath);
-        var expectedAfterMutation = Describe(LibraryBodyIndex.Open(analysisPath)
-            .BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50));
-
-        // Swapping the element must actually change the answer, or this proves nothing.
-        Assert.NotEqual(expectedScoped, expectedAfterMutation);
-        Assert.Equal(expectedAfterMutation, Describe(mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50)));
-
-        // Releasing the caches is a memory/time trade only: answers after a release must still
-        // match a fresh index, and must not be served from a map that was supposedly dropped.
+        // Releasing the index-owned caches is a memory/time trade only: answers after a release
+        // must still match a fresh index.
         var released = LibraryBodyIndex.Open(analysisPath);
-        released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
         released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50);
-        released.ReleaseScopeGraph();
-        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
         released.ReleaseCallGraphCaches();
         Assert.Equal(expectedCallers, Describe(released.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
         Assert.Equal(expectedCallees, Describe(released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
-        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
 
         static int PickRichest(LibraryBodyIndex index, out int richest)
         {
@@ -881,46 +852,98 @@ public class LibraryBodyIndexTests
             => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
     }
 
-    // #3331: the scoped and unscoped builders key the reverse graph differently (structural member
-    // identity vs assembly-local tokens) and do not produce the same tree. Prefiltering scope
-    // assemblies on assembly identity therefore must not be allowed to decide which builder runs,
-    // or narrowing a scope to nothing would silently change the answer instead of just costing
-    // less. An empty-but-supplied scope list means "cross-assembly walk requested, nothing
-    // survived"; only a null list means "no scope requested".
-    //
-    // The scan is deliberately self-locating rather than pinned to one method: it asserts the
-    // correctness claim on every method it visits, and separately requires that at least one of
-    // them distinguishes the two builders, so the test cannot quietly become vacuous if the call
-    // structure of this assembly changes.
+    // #3351: requesting a catalog scope that contributes no callers must not change the
+    // same-assembly tree. The catalog graph remains selected for a scoped request, but its local
+    // node identity, ordering, revisit, and budget behavior must agree with the cheap token graph.
     [Fact]
-    public void BuildCallerTree_PrefilteringScopeAssembliesNeverChangesTheTree()
+    public void BuildCallerTree_NonContributingCatalogScopeMatchesSameAssemblyTree()
     {
         var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
 
         // A fixture that does not reference the analysis assembly, so it can never contribute a
         // caller. Opening it and prefiltering it away must be indistinguishable.
         var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        using CatalogCallGraphScope scopeOpened =
+            CatalogCallGraphTestExtensions.CreateScope(index, [nonContributing]);
+        using CatalogCallGraphScope scopePrefilteredAway =
+            CatalogCallGraphTestExtensions.CreateScope(index, []);
 
-        int discriminating = 0;
         int visited = 0;
-        foreach (var method in index.Methods.Take(60))
+        int alreadyShown = 0;
+        int truncated = 0;
+        int loopEdges = 0;
+        var mismatches = new List<string>();
+        (int MaxDepth, int MaxNodes)[] traversals =
+            [(2, 50), (3, 5)];
+        foreach (var method in index.DeclaredMethods)
         {
-            var noScopeRequested = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, callerScopes: null, maxDepth: 2, maxNodes: 50));
-            var scopeOpened = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, new[] { nonContributing }, maxDepth: 2, maxNodes: 50));
-            var scopePrefilteredAway = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+            foreach ((int maxDepth, int maxNodes) in traversals)
+            {
+                CallTreeNode tokenTree = index.BuildCallerTree(
+                    method.MetadataToken,
+                    maxDepth,
+                    maxNodes);
+                var noScopeRequested = FlattenCallTree(
+                    tokenTree,
+                    includePerf: true);
+                var opened = FlattenCallTree(
+                    scopeOpened.BuildCallerTree(
+                        index,
+                        method.MetadataToken,
+                        maxDepth,
+                        maxNodes),
+                    includePerf: true);
+                var prefilteredAway = FlattenCallTree(
+                    scopePrefilteredAway.BuildCallerTree(
+                        index,
+                        method.MetadataToken,
+                        maxDepth,
+                        maxNodes),
+                    includePerf: true);
 
-            Assert.Equal(scopeOpened, scopePrefilteredAway);
+                Assert.Equal(opened, prefilteredAway);
+                if (!noScopeRequested.SequenceEqual(prefilteredAway))
+                {
+                    mismatches.Add(
+                        $"{method.DeclaringType.Name}.{method.Name} "
+                        + $"(depth {maxDepth}, nodes {maxNodes})"
+                        + $"{Environment.NewLine}same assembly:"
+                        + $"{Environment.NewLine}{string.Join(Environment.NewLine, noScopeRequested)}"
+                        + $"{Environment.NewLine}catalog:"
+                        + $"{Environment.NewLine}{string.Join(Environment.NewLine, prefilteredAway)}");
+                }
 
-            visited++;
-            if (!noScopeRequested.SequenceEqual(scopePrefilteredAway))
-                discriminating++;
+                alreadyShown += CountStatus(
+                    tokenTree,
+                    CallTreeStatus.AlreadyShown);
+                truncated += CountStatus(
+                    tokenTree,
+                    CallTreeStatus.Truncated);
+                loopEdges += CountLoopEdges(tokenTree);
+                visited++;
+            }
         }
 
         Assert.True(visited > 0, "expected to visit methods");
+        Assert.True(alreadyShown > 0, "expected to compare revisit placement");
+        Assert.True(truncated > 0, "expected to compare budget truncation");
+        Assert.True(loopEdges > 0, "expected to compare loop-edge retention");
         Assert.True(
-            discriminating > 0,
-            "no method distinguished the scoped builder from the unscoped one, so this test proves nothing; "
-                + "if the two builders have genuinely converged, the null/empty scope distinction can be removed");
+            mismatches.Count == 0,
+            $"{mismatches.Count} mismatches:{Environment.NewLine}"
+                + string.Join(
+                    $"{Environment.NewLine}---{Environment.NewLine}",
+                    mismatches));
+
+        static int CountStatus(
+            CallTreeNode node,
+            CallTreeStatus status) =>
+            (node.Status == status ? 1 : 0)
+                + node.Children.Sum(child => CountStatus(child, status));
+
+        static int CountLoopEdges(CallTreeNode node) =>
+            (node.Perf?.InLoop == true ? 1 : 0)
+                + node.Children.Sum(CountLoopEdges);
     }
 
     // #3331: the same claim against the cross-assembly fixtures the matcher tests use — an assembly
@@ -991,8 +1014,8 @@ public class LibraryBodyIndexTests
     {
         // Root the caller graph at the int overload of Target.Api.Ping. The caller assembly
         // invokes the int and string overloads from separate methods (RunInt/RunString). Only
-        // RunInt may be reported: the cross-assembly reverse map keys on CallerGraphKey, which
-        // must carry parameter types, or the two overloads collapse and cross-link callers
+        // RunInt may be reported: catalog correspondence must carry parameter types, or the two
+        // overloads collapse and cross-link callers
         // (#1623 rung 1; non-vacuous because same-assembly resolution is token-based).
         var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
         var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
@@ -1244,7 +1267,7 @@ public class LibraryBodyIndexTests
 
     // #3266: a constructed-generic callee (Echo<int>, a MethodSpec) is pulled into scope and
     // resolved against the open Echo<T> definition rather than left as an external leaf. Generic
-    // key normalization is shared with BuildCallerTree(scopes) via CallerGraphKey.
+    // open-signature normalization is shared with the reverse traversal.
     [Fact]
     public void BuildCallTree_WithScope_ResolvesConstructedGenericCallee()
     {
@@ -1332,17 +1355,45 @@ public class LibraryBodyIndexTests
         Assert.Equal(2, tree.Perf?.Fanout);
     }
 
-    static List<string> FlattenCallTree(CallTreeNode root)
+    static List<string> FlattenCallTree(
+        CallTreeNode root,
+        bool includePerf = false)
     {
         var lines = new List<string>();
         void Walk(CallTreeNode node, int depth)
         {
-            lines.Add($"{depth}|{node.Member.Name}|{node.Status}|{node.Perf?.Source ?? ""}");
+            lines.Add(includePerf
+                ? $"{depth}|{MemberIdentity(node.Member)}"
+                    + $"|kind={node.Kind}"
+                    + $"|status={node.Status}"
+                    + $"|fanin={node.Perf?.Fanin}"
+                    + $"|max-depth={node.Perf?.MaxDepth}"
+                    + $"|in-loop={node.Perf?.InLoop}"
+                    + $"|root-kind={node.Perf?.RootKind}"
+                    + $"|source={node.Perf?.Source}"
+                : $"{depth}|{node.Member.Name}|{node.Status}|"
+                    + $"{node.Perf?.Source ?? ""}");
             foreach (var child in node.Children)
                 Walk(child, depth + 1);
         }
         Walk(root, 0);
         return lines;
+
+        static string MemberIdentity(MemberRef member) =>
+            $"{GenericMemberIdentity.KeyFragment(member.DeclaringType)}"
+            + $"::{member.Name}"
+            + $"|arity={member.GenericArity}"
+            + $"|parameters={TypeKeys(member.ParameterTypes)}"
+            + $"|return={GenericMemberIdentity.KeyFragment(member.ReturnType)}"
+            + $"|type-arguments={TypeKeys(member.TypeArguments)}"
+            + $"|has-this={member.HasThis}"
+            + $"|signature-header={member.SignatureHeader}"
+            + $"|required-parameters={member.RequiredParameterCount}"
+            + $"|open-parameters={TypeKeys(member.OpenParameterTypes)}"
+            + $"|open-return={GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
+
+        static string TypeKeys(IEnumerable<TypeRef> types) =>
+            string.Join(",", types.Select(GenericMemberIdentity.KeyFragment));
     }
 
     // #1741 (unit): the key fragment for a type includes its assembly, so same-FQN types

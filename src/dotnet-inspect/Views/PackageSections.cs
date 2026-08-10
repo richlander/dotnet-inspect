@@ -36,6 +36,9 @@ public static class PackageSections
     /// family, which lists files the package actually ships.
     /// </summary>
     public const string SourceLinkFiles = "SourceLink: Files";
+    public const string SourceLinkAvailability = "SourceLink: Availability";
+    public const string SourceLinkMissingFiles = "SourceLink: Missing Files";
+    public const string SourceLinkIntegrity = "SourceLink: Integrity";
     public const string Dependencies = "Dependencies";
     public const string Files = "Package files";
     public const string Vulnerabilities = "Vulnerabilities";
