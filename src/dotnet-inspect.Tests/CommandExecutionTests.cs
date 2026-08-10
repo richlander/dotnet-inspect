@@ -11259,17 +11259,20 @@ public partial class CommandExecutionTests
 
     /// <summary>
     /// The <c>--all-libraries</c> document is assembled by hand, and every block boundary is
-    /// produced by one helper that decides whether a blank line is already present. That decision
-    /// is easy to break silently in either direction: it read a CRLF tail as "no blank line yet"
-    /// and doubled the blank before every section on Windows (#3963), and a separator rewritten to
-    /// emit one newline instead of two would run the sections together. Neither produces a
-    /// carriage return, so neither is visible to a line-ending assertion.
+    /// produced by one helper that appends a block plus its trailing blank line. That is easy to
+    /// break silently in either direction: #3963 doubled the blank before every section on Windows,
+    /// and a separator rewritten to emit one newline instead of two would run the sections
+    /// together. Neither produces a carriage return, so neither is visible to a line-ending
+    /// assertion.
     /// <para>
     /// The invariant asserted here is therefore two-sided -- each <c>##</c> heading is preceded by
-    /// exactly one blank line, so a missing blank and an extra blank both fail. It has teeth on
-    /// every platform. <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers
-    /// the complementary property, the line ending itself, over the per-library path; that
-    /// assertion has teeth only on the <c>test-windows</c> leg.
+    /// exactly one blank line, so a missing blank and an extra blank both fail. The two ends of the
+    /// document are covered separately, because a heading loop cannot see them: the start must be
+    /// <c>"# "</c>, so nothing can be prepended above the title, and the end must not be blank, so
+    /// the trailing <c>TrimEnd</c> cannot be dropped. All three have teeth on every platform.
+    /// <see cref="PackageCommand_AllLibraries_MarkdownUsesLfThroughout"/> covers the complementary
+    /// property, the line ending itself, over the per-library path; that assertion has teeth only
+    /// on the <c>test-windows</c> leg.
     /// </para>
     /// <para>
     /// Runs the aggregated path (<c>-S Switches</c>) added in #3951, which the per-library test
@@ -11287,7 +11290,16 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("## Switches", output, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', output);
+
+        // The two ends of the document, which the heading loop below cannot reach. The document is
+        // terminated by exactly one newline: every block contributes a trailing blank line, so
+        // without the TrimEnd that assembles them the document would end "\n\n\n" -- which still
+        // satisfies EndsWith("\n").
+        Assert.StartsWith("# ", output, StringComparison.Ordinal);
         Assert.EndsWith("\n", output, StringComparison.Ordinal);
+        Assert.False(
+            output.EndsWith("\n\n", StringComparison.Ordinal),
+            "expected the document to end with a single newline, not a trailing blank line");
 
         var lines = output.Split('\n');
         var headings = 0;
