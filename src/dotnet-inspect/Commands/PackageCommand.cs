@@ -303,7 +303,9 @@ public class PackageCommand
                     && NuGetCache.TryGetCachedPackage(
                         normalizedName,
                         versionQueryPinned,
-                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            normalizedName)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -348,7 +350,9 @@ public class PackageCommand
 
             if (options.Limit == 1 && options.ForceLatest)
             {
-                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+                    options.SourceOptions,
+                    normalizedName);
                 var latest = await PackageExtractor.GetLatestVersionAsync(
                     context.HttpClient,
                     normalizedName,
@@ -689,7 +693,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger, acquirePdb: true);
+                    extractPath, packageName, version, client, logger,
+                    acquirePdb: true, options.SourceOptions);
             }
 
             if (wantsSignals)
@@ -1603,7 +1608,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
+                    extractPath, target.PackageName, version, context.HttpClient, logger,
+                    acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);
             }
@@ -1739,7 +1745,8 @@ public class PackageCommand
                     version,
                     isPlatformAssembly: false,
                     CoreSourceLinkQueryCache.Instance,
-                    logger.Log);
+                    logger.Log,
+                    options.SourceOptions);
 
                 InspectionQueryResults? queryResults = null;
                 if (requestedQueries.Count > 0)
@@ -1756,7 +1763,8 @@ public class PackageCommand
                         packageName,
                         version,
                         isPlatformAssembly: false,
-                        logger.Log).ConfigureAwait(false);
+                        logger.Log,
+                        sourceOptions: options.SourceOptions).ConfigureAwait(false);
                 }
 
                 if (collectSourceFiles)
