@@ -44,7 +44,10 @@ export function validateDocument(document) {
       throw new TypeError(`Node ${index} IL offset must be a non-negative 32-bit integer or null.`);
     }
     const instruction = node.kind === "Instruction";
-    if (instruction !== (node.medium === "Il" && hasIlOffset)) {
+    if (instruction && node.medium !== "Il") {
+      throw new TypeError(`Node ${index} kind identifies an instruction outside IL text.`);
+    }
+    if (instruction !== hasIlOffset) {
       throw new TypeError(`Node ${index} kind, medium, and IL offset do not identify one instruction.`);
     }
     if (hasIlOffset && node.il_offset <= previousIlOffset) {
@@ -139,13 +142,14 @@ export function buildLines(text) {
   let start = 0;
 
   for (let index = 0; index < text.length; index++) {
-    if (text[index] !== "\n") continue;
+    if (text[index] !== "\r" && text[index] !== "\n") continue;
     lines.push({
       number: lines.length + 1,
       start,
       end: index,
       text: text.slice(start, index),
     });
+    if (text[index] === "\r" && text[index + 1] === "\n") index++;
     start = index + 1;
   }
 

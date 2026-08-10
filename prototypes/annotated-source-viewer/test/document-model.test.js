@@ -13,11 +13,13 @@ import {
 import { sampleDocument } from "../src/sample-document.js";
 
 test("line coordinates use decoded UTF-16 code units", () => {
-  const lines = buildLines("a😀\nb");
+  const lines = buildLines("a😀\r\nb\rc\n");
 
   assert.deepEqual(lines, [
     { number: 1, start: 0, end: 3, text: "a😀" },
-    { number: 2, start: 4, end: 5, text: "b" },
+    { number: 2, start: 5, end: 6, text: "b" },
+    { number: 3, start: 7, end: 8, text: "c" },
+    { number: 4, start: 9, end: 9, text: "" },
   ]);
 });
 
@@ -108,6 +110,12 @@ test("instruction and fact offsets stay within the signed 32-bit contract", () =
   const oversizedFact = structuredClone(sampleDocument);
   oversizedFact.facts[0].source_offset = 2_147_483_648;
   assert.throws(() => validateDocument(oversizedFact), /non-negative 32-bit integer/);
+});
+
+test("only IL instruction nodes may carry an IL offset", () => {
+  const csharpWithOffset = structuredClone(sampleDocument);
+  csharpWithOffset.nodes[1].il_offset = 1;
+  assert.throws(() => validateDocument(csharpWithOffset), /do not identify one instruction/);
 });
 
 test("mixed-medium lines classify and segment each substring independently", () => {
