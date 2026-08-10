@@ -731,7 +731,8 @@ public class DiffCommand
             }
         }
         else if (SelectsFindingTransitions(options)
-            || SelectsImplementationDiff(options))
+            || (SelectsImplementationDiff(options)
+                && !SelectsAnalysisDiff(options)))
         {
             return [];
         }

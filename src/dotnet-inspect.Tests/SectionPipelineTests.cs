@@ -1809,10 +1809,25 @@ public class SectionPipelineTests
                         DiffSections.AnalysisDiff.Name,
                     },
                 });
+        HashSet<InspectionQueryDefinition> implementationSelection =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    AllocRegressionsOnly = true,
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
 
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
             singleSection);
+        Assert.Equal(
+            [BodySignalComparisonQuery.Definition],
+            implementationSelection);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,

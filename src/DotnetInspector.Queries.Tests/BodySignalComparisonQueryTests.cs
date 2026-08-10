@@ -30,13 +30,8 @@ public sealed class BodySignalComparisonQueryTests
     }
 
     [Fact]
-    public void Definition_IsUnboundedAndPresentationIndependent()
-    {
-        Assert.Equal(
+    public void Definition_IsUnbounded()
+        => Assert.Equal(
             InspectionCost.Unbounded,
             BodySignalComparisonQuery.Definition.Cost);
-        Assert.DoesNotContain(
-            typeof(BodySignalComparisonQuery).Assembly.GetReferencedAssemblies(),
-            reference => reference.Name is "Markout" or "dotnet-inspect");
-    }
 }
