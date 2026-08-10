@@ -16532,6 +16532,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_Signals_CountMatchesRenderedRows()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "-S", "Signals", "--count");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.Empty(renderError);
+            Assert.Empty(countError);
+            var renderedRows = CountOutput.CountMarkdownTableRows(renderOutput);
+            Assert.True(renderedRows > 0);
+            Assert.Equal(
+                renderedRows.ToString(CultureInfo.InvariantCulture),
+                countOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Signals_RendersRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
