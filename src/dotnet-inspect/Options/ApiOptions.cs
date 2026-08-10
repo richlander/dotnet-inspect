@@ -124,6 +124,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool TabularExplicitlySet { get; init; }
     public bool PlainText { get; init; }
 
+    /// <summary>
+    /// Render the selected graph as standalone Mermaid.
+    /// </summary>
+    public bool MermaidOutput { get; init; }
+
+    /// <summary>
+    /// Render graph sections as fenced Mermaid within the Markdown document.
+    /// </summary>
+    public bool EmbeddedMermaid { get; init; }
+
     /// <summary>Print only the selected payload with no heading,
     /// fence, separator, or tips.</summary>
     public bool Bare { get; init; }
@@ -141,10 +151,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool JsonArray { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user explicitly chose an output format via CLI flags or an environment default.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via a CLI flag.
+    /// Unlike <see cref="FormatExplicitlySet"/>, environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     /// <summary>
     /// Resolved output format, including environment overrides.
@@ -215,7 +231,10 @@ public partial record ApiOptions : IProjectionOptions
     /// Returns the appropriate Markout formatter for the current output format.
     /// </summary>
     public IMarkoutFormatter CreateFormatter() =>
-        PlainText ? new PlainTextFormatter() : new MarkdownFormatter();
+        PlainText
+            ? new PlainTextFormatter()
+            : new MarkdownFormatter(
+                EmbeddedMermaid ? MarkdownGraphMode.Mermaid : MarkdownGraphMode.EdgeTable);
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).
@@ -321,6 +340,9 @@ public record MemberOptions : ApiOptions
     public bool HasCallerScope => CallerScopeDirectories.Length > 0 
         || CallerScopeProjects.Length > 0 
         || CallerScopePackages.Length > 0;
+
+    /// <inheritdoc/>
+    public override bool IsRawOutput => base.IsRawOutput || Tree || MermaidOutput;
 }
 
 /// <summary>

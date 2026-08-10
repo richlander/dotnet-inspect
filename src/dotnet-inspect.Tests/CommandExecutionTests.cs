@@ -7010,6 +7010,60 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("table")]
+    [InlineData("mermaid")]
+    public async Task Member_CallGraphTree_OverridesEnvironmentFormat(string environmentFormat)
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", environmentFormat);
+            var (exit, output, error) = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tree", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
+            Assert.DoesNotContain("| From |", output);
+            Assert.DoesNotContain("graph TD", output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task Member_EnvironmentMermaid_AppliesOnlyToCallGraphSelection()
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var graph = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
+            var calls = await RunAppAsync(
+                "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+                nameof(MemberCallGraphFixture.Inner), "-S", "Calls", "--tips", "q");
+
+            Assert.Equal(0, graph.Exit);
+            Assert.Empty(graph.Error);
+            Assert.StartsWith("graph TD", graph.Output, StringComparison.Ordinal);
+            Assert.Equal(0, calls.Exit);
+            Assert.Empty(calls.Error);
+            Assert.Contains("## Calls", calls.Output);
+            Assert.DoesNotContain("graph TD", calls.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
     [Fact]
     public async Task Member_BareNameCallGraph_AmbiguousOverloadReportsSelectorHint()
     {
@@ -9788,6 +9842,51 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Type_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new TypeOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            TypeName = "JsonSerializer",
+            Select = ["Methods"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => TypeCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), output);
+        Assert.True(count > 0);
+        Assert.DoesNotContain("#", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task Member_SingleSectionCount_WithPlainText_WritesInteger()
+    {
+        var options = new MemberOptions
+        {
+            AssemblyPath = TestAssemblyPath,
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            Select = ["Calls"],
+            Count = true,
+            PlainText = true
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.True(int.TryParse(output.Trim(), out var count), output);

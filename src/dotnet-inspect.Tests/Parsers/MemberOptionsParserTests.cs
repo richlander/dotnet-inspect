@@ -70,6 +70,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
         opts.AddSectionOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Mermaid);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
@@ -257,6 +258,53 @@ public class MemberOptionsParserTests
         Assert.False(options.Jsonl);
         Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
+        Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Table, options.Format);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithMermaid_SetsStandaloneMermaidOutput()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid");
+
+        Assert.True(options.MermaidOutput);
+        Assert.False(options.EmbeddedMermaid);
+        Assert.True(options.IsRawOutput);
+        Assert.True(options.FormatFlagExplicitlySet);
+        Assert.Equal(OutputFormat.Mermaid, options.Format);
+    }
+
+    [Fact]
+    public async Task ExplicitPackage_WithMarkdownMermaid_SetsEmbeddedMermaidOutput()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "JsonSerializer", "--package", "System.Text.Json", "--markdown", "--mermaid");
+
+        Assert.False(options.MermaidOutput);
+        Assert.True(options.EmbeddedMermaid);
+        Assert.False(options.IsRawOutput);
+    }
+
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--plaintext")]
+    [InlineData("--bare")]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("-v:n")]
+    public async Task ExplicitPackage_WithStandaloneMermaidAndAnotherFormat_IsRejected(string format)
+    {
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["member", "JsonSerializer", "--package", "System.Text.Json", "--mermaid", format]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var error = Assert.IsType<MemberOptionsParser.VersionError>(result);
+        Assert.Contains("--mermaid is standalone", error.Error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -273,6 +321,8 @@ public class MemberOptionsParserTests
             Assert.False(options.Jsonl);
             Assert.True(options.TabularExplicitlySet);
             Assert.True(options.FormatExplicitlySet);
+            Assert.False(options.FormatFlagExplicitlySet);
+            Assert.Equal(OutputFormat.Table, options.Format);
         }
         finally
         {
@@ -299,6 +349,7 @@ public class MemberOptionsParserTests
             Assert.Empty(parseResult.Errors);
             Assert.Equal(expectedFormat, opts.ResolveFormat(parseResult));
             Assert.True(opts.IsFormatExplicitlySet(parseResult));
+            Assert.False(opts.IsFormatFlagExplicitlySet(parseResult));
             Assert.False(opts.IsTableExplicitlySet(parseResult));
         }
         finally

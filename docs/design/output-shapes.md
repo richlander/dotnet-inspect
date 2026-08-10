@@ -37,12 +37,12 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
   `.cs` body, an XML-doc `///` comment).
 
 Most sections are Tables, but a section can also be a key-value field set, a
-list, a code/text blob, or a tree (for example a call graph). Those are still
-"one section" — the Table rung — and they collapse to Scalars the same way.
-For a call graph, the declared row unit is a directed edge: `--count` counts
-relationships, and `--rows` selects the same ordered relationships whether the
-section is rendered as a tree or an edge table. Tree nodes are presentation
-context, not additional rows.
+list, a code/text blob, a tree, or a graph. Those are still "one section" — the
+Table rung — and they collapse to Scalars the same way. For a call graph, the
+declared row unit is a directed edge: `--count` counts relationships, and
+`--rows` selects the same ordered relationships whether the graph is rendered
+as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
+tabular stream. Tree nodes are presentation context, not additional rows.
 
 ## Flag families
 
@@ -53,7 +53,8 @@ of the ladder families contributes in one of three ways:
   `--count`, `-n 1`).
 - **Presentation modifiers** change how a selected payload is rendered without
   changing the shape (`--bare`, `--markdown`, `--json`, `--table`, `--tsv`,
-  `--jsonl`, `--plaintext`, `--no-headers`, and section-supported `--tree`).
+  `--jsonl`, `--plaintext`, `--no-headers`, and graph-supported `--tree` or
+  `--mermaid`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
 
@@ -65,9 +66,9 @@ rather than selecting one inspection or emitting multiple unframed payloads.
 
 Shape cardinality is evaluated after both section and subject selection.
 `--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
-requires exactly one tree shape. Selecting one section with `--tfm all` still
-produces one shape per inspection, so it does not satisfy either single-shape
-contract.
+requires exactly one tree shape; standalone `--mermaid` requires exactly one
+graph shape. Selecting one section with `--tfm all` still produces one shape
+per inspection, so it does not satisfy any single-shape contract.
 
 ### Coordinate carriers sit before the ladder
 
@@ -129,9 +130,9 @@ Formatters decide presentation, not content:
 - **`TableFormatter`** — a single-section tabular renderer (pretty table, `--tsv`,
   `--jsonl`). Because it renders one section at a time, its output is always a
   single Table (or Vector).
-- Tree and table writers render their own narrow shapes (a call graph tree, a
-  table row) and have no verbosity dial — they either show a thing or they
-  do not (see [rendering-model.md](rendering-model.md)).
+- Tree, Mermaid, and table writers render their own narrow shapes (a call graph
+  tree or diagram, a table row) and have no verbosity dial — they either show a
+  thing or they do not (see [rendering-model.md](rendering-model.md)).
 
 Cardinality is observed at the structured writer seam, after section, column,
 field, and row-window projection and before text formatting. A formatter can
