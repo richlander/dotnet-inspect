@@ -45,7 +45,8 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
+            MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -1065,9 +1066,17 @@ public class ApiCommand
             return 1;
         }
 
-        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
+        if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                typeOptions.MemberLimit);
             return 0;
         }
 
@@ -1308,6 +1317,18 @@ public class ApiCommand
 
         if (options.Count)
         {
+            // A call graph declares edge rows in its projection. Count those rows directly
+            // rather than scanning the rendered tree, which has a different node-shaped
+            // lowering and therefore cannot answer the row question.
+            if (options.IncludeSections is { Count: 1 } sections
+                && sections.Contains(SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };

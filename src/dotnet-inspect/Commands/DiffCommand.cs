@@ -9,6 +9,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Research;
@@ -196,7 +197,13 @@ public class DiffCommand
                     GetRequestedQueries(pipeline, options);
                 InspectionQueryResults queryResults = catalog.QueryRegistry.Run(
                     requestedQueries,
-                    new DiffQueryContext(inputs.FromSurface, inputs.ToSurface));
+                    new DiffQueryContext(
+                        inputs.FromSurface,
+                        inputs.ToSurface,
+                        () => CreateBodySignalComparisonInput(inputs, options),
+                        () => CreateImplementationComparisonInput(
+                            inputs,
+                            options)));
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
@@ -237,13 +244,13 @@ public class DiffCommand
                 if (SelectsImplementationDiff(options) && !SelectsAnalysisDiff(options))
                 {
                     var implementation = await BuildImplementationDiffWithSourceAsync(
+                        queryResults.Get(
+                            ImplementationComparisonQuery.Definition),
                         inputs.FromPaths,
                         inputs.ToPaths,
                         options,
                         context.HttpClient,
-                        logger,
-                        inputs.FromSurface,
-                        inputs.ToSurface);
+                        logger);
                     var view = DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
                         implementation,
@@ -268,7 +275,9 @@ public class DiffCommand
 
                 if (SelectsAnalysisDiff(options))
                 {
-                    var analysis = BuildAnalysisDiff(inputs.FromPaths, inputs.ToPaths, options, inputs.FromSurface, inputs.ToSurface);
+                    var analysis = BuildAnalysisDiff(
+                        queryResults.Get(BodySignalComparisonQuery.Definition),
+                        options);
                     var view = DiffOutputFormatter.BuildAnalysisDiffView(
                         inputs.Name,
                         analysis.Rows,
@@ -725,11 +734,25 @@ public class DiffCommand
                 };
             }
         }
-        else if (SelectsFindingTransitions(options)
-            || SelectsImplementationDiff(options)
-            || SelectsAnalysisDiff(options))
+        else if (SelectsFindingTransitions(options))
         {
             return [];
+        }
+        else if (SelectsImplementationDiff(options)
+            && !SelectsAnalysisDiff(options))
+        {
+            querySections = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.ImplementationDiff.Name,
+            };
+        }
+        else if (SelectsAnalysisDiff(options))
+        {
+            querySections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                DiffSections.AnalysisDiff.Name,
+            };
         }
 
         return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
@@ -769,11 +792,8 @@ public class DiffCommand
         if (selected.Contains(DiffSections.AnalysisDiff.Name))
         {
             var analysis = BuildAnalysisDiff(
-                inputs.FromPaths,
-                inputs.ToPaths,
-                options,
-                inputs.FromSurface,
-                inputs.ToSurface);
+                queryResults.Get(BodySignalComparisonQuery.Definition),
+                options);
             analysisView = DiffOutputFormatter.BuildAnalysisDiffView(
                 inputs.Name,
                 analysis.Rows,
@@ -787,13 +807,12 @@ public class DiffCommand
         if (selected.Contains(DiffSections.ImplementationDiff.Name))
         {
             var implementation = await BuildImplementationDiffWithSourceAsync(
+                queryResults.Get(ImplementationComparisonQuery.Definition),
                 inputs.FromPaths,
                 inputs.ToPaths,
                 options,
                 httpClient,
-                logger,
-                inputs.FromSurface,
-                inputs.ToSurface);
+                logger);
             implementationView = DiffOutputFormatter.BuildImplementationDiffView(
                 inputs.Name,
                 implementation,
@@ -846,21 +865,24 @@ public class DiffCommand
         ApiSurface? fromSurface = null,
         ApiSurface? toSurface = null)
     {
-        var memberTargetIdentities = options.MemberFilter.Count == 0
-            ? null
-            : ResolveMemberTargetIdentities(
-                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                options.MemberFilter,
-                options.TypeFilter,
-                requireBodyTargets: true).MemberIdentities;
-        var research = ResearchDiff.Compare(
-            ResearchDiffInput.FromAssemblies(fromPaths),
-            ResearchDiffInput.FromAssemblies(toPaths),
-            new ResearchDiffOptions(
-                ResearchChangeMechanism.BodySignals,
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: memberTargetIdentities));
+        var comparisonInput = CreateBodySignalComparisonInput(
+            fromPaths,
+            toPaths,
+            options,
+            fromSurface,
+            toSurface);
+        return BuildAnalysisDiff(
+            BodySignalComparisonQuery.Execute(comparisonInput),
+            options);
+    }
+
+    internal static AnalysisDiffResult BuildAnalysisDiff(
+        ResearchComparison research,
+        DiffOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(research);
+        ArgumentNullException.ThrowIfNull(options);
+
         var ranked = research.Changes
             .Where(change => change.Category == ResearchChangeCategory.BodySignal
                 && change.Descriptor.Id.StartsWith("analysis.", StringComparison.Ordinal)
@@ -883,7 +905,17 @@ public class DiffCommand
         return RankAnalysisRows(ranked, options.ChangedOnly, options.AllocRegressionsOnly);
     }
 
-    internal static ImplementationDiffResult BuildImplementationDiff(
+    private static BodySignalComparisonInput CreateBodySignalComparisonInput(
+        DiffInputs inputs,
+        DiffOptions options)
+        => CreateBodySignalComparisonInput(
+            inputs.FromPaths,
+            inputs.ToPaths,
+            options,
+            inputs.FromSurface,
+            inputs.ToSurface);
+
+    internal static BodySignalComparisonInput CreateBodySignalComparisonInput(
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
         DiffOptions options,
@@ -897,16 +929,73 @@ public class DiffCommand
                 toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
                 options.MemberFilter,
                 options.TypeFilter,
+                requireBodyTargets: true).MemberIdentities;
+        return new BodySignalComparisonInput(
+            fromPaths.Select(LibraryBodyIndex.Open).ToArray(),
+            toPaths.Select(LibraryBodyIndex.Open).ToArray(),
+            options.TypeFilter,
+            memberTargetIdentities);
+    }
+
+    internal static ImplementationDiffResult BuildImplementationDiff(
+        IReadOnlyList<string> fromPaths,
+        IReadOnlyList<string> toPaths,
+        DiffOptions options,
+        ApiSurface? fromSurface = null,
+        ApiSurface? toSurface = null)
+        => ImplementationComparisonQuery.Execute(
+            CreateImplementationComparisonInput(
+                fromPaths,
+                toPaths,
+                options,
+                fromSurface,
+                toSurface));
+
+    private static ImplementationComparisonInput
+        CreateImplementationComparisonInput(
+            DiffInputs inputs,
+            DiffOptions options)
+        => CreateImplementationComparisonInput(
+            inputs.FromPaths,
+            inputs.ToPaths,
+            options,
+            inputs.FromSurface,
+            inputs.ToSurface);
+
+    internal static ImplementationComparisonInput
+        CreateImplementationComparisonInput(
+            IReadOnlyList<string> fromPaths,
+            IReadOnlyList<string> toPaths,
+            DiffOptions options,
+            ApiSurface? fromSurface = null,
+            ApiSurface? toSurface = null)
+    {
+        var memberTargetIdentities = options.MemberFilter.Count == 0
+            ? null
+            : ResolveMemberTargetIdentities(
+                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                options.MemberFilter,
+                options.TypeFilter,
                 requireBodyTargets: true,
                 bodySectionName: "Implementation Diff").MemberIdentities;
 
-        return ImplementationDiff.Compare(
-            ResearchDiffInput.FromAssemblies(fromPaths),
-            ResearchDiffInput.FromAssemblies(toPaths),
-            new ImplementationDiffOptions(
-                TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: memberTargetIdentities));
+        return new ImplementationComparisonInput(
+            fromPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            toPaths.Select(CreateImplementationAssemblyInput).ToArray(),
+            options.TypeFilter,
+            memberTargetIdentities);
     }
+
+    static ImplementationAssemblyInput CreateImplementationAssemblyInput(
+        string path)
+        => new(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "diff implementation comparison")),
+            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            LibraryBodyIndex.Open(path));
 
     internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
@@ -923,6 +1012,25 @@ public class DiffCommand
             options,
             fromSurface,
             toSurface);
+        return await BuildImplementationDiffWithSourceAsync(
+            result,
+            fromPaths,
+            toPaths,
+            options,
+            httpClient,
+            logger);
+    }
+
+    internal static async Task<ImplementationDiffResult>
+        BuildImplementationDiffWithSourceAsync(
+            ImplementationDiffResult result,
+            IReadOnlyList<string> fromPaths,
+            IReadOnlyList<string> toPaths,
+            DiffOptions options,
+            HttpClient httpClient,
+            VerboseLogger logger)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         if (!options.IncludeAuthoredSource || result.Members.Count == 0)
             return result;
 
