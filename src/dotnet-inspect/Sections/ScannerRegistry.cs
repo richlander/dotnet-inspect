@@ -73,9 +73,9 @@ public sealed class ScannerContext : IDisposable
     ///
     /// Returns <see langword="null"/> when the session cannot be acquired and retains the
     /// acquisition exception. Scanner adapters use their path overload to preserve their existing
-    /// failure mapping. Typed-query adapters map the retained exception directly because reopening
-    /// <see cref="AssemblyPath"/> could substitute different content for a supplied
-    /// <see cref="MetadataContext"/>.
+    /// failure mapping. The Resources typed-query adapter maps the retained exception directly
+    /// because reopening <see cref="AssemblyPath"/> could substitute different content for a
+    /// supplied <see cref="MetadataContext"/>.
     ///
     /// Scanners run sequentially (<see cref="ScannerRegistry.RunScanners"/>), so no
     /// synchronization is required.
