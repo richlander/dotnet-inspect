@@ -9,8 +9,8 @@ It is built for both humans and agents. Markdown is the default output because h
 The target [inspection space architecture](inspection-space.md) defines the
 core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
-boundaries. Typed query-planning slices are implemented for library
-metadata-image, direct-reference, extension-method, custom-attribute,
+boundaries. Typed query-planning slices are implemented for project guidance,
+library metadata-image, direct-reference, extension-method, custom-attribute,
 SourceLink, Integrations, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection. The `diff` Changes, Analysis Diff, and
 Implementation Diff sections consume producer-owned comparison results over
