@@ -96,6 +96,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   offset. Requesting an otherwise noncontributing catalog scope therefore does
   not change sibling order, revisit placement, or which nodes fit in a bounded
   traversal.
+- **Stable rows.** A call graph answers "what calls what", so its row unit is a
+  directed edge. `Rows` numbers those edges from one in deterministic edge order
+  and retains those numbers when a host filters them. Counts and row windows
+  therefore bind to the projection rather than to a rendered tree's node lines.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
@@ -238,6 +242,10 @@ picks the lowering the sink can express: a tree in Markdown and plain text, an
 edge table under `--table`/`--tsv`/`--jsonl`, and a flowchart in Mermaid. The
 adapter is the only place that knows call-graph vocabulary; the section is a
 graph, not a pre-rendered tree, which is what lets one model serve every sink.
+`--count` reports the projection's edge-row count. `--rows` selects those same
+stable edge rows before tree/diagram lowering and at the table writer boundary
+for tabular output, so changing the final rendering does not change the
+addressed relationships.
 
 The browser engine consumes the same projection and generates its own Mermaid; it
 reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI

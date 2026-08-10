@@ -354,6 +354,163 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void KindMismatchRequiresUnresolvedContractEvidence()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        CatalogMemberCorrespondencePlan plan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            plan.Requests);
+        var exact = Assert.IsType<CatalogMemberJoinProjection.Issued>(
+            plan.Project(context));
+        Assert.Equal(
+            CatalogMemberCorrespondenceKind.Exact,
+            exact.Key.Kind);
+        var changedKind = new CatalogMemberJoinProjection.Issued(
+            new CatalogMemberJoinKey(
+                exact.Key.Catalog,
+                exact.Key.Generation,
+                CatalogMemberCorrespondenceKind.Indeterminate,
+                exact.Key.DeclaringType,
+                exact.Key.Name,
+                exact.Key.MemberKind,
+                exact.Key.GenericArity,
+                exact.Key.HasThis,
+                exact.Key.SignatureHeader,
+                exact.Key.RequiredParameterCount,
+                exact.Key.ParameterTypes,
+                exact.Key.ReturnType),
+            []);
+
+        Assert.False(
+            plan.CorrespondsTo(plan, exact, changedKind));
+    }
+
+    [Fact]
+    public void EstablishedTypeRequestPairVouchesForRepeatedSignatureType()
+    {
+        byte[] targetImage = BuildAssembly("Target", ["Api"]);
+        byte[] candidateImage = BuildAssembly("Candidate", ["Entry"]);
+        ResolvedAssemblyReference targetSource = Descriptor(targetImage);
+        ResolvedAssemblyReference candidateSource =
+            Descriptor(candidateImage);
+        TypeRef targetType = ReadDefinition(targetImage, "Api");
+        var facade = new AssemblyReferenceIdentity(
+            "Facade",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef candidateType = ReferencedType(facade, "Api");
+        CatalogMemberCorrespondencePlan target =
+            CatalogMemberCorrespondencePlan.Create(
+                targetSource,
+                Method(
+                    targetSource,
+                    targetImage,
+                    targetType,
+                    [targetType],
+                    targetType));
+        CatalogMemberCorrespondencePlan candidate =
+            CatalogMemberCorrespondencePlan.Create(
+                candidateSource,
+                Method(
+                    candidateSource,
+                    candidateImage,
+                    candidateType,
+                    [candidateType],
+                    candidateType));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [targetSource, candidateSource],
+            target.Requests.Concat(candidate.Requests));
+        var targetProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                target.Project(context));
+        var candidateProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                candidate.Project(context));
+
+        Assert.False(
+            target.CorrespondsTo(
+                candidate,
+                targetProjection,
+                candidateProjection));
+        Assert.True(
+            target.CorrespondsTo(
+                candidate,
+                targetProjection,
+                candidateProjection,
+                Assert.Single(target.Requests),
+                Assert.Single(candidate.Requests)));
+    }
+
+    [Fact]
+    public void EstablishedTypeRequestPairDoesNotVouchForAnotherType()
+    {
+        byte[] targetImage = BuildAssembly("Target", ["Api"]);
+        byte[] candidateImage = BuildAssembly("Candidate", ["Entry"]);
+        ResolvedAssemblyReference targetSource = Descriptor(targetImage);
+        ResolvedAssemblyReference candidateSource =
+            Descriptor(candidateImage);
+        TypeRef targetType = ReadDefinition(targetImage, "Api");
+        var facade = new AssemblyReferenceIdentity(
+            "Facade",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef candidateType = ReferencedType(facade, "Api");
+        TypeRef otherType = ReferencedType(facade, "Other");
+        CatalogMemberCorrespondencePlan target =
+            CatalogMemberCorrespondencePlan.Create(
+                targetSource,
+                Method(
+                    targetSource,
+                    targetImage,
+                    targetType,
+                    [targetType],
+                    targetType));
+        CatalogMemberCorrespondencePlan candidate =
+            CatalogMemberCorrespondencePlan.Create(
+                candidateSource,
+                Method(
+                    candidateSource,
+                    candidateImage,
+                    candidateType,
+                    [otherType],
+                    candidateType));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [targetSource, candidateSource],
+            target.Requests.Concat(candidate.Requests));
+        var targetProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                target.Project(context));
+        var candidateProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                candidate.Project(context));
+        TypeResolutionRequest candidateDeclaringRequest =
+            candidate.Requests.Single(
+                request => request.Type == candidateType.Resolution!.Type);
+
+        Assert.False(
+            target.CorrespondsTo(
+                candidate,
+                targetProjection,
+                candidateProjection,
+                Assert.Single(target.Requests),
+                candidateDeclaringRequest));
+    }
+
+    [Fact]
     public void GenericMemberWithoutOpenSignature_IsIncomplete()
     {
         byte[] image = BuildAssembly("Owner", ["Owner", "Arg"]);

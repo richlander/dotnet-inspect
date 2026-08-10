@@ -72,6 +72,19 @@ public sealed record CallGraphNode(
 public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel);
 
 /// <summary>
+/// One stable row of a <see cref="CallGraphProjection"/>.
+/// </summary>
+/// <param name="Number">
+/// The one-based row number in the projection's deterministic edge order. The number is
+/// retained when rows are filtered, so a window never renumbers the surviving rows.
+/// </param>
+/// <param name="Edge">
+/// The call edge denoted by this row. Call graphs answer "what calls what", so edges are
+/// their row unit.
+/// </param>
+public readonly record struct CallGraphRow(int Number, CallGraphEdge Edge);
+
+/// <summary>
 /// A format-neutral projection of the typed call-graph facts that
 /// <c>ILInspector.Analysis</c> produces (<see cref="CallTreeNode"/> caller and callee roots
 /// built by <c>LibraryBodyIndex.BuildCallerTree</c> / <c>BuildCallTree</c>) into a single
@@ -105,6 +118,11 @@ public sealed class CallGraphProjection
     {
         Nodes = nodes;
         Edges = edges;
+
+        var rows = ImmutableArray.CreateBuilder<CallGraphRow>(edges.Length);
+        for (var i = 0; i < edges.Length; i++)
+            rows.Add(new CallGraphRow(i + 1, edges[i]));
+        Rows = rows.MoveToImmutable();
     }
 
     /// <summary>Nodes in deterministic order. The focus node is always first.</summary>
@@ -112,6 +130,15 @@ public sealed class CallGraphProjection
 
     /// <summary>Edges in deterministic first-seen order, always oriented caller → callee.</summary>
     public ImmutableArray<CallGraphEdge> Edges { get; }
+
+    /// <summary>
+    /// Rows in deterministic order, one per <see cref="Edges"/> entry. Row numbers are
+    /// one-based and stable across filtering.
+    /// </summary>
+    public ImmutableArray<CallGraphRow> Rows { get; }
+
+    /// <summary>The number of edge rows in this projection.</summary>
+    public int RowCount => Rows.Length;
 
     /// <summary>The selected overload the graph is centered on.</summary>
     public CallGraphNode Focus => Nodes[0];
