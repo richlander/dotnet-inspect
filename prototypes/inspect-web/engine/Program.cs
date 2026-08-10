@@ -885,20 +885,20 @@ public static partial class BrowserInspectionEngine
                 versionsJson,
                 BrowserJsonContext.Default.StringArray)
             ?? [];
-        var parsed = versions
-            .Select(value => (
-                Value: value,
-                Parsed: NuGetVersion.TryParse(value, out var version),
-                Version: version))
-            .ToArray();
+        var parsed = new List<(string Value, NuGetVersion Version)>();
+        var unparsed = new List<string>();
+        foreach (string value in versions)
+        {
+            if (NuGetVersion.TryParse(value, out var version))
+                parsed.Add((value, version));
+            else
+                unparsed.Add(value);
+        }
+
         var sorted = parsed
-            .Where(item => item.Parsed)
             .OrderByDescending(item => item.Version, VersionComparer.VersionReleaseMetadata)
             .Select(item => item.Value)
-            .Concat(parsed
-                .Where(item => !item.Parsed)
-                .Select(item => item.Value)
-                .Order(StringComparer.Ordinal))
+            .Concat(unparsed.Order(StringComparer.Ordinal))
             .ToArray();
         return JsonSerializer.Serialize(sorted, BrowserJsonContext.Default.StringArray);
     }
