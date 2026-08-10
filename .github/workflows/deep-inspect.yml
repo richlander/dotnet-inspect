@@ -117,6 +117,7 @@ jobs:
         run: dotnet run --project src/dotnet-inspect.Tests -c Release
 
       - name: Install ilasm/ildasm
+        id: iltools
         continue-on-error: true
         shell: bash
         run: eng/restore-iltools.sh --rid linux-x64 >> "$GITHUB_PATH"
@@ -132,6 +133,16 @@ jobs:
 
       - name: Run IL round-trip tests (including slow sweep)
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+      # Deliberately last: the suites above still report their results when
+      # acquisition fails, but the lane must not go green after replacing its
+      # oracle comparisons with skips.
+      - name: Check ilasm/ildasm result
+        if: steps.iltools.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm failed, so every test that uses them skipped." >&2
+          echo "This lane cannot certify oracle-backed results. See the 'Install ilasm/ildasm' step." >&2
+          exit 1
 
   decompiler-corpus:
     name: Decompiler corpus lane

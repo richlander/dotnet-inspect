@@ -592,6 +592,48 @@ public class IlToolsActivationTests
         }
     }
 
+    [Theory]
+    [InlineData("deep-inspect.yml")]
+    [InlineData("release.yml")]
+    public void SlowWorkflows_FailAfterOracleRestoreFailure(string workflowName)
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(RepoRoot, ".github", "workflows", workflowName));
+        int install = workflow.IndexOf(
+            "- name: Install ilasm/ildasm",
+            StringComparison.Ordinal);
+        int roundTrip = workflow.IndexOf(
+            "- name: Run IL round-trip tests (including slow sweep)",
+            StringComparison.Ordinal);
+        int nextInstallStep = workflow.IndexOf(
+            "\n      - ",
+            install + 1,
+            StringComparison.Ordinal);
+        int terminalCheck = workflow.IndexOf(
+            "- name: Check ilasm/ildasm result",
+            StringComparison.Ordinal);
+        int nextJob = workflow.IndexOf(
+            "\n  decompiler-corpus:",
+            terminalCheck,
+            StringComparison.Ordinal);
+
+        Assert.True(install >= 0);
+        Assert.True(install < nextInstallStep);
+        Assert.True(nextInstallStep < roundTrip);
+        Assert.True(install < roundTrip);
+        Assert.True(roundTrip < terminalCheck);
+        Assert.True(terminalCheck < nextJob);
+
+        string installStep = workflow[install..nextInstallStep];
+        Assert.Contains("id: iltools", installStep);
+        Assert.Contains("continue-on-error: true", installStep);
+
+        string checkStep = workflow[terminalCheck..nextJob];
+        Assert.Contains("if: steps.iltools.outcome == 'failure'", checkStep);
+        Assert.Contains("exit 1", checkStep);
+        Assert.DoesNotContain("\n      - ", checkStep);
+    }
+
     static IEnumerable<string> FencedBashBlocks(string markdown)
     {
         var lines = markdown.Split('\n');
