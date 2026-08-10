@@ -214,7 +214,8 @@ internal static class ApiSourceResolver
                 options.PlatformAssembly,
                 context.HttpClient,
                 logger.Log,
-                options.PlatformFramework);
+                options.PlatformFramework,
+                sourceOptions: options.SourceOptions);
 
             if (error != null)
             {
@@ -226,7 +227,8 @@ internal static class ApiSourceResolver
                         typeName,
                         [frameworkShortName],
                         context.HttpClient,
-                        logger);
+                        logger,
+                        options.SourceOptions);
 
                     if (lookupResult != null)
                     {
@@ -257,7 +259,8 @@ internal static class ApiSourceResolver
                             typeName,
                             otherFrameworks,
                             context.HttpClient,
-                            logger);
+                            logger,
+                            options.SourceOptions);
 
                         if (foundElsewhere != null)
                         {
