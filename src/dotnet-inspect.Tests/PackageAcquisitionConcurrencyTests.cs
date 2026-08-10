@@ -353,35 +353,33 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> publishA = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+        Task<CommittedPackage> publishA = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceA,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
-        Task<CommittedPackage> publishB = Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(
+                TestSourceKey));
+        Task<CommittedPackage> publishB = StartDedicatedWorker(
+            ready,
+            start,
+            () => NuGetCache.CommitPackage(
                 sourceB,
                 nupkgPath: null,
                 packageName,
                 Version,
-                TestSourceKey);
-        });
+                TestSourceKey));
 
-        Assert.True(
-            ready.Wait(
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken));
-        start.Set();
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
+        Assert.True(publishersReady);
 
         Assert.Equal(committed[0].ExtractPath, committed[1].ExtractPath);
         string[] payloads = Directory.GetFiles(
@@ -394,6 +392,64 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloads,
             payload => Assert.Equal(winner, File.ReadAllText(payload)));
         AssertNoStagingDirectories(packageName);
+    }
+
+    [Fact]
+    public async Task WaitForAndJoinWorkersAsync_CancellationJoinsWorkersBeforeRethrowing()
+    {
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim();
+        using var workersWaiting = new CountdownEvent(2);
+        using var releaseWorkers = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        int completedWorkers = 0;
+
+        Task<int> StartWorker() =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () =>
+                {
+                    workersWaiting.Signal();
+                    releaseWorkers.Wait();
+                    return Interlocked.Increment(ref completedWorkers);
+                });
+
+        Task<int> first = StartWorker();
+        Task<int> second = StartWorker();
+        cancellation.Cancel();
+
+        Task<(bool Ready, int[] Results)> completion =
+            WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                cancellation.Token,
+                first,
+                second);
+
+        bool bothWorkersWaiting;
+        bool completedBeforeRelease;
+        try
+        {
+            bothWorkersWaiting =
+                workersWaiting.WaitHandle.WaitOne(TimeSpan.FromSeconds(5));
+            completedBeforeRelease = completion.IsCompleted;
+        }
+        finally
+        {
+            releaseWorkers.Set();
+        }
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => completion);
+
+        Assert.True(bothWorkersWaiting);
+        Assert.False(completedBeforeRelease);
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.True(first.IsCompletedSuccessfully);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.Equal(2, completedWorkers);
     }
 
     [Fact]
@@ -925,22 +981,33 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 TestSourceKey);
         }
 
-        using var client = new HttpClient(new NeverAnsweringHandler());
-        var stopwatch = Stopwatch.StartNew();
+        var handler = new NeverAnsweringHandler();
+        using var client = new HttpClient(handler);
 
-        PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            PackageExtractor.CachedVersionResolutionTimeout);
+
+        Task<PackageExtractionOutcome> extraction = PackageExtractor.ExtractPackageAsync(
             client,
             packageName,
             sourceOptions: s_nugetOrgSource);
 
-        stopwatch.Stop();
+        PackageExtractionOutcome outcome = await extraction.WaitAsync(
+            TimeSpan.FromSeconds(15),
+            TestContext.Current.CancellationToken);
+
         Assert.False(outcome.IsSuccess);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), stopwatch.Elapsed.ToString());
         Assert.Contains("online lookup timed out", outcome.ErrorMessage);
         Assert.Contains("Locally cached versions: 2.0.0, 1.0.0", outcome.ErrorMessage);
         Assert.Contains(
             $"dotnet-inspect package {packageName}@2.0.0",
             outcome.ErrorMessage);
+        Assert.True(handler.RequestStarted.IsCompletedSuccessfully);
+        Assert.True(handler.CancellationObserved.IsCompletedSuccessfully);
+        Assert.True(
+            handler.CancellationDelay < TimeSpan.FromSeconds(5),
+            handler.CancellationDelay.ToString());
     }
 
     [Theory]
@@ -1362,19 +1429,28 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         using var ready = new CountdownEvent(2);
         using var start = new ManualResetEventSlim();
 
-        Task<CommittedPackage> Publish(string dir, string key) => Task.Run(() =>
-        {
-            ready.Signal();
-            start.Wait();
-            return NuGetCache.CommitPackage(dir, nupkgPath: null, packageName, Version, key);
-        });
+        Task<CommittedPackage> Publish(string dir, string key) =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () => NuGetCache.CommitPackage(
+                    dir,
+                    nupkgPath: null,
+                    packageName,
+                    Version,
+                    key));
 
         Task<CommittedPackage> publishA = Publish(sourceA, keyA);
         Task<CommittedPackage> publishB = Publish(sourceB, keyB);
 
-        Assert.True(ready.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        start.Set();
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
+        Assert.True(publishersReady);
 
         Assert.NotEqual(committed[0].ExtractPath, committed[1].ExtractPath);
         AssertNoStagingDirectories(packageName);
@@ -1514,6 +1590,62 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         return path;
     }
 
+    private static Task<T> StartDedicatedWorker<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        Func<T> action)
+    {
+        // These tests exercise filesystem concurrency, not ThreadPool scheduling.
+        // Dedicated workers keep a loaded suite from consuming the readiness budget.
+        return Task.Factory.StartNew(
+            () =>
+            {
+                ready.Signal();
+                start.Wait();
+                return action();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private static async Task<(bool Ready, T[] Results)> WaitForAndJoinWorkersAsync<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        CancellationToken cancellationToken,
+        params Task<T>[] workers)
+    {
+        bool workersReady = false;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? cancellation = null;
+        try
+        {
+            workersReady = ready.Wait(
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            cancellation =
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            start.Set();
+        }
+
+        T[] results;
+        try
+        {
+            results = await Task.WhenAll(workers);
+        }
+        finally
+        {
+            cancellation?.Throw();
+        }
+
+        return (workersReady, results);
+    }
+
     private static void AssertNoTemporaryDirectories(string prefix)
     {
         Assert.Empty(
@@ -1547,6 +1679,53 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             return;
 
         Assert.Empty(Directory.GetDirectories(parent, ".*.tmp-*"));
+    }
+
+    [Fact]
+    public async Task ExtractPackageAsync_PackageSourceMappingSelectsEligibleSource()
+    {
+        const string PackageName = "gamma.mapped";
+        const string Version = "1.0.0";
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"acquisition-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="refusing" value="https://refusing.example/v3/index.json" />
+                <add key="serving" value="https://serving.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="serving">
+                  <package pattern="gamma.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        var handler = new RefusesOnePackageHandler(
+            PackageName,
+            CreatePackageArchive(PackageName, Version));
+        using var client = new HttpClient(handler);
+
+        try
+        {
+            PackageExtractionOutcome outcome = await PackageExtractor.ExtractPackageAsync(
+                client,
+                PackageName,
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath },
+                version: Version);
+
+            Assert.True(outcome.IsSuccess);
+            Assert.DoesNotContain(
+                handler.Requests,
+                url => url.Contains("refusing.example", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 
     [Fact]
@@ -1624,10 +1803,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         string refusedPackageId,
         byte[] refusedPackageArchive) : HttpMessageHandler
     {
+        public List<string> Requests { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Uri uri = request.RequestUri!;
+            Requests.Add(uri.AbsoluteUri);
             HttpResponseMessage response;
 
             if (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.OrdinalIgnoreCase))
@@ -1672,12 +1854,40 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
 
     private sealed class NeverAnsweringHandler : HttpMessageHandler
     {
+        private readonly TaskCompletionSource _requestStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _cancellationObserved =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _requestStartedTimestamp;
+        private long _cancellationObservedTimestamp;
+
+        public Task RequestStarted => _requestStarted.Task;
+
+        public Task CancellationObserved => _cancellationObserved.Task;
+
+        public TimeSpan CancellationDelay => Stopwatch.GetElapsedTime(
+            Volatile.Read(ref _requestStartedTimestamp),
+            Volatile.Read(ref _cancellationObservedTimestamp));
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            throw new InvalidOperationException("The request should have been canceled.");
+            Volatile.Write(ref _requestStartedTimestamp, Stopwatch.GetTimestamp());
+            _requestStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The request should have been canceled.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                Volatile.Write(
+                    ref _cancellationObservedTimestamp,
+                    Stopwatch.GetTimestamp());
+                _cancellationObserved.TrySetResult();
+                throw;
+            }
         }
     }
 

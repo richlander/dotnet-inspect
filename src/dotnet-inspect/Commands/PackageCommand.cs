@@ -246,7 +246,7 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on nuget.org");
+                            CommandError.Write($"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -303,7 +303,9 @@ public class PackageCommand
                     && NuGetCache.TryGetCachedPackage(
                         normalizedName,
                         versionQueryPinned,
-                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            normalizedName)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -348,7 +350,9 @@ public class PackageCommand
 
             if (options.Limit == 1 && options.ForceLatest)
             {
-                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+                    options.SourceOptions,
+                    normalizedName);
                 var latest = await PackageExtractor.GetLatestVersionAsync(
                     context.HttpClient,
                     normalizedName,
@@ -358,7 +362,7 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -394,7 +398,7 @@ public class PackageCommand
                 if (singleVersions is null)
                 {
                     CommandError.Write(
-                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -441,7 +445,7 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -454,7 +458,7 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -689,7 +693,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger, acquirePdb: true);
+                    extractPath, packageName, version, client, logger,
+                    acquirePdb: true, options.SourceOptions);
             }
 
             if (wantsSignals)
@@ -800,7 +805,7 @@ public class PackageCommand
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            CommandError.Write($"Package '{packageName}' version '{version}' not found on nuget.org.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on eligible configured sources.");
             CommandError.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }
@@ -1603,7 +1608,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
+                    extractPath, target.PackageName, version, context.HttpClient, logger,
+                    acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);
             }
@@ -1739,7 +1745,8 @@ public class PackageCommand
                     version,
                     isPlatformAssembly: false,
                     CoreSourceLinkQueryCache.Instance,
-                    logger.Log);
+                    logger.Log,
+                    options.SourceOptions);
 
                 InspectionQueryResults? queryResults = null;
                 if (requestedQueries.Count > 0)
@@ -1756,7 +1763,8 @@ public class PackageCommand
                         packageName,
                         version,
                         isPlatformAssembly: false,
-                        logger.Log).ConfigureAwait(false);
+                        logger.Log,
+                        sourceOptions: options.SourceOptions).ConfigureAwait(false);
                 }
 
                 if (collectSourceFiles)
@@ -2599,7 +2607,7 @@ public class PackageCommand
         if (libraryOptions.Count)
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
-            Console.WriteLine(markdown);
+            OutputFormatter.WriteLfLine(Console.Out, markdown);
         return 0;
     }
 
@@ -2937,8 +2945,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        sb.Append("# ").Append(title).Append('\n').Append('\n');
 
         foreach (var section in sections)
         {
@@ -2961,15 +2968,16 @@ public class PackageCommand
         {
             Sections = [new AggregatedSectionView { Name = section, Body = table }]
         };
-        var rendered = MarkoutSerializer.Serialize(
-            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = output.ToString().Trim();
         if (rendered.Length == 0)
             return;
 
         if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine(rendered);
-        sb.AppendLine();
+            sb.Append('\n');
+        sb.Append(rendered).Append('\n').Append('\n');
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3090,9 +3098,8 @@ public class PackageCommand
                 continue;
 
             if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+                sb.Append('\n');
+            sb.Append(rendered).Append('\n').Append('\n');
         }
     }
 
@@ -3107,7 +3114,9 @@ public class PackageCommand
             // the only text this path edits, and it does not touch rows.
             RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(view, output, InspectionContext.Default, writerOptions);
+        var markdown = output.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 

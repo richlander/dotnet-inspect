@@ -146,6 +146,10 @@ public static class DependencyResolutionService
         {
             throw;
         }
+        catch (PackageSourceMappingException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             log?.Invoke($"Error resolving dependencies: {ex.Message}");

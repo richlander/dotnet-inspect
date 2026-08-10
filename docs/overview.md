@@ -11,8 +11,11 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, extension-method, custom-attribute,
-manifest-resource, SourceLink, and Integrations inspection. The library CLI and
-package `--all-libraries` use the first
+manifest-resource, SourceLink, Integrations, API-comparison, Analysis
+body-signal comparison, and Implementation comparison inspection. The `diff`
+Changes, Analysis Diff, and Implementation Diff sections consume producer-owned
+comparison results over host-resolved surfaces, body indexes, and retained
+assembly content. The library CLI and package `--all-libraries` use the first
 workspace-backed, group-scoped query for focused Integrations demand while
 remaining query families are future work. The components below are the current
 hosts, shared substrates, and inspection producers that will extend that space.
@@ -21,8 +24,13 @@ hosts, shared substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, extension-method, custom-attribute,
-  manifest-resource, and SourceLink queries. It has no Markout, console, or
-  filesystem-path dependency.
+  manifest-resource, SourceLink, API-comparison, and progressive call-graph
+  queries. It has no Markout, console, or filesystem-path dependency.
+- `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
+  L1 query family. It compares already-acquired Analysis body indexes and
+  retained implementation assembly content, returning Research-owned results
+  without pulling Research or Decompiler dependencies into the core query
+  assembly.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
@@ -41,6 +49,10 @@ hosts, shared substrates, and inspection producers that will extend that space.
   and nuspec parsing.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
+  for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
+  resolves facts through targets to multi-span nodes, and keeps unanchored facts
+  visible without inventing coordinates.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
 
 ## Engineering guidance

@@ -59,6 +59,24 @@ public static class SourceResolver
         string name,
         IReadOnlyList<string> sourceKeys,
         Action<string>? reportPlatformLookupFailure = null)
+        => TryProbeLocalQualifiedName(
+            name,
+            _ => sourceKeys,
+            reportPlatformLookupFailure);
+
+    internal static LocalProbeResult? TryProbeLocalQualifiedName(
+        string name,
+        NuGetSourceOptions? sourceOptions,
+        Action<string>? reportPlatformLookupFailure = null)
+        => TryProbeLocalQualifiedName(
+            name,
+            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            reportPlatformLookupFailure);
+
+    private static LocalProbeResult? TryProbeLocalQualifiedName(
+        string name,
+        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        Action<string>? reportPlatformLookupFailure)
     {
         // Require at least 2 dots (e.g., System.Text.Json.JsonSerializer).
         // Single-dot names like "System.CommandLine" are ambiguous: could be
@@ -101,7 +119,7 @@ public static class SourceResolver
             // name without letting package-content directories invent versions.
             if (PackageExtractor.HasCachedCandidateVersion(
                     candidate,
-                    sourceKeys))
+                    sourceKeysForPackage(candidate)))
             {
                 RequestTelemetry.Breadcrumb(
                     "qualified-type-split",
@@ -159,11 +177,33 @@ public static class SourceResolver
         IReadOnlyList<string> sourceKeys,
         bool allowPlatformPrefixFallback,
         Action<string>? reportPlatformLookupFailure = null)
+        => TryResolveQualifiedTypeName(
+            name,
+            _ => sourceKeys,
+            allowPlatformPrefixFallback,
+            reportPlatformLookupFailure);
+
+    internal static LocalProbeResult? TryResolveQualifiedTypeName(
+        string name,
+        NuGetSourceOptions? sourceOptions,
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure = null)
+        => TryResolveQualifiedTypeName(
+            name,
+            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            allowPlatformPrefixFallback,
+            reportPlatformLookupFailure);
+
+    private static LocalProbeResult? TryResolveQualifiedTypeName(
+        string name,
+        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        bool allowPlatformPrefixFallback,
+        Action<string>? reportPlatformLookupFailure)
     {
         bool platformLookupFailed = false;
         var probe = TryProbeLocalQualifiedName(
             name,
-            sourceKeys,
+            sourceKeysForPackage,
             message =>
             {
                 platformLookupFailed = true;
@@ -269,6 +309,62 @@ public static class SourceResolver
         IReadOnlyList<string> sourceKeys,
         bool verbose,
         bool tryQualifiedTypeName = false)
+        => await ResolveAsync(
+            args,
+            explicitPackage,
+            explicitAssembly,
+            explicitPlatform,
+            _ => sourceKeys,
+            sourceOptions: null,
+            verbose,
+            tryQualifiedTypeName).ConfigureAwait(false);
+
+    public static async Task<ResolvedSource> ResolveAsync(
+        string[] args,
+        string? explicitPackage,
+        string? explicitAssembly,
+        string? explicitPlatform,
+        NuGetSourceOptions? sourceOptions,
+        bool verbose,
+        bool tryQualifiedTypeName = false)
+        => await ResolveAsync(
+            args,
+            explicitPackage,
+            explicitAssembly,
+            explicitPlatform,
+            candidate => ResolveSourceKeysForProbe(sourceOptions, candidate),
+            sourceOptions,
+            verbose,
+            tryQualifiedTypeName).ConfigureAwait(false);
+
+    internal static IReadOnlyList<string> ResolveSourceKeysForProbe(
+        NuGetSourceOptions? sourceOptions,
+        string packageId)
+    {
+        try
+        {
+            return NuGetSourceResolver.ResolveSourceKeysForPackage(
+                sourceOptions,
+                packageId);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            return [];
+        }
+    }
+
+    private static async Task<ResolvedSource> ResolveAsync(
+        string[] args,
+        string? explicitPackage,
+        string? explicitAssembly,
+        string? explicitPlatform,
+        Func<string, IReadOnlyList<string>> sourceKeysForPackage,
+        NuGetSourceOptions? sourceOptions,
+        bool verbose,
+        bool tryQualifiedTypeName)
     {
         bool isLibrarySelector = IsLibrarySelector(explicitAssembly, explicitPackage);
         bool hasExplicitSource = HasExplicitSource(explicitPackage, explicitAssembly, explicitPlatform, isLibrarySelector);
@@ -409,7 +505,11 @@ public static class SourceResolver
 
                     // Resolve assembly (local-first, then network if needed)
                     var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
-                        bareName, client, log, frameworkSpec);
+                        bareName,
+                        client,
+                        log,
+                        frameworkSpec,
+                        sourceOptions: sourceOptions);
 
                     if (resolvedPath != null && resolvedError == null)
                     {
@@ -426,7 +526,7 @@ public static class SourceResolver
                     string? platformLookupFailure = null;
                     var probe = TryResolveQualifiedTypeName(
                         bareName,
-                        sourceKeys,
+                        sourceKeysForPackage,
                         allowPlatformPrefixFallback: true,
                         message => platformLookupFailure = message);
                     if (platformLookupFailure is not null)

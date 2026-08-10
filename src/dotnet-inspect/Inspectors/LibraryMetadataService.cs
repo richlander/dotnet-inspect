@@ -84,7 +84,8 @@ internal static class LibraryMetadataService
                 packageVersion,
                 isPlatformAssembly,
                 CoreSourceLinkQueryCache.Instance,
-                logger.Log);
+                logger.Log,
+                options.SourceOptions);
 
             if (!pdbContext.HasMetadata)
             {
@@ -350,7 +351,8 @@ internal static class LibraryMetadataService
                 isPlatformAssembly,
                 allowPdbDownload: sourcePlan.AllowPdbDownload && !sourceQueryCheckedPdb,
                 pdbAcquisitionAttempted: sourceQueryCheckedPdb,
-                readCachedPdb: sourcePlan.ReadCachedPdb);
+                readCachedPdb: sourcePlan.ReadCachedPdb,
+                sourceOptions: options.SourceOptions);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection ??= SourceLinkFindings.InspectSourceDocuments(
@@ -431,7 +433,8 @@ internal static class LibraryMetadataService
         bool isPlatformAssembly = false,
         bool allowPdbDownload = false,
         bool pdbAcquisitionAttempted = false,
-        bool readCachedPdb = false)
+        bool readCachedPdb = false,
+        NuGetSourceOptions? sourceOptions = null)
     {
         var pdbContext = service.Context;
 
@@ -454,7 +457,14 @@ internal static class LibraryMetadataService
         // If no local PDB, try downloading (only when a selected section authorizes remote acquisition)
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
-            await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+            await SourceEnricher.AcquirePdbAsync(
+                pdbContext,
+                httpClient,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                logger.Log,
+                sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
             {
@@ -478,7 +488,8 @@ internal static class LibraryMetadataService
         {
             await SourceEnricher.AcquirePdbAsync(
                 pdbContext, httpClient, packageName, packageVersion,
-                isPlatformAssembly, logger.Log, cacheOnly: true);
+                isPlatformAssembly, logger.Log, cacheOnly: true,
+                sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
             {
@@ -543,7 +554,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         bool isPlatformAssembly = false,
         string? packageName = null,
-        string? packageVersion = null)
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         try
         {
@@ -554,7 +566,8 @@ internal static class LibraryMetadataService
             {
                 await SourceEnricher.AcquirePdbAsync(
                     context, httpClient, packageName, packageVersion,
-                    isPlatformAssembly, logger.Log, cacheOnly: true);
+                    isPlatformAssembly, logger.Log, cacheOnly: true,
+                    sourceOptions: sourceOptions);
             }
 
             return context.HasPdb && service.HasSourceLink;
