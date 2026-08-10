@@ -242,6 +242,7 @@ public static class ApiCommandDefinitions
         opts.AddPrintOptionTo(memberCommand);
         opts.AddShapeProjectionOptionsTo(memberCommand);
         opts.AddPerformanceTriageOptionsTo(memberCommand);
+        memberCommand.Options.Add(opts.Mermaid);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
