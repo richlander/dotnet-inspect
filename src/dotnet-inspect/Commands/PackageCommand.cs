@@ -2716,7 +2716,7 @@ public class PackageCommand
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
-        Console.WriteLine(markdown);
+        OutputFormatter.WriteLfLine(Console.Out, markdown);
         return 0;
     }
 
@@ -3050,8 +3050,7 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        sb.Append("# ").Append(title).Append('\n').Append('\n');
 
         foreach (var section in sections)
         {
@@ -3078,15 +3077,16 @@ public class PackageCommand
         if (document is null)
             return;
 
-        var rendered = MarkoutSerializer.Serialize(
-            document, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows)).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = output.ToString().Trim();
         if (rendered.Length == 0)
             return;
 
         if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine(rendered);
-        sb.AppendLine();
+            sb.Append('\n');
+        sb.Append(rendered).Append('\n').Append('\n');
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -3256,19 +3256,21 @@ public class PackageCommand
                 continue;
 
             if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+                sb.Append('\n');
+            sb.Append(rendered).Append('\n').Append('\n');
         }
     }
 
     private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
     {
         var view = new LibraryInspectionView(inspection);
-        var markdown = MarkoutSerializer.Serialize(
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
             view,
+            output,
             InspectionContext.Default,
-            CreateAllLibrariesWriterOptions(section, options)).Trim();
+            CreateAllLibrariesWriterOptions(section, options));
+        var markdown = output.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 
