@@ -154,10 +154,10 @@ public class SharedOptions
                 result.AddError($"--row must be a 1-based row number, 'first', or 'last' (got '{token}').");
         });
 
-        // A repeated name asks for the same column twice. Under the table formats the
-        // second copy is a redundant duplicate column; under --json/--jsonl it produces
-        // a repeated JSON property, which Utf8JsonWriter does not reject and which
-        // parsers resolve inconsistently. Reject it rather than emit either.
+        // An explicit projection must name something. A repeated name asks for the same column
+        // twice. Under the table formats the second copy is a redundant duplicate column; under
+        // --json/--jsonl it produces a repeated JSON property, which Utf8JsonWriter does not
+        // reject and which parsers resolve inconsistently. Reject either invalid request.
         //
         // Validating on the option (not per command) is what makes the rejection
         // uniform: the same spelling fails the same way everywhere --columns/--fields
@@ -165,8 +165,8 @@ public class SharedOptions
         // pipeline, which System.CommandLine renders as an unhandled-exception stack
         // trace unless the individual command happens to catch it -- `find` does,
         // `package` does not (dotnet-inspect#3494 review).
-        AddDuplicateNameValidator(Columns, "--columns");
-        AddDuplicateNameValidator(Fields, "--fields");
+        AddProjectionNameValidator(Columns, "--columns");
+        AddProjectionNameValidator(Fields, "--fields");
 
         // A config the user names explicitly must be usable. Reporting it here gives every
         // command that takes --nugetconfig the same clean parse-time error, instead of an
@@ -185,10 +185,10 @@ public class SharedOptions
     }
 
     /// <summary>
-    /// Rejects a comma/semicolon-separated projection list that names the same entry
-    /// more than once. Matching is case-insensitive because column matching is.
+    /// Rejects an explicit comma/semicolon-separated projection list that contains no names or
+    /// names the same entry more than once. Matching is case-insensitive because column matching is.
     /// </summary>
-    private static void AddDuplicateNameValidator(Option<string?> option, string flag)
+    private static void AddProjectionNameValidator(Option<string?> option, string flag)
     {
         option.Validators.Add(result =>
         {
@@ -205,8 +205,11 @@ public class SharedOptions
             // Reading the same token through the same splitter ParseColumns/ParseFields use is what
             // keeps this check from disagreeing with runtime about what was requested.
             var names = ParseCommaSeparatedList(result.Tokens[^1].Value);
-            if (names is null)
+            if (names is not { Length: > 0 })
+            {
+                result.AddError($"{flag} requires at least one name.");
                 return;
+            }
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in names)

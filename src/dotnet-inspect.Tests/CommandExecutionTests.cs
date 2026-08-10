@@ -6379,6 +6379,36 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns", ",")]
+    [InlineData("--columns", " , ; ")]
+    [InlineData("--fields", ";")]
+    [InlineData("--fields", "   ")]
+    public async Task Find_EmptyProjectionUnderJson_FailsInsteadOfEmittingTypedJson(
+        string flag,
+        string value)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "CommandExecution", "--library", TestAssemblyPath, flag, value, "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{flag} requires at least one name.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EmptyProjection_IsRejectedByCommandsThatDoNotCatchIt()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "No.Such.Package.Xyz123", "--columns", ",", "--table");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--columns requires at least one name.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("Type;Type")]
     [InlineData("Type, Type")]
     [InlineData("Type,TYPE")]
