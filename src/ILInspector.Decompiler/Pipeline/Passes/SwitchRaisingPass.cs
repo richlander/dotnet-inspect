@@ -38,6 +38,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// same 32-bit wraparound. Checked arithmetic, non-enum arithmetic, and known
 /// 64-bit enum backing types retain the normalized selector.
 ///
+/// A sparse enum switch may place a small contiguous case range in an unsigned
+/// pre-guard that branches directly to the shared continuation, then dispatch
+/// the remaining cases through the jump table. When that guard and the table
+/// read the same enum variable, the pass absorbs the guarded values as labels on
+/// the empty continuation section, restoring the original single switch.
+///
 /// When that model leaves the switch flat, a second attempt
 /// (<see cref="RaiseCaseTargetJoin"/>) handles tables whose default routes into
 /// shared case bodies: one case target is the post-switch join, so cases reaching
@@ -332,8 +338,20 @@ public sealed class SwitchRaisingPass : IIrPass
         if (!OnlyReachedByTable(blocks, owned, s, leaveTargets))
             return false;
 
+        GuardRange? guardRange = TryGetPrecedingEnumGuardRange(
+            function,
+            blocks,
+            s,
+            sw,
+            preds,
+            leaveTargets,
+            joinOffset,
+            out var range)
+                ? range
+                : null;
+
         BuildCaseTargetJoin(function, container, s, sw, caseTargets, regions, defaultIndex,
-            defaultSharesTarget, join, fallThroughCase, regionEnd, stepper);
+            defaultSharesTarget, join, fallThroughCase, regionEnd, guardRange, stepper);
         return true;
     }
 
@@ -1983,7 +2001,7 @@ public sealed class SwitchRaisingPass : IIrPass
     static void BuildCaseTargetJoin(
         IrFunction function, BlockContainer container, int s, SwitchBranch sw, int[] caseTargets,
         Dictionary<int, List<int>> regions, int defaultIndex, bool defaultSharesTarget, int join,
-        int? fallThroughCase, int regionEnd, Stepper stepper)
+        int? fallThroughCase, int regionEnd, GuardRange? guardRange, Stepper stepper)
     {
         var all = container.Blocks.ToList();
         int joinOffset = all[join].StartOffset;
@@ -1991,7 +2009,16 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var labelsByTarget = new Dictionary<int, List<int>>();
         for (int i = 0; i < caseTargets.Length; i++)
-            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = []).Add(i);
+            (labelsByTarget.TryGetValue(caseTargets[i], out var list) ? list : labelsByTarget[caseTargets[i]] = [])
+                .Add(unchecked(input.LabelBase + i));
+        if (guardRange is { } guard)
+        {
+            guard.Branch.Detach();
+            var labels = labelsByTarget.TryGetValue(join, out var list)
+                ? list
+                : labelsByTarget[join] = [];
+            labels.InsertRange(0, guard.Labels);
+        }
 
         // Clone the shared terminator before detaching: the default falls into a
         // single-block terminating case, which C# cannot do, so its body is
@@ -2006,11 +2033,16 @@ public sealed class SwitchRaisingPass : IIrPass
         var sections = new List<SwitchSection>();
         foreach (var (target, labels) in labelsByTarget.OrderBy(kv => kv.Value.Min()))
         {
+            var sectionLabels = guardRange is not null
+                && defaultSharesTarget
+                && target == defaultIndex
+                    ? ImmutableArray<Constant>.Empty
+                    : labels.Select(IntConst).ToImmutableArray();
             if (target == join)
-                sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase),
+                sections.Add(new SwitchSection(sectionLabels,
                     isDefault: defaultSharesTarget && target == defaultIndex, EmptyBreakBody()));
             else
-                sections.Add(new SwitchSection(TranslatedConstants(labels, input.LabelBase),
+                sections.Add(new SwitchSection(sectionLabels,
                     isDefault: defaultSharesTarget && target == defaultIndex,
                     SectionBody(regions[target].Select(i => all[i]).ToList(), joinOffset)));
         }
@@ -2027,11 +2059,102 @@ public sealed class SwitchRaisingPass : IIrPass
             rebuilt.Add(all[idx]);
         for (int idx = regionEnd; idx < all.Count; idx++)
             rebuilt.Add(all[idx]);
-        stepper.StepOver("raise IL jump table to switch (case target is continuation)", container);
+        stepper.StepOver(
+            guardRange is null
+                ? "raise IL jump table to switch (case target is continuation)"
+                : "raise IL jump table and enum range guard to switch",
+            container);
         container.ReplaceWith(rebuilt);
     }
 
+    readonly record struct GuardRange(ConditionalBranch Branch, ImmutableArray<int> Labels);
+
     readonly record struct SwitchInput(IrExpression Value, int LabelBase);
+
+    static bool TryGetPrecedingEnumGuardRange(
+        IrFunction function,
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        SwitchBranch sw,
+        IReadOnlyDictionary<int, List<int>> predecessors,
+        HashSet<int> leaveTargets,
+        int joinOffset,
+        out GuardRange range)
+    {
+        range = default;
+        if (switchIndex == 0
+            || blocks[switchIndex].Children is not [SwitchBranch]
+            || !OnlyReachedFromPrecedingGuard(blocks, switchIndex, leaveTargets)
+            || !predecessors.TryGetValue(switchIndex, out var switchPredecessors)
+            || switchPredecessors.Count != 1
+            || switchPredecessors[0] != switchIndex - 1
+            || blocks[switchIndex - 1].Children is not [.., ConditionalBranch branch]
+            || branch.TargetOffset != joinOffset
+            || branch.Condition is not Comparison
+            {
+                Kind: ComparisonKind.LessThanOrEqual,
+                IsUnsigned: true,
+                Left: var normalizedGuardValue,
+                Right: Constant { Value: int lastIndex },
+            }
+            || lastIndex < 0
+            // Keep emitted source bounded by the jump table that justified the
+            // surrounding switch; hostile IL cannot expand a tiny table into a
+            // huge case list through its pre-guard.
+            || lastIndex >= sw.TargetOffsets.Length
+            || !TryRestoreEnumSwitchInput(
+                function,
+                sw.Value,
+                sw.TargetOffsets.Length,
+                out var switchValue,
+                out int switchLabelBase)
+            || !TryRestoreEnumSwitchInput(
+                function,
+                normalizedGuardValue,
+                lastIndex + 1,
+                out var guardValue,
+                out int guardLabelBase)
+            || switchValue.ResultType is not { } switchType
+            || guardValue.ResultType is not { } guardType
+            || !switchType.Equals(guardType)
+            || !PlaceIdentity.SameVariable(switchValue, guardValue))
+        {
+            return false;
+        }
+
+        var guardLabels = TranslatedLabels(Enumerable.Range(0, lastIndex + 1), guardLabelBase);
+        var tableLabels = TranslatedLabels(Enumerable.Range(0, sw.TargetOffsets.Length), switchLabelBase);
+        if (guardLabels.Any(tableLabels.Contains))
+            return false;
+
+        range = new GuardRange(branch, guardLabels);
+        return true;
+    }
+
+    static bool OnlyReachedFromPrecedingGuard(
+        IReadOnlyList<Block> blocks,
+        int switchIndex,
+        HashSet<int> leaveTargets)
+    {
+        int switchOffset = blocks[switchIndex].StartOffset;
+        if (leaveTargets.Contains(switchOffset))
+            return false;
+
+        for (int index = 0; index < blocks.Count; index++)
+        {
+            if (index == switchIndex)
+                continue;
+            foreach (var child in blocks[index].Children)
+            {
+                foreach (var node in child.Descendants.Prepend(child))
+                {
+                    if (Targets(node).Contains(switchOffset))
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
 
     static SwitchInput TakeSwitchInput(IrFunction function, SwitchBranch sw)
     {
