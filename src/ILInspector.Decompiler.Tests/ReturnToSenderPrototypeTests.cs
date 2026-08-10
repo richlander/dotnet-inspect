@@ -6524,8 +6524,7 @@ public class ReturnToSenderPrototypeTests
             .GetDiagnostics();
 
         return ReturnToSender.TryIsolateRecompileFailure(
-            request,
-            decompiledArtifact.Source,
+            decompiledArtifact,
             decompiledDiagnostics,
             sourceIndex,
             parseOptions,

@@ -510,9 +510,10 @@ public sealed class ValidDifferentFaultIsolationTests
                 nullableContextOptions: NullableContextOptions.Disable,
                 allowUnsafe: true);
 
+            var artifact = CompileBackSourceComposer.Compose(Request);
+            Assert.NotNull(artifact.SourceArtifact.ReplaceableBodyRange);
             return ReturnToSender.TryIsolateFidelityDifference(
-                Request,
-                CompileBackSourceComposer.Compose(Request).Source,
+                artifact,
                 _pe,
                 Reader,
                 Method,

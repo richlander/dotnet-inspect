@@ -25,8 +25,9 @@ namespace ILInspector.DecompilerHarness;
 ///
 /// Attribution is a harness measurement concern; it reads compiler diagnostics
 /// (an independent oracle) and the source the pipeline already produced. It does
-/// not push a body-span API into the product printer and it never mutates the
-/// artifact that flows to other consumers.
+/// not construct or rewrite the C# artifact: authored-body replacement is owned
+/// by the product's frozen source artifact. This helper only locates spans for
+/// independent diagnostic measurement.
 /// </summary>
 internal static class SpanAttribution
 {
@@ -231,79 +232,6 @@ internal static class SpanAttribution
 
         var member = LocateMember(type, identity);
         return member is null ? null : BodySpanOf(member);
-    }
-
-    /// <summary>
-    /// Replaces only the target member body in an already composed artifact.
-    /// The surrounding declaration, type shape, and closure source remain byte-for-byte
-    /// those of the final RTS artifact.
-    /// </summary>
-    internal static bool TrySubstituteBody(
-        string source,
-        string body,
-        TargetIdentity identity,
-        CSharpParseOptions? parseOptions,
-        out string substituted)
-    {
-        substituted = "";
-        SyntaxNode root;
-        try
-        {
-            root = CSharpSyntaxTree.ParseText(source, parseOptions).GetRoot();
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-
-        var type = LocateType(root, identity.FullType);
-        var member = type is null ? null : LocateMember(type, identity);
-        if (member is null || !TryParseBlock(body, parseOptions, out var block))
-            return false;
-
-        SyntaxNode replacement = member switch
-        {
-            MethodDeclarationSyntax method => method
-                .WithBody(block)
-                .WithExpressionBody(null)
-                .WithSemicolonToken(default),
-            ConstructorDeclarationSyntax constructor => constructor
-                .WithBody(block)
-                .WithExpressionBody(null)
-                .WithSemicolonToken(default),
-            AccessorDeclarationSyntax accessor => accessor
-                .WithBody(block)
-                .WithExpressionBody(null)
-                .WithSemicolonToken(default),
-            _ => member,
-        };
-        if (ReferenceEquals(replacement, member))
-            return false;
-
-        substituted = root.ReplaceNode(member, replacement).ToFullString();
-        return true;
-    }
-
-    static bool TryParseBlock(
-        string body,
-        CSharpParseOptions? parseOptions,
-        out BlockSyntax block)
-    {
-        block = null!;
-        SyntaxNode root;
-        try
-        {
-            root = CSharpSyntaxTree.ParseText(
-                $"class __BodyHost {{ void __Body() {{{Environment.NewLine}{body}{Environment.NewLine}}} }}",
-                parseOptions).GetRoot();
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-
-        block = root.DescendantNodes().OfType<MethodDeclarationSyntax>().SingleOrDefault()?.Body!;
-        return block is not null;
     }
 
     static TypeDeclarationSyntax? LocateType(SyntaxNode root, string fullType)

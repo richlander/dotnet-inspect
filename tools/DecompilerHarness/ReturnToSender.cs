@@ -1776,8 +1776,7 @@ static class ReturnToSender
             var faultIsolation = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
                 ? null
                 : TryIsolateRecompileFailure(
-                    sourceResult.Request,
-                    unit,
+                    sourceResult,
                     compilationResult.Diagnostics,
                     sourceIndex,
                     parseOptions,
@@ -1856,8 +1855,7 @@ static class ReturnToSender
         var fidelityIsolation = status is FidelityCheck.CompileBackStatus.OpcodeDiff
             or FidelityCheck.CompileBackStatus.OperandDiff
                 ? TryIsolateFidelityDifference(
-                    sourceResult.Request,
-                    unit,
+                    sourceResult,
                     originalPe,
                     reader,
                     methodHandle,
@@ -2288,17 +2286,16 @@ static class ReturnToSender
     }
 
     internal static FaultIsolationResult? TryIsolateRecompileFailure(
-        ArtifactRequest request,
-        string decompiledSource,
+        ProductArtifact artifact,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
+        var request = artifact.Request;
         var control = TryCompileAuthoredBody(
-            request,
-            decompiledSource,
+            artifact,
             sourceIndex,
             parseOptions,
             compileOptions,
@@ -2320,7 +2317,7 @@ static class ReturnToSender
         // body-intrinsic semantic).
         if (BuildTargetIdentity(request) is { } identity
             && SpanAttribution.IsolatingBodyError(
-                decompiledSource,
+                artifact.Source,
                 decompiledDiagnostics,
                 control.Source,
                 control.Diagnostics,
@@ -2355,8 +2352,7 @@ static class ReturnToSender
     /// unavailable path, and non-vacuous wiring from <c>CompileBackTarget</c>.
     /// </remarks>
     internal static FaultIsolationResult? TryIsolateFidelityDifference(
-        ArtifactRequest request,
-        string finalShell,
+        ProductArtifact artifact,
         PEReader originalPe,
         MetadataReader originalReader,
         MethodDefinitionHandle originalMethod,
@@ -2365,9 +2361,9 @@ static class ReturnToSender
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
+        var request = artifact.Request;
         var control = TryCompileAuthoredBody(
-            request,
-            finalShell,
+            artifact,
             sourceIndex,
             parseOptions,
             compileOptions,
@@ -2464,13 +2460,13 @@ static class ReturnToSender
         byte[]? PeImage);
 
     static AuthoredBodyCompilation? TryCompileAuthoredBody(
-        ArtifactRequest request,
-        string finalShell,
+        ProductArtifact artifact,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
         IReadOnlyList<MetadataReference> references)
     {
+        var request = artifact.Request;
         if (sourceIndex is null
             || !sourceIndex.TryFindForAttribution(
                 new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
@@ -2483,17 +2479,9 @@ static class ReturnToSender
 
         try
         {
-            if (BuildTargetIdentity(request) is not { } identity
-                || !SpanAttribution.TrySubstituteBody(
-                    finalShell,
-                    authoredBody,
-                    identity,
-                    parseOptions,
-                    out string authoredSource))
-            {
-                return null;
-            }
-
+            // The product froze both the compiled unit and its selected body range.
+            // Do not recompose the shell or rediscover the member in the harness.
+            string authoredSource = artifact.SourceArtifact.ReplaceBody(authoredBody);
             var tree = CSharpSyntaxTree.ParseText(authoredSource, parseOptions);
             var compilation = CSharpCompilation.Create(
                 CompilationAssemblyName,
