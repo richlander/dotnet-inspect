@@ -359,6 +359,43 @@ public static class CSharpBodyDiff
             includeNonPublic,
             typeFilters,
             "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities);
+    }
+
+    public static CSharpBodyDiffResult CompareAssemblies(
+        IReadOnlyList<MetadataSource> oldSources,
+        IReadOnlyList<MetadataSource> newSources,
+        bool includeNonPublic = false,
+        IReadOnlySet<string>? typeFilters = null,
+        IReadOnlySet<string>? memberTargetIdentities = null)
+    {
+        ArgumentNullException.ThrowIfNull(oldSources);
+        ArgumentNullException.ThrowIfNull(newSources);
+
+        var oldIndex = BuildMethodIndexWithFailures(
+            oldSources,
+            includeNonPublic,
+            typeFilters,
+            "old");
+        var newIndex = BuildMethodIndexWithFailures(
+            newSources,
+            includeNonPublic,
+            typeFilters,
+            "new");
+        return CompareMethodIndexes(
+            oldIndex,
+            newIndex,
+            memberTargetIdentities);
+    }
+
+    static CSharpBodyDiffResult CompareMethodIndexes(
+        CSharpMethodIndex oldIndex,
+        CSharpMethodIndex newIndex,
+        IReadOnlySet<string>? memberTargetIdentities)
+    {
         var oldMethods = oldIndex.Methods;
         var newMethods = newIndex.Methods;
         var rows = ImmutableArray.CreateBuilder<CSharpDiffRow>();
@@ -448,6 +485,46 @@ public static class CSharpBodyDiff
                 failures));
         }
 
+        return CreateMethodIndex(entries, failures);
+    }
+
+    internal static CSharpMethodIndex BuildMethodIndexWithFailures(
+        IReadOnlyList<MetadataSource> sources,
+        bool includeNonPublic,
+        IReadOnlySet<string>? typeFilters,
+        string side)
+    {
+        var entries = new List<CSharpMethodEntry>();
+        var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var seen = new HashSet<MetadataSource>(
+            ReferenceEqualityComparer.Instance);
+        foreach (var source in sources)
+        {
+            if (!seen.Add(source))
+                continue;
+
+            string assemblyKey = StableAssemblyKey(source);
+            int occurrence = assemblyOccurrences.GetValueOrDefault(assemblyKey);
+            assemblyOccurrences[assemblyKey] = occurrence + 1;
+            string occurrenceKey = $"{assemblyKey}#{occurrence}";
+            entries.AddRange(EnumerateMethods(
+                source,
+                source.Path,
+                occurrenceKey,
+                includeNonPublic,
+                typeFilters,
+                side,
+                failures).Select(entry => entry with { Source = source }));
+        }
+
+        return CreateMethodIndex(entries, failures);
+    }
+
+    static CSharpMethodIndex CreateMethodIndex(
+        List<CSharpMethodEntry> entries,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+    {
         var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
             .SelectMany(group => group
@@ -469,7 +546,7 @@ public static class CSharpBodyDiff
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
     {
-        var source = sources.Open(entry.Path);
+        var source = sources.Open(entry);
         return Decompile(entry, source);
     }
 
@@ -2177,13 +2254,17 @@ public static class CSharpBodyDiff
         MethodDefinitionHandle MethodHandle,
         int OverloadIndex,
         bool HasBody,
-        string? BodyFingerprint);
+        string? BodyFingerprint,
+        MetadataSource? Source = null);
 
     sealed record CSharpMethodRender(CSharpRenderState State, IReadOnlyList<SourceLine> Lines, DecompilationFidelity Fidelity);
 
     internal sealed class SourceCache : IDisposable
     {
         readonly Dictionary<string, MetadataSource> _sources = new(StringComparer.Ordinal);
+
+        public MetadataSource Open(CSharpMethodEntry entry)
+            => entry.Source ?? Open(entry.Path);
 
         public MetadataSource Open(string path)
         {
