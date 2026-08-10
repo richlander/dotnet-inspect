@@ -1626,6 +1626,23 @@ public class ExtractMethodBodyTests
     }
 
     [Fact]
+    public void GenericExtensionAttributeOperator_DoesNotLeakTheExtensionWrapper()
+    {
+        var source = Lines(
+            "static class C",                              // 1
+            "{",                                           // 2
+            "    extension<[A(1 > 0)] T>(T value)",        // 3
+            "    {",                                       // 4
+            "        public void M() { }",                 // 5
+            "    }",                                       // 6
+            "}");                                          // 7
+
+        Assert.Equal(
+            "public void M() { }",
+            BodySlicer.ExtractMethodBody(source, 5, 5, "M"));
+    }
+
+    [Fact]
     public void ExtensionBlockHeaderSharingThePreviousMembersBoundary_ReportsAbsent()
     {
         var source = Lines(
@@ -1745,6 +1762,21 @@ public class ExtractMethodBodyTests
         Assert.Equal(
             "void M() { }",
             BodySlicer.ExtractMethodBody(source, 3, 3, "M"));
+    }
+
+    [Theory]
+    [InlineData('\u0085')]
+    [InlineData('\u2028')]
+    [InlineData('\u2029')]
+    public void UnicodeLineSeparators_UsePdbPhysicalLineNumbers(char separator)
+    {
+        string source = "class C\n{\n    string S = @\"a"
+            + separator
+            + "b\";\n    void A() { }\n    void B() { }\n}";
+
+        Assert.Equal(
+            "void A() { }",
+            BodySlicer.ExtractMethodBody(source, 5, 5, "A"));
     }
 
     [Fact]

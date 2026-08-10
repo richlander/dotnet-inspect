@@ -4,7 +4,7 @@ namespace CSharpText;
 public static class CSharpSourceText
 {
     /// <summary>
-    /// Splits <paramref name="sourceText"/> on CR, LF, or CRLF without retaining line terminators.
+    /// Splits <paramref name="sourceText"/> on C# line terminators without retaining them.
     /// </summary>
     public static string[] SplitLines(string sourceText, int maxLineCount)
     {
@@ -71,7 +71,7 @@ public static class CSharpSourceText
         sourceText[index] switch
         {
             '\r' when index + 1 < sourceText.Length && sourceText[index + 1] == '\n' => 2,
-            '\r' or '\n' => 1,
+            '\r' or '\n' or '\u0085' or '\u2028' or '\u2029' => 1,
             _ => 0,
         };
 }

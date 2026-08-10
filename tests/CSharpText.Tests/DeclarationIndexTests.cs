@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Text;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -57,6 +58,52 @@ public class DeclarationIndexTests
             () => DeclarationIndex.Build(new string('\r', 500_000)));
         Assert.Equal(500_000, error.Limit);
         Assert.Equal("lines", error.Unit);
+    }
+
+    [Theory]
+    [InlineData('\u0085')]
+    [InlineData('\u2028')]
+    [InlineData('\u2029')]
+    public void UnicodeLineSeparators_UseTheCompilerPhysicalLineModel(char separator)
+    {
+        string source = "class C\n{\n    string S = @\"a"
+            + separator
+            + "b\";\n    void M() { }\n}";
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var tree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview),
+            cancellationToken: cancellationToken);
+        Assert.DoesNotContain(
+            tree.GetDiagnostics(cancellationToken),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var syntax = Assert.Single(
+            tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>());
+        int compilerLine = syntax.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+
+        var method = Assert.Single(
+            DeclarationIndex.Build(source).FindByName(DeclarationKind.Method, "M"));
+
+        Assert.Equal(5, compilerLine);
+        Assert.Equal(compilerLine, method.SignatureStartLine);
+        Assert.Equal(compilerLine, method.EndLine);
+    }
+
+    [Fact]
+    public void ManyInitializerArguments_DoNotRescanTheAccumulatedHeader()
+    {
+        var source = new StringBuilder("class C { void M() { Register(");
+        for (int i = 0; i < 8_000; i++)
+            source.Append("new Item { A = ").Append(i).Append(" },");
+        source.Append("null); } }");
+
+        var timer = Stopwatch.StartNew();
+        _ = DeclarationIndex.Build(source.ToString());
+        timer.Stop();
+
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(5),
+            $"indexing 8,000 initializer arguments took {timer.Elapsed}");
     }
 
     [Fact]
@@ -795,6 +842,45 @@ public class DeclarationIndexTests
         Assert.Equal(3, scope.StartLine);
         Assert.Equal(8, scope.BodyStartLine);
         Assert.Equal(12, scope.EndLine);
+    }
+
+    [Fact]
+    public void ARelationalOperatorInAGenericExtensionAttribute_DoesNotHideTheExtensionBlock()
+    {
+        var index = DeclarationIndex.Build("""
+            static class C
+            {
+                extension<[A(1 > 0)] T>(T receiver)
+                {
+                    public void M() { }
+                }
+            }
+            """);
+
+        var method = Assert.Single(index.FindByName(DeclarationKind.Method, "M"));
+        var owner = Assert.Single(index.FindByName(DeclarationKind.Class, "C"));
+        Assert.Equal(owner, index.ParentOf(method));
+        Assert.Equal(5, method.SignatureStartLine);
+        Assert.Equal(5, method.EndLine);
+        Assert.Single(index.TransparentScopes);
+    }
+
+    [Fact]
+    public void MismatchedHeaderDelimiters_DoNotProduceAKnownDeclaration()
+    {
+        var index = DeclarationIndex.Build("""
+            class C
+            {
+                void M() ) [
+                {
+                    void N() { }
+                }
+            }
+            """);
+
+        Assert.DoesNotContain(
+            index.Declarations,
+            declaration => declaration.SpanKnown && (declaration.Name is "M" or "N"));
     }
 
     [Theory]

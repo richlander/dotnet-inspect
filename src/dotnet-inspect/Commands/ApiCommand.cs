@@ -1116,9 +1116,11 @@ public class ApiCommand
         }
 
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        bool barePayloadRenderer =
+            options.Bare && !options.Count && !options.JsonOutput;
         if (options is MemberOptions { MemberSourceTooComplex: true }
             && !IsProjectionRequested(options)
-            && !options.Bare
+            && !barePayloadRenderer
             && (options.Count
                 || options.Tabular
                 || options.JsonOutput)

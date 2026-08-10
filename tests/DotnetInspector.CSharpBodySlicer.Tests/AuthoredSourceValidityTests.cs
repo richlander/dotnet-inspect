@@ -553,6 +553,22 @@ public class AuthoredSourceValidityTests
     }
 
     [Fact]
+    public void GenericExtensionAttributeOperator_RealPdbRangeExcludesTheWrapper()
+    {
+        var slice = Assert.Single(
+            SliceCorpus(),
+            s => Path.GetFileName(s.File) == "ExtensionBlockCorpusFixture.cs"
+                && s.Member.StartsWith(
+                    "ReviewedExtensionMember",
+                    StringComparison.Ordinal));
+
+        Assert.Equal(SliceOutcome.WellFormed, slice.Outcome);
+        Assert.StartsWith("public void ReviewedExtensionMember()", slice.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("extension<", slice.Text, StringComparison.Ordinal);
+        Assert.Contains("GC.KeepAlive(receiver);", slice.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SameLineSiblings_RealPdbRangesReportAbsent()
     {
         var slices = SliceCorpus()

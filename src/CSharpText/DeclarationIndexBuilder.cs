@@ -145,6 +145,16 @@ internal static class DeclarationIndexBuilder
         bool inBlockComment = false;
         int commentOpenLine = 0;
 
+        // Brace classification needs the header's delimiter and top-level-assignment state.
+        // Carry it as tokens arrive rather than rescanning an ever-growing header at every nested
+        // initializer brace. The stack also keeps mismatched delimiter kinds from cancelling into
+        // a plausible span.
+        var headerDelimiters = new List<string>();
+        int openHeaderDelimiterCount = 0;
+        bool headerDelimitersKnown = true;
+        bool pendingHasTopLevelEquals = false;
+        bool pendingInOperatorSymbol = false;
+
         string Text(ScanToken t) => t.TextIn(lines[t.Line]).ToString();
         Row? Enclosing() => scopes.Count > 0 && scopes[^1].RowIndex >= 0 ? rows[scopes[^1].RowIndex] : null;
         // A type at file scope and a statement inside a method body both report no enclosing row.
@@ -152,6 +162,60 @@ internal static class DeclarationIndexBuilder
         // assignment, and reading it as a namespace is what an unqualified null check does.
         bool InAnonymousScope() => scopes.Count > 0 && scopes[^1].RowIndex < 0;
         int EnclosingIndex() => scopes.Count > 0 ? scopes[^1].RowIndex : -1;
+
+        void AppendPending(ScanToken token, string tokenText)
+        {
+            if (token.Kind == ScanTokenKind.Word)
+            {
+                bool verbatim = pending.Count > 0
+                    && pending[^1].Kind == ScanTokenKind.Punctuator
+                    && Text(pending[^1]) == "@";
+                if (headerDelimiters.Count == 0
+                    && tokenText == "operator"
+                    && !verbatim)
+                {
+                    pendingInOperatorSymbol = true;
+                }
+            }
+            else if (token.Kind == ScanTokenKind.Punctuator)
+            {
+                if (tokenText is "(" or "[" or "{")
+                {
+                    headerDelimiters.Add(tokenText);
+                    if (tokenText is "(" or "[")
+                        openHeaderDelimiterCount++;
+                    if (tokenText == "(")
+                        pendingInOperatorSymbol = false;
+                }
+                else if (tokenText is ")" or "]" or "}")
+                {
+                    string expected = tokenText switch
+                    {
+                        ")" => "(",
+                        "]" => "[",
+                        _ => "{",
+                    };
+                    if (headerDelimiters.Count > 0 && headerDelimiters[^1] == expected)
+                    {
+                        headerDelimiters.RemoveAt(headerDelimiters.Count - 1);
+                        if (expected is "(" or "[")
+                            openHeaderDelimiterCount--;
+                    }
+                    else
+                    {
+                        headerDelimitersKnown = false;
+                    }
+                }
+                else if (tokenText == "="
+                    && headerDelimiters.Count == 0
+                    && !pendingInOperatorSymbol)
+                {
+                    pendingHasTopLevelEquals = true;
+                }
+            }
+
+            pending.Add(token);
+        }
 
         // Ends the run of trivia, attribute lists and signature tokens gathered for the next
         // declaration, at a terminator sitting in conditional section <paramref name="section"/>.
@@ -200,6 +264,11 @@ internal static class DeclarationIndexBuilder
                 (pending.Count > 0 && pending[0].Section != terminator.Section);
 
             pending.Clear();
+            headerDelimiters.Clear();
+            openHeaderDelimiterCount = 0;
+            headerDelimitersKnown = true;
+            pendingHasTopLevelEquals = false;
+            pendingInOperatorSymbol = false;
 
             // A reset INSIDE an unresolved group may only take knownness away, never restore it,
             // because the declaration it just finished exists in one build and not the other. In
@@ -274,7 +343,8 @@ internal static class DeclarationIndexBuilder
                 ParentIndex = EnclosingIndex(),
                 AttributeLists = [.. attributeLists],
                 SpanKnown = terminator.DepthKnown && triviaKnown && headerKnown
-                    && attachedAttributesKnown && pending.All(t => t.DepthKnown),
+                    && attachedAttributesKnown && headerDelimitersKnown
+                    && pending.All(t => t.DepthKnown),
                 IsStatic = HasTopLevelKeyword(
                     Truncate(pending, Text).Header,
                     "static",
@@ -631,12 +701,12 @@ internal static class DeclarationIndexBuilder
                 // arguments. Keep the header until the nested construct closes so the next
                 // top-level brace can open the declaration body.
                 if (nestedBraceDepth > 0
-                    || Truncate(pending, Text).CutAtEquals
-                    || HasOpenHeaderDelimiter(pending, Text))
+                    || pendingHasTopLevelEquals
+                    || openHeaderDelimiterCount > 0)
                 {
                     nestedBraceDepth++;
                     scopes.Add((-1, false, true));
-                    pending.Add(tok);
+                    AppendPending(tok, text);
                     continue;
                 }
 
@@ -672,7 +742,8 @@ internal static class DeclarationIndexBuilder
                         ParentIndex = EnclosingIndex(),
                         AttributeLists = [.. attributeLists],
                         SpanKnown = tok.DepthKnown && triviaKnown && headerKnown
-                            && attachedAttributesKnown && pending.All(t => t.DepthKnown),
+                            && attachedAttributesKnown && headerDelimitersKnown
+                            && pending.All(t => t.DepthKnown),
                         IsStatic = HasTopLevelKeyword(
                             Truncate(pending, Text).Header,
                             "static",
@@ -695,7 +766,7 @@ internal static class DeclarationIndexBuilder
                 {
                     nestedBraceDepth--;
                     if (scopes.Count > 0) scopes.RemoveAt(scopes.Count - 1);
-                    pending.Add(tok);
+                    AppendPending(tok, text);
                     continue;
                 }
 
@@ -786,7 +857,7 @@ internal static class DeclarationIndexBuilder
                 // lambda body is not the declaration's terminator.
                 if (nestedBraceDepth > 0)
                 {
-                    pending.Add(tok);
+                    AppendPending(tok, text);
                     continue;
                 }
 
@@ -1089,7 +1160,7 @@ internal static class DeclarationIndexBuilder
                 continue;
             }
 
-            pending.Add(tok);
+            AppendPending(tok, text);
         }
 
         // A file-scoped namespace declared inside a conditional group scopes the rest of the file
@@ -1180,26 +1251,6 @@ internal static class DeclarationIndexBuilder
                 .Select(attribute => attribute.Column)
                 .DefaultIfEmpty(signatureStartColumn)
                 .Min();
-    }
-
-    private static bool HasOpenHeaderDelimiter(
-        IReadOnlyList<ScanToken> pending,
-        Func<ScanToken, string> text)
-    {
-        int depth = 0;
-        foreach (var token in pending)
-        {
-            if (token.Kind != ScanTokenKind.Punctuator)
-                continue;
-
-            string value = text(token);
-            if (value is "(" or "[")
-                depth++;
-            else if (value is ")" or "]")
-                depth--;
-        }
-
-        return depth > 0;
     }
 
     private static bool HasTopLevelKeyword(
@@ -1763,11 +1814,6 @@ internal static class DeclarationIndexBuilder
     }
 
     /// <summary>
-    /// Whether the header declares a delegate type. A function pointer spells the same keyword —
-    /// <c>delegate*&lt;int, int&gt;</c> — as a return or parameter type, and the <c>*</c> is what
-    /// tells them apart.
-    /// </summary>
-    /// <summary>
     /// Whether the header declares a C# 14 <c>extension</c> block. The block may be generic, and
     /// its type parameter list sits between the keyword and the receiver: <c>extension&lt;T&gt;(
     /// IEnumerable&lt;T&gt; source)</c>. Testing only for a following <c>(</c> misses that form,
@@ -1779,6 +1825,9 @@ internal static class DeclarationIndexBuilder
     /// attribute is CS7014, both measured against the compiler, so there is nothing for it to
     /// follow.
     /// </para>
+    /// Delimiters nested inside a type-parameter attribute are balanced separately. Their
+    /// punctuation is expression syntax, so a relational <c>&gt;</c> there cannot close the outer
+    /// type-parameter list.
     /// </summary>
     private static bool DeclaresAnExtensionBlock(List<ScanToken> pending, Func<ScanToken, string> text)
     {
@@ -1790,21 +1839,47 @@ internal static class DeclarationIndexBuilder
             return false;
 
         int angle = 0;
+        var groups = new List<string>();
         for (int i = 1; i < pending.Count; i++)
         {
             if (pending[i].Kind != ScanTokenKind.Punctuator)
                 continue;
             var c = text(pending[i]);
-            if (c is not ("<" or ">"))
+            if (c is "(" or "[" or "{")
+            {
+                groups.Add(c);
+                continue;
+            }
+            if (c is ")" or "]" or "}")
+            {
+                string expected = c switch
+                {
+                    ")" => "(",
+                    "]" => "[",
+                    _ => "{",
+                };
+                if (groups.Count == 0 || groups[^1] != expected)
+                    return false;
+                groups.RemoveAt(groups.Count - 1);
+                continue;
+            }
+            if (groups.Count > 0 || c is not ("<" or ">"))
                 continue;
             angle += c == "<" ? 1 : -1;
             if (angle == 0)
                 return i + 1 < pending.Count && text(pending[i + 1]) == "(";
+            if (angle < 0)
+                return false;
         }
 
         return false;
     }
 
+    /// <summary>
+    /// Whether the header declares a delegate type. A function pointer spells the same keyword —
+    /// <c>delegate*&lt;int, int&gt;</c> — as a return or parameter type, and the <c>*</c> is what
+    /// tells them apart.
+    /// </summary>
     private static bool DeclaresADelegate(List<ScanToken> header, Func<ScanToken, string> text)
     {
         for (int i = 0; i < header.Count; i++)
