@@ -372,19 +372,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
                 Version,
                 TestSourceKey));
 
-        bool publishersReady = false;
-        try
-        {
-            publishersReady = ready.Wait(
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
-        }
-        finally
-        {
-            start.Set();
-        }
-
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
         Assert.True(publishersReady);
 
         Assert.Equal(committed[0].ExtractPath, committed[1].ExtractPath);
@@ -398,6 +392,39 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             payloads,
             payload => Assert.Equal(winner, File.ReadAllText(payload)));
         AssertNoStagingDirectories(packageName);
+    }
+
+    [Fact]
+    public async Task WaitForAndJoinWorkersAsync_CancellationJoinsWorkersBeforeRethrowing()
+    {
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        int completedWorkers = 0;
+
+        Task<int> StartWorker() =>
+            StartDedicatedWorker(
+                ready,
+                start,
+                () => Interlocked.Increment(ref completedWorkers));
+
+        Task<int> first = StartWorker();
+        Task<int> second = StartWorker();
+        cancellation.Cancel();
+
+        OperationCanceledException exception =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => WaitForAndJoinWorkersAsync(
+                    ready,
+                    start,
+                    cancellation.Token,
+                    first,
+                    second));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.True(first.IsCompletedSuccessfully);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.Equal(2, completedWorkers);
     }
 
     [Fact]
@@ -932,6 +959,10 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         var handler = new NeverAnsweringHandler();
         using var client = new HttpClient(handler);
 
+        Assert.Equal(
+            TimeSpan.FromSeconds(1),
+            PackageExtractor.CachedVersionResolutionTimeout);
+
         Task<PackageExtractionOutcome> extraction = PackageExtractor.ExtractPackageAsync(
             client,
             packageName,
@@ -1387,19 +1418,13 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
         Task<CommittedPackage> publishA = Publish(sourceA, keyA);
         Task<CommittedPackage> publishB = Publish(sourceB, keyB);
 
-        bool publishersReady = false;
-        try
-        {
-            publishersReady = ready.Wait(
-                TimeSpan.FromSeconds(5),
-                TestContext.Current.CancellationToken);
-        }
-        finally
-        {
-            start.Set();
-        }
-
-        CommittedPackage[] committed = await Task.WhenAll(publishA, publishB);
+        (bool publishersReady, CommittedPackage[] committed) =
+            await WaitForAndJoinWorkersAsync(
+                ready,
+                start,
+                TestContext.Current.CancellationToken,
+                publishA,
+                publishB);
         Assert.True(publishersReady);
 
         Assert.NotEqual(committed[0].ExtractPath, committed[1].ExtractPath);
@@ -1557,6 +1582,43 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
+    }
+
+    private static async Task<(bool Ready, T[] Results)> WaitForAndJoinWorkersAsync<T>(
+        CountdownEvent ready,
+        ManualResetEventSlim start,
+        CancellationToken cancellationToken,
+        params Task<T>[] workers)
+    {
+        bool workersReady = false;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? cancellation = null;
+        try
+        {
+            workersReady = ready.Wait(
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+        }
+        catch (OperationCanceledException exception)
+        {
+            cancellation =
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            start.Set();
+        }
+
+        T[] results;
+        try
+        {
+            results = await Task.WhenAll(workers);
+        }
+        finally
+        {
+            cancellation?.Throw();
+        }
+
+        return (workersReady, results);
     }
 
     private static void AssertNoTemporaryDirectories(string prefix)
