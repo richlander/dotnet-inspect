@@ -708,7 +708,7 @@ public class CommandErrorOwnershipTests
     /// a reference added by an imported build file appears in the second and in
     /// no project XML -- and the union is the safe answer.
     /// </remarks>
-    private static HashSet<string> ProjectClosure(string projectPath)
+    internal static HashSet<string> ProjectClosure(string projectPath)
     {
         return Closures.GetOrAdd(Path.GetFullPath(projectPath), Walk);
 
@@ -970,7 +970,7 @@ public class CommandErrorOwnershipTests
             StringComparer.Ordinal);
     }
 
-    private static string RepositoryRoot()
+    internal static string RepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
