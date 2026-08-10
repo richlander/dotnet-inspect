@@ -203,7 +203,7 @@ The layer names name the tier that was unlocked, not a direction: at `depth > 1`
 the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`, `Diagnostics`), so a
-host renders them with its own per-section tree rendering *or* projects them with
+host renders them directly or projects them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact
 bindings to a different identity of the primary assembly, distilled before any
@@ -250,15 +250,16 @@ a direction-specific identity map.
 ## Consumers
 
 `dotnet-inspect` renders one bidirectional `Call Graph` section from the
-projection. `CallGraphSectionAdapter` lowers it to a Markout `Graph`, and Markout
-picks the lowering the sink can express: a tree in Markdown and plain text, an
-edge table under `--table`/`--tsv`/`--jsonl`, and a flowchart in Mermaid. The
-adapter is the only place that knows call-graph vocabulary; the section is a
-graph, not a pre-rendered tree, which is what lets one model serve every sink.
-`--count` reports the projection's edge-row count. `--rows` selects those same
-stable edge rows before tree/diagram lowering and at the table writer boundary
-for tabular output, so changing the final rendering does not change the
-addressed relationships.
+projection. `CallGraphSectionAdapter` lowers it to one Markout `Graph`, and
+Markout picks the lowering the sink can express: an edge table in Markdown by
+default, a standalone tree under `--tree`, an edge table under
+`--table`/`--tsv`/`--jsonl`, a standalone diagram under `--mermaid`, or a
+fenced diagram under `--markdown --mermaid`. The adapter is the only place that
+knows call-graph vocabulary; the section is a graph, not a pre-rendered tree or
+diagram, which is what lets one model serve every sink. `--count` reports the
+projection's edge-row count. `--rows` selects those same stable edge rows before
+tree/diagram lowering and at the table writer boundary for tabular output, so
+changing the final rendering does not change the addressed relationships.
 
 The browser engine consumes the same projection and generates its own Mermaid; it
 reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
