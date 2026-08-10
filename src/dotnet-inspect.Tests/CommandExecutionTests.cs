@@ -13145,8 +13145,8 @@ public partial class CommandExecutionTests
                 "-S", "Top Leverage", "--columns", "Member,Generated",
                 "--jsonl", "--rows", "1", "--tips", "q");
 
-            Assert.Equal(0, actual.Exit);
-            Assert.Equal(0, expected.Exit);
+            Assert.True(actual.Exit == 0, actual.Error);
+            Assert.True(expected.Exit == 0, expected.Error);
             Assert.Empty(actual.Error);
             Assert.Empty(expected.Error);
             Assert.Equal(expected.Output, actual.Output);
@@ -13199,7 +13199,7 @@ public partial class CommandExecutionTests
             var output = await outputTask;
             var error = await errorTask;
 
-            Assert.Equal(0, process.ExitCode);
+            Assert.True(process.ExitCode == 0, error);
             Assert.Empty(error);
             Assert.DoesNotContain("\r\r\n", output, StringComparison.Ordinal);
             Assert.Equal(
