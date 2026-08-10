@@ -44,7 +44,9 @@ Source identity has two parts with different purposes:
   caches.
 
 Names do not prove two feeds are the same. HTTP endpoint canonicalization does
-not make path or query case-insensitive or discard a non-root trailing slash.
+not make path or query case-insensitive. It folds exactly one optional trailing
+path slash because `/feed` and `/feed/` are alternate spellings of one endpoint;
+repeated trailing slashes and fragments remain distinct.
 Local sources use a separate identity: config-relative paths resolve from the
 declaring config's directory, CLI-relative paths resolve from the working
 directory, and path and `file://` spellings normalize to one absolute directory.
@@ -422,21 +424,14 @@ symbols should consume that shared result.
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the
 reporting feeds, uses global-folder payloads only when their recorded producer
-is authorized, and threads caller options through routing probes. The remaining
+is authorized, applies layered `<packageSourceMapping>` configuration per
+package id, preserves aliases through mapping before collapsing producers, and
+threads caller options through routing and platform-pack probes. The remaining
 implementation work includes:
 
-- honoring `<packageSourceMapping>` across every operation
-  ([#3722](https://github.com/richlander/dotnet-inspect/issues/3722));
 - completing config and override semantics, including the complete NuGet config
-  hierarchy, disabled-source merging, and preservation of all configured-name
-  aliases for explicit endpoints
+  hierarchy and config-relative local source paths
   ([#3739](https://github.com/richlander/dotnet-inspect/issues/3739));
-- preserving non-root trailing slashes in producer identity and fencing cache
-  entries written under the currently aliased identity
-  ([#3737](https://github.com/richlander/dotnet-inspect/issues/3737));
-- representing configured order structurally for stable presentation and
-  diagnostics, without treating it as precedence
-  ([#3724](https://github.com/richlander/dotnet-inspect/issues/3724));
 - carrying payload producer provenance through package inspection indexes,
   projected platform packs, and package-associated symbols
   ([#3738](https://github.com/richlander/dotnet-inspect/issues/3738));

@@ -122,6 +122,55 @@ public class SymbolPackageDownloaderTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download);
     }
 
+    [Fact]
+    public async Task DownloadPdbAsync_PrivateMappingDoesNotProbeNuGetOrgSnupkg()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"symbol-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Private.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var handler = new CountingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(client);
+
+        try
+        {
+            await downloader.DownloadPdbAsync(
+                Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"),
+                pdbAge: 1,
+                pdbFileName: "Symbols.pdb",
+                isPortable: true,
+                assemblyPath: "/tmp/Private.Package.dll",
+                packageName: "Private.Package",
+                packageVersion: "1.0.0",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.DoesNotContain(
+                handler.RequestUris,
+                uri => uri.Contains(".snupkg", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(
+                handler.RequestUris,
+                uri => uri.Contains("private.package", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_cacheDir))

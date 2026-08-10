@@ -92,6 +92,50 @@ public class DependencyResolutionServiceTests
     }
 
     [Fact]
+    public async Task ResolveDependencyTree_UnmappedTransitivePackagePropagatesMappingFailure()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Other.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var dependencies = new List<PackageDependency>
+        {
+            new() { Id = "Unmapped.Dependency", Version = "1.0.0" }
+        };
+
+        try
+        {
+            PackageSourceMappingException exception =
+                await Assert.ThrowsAsync<PackageSourceMappingException>(
+                    () => DependencyResolutionService.ResolveDependencyTreeAsync(
+                        new HttpClient(),
+                        dependencies,
+                        "net10.0",
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        log: null,
+                        sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
+
+            Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
     public async Task ResolveDependencyTree_UsesCallerSourcesForEveryTransitiveNuspec()
     {
         CoreCache.Initialize("dotnet-inspect-test");
