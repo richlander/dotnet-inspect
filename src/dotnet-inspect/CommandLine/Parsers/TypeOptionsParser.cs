@@ -102,10 +102,6 @@ public static class TypeOptionsParser
         if (hasProjectSource && hasNonProjectSource)
             return new VersionError("--project cannot be combined with --package, --library, or --platform.");
 
-        IReadOnlyList<string> sourceKeys = hasProjectSource
-            ? []
-            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
-
         // Check for unrecognized options in positional args
         var badOption = sourceInputs.Args.FirstOrDefault(a => a.StartsWith('-'));
         if (badOption != null)
@@ -134,7 +130,10 @@ public static class TypeOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: true);
+                sourceInputs,
+                sourceOptions,
+                parseResult.GetValue(opts.Verbose),
+                tryQualifiedTypeName: true);
             source = sourceSelection.Source;
         }
 
@@ -179,6 +178,7 @@ public static class TypeOptionsParser
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             Limit = memberLimit ?? typeLimit,
+            MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)

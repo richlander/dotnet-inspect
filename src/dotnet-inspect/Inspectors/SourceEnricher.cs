@@ -23,7 +23,8 @@ internal static class SourceEnricher
         PdbContext context, HttpClient httpClient,
         string? packageName, string? packageVersion,
         bool isPlatformAssembly, Action<string>? log,
-        bool cacheOnly = false)
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null)
         => await PdbAcquisitionService.AcquireAsync(
             context,
             httpClient,
@@ -31,7 +32,8 @@ internal static class SourceEnricher
             packageVersion,
             isPlatformAssembly,
             log,
-            cacheOnly).ConfigureAwait(false);
+            cacheOnly,
+            sourceOptions).ConfigureAwait(false);
 
     /// <summary>
     /// Acquires symbols using the provenance of the descriptor that supplied the
@@ -42,13 +44,15 @@ internal static class SourceEnricher
         ResolvedAssemblyReference assembly,
         HttpClient httpClient,
         Action<string>? log,
-        bool cacheOnly = false)
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null)
         => PdbAcquisitionService.AcquireAsync(
             context,
             assembly,
             httpClient,
             log,
-            cacheOnly);
+            cacheOnly,
+            sourceOptions);
 
     // ===== Verbosity-Aware Enrichment Gateways =====
 
@@ -119,7 +123,8 @@ internal static class SourceEnricher
             var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
 
             await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                sourceOptions: options.SourceOptions);
 
             if (!context.HasPdb)
             {
@@ -206,7 +211,8 @@ internal static class SourceEnricher
         }
 
         await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
-            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+            isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+            sourceOptions: options.SourceOptions);
 
         if (!context.HasPdb)
         {
@@ -339,7 +345,8 @@ internal static class SourceEnricher
             var (packageName, packageVersion) = ResolvePackageInfo(options, dllPath);
 
             await AcquirePdbAsync(context, httpClient, packageName, packageVersion,
-                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                sourceOptions: options.SourceOptions);
 
             return service.RepositoryUrl;
         }
@@ -380,10 +387,12 @@ internal static class SourceEnricher
     /// <summary>
     /// Finds the latest cached version candidate reported by an active source.
     /// </summary>
-    private static string? FindCachedPackageVersion(string packageName, ApiOptions options)
+    internal static string? FindCachedPackageVersion(string packageName, ApiOptions options)
         => PackageExtractor.TryGetLatestCachedCandidateVersion(
             packageName,
-            NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions));
+            SourceResolver.ResolveSourceKeysForProbe(
+                options.SourceOptions,
+                packageName));
 
     /// <summary>
     /// Enriches multiple types from a single XML doc file (loaded once).
@@ -685,7 +694,8 @@ internal static class SourceEnricher
             service.Context,
             implementation,
             httpClient,
-            logger.Log);
+            logger.Log,
+            sourceOptions: options.SourceOptions);
         if (!service.HasPdb || !service.HasSourceLink)
             return false;
 

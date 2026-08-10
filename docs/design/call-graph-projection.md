@@ -96,6 +96,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   offset. Requesting an otherwise noncontributing catalog scope therefore does
   not change sibling order, revisit placement, or which nodes fit in a bounded
   traversal.
+- **Stable rows.** A call graph answers "what calls what", so its row unit is a
+  directed edge. `Rows` numbers those edges from one in deterministic edge order
+  and retains those numbers when a host filters them. Counts and row windows
+  therefore bind to the projection rather than to a rendered tree's node lines.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
   records the edge, so a cycle `A → B → A` is two edges between two nodes.
@@ -163,12 +167,15 @@ safe for a given output grammar belongs to the renderer that knows the grammar
 
 The projection needs `CallTreeNode` roots; how a host *acquires* them is a
 separate concern (issue #3266). `DotnetInspector.Queries` owns a
-`ProgressiveMemberCallGraph` seam over one `AssemblyContextGroup`
-(`src/DotnetInspector.Queries/ProgressiveMemberCallGraph.cs`). It consumes
+`MemberCallGraphSession` seam over one `AssemblyContextGroup`
+(`src/DotnetInspector.Queries/MemberCallGraphSession.cs`). It consumes
 typed assembly descriptors and workspace-owned immutable snapshots rather than
 filesystem paths, and serves one member's graph in three cumulative layers,
 cheapest first, so a host can paint the outbound half immediately and fill in
 the expensive tiers as they land:
+
+`Session` names the stateful memoization and lifetime boundary. Progressive
+acquisition is a capability of that session, not a separate call-graph kind.
 
 1. **`Callees`** — a scoped single-body build that decodes only the selected
    member. The callee tree is bounded at depth 1 (immediate callees); there is
@@ -213,7 +220,7 @@ generation and catalog before releasing its retained snapshots; explicit graph
 disposal can release them earlier. A required participant failure raises
 `MemberCallGraphAcquisitionException` with typed acquisition failures rather
 than returning a success-shaped partial graph.
-`ProgressiveMemberCallGraphTests` asserts index build and source-open counts,
+`MemberCallGraphSessionTests` asserts index build and source-open counts,
 stream-only input, duplicate-image reuse, typed failures, projection reuse, and
 group-owned release, including disposal of the catalog scope.
 `CatalogCallGraphScopeTests` pins the single-generation,
@@ -235,6 +242,10 @@ picks the lowering the sink can express: a tree in Markdown and plain text, an
 edge table under `--table`/`--tsv`/`--jsonl`, and a flowchart in Mermaid. The
 adapter is the only place that knows call-graph vocabulary; the section is a
 graph, not a pre-rendered tree, which is what lets one model serve every sink.
+`--count` reports the projection's edge-row count. `--rows` selects those same
+stable edge rows before tree/diagram lowering and at the table writer boundary
+for tabular output, so changing the final rendering does not change the
+addressed relationships.
 
 The browser engine consumes the same projection and generates its own Mermaid; it
 reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI

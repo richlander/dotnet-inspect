@@ -291,15 +291,21 @@ public class LibraryCommand
             return 1;
         }
 
+        if (!ValidateMultiTfmOutput(options))
+            return 1;
+
         if (options.Tree && options.Discover == null)
         {
             if (options.IncludeSections is not { Count: 1 }
                 || !options.IncludeSections.Contains(SectionNames.References))
             {
-                CommandError.Write("--tree requires exactly -S References.");
+                CommandError.Write("--tree requires exactly one tree-shaped section (-S References).");
                 return 1;
             }
+        }
 
+        if (options.Tree && options.Discover == null)
+        {
             if (options.Count
                 || options.Print
                 || options.Value
@@ -525,7 +531,8 @@ public class LibraryCommand
                     logger.Log,
                     options.PlatformFramework,
                     useRuntimeAssemblies: true,
-                    platformVersion: options.PlatformVersion);
+                    platformVersion: options.PlatformVersion,
+                    sourceOptions: options.SourceOptions);
 
                 if (error != null)
                 {
@@ -542,7 +549,12 @@ public class LibraryCommand
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        resolvedPath!,
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: true,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected. Computed once and reused for the
                 // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
@@ -638,8 +650,14 @@ public class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
-                        packageName: packageName, packageVersion: packageVersion);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        assemblyPaths[0],
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: false,
+                        packageName: packageName,
+                        packageVersion: packageVersion,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
                 string? inspectedContentHash = fullEffectiveDiscovery && assemblyPaths.Count > 0
@@ -723,7 +741,7 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
-                if (inspections.Count == 1)
+                if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
                 {
@@ -748,7 +766,12 @@ public class LibraryCommand
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                        assemblyPath!,
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: false,
+                        sourceOptions: options.SourceOptions);
 
                 // Identity of the bytes about to be inspected; see the platform path above.
                 string? inspectedContentHash = fullEffectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
@@ -1106,17 +1129,20 @@ public class LibraryCommand
         => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
-    /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
+    /// Rejects rendered metadata-lens rows when a package resolved to more than one assembly.
     /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
     /// names carry no assembly, so several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
-    /// whose row numbering restarts without saying so. Failing here keeps that ambiguity visible
-    /// instead of rendering a confidently wrong document.
+    /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
+    /// do not expose image-relative row identities; the rejection and count allowance are gated by
+    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
         IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
     {
-        if (inspections.Count <= 1 || options.IncludeSections is not { Count: > 0 } selected)
+        if (options.Count
+            || inspections.Count <= 1
+            || options.IncludeSections is not { Count: > 0 } selected)
             return false;
 
         if (!selected.Any(MetadataSectionNames.IsMetadataSection))
@@ -1360,6 +1386,76 @@ public class LibraryCommand
         CommandError.Write("--print requires -S/--select to match exactly one printable section.");
         return false;
     }
+
+    private static bool ValidateMultiTfmOutput(LibraryOptions options)
+    {
+        if (!IsAllTfmPackageSelection(options)
+            || (options.Discover != null && string.IsNullOrWhiteSpace(options.ILOffsetsPath)))
+        {
+            return true;
+        }
+
+        string? incompatibleShape = options.Tree ? "--tree"
+            : options.Print ? "--print"
+            : options.Value ? "--value"
+            : options.Urls ? "--urls"
+            : options.Paths ? "--paths"
+            : options.ExtractResources != null ? "--extract-resources"
+            : !string.IsNullOrWhiteSpace(options.ILOffsetParameter) ? "--il-offset"
+            : !string.IsNullOrWhiteSpace(options.ILOffsetsPath) ? "--il-offsets"
+            : !string.IsNullOrWhiteSpace(options.HeapParameter) ? "--heap"
+            : null;
+
+        if (incompatibleShape is not null)
+        {
+            if (options.Tree)
+            {
+                CommandError.Write(
+                    "--tree requires exactly one tree shape; --tfm all selects one tree per inspection. Use Markdown or JSON for all TFMs, or select one --tfm for --tree.");
+                return false;
+            }
+
+            CommandError.Write(
+                $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; it cannot be combined with {incompatibleShape}.");
+            return false;
+        }
+
+        if (options.Count)
+            return true;
+
+        if (options.Format is OutputFormat.Markdown or OutputFormat.Json)
+            return true;
+
+        var tabularFormatName = options.Format switch
+        {
+            OutputFormat.Table => "--table",
+            OutputFormat.Tsv => "--tsv",
+            OutputFormat.Jsonl => "--jsonl",
+            _ => null
+        };
+        if (tabularFormatName is not null)
+        {
+            CommandError.Write(
+                $"{tabularFormatName} requires exactly one table shape; --tfm all selects one table per inspection. Use Markdown or JSON, or aggregate --count for all TFMs.");
+            return false;
+        }
+
+        var formatName = options.Format switch
+        {
+            OutputFormat.PlainText => "plain-text output (--plaintext)",
+            OutputFormat.Mermaid => "Mermaid output (--mermaid)",
+            _ => options.Format.ToString()
+        };
+
+        CommandError.Write(
+            $"--tfm all supports full output only as Markdown or JSON, plus aggregate --count; {formatName} is not supported.");
+        return false;
+    }
+
+    private static bool IsAllTfmPackageSelection(LibraryOptions options)
+        => string.IsNullOrEmpty(options.PlatformAssembly)
+            && !string.IsNullOrEmpty(options.PackagePath)
+            && string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
 
     private static bool TryWriteLibrarySingletonCount(LibraryInspection inspection, LibraryOptions options)
     {

@@ -50,6 +50,58 @@ public class RidPackageVerifierTests
             request.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task VerifyAsync_UnmappedRidPackagePropagatesMappingFailure()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Parent.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "linux-x64",
+                    PackageId = "runtime.linux-x64.Unmapped"
+                }
+            ]
+        };
+
+        try
+        {
+            PackageSourceMappingException exception =
+                await Assert.ThrowsAsync<PackageSourceMappingException>(
+                    () => RidPackageVerifier.VerifyAsync(
+                        new HttpClient(),
+                        result,
+                        "1.0.0",
+                        localDir: null,
+                        logger: new VerboseLogger(enabled: false),
+                        sourceOptions: new NuGetSourceOptions { ConfigFile = configPath }));
+
+            Assert.Equal(PackageSourceMappingFailure.NoPattern, exception.Failure);
+            Assert.Null(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
     sealed class StubHandler : HttpMessageHandler
     {
         readonly List<(string Match, string Body)> _routes = [];

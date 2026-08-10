@@ -246,7 +246,7 @@ public class PackageCommand
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
-                            CommandError.Write($"Package '{range.PackageId}' not found on nuget.org");
+                            CommandError.Write($"Package '{range.PackageId}' not found on eligible configured sources.");
                             return 1;
                         }
 
@@ -303,7 +303,9 @@ public class PackageCommand
                     && NuGetCache.TryGetCachedPackage(
                         normalizedName,
                         versionQueryPinned,
-                        NuGetSourceResolver.ResolveSourceKeys(options.SourceOptions)) != null)
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            normalizedName)) != null)
                 {
                     if (LensProjection.TryProject(options, "--versions", 1, out var cachedPinnedExit))
                         return cachedPinnedExit;
@@ -348,7 +350,9 @@ public class PackageCommand
 
             if (options.Limit == 1 && options.ForceLatest)
             {
-                var sources = NuGetSourceResolver.ResolveSources(options.SourceOptions);
+                var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+                    options.SourceOptions,
+                    normalizedName);
                 var latest = await PackageExtractor.GetLatestVersionAsync(
                     context.HttpClient,
                     normalizedName,
@@ -358,7 +362,7 @@ public class PackageCommand
                     includePrerelease: options.IncludePrerelease);
                 if (latest == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -394,7 +398,7 @@ public class PackageCommand
                 if (singleVersions is null)
                 {
                     CommandError.Write(
-                        $"Package '{packageArgs[0]}' not found on nuget.org");
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -441,7 +445,7 @@ public class PackageCommand
                     includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
                 if (listings == null)
                 {
-                    CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                    CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                     return 1;
                 }
 
@@ -454,7 +458,7 @@ public class PackageCommand
             var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
             if (versions == null)
             {
-                CommandError.Write($"Package '{packageArgs[0]}' not found on nuget.org");
+                CommandError.Write($"Package '{packageArgs[0]}' not found on eligible configured sources.");
                 return 1;
             }
 
@@ -689,7 +693,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger, acquirePdb: true);
+                    extractPath, packageName, version, client, logger,
+                    acquirePdb: true, options.SourceOptions);
             }
 
             if (wantsSignals)
@@ -800,7 +805,7 @@ public class PackageCommand
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            CommandError.Write($"Package '{packageName}' version '{version}' not found on nuget.org.");
+            CommandError.Write($"Package '{packageName}' version '{version}' not found on eligible configured sources.");
             CommandError.WriteLine("Use 'dotnet-inspect package <name> --versions' to list available versions.");
             return 1;
         }
@@ -1603,7 +1608,8 @@ public class PackageCommand
             if (wantsSignals)
             {
                 result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, target.PackageName, version, context.HttpClient, logger, acquirePdb: true);
+                    extractPath, target.PackageName, version, context.HttpClient, logger,
+                    acquirePdb: true, options.SourceOptions);
                 await AuditSignalBuilder.PopulatePackageAuditAsync(
                     result, context.HttpClient, logger, options.SourceOptions);
             }
@@ -1739,7 +1745,8 @@ public class PackageCommand
                     version,
                     isPlatformAssembly: false,
                     CoreSourceLinkQueryCache.Instance,
-                    logger.Log);
+                    logger.Log,
+                    options.SourceOptions);
 
                 InspectionQueryResults? queryResults = null;
                 if (requestedQueries.Count > 0)
@@ -1756,7 +1763,8 @@ public class PackageCommand
                         packageName,
                         version,
                         isPlatformAssembly: false,
-                        logger.Log).ConfigureAwait(false);
+                        logger.Log,
+                        sourceOptions: options.SourceOptions).ConfigureAwait(false);
                 }
 
                 if (collectSourceFiles)
@@ -2601,7 +2609,7 @@ public class PackageCommand
         if (libraryOptions.Count)
             CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
         else
-            Console.WriteLine(markdown);
+            OutputFormatter.WriteLfLine(Console.Out, markdown);
         return 0;
     }
 
@@ -2941,19 +2949,39 @@ public class PackageCommand
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
-        sb.AppendLine($"# {title}");
-        sb.AppendLine();
+        sb.Append("# ").Append(title).Append('\n').Append('\n');
 
         foreach (var section in sections)
         {
             if (IsAggregatedAllLibrariesSection(section))
-                AppendAggregatedSection(sb, section, inspections);
+                AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
         }
 
-        var markdown = sb.ToString().TrimEnd();
-        return MarkdownTableRowLimiter.Apply(markdown, options.Rows);
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Renders one runtime-named, runtime-column section through the serializer so its rows reach
+    /// the writer, which is what applies <c>--rows</c>.
+    /// </summary>
+    private static void AppendAggregatedTable(StringBuilder sb, string section, MarkoutTable table, RowWindow? rows)
+    {
+        var document = new AggregatedSectionDocument
+        {
+            Sections = [new AggregatedSectionView { Name = section, Body = table }]
+        };
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(
+            document, output, InspectionContext.Default, OutputFormatter.CreateWindowedOptions(rows));
+        var rendered = output.ToString().Trim();
+        if (rendered.Length == 0)
+            return;
+
+        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
+            sb.Append('\n');
+        sb.Append(rendered).Append('\n').Append('\n');
     }
 
     private static bool IsAggregatedAllLibrariesSection(string section)
@@ -2961,7 +2989,7 @@ public class PackageCommand
            || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
            || LibraryIntegrationCatalog.All.Any(descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
 
-    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections)
+    private static void AppendAggregatedSection(StringBuilder sb, string section, List<LibraryInspection> inspections, RowWindow? rows)
     {
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
@@ -2981,13 +3009,12 @@ public class PackageCommand
             if (opportunityRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
                 opportunityRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]));
+                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()), rows);
             return;
         }
 
@@ -3008,13 +3035,12 @@ public class PackageCommand
             if (switchRows.Count == 0)
                 return;
 
-            AppendHeading(sb, section);
             var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
-            AppendTable(sb,
+            AppendAggregatedTable(sb, section, new MarkoutTable(
                 includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
                 switchRows.Select(row => includeLibrary
                     ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]));
+                    : [row.Kind, row.Switch, row.Api]).ToList()), rows);
             return;
         }
 
@@ -3040,7 +3066,6 @@ public class PackageCommand
         if (focusedRows.Count == 0)
             return;
 
-        AppendHeading(sb, section);
         var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
@@ -3050,14 +3075,14 @@ public class PackageCommand
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
-        AppendTable(sb, headers, focusedRows.Select(row =>
+        AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
             List<string> values = [];
             if (includeLibraryColumn) values.Add(CodeCell(row.Library));
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();
-        }));
+        }).ToList()), rows);
     }
 
     private static void AppendPerLibrarySections(
@@ -3077,9 +3102,8 @@ public class PackageCommand
                 continue;
 
             if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-                sb.AppendLine();
-            sb.AppendLine(rendered);
-            sb.AppendLine();
+                sb.Append('\n');
+            sb.Append(rendered).Append('\n').Append('\n');
         }
     }
 
@@ -3089,9 +3113,14 @@ public class PackageCommand
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = [section],
-            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields)
+            Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
+            // Windowed here rather than over the assembled document: the heading rewrite below is
+            // the only text this path edits, and it does not touch rows.
+            RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var markdown = MarkoutSerializer.Serialize(view, InspectionContext.Default, writerOptions).Trim();
+        var output = new StringWriter { NewLine = "\n" };
+        MarkoutSerializer.Serialize(view, output, InspectionContext.Default, writerOptions);
+        var markdown = output.ToString().Trim();
         if (markdown.Length == 0)
             return "";
 
@@ -3115,31 +3144,25 @@ public class PackageCommand
         return string.Join('\n', lines).Trim();
     }
 
-    private static void AppendHeading(StringBuilder sb, string section)
-    {
-        if (sb.Length > 0 && !sb.ToString().EndsWith("\n\n", StringComparison.Ordinal))
-            sb.AppendLine();
-        sb.AppendLine($"## {section}");
-        sb.AppendLine();
-    }
-
-    private static void AppendTable(StringBuilder sb, IReadOnlyList<string> headers, IEnumerable<string[]> rows)
-    {
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine($"| {string.Join(" | ", headers.Select(_ => "---"))} |");
-        foreach (var row in rows)
-            sb.AppendLine($"| {string.Join(" | ", row.Select(EscapeMarkdownCell))} |");
-        sb.AppendLine();
-    }
-
-    private static string EscapeMarkdownCell(string value)
-        => value
-            .Replace("\r", " ", StringComparison.Ordinal)
-            .Replace("\n", " ", StringComparison.Ordinal)
-            .Replace("|", "&#124;", StringComparison.Ordinal);
-
-    private static string CodeCell(string value)
-        => $"`{value.Replace("`", "\\`", StringComparison.Ordinal)}`";
+    /// <summary>
+    /// Marks a cell as code using markout's semantic inline tag rather than literal backticks, so
+    /// the formatter owns the spelling.
+    /// </summary>
+    /// <remarks>
+    /// This also changes two escapes that hand-written backticks got wrong. A pipe was written as
+    /// <c>&amp;#124;</c>, which renders literally inside a code span; markout emits <c>\|</c>,
+    /// which GFM unescapes while splitting rows, before code spans are parsed. A backtick was
+    /// written as <c>\`</c>, but backslash escapes do not apply inside a code span; markout uses
+    /// the doubled-delimiter form instead.
+    ///
+    /// Both corrections are unverified against real data: no package in the differential corpus
+    /// produced a pipe or a backtick in these cells. They are reachable in principle — the
+    /// integration scanner takes raw metadata names, which carry arity backticks such as
+    /// <c>IEnumerable`1</c>, without the display-name normalization other scanners apply — but
+    /// that path is not exercised by a test, so treat this as a latent fix rather than an
+    /// observed one.
+    /// </remarks>
+    private static string CodeCell(string value) => MarkoutInline.Code(value);
 
     private static void WritePackageLibraryCandidates(
         string extractPath,
