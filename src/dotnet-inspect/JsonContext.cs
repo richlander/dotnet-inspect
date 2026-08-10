@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
+using ILInspector.Decompiler;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -121,6 +122,26 @@ public partial class ApiTypeJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 public partial class ApiTypeCompactJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
 {
 }
 
