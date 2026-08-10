@@ -103,10 +103,6 @@ public static class MemberOptionsParser
             return new ShowHelp();
         }
 
-        IReadOnlyList<string> sourceKeys = projectSourcePath is not null
-            ? []
-            : NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
-
         // Extract positional members
         List<string> positionalMembers = [];
         if (projectSourcePath is not null && sourceInputs.Args.Length >= 2)
@@ -139,7 +135,10 @@ public static class MemberOptionsParser
         else
         {
             sourceSelection = await SharedParsers.ResolveSourceSelectionAsync(
-                sourceInputs, sourceKeys, parseResult.GetValue(opts.Verbose), tryQualifiedTypeName: false);
+                sourceInputs,
+                sourceOptions,
+                parseResult.GetValue(opts.Verbose),
+                tryQualifiedTypeName: false);
             source = sourceSelection.Source;
         }
 
@@ -164,7 +163,7 @@ public static class MemberOptionsParser
             string? platformLookupFailure = null;
             var split = SharedParsers.TrySplitQualifiedTypeMember(
                 source.PackagePath,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback: true,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)
@@ -192,7 +191,7 @@ public static class MemberOptionsParser
             string? platformLookupFailure = null;
             var probe = SourceResolver.TryResolveQualifiedTypeName(
                 source.PackagePath,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback: true,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)

@@ -1280,24 +1280,39 @@ public sealed class LibraryBodyIndex
     /// Builds an index over caller-provided immutable PE image content without
     /// reopening the target file.
     /// </summary>
+    /// <remarks>
+    /// <c>LibraryBodyIndex_ConsumesCallerOwnedPrefetchedImage</c> gates shared
+    /// image consumption, and
+    /// <c>LibraryBodyIndex_PrefetchedImageHonorsBodyScope</c> gates scoped
+    /// decoding through this entry point.
+    /// </remarks>
     public static LibraryBodyIndex OpenFromPrefetchedImage(
         string path,
         ImmutableArray<byte> image,
         LibraryBodyAnalysisFeatures features,
-        IAssemblyReferenceResolver? resolver = null)
+        IAssemblyReferenceResolver? resolver = null,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<TypeRef, bool>? bodyTypeScope = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (image.IsDefaultOrEmpty)
             throw new ArgumentException("A prefetched PE image is required.", nameof(image));
         features = NormalizeFeatures(features);
+        if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0
+            && (bodyScope is not null || bodyTypeScope is not null))
+        {
+            throw new ArgumentException(
+                "Leak Triage requires a full assembly body census.");
+        }
+
         using var peReader = new PEReader(image);
         return BuildFromReader(
             path,
             peReader,
             features,
             resolver,
-            bodyScope: null,
-            bodyTypeScope: null);
+            bodyScope,
+            bodyTypeScope);
     }
 
     static LibraryBodyIndex BuildFromReader(

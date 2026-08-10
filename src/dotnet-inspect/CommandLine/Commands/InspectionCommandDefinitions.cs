@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -348,6 +349,7 @@ public static class InspectionCommandDefinitions
             string? platformAssembly = explicitPlatform;
             var requestedFramework = parseResult.GetValue(asmFrameworkOption);
             var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
+            NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
 
             if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
@@ -372,7 +374,8 @@ public static class InspectionCommandDefinitions
                         source, HttpClientFactory.Shared, log,
                         requestedFramework,
                         platformVersion: requestedPlatformVersion,
-                        useRuntimeAssemblies: true);
+                        useRuntimeAssemblies: true,
+                        sourceOptions: sourceOptions);
                     if (error == null && asmPath != null)
                         platformAssembly = source;
                     else if (!string.IsNullOrEmpty(requestedFramework) || !string.IsNullOrEmpty(requestedPlatformVersion))

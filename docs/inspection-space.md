@@ -23,10 +23,13 @@ library CLI and package
 demand. One binding-consistent assembly context group scans every selected
 participant sequentially, preserves per-assembly identity, provenance, and
 failures, and retains each available immutable snapshot for the rest of that
-library inspection without reopening the source path. Other foundations
-include shared image and inspection session ownership, catalog generations,
-`CoreCache`, typed provenance and resolution currencies, and `InertString`;
-the remaining workspace model describes how those pieces will be composed.
+library inspection without reopening the source path. Progressive member call
+graphs now run over the same group: they build Analysis indexes from retained
+snapshots, keep one cross-assembly catalog generation for both traversal
+directions, and remain independent of rendering. Other foundations include
+shared image and inspection session ownership, catalog generations, `CoreCache`,
+typed provenance and resolution currencies, and `InertString`; the remaining
+workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -274,6 +277,13 @@ returned span.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+`InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
+derived-resource-before-snapshot disposal order.
+`InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
+all-group cleanup after an owned-resource failure, and
+`InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
+gates preservation of an in-flight callback failure when deferred cleanup also
+fails.
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
 production Metadata friends.
 
@@ -296,8 +306,26 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 `AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
 gates the budget-limited case.
 
-Catalogs, query authorization, integration-opportunity composition, concurrent
-execution, and command migration remain later slices.
+`MemberCallGraphSession` is the first group-owned derived Analysis resource.
+It builds one scoped target index only for first paint, one full target index
+when a caller-capable tier is requested, and one full index per distinct
+cross-library image. The group owns its catalog lifetime and disposes the
+catalog before releasing snapshots. Stream-only participants use the same path,
+and projection is downstream of acquisition. Typed participant acquisition
+failures remain visible as `MemberCallGraphAcquisitionException`.
+`MemberCallGraphSessionTests` gates build and source-open counts,
+stream-only operation, duplicate-image reuse, typed failures, projection reuse,
+and group-owned disposal.
+`MemberCallGraphSessionTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
+also gates disposal of the graph's catalog scope.
+`MemberCallGraphSessionTests.MalformedMetadata_IsTypedAndCached` gates
+malformed-image failure caching, and
+`MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
+gates the complete metadata-decoder exception classification.
+
+Other domain catalogs, query authorization, integration-opportunity
+composition, concurrent execution, and broader command migration remain later
+slices.
 
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
@@ -635,8 +663,8 @@ Those parts need not be duplicated on every leaf. Identity belongs at the
 highest container that knows the subject; native coordinates stay on the
 lowest producer that owns their semantics. A body-local fact may carry only an
 IL offset while its enclosing result carries the member subject and assembly
-binding. A portable source line may depend on its containing stream for the
-coordinate plane. Composition supplies the full operand without flattening it
+binding. A portable structural span may depend on its containing text buffer for
+the coordinate plane. Composition supplies the full operand without flattening it
 into one key.
 
 Member inspection is the worked pattern. A selector is a portable question, a
@@ -649,11 +677,14 @@ and the physical body owner instead of collapsing them.
 
 Source projection demonstrates the same pattern at another scale. An in-process
 correlation may retain live annotation objects and IR relationships. Its
-portable projection materializes annotation data and rebased extents so another
+portable projection materializes annotation data and text spans so another
 consumer can retain, filter, or render the relation without those live objects.
-The line's IL offset remains scoped to its physical body, while annotation
-extents use the containing rendered stream's coordinate plane. The projection
-does not claim to recover the original graph.
+An instruction's IL offset remains scoped to its physical body, while structural
+coordinates become absolute spans over the rendered text — the projection's own
+canonical artifact — so a discontinuous construct names the same characters,
+line breaks included, however the media were woven, and no coordinate depends on
+a line identity the payload does not carry. The projection does not claim to
+recover the original graph.
 
 These examples are precedents, not core types. Their owning documents define
 the exact currencies and conversions.
