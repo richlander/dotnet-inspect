@@ -1,0 +1,10 @@
+{
+  "name": "dotnet-inspect-annotated-source-viewer",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "test": "node --test"
+  }
+}
