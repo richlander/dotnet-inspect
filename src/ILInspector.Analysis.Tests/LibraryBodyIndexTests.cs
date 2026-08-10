@@ -107,7 +107,7 @@ public class LibraryBodyIndexTests
         using var peReader = new PEReader(stream);
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, resolver);
 
         bool resolvedFrameworkType = false;
         foreach (var handle in reader.TypeReferences)
@@ -150,7 +150,7 @@ public class LibraryBodyIndexTests
         using var peReader = new PEReader(stream);
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(
+        using var builder = new LibraryBodyAnalysisBuilder(
             targetPath, reader, peReader, new FrameworkDirectoryResolver(frameworkDir));
 
         bool exercisedForwarder = false;
@@ -205,7 +205,7 @@ public class LibraryBodyIndexTests
         using var stream = File.OpenRead(targetPath);
         using var peReader = new PEReader(stream);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(
+        using var builder = new LibraryBodyAnalysisBuilder(
             targetPath, reader, peReader, new ConstantResolver(facade));
 
         var objectReference = FindExternalTypeReference(reader, "System", "Object");
@@ -223,7 +223,7 @@ public class LibraryBodyIndexTests
         Assert.True(peReader.HasMetadata);
         var reader = peReader.GetMetadataReader();
         var externalType = FirstExternalTypeReference(reader);
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, resolver: null);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, resolver: null);
 
         Assert.Null(builder.TryResolveExternalTypeDefinition(externalType));
 
@@ -283,7 +283,7 @@ public class LibraryBodyIndexTests
         using var stream = File.OpenRead(targetPath);
         using var peReader = new PEReader(stream);
         var reader = peReader.GetMetadataReader();
-        using var builder = new LibraryBodyIndex.IndexBuilder(targetPath, reader, peReader, recorder);
+        using var builder = new LibraryBodyAnalysisBuilder(targetPath, reader, peReader, recorder);
 
         var objectReference = FindExternalTypeReference(reader, "System", "Object");
         Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
@@ -368,7 +368,7 @@ public class LibraryBodyIndexTests
             using var stream = File.OpenRead(appPath);
             using var peReader = new PEReader(stream);
             var reader = peReader.GetMetadataReader();
-            using var builder = new LibraryBodyIndex.IndexBuilder(appPath, reader, peReader, recorder);
+            using var builder = new LibraryBodyAnalysisBuilder(appPath, reader, peReader, recorder);
 
             var widgetReference = FindExternalTypeReference(reader, "Sample", "Widget");
             Assert.False(widgetReference.IsNil);
