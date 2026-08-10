@@ -24,6 +24,17 @@ for this session.** Otherwise they are inapplicable: follow this file, and do
 not adopt Nightshift roles, orders, gates, or tooling merely because you noticed
 those documents exist.
 
+### Markout changes use the co-development loop
+
+When a change needs new or altered Markout behavior, read
+[`docs/markout-co-development.md`](docs/markout-co-development.md) before
+changing either repository. Point dotnet-inspect at the exact Markout source
+branch and validate it as a real consumer before the Markout PR merges; that
+consumer proof is part of getting Markout to quality, not a post-release check.
+Keep the peer-checkout `ProjectReference` edits local and unpushed. After
+Markout lands and releases, restore `PackageReference` and only then raise the
+dotnet-inspect PR.
+
 ## Before changing files
 
 - `main` is protected. Keep the primary repository checkout attached to
