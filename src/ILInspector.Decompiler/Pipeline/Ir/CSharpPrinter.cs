@@ -3302,6 +3302,11 @@ public sealed partial class CSharpPrinter
         return text;
     }
 
+    string RenderedNodeKind(IrNode node)
+        => _printedRanges?.TryGetNodeKind(node, out string? kind) == true
+            ? kind
+            : AnnotatedSourceNodeKindProjection.From(node);
+
     string ExpressionCore(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
@@ -3364,7 +3369,7 @@ public sealed partial class CSharpPrinter
         IncrementDecrement id => IncrementDecrementText(id),
         // The coercion node renders through the one rule — the node IS the
         // routing guarantee; CoerceText decides cast, unchecked, name, or bare.
-        Coerce co => CoerceText(co.Operand, co.Target),
+        Coerce co => CoerceNodeText(co),
         Convert v => ConvertText(v),
         Call c when MultiDimArrayAccessText(c) is { } text
             => WithNodeKind(
@@ -3414,11 +3419,11 @@ public sealed partial class CSharpPrinter
         StackAllocArray s => s.HasInitializer
             ? $"stackalloc {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.ToArray().Select(e => Expression((IrExpression)e)))} }}"
             : $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
-        Box b => CoerceText(b.Operand, b.Type),
+        Box b => BoxText(b),
         IsInstance i => WithNodeKind(
             i,
             $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
-            IsValueTypeTarget(i.Type) ? "TypeTestExpression" : "ConversionExpression"),
+            IsValueTypeTarget(i.Type) ? "PatternExpression" : "ConversionExpression"),
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.ContainedIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
@@ -3432,7 +3437,7 @@ public sealed partial class CSharpPrinter
         FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
         LoadElementAddress e => $"ref {Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
-        LoadIndirect l => DerefLoad(l),
+        LoadIndirect l => WithNodeKind(l, DerefLoad(l), DerefLoadSurfaceKind(l)),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         DefaultValue d => $"default({TypeText(d.Type)})",
         TypeOf t => $"typeof({TypeOfTypeText(t.Type)})",
@@ -4097,6 +4102,43 @@ public sealed partial class CSharpPrinter
         if (load.Type is { } nativeElement && IsNativeInteger(load.Address.ResultType))
             return NativeIntPointerDeref(load.Address, nativeElement);
         return Deref(load.Address);
+    }
+
+    string BoxText(Box box)
+    {
+        string text = CoerceText(box.Operand, box.Type);
+        return WithNodeKind(
+            box,
+            text,
+            CoerceSurfaceKind(box.Operand, box.Type, text));
+    }
+
+    string DerefLoadSurfaceKind(LoadIndirect load)
+    {
+        if (PointerElementAccessText(load) is not null)
+            return "ElementAccessExpression";
+        if (load.Address is Convert
+            {
+                Operand.ResultType.Kind: TypeRefKind.Pointer,
+                Target: { Namespace: "System", Assembly: TypeRef.CoreLibrary, Name: "IntPtr" or "UIntPtr" },
+            }
+            || load.Type is not null && IsNativeInteger(load.Address.ResultType))
+        {
+            return "IndirectAccessExpression";
+        }
+
+        return load.Address switch
+        {
+            LoadArgument { Index: 0, Name: "this" } => "NameExpression",
+            LoadLocalAddress or LoadArgumentAddress => "NameExpression",
+            LoadFieldAddress => "MemberAccessExpression",
+            FixedBufferElementAddress or LoadElementAddress => "ElementAccessExpression",
+            Unbox => "InvocationExpression",
+            { ResultType.Kind: TypeRefKind.Pointer } => "IndirectAccessExpression",
+            Conditional { ResultType.Kind: TypeRefKind.ByRef } => "ConditionalExpression",
+            { ResultType.Kind: TypeRefKind.ByRef } address => RenderedNodeKind(address),
+            _ => "IndirectAccessExpression",
+        };
     }
 
     string? PointerElementAccessText(LoadIndirect load)

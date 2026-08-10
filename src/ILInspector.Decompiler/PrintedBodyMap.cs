@@ -307,7 +307,9 @@ public sealed record PrintedBodyMap
                 }
                 string kind = nodeId is { } placedId
                     ? nodes[placedId].Kind
-                    : AnnotatedSourceNodeKindProjection.From(node);
+                    : ranges.TryGetNodeKind(node, out string? renderedKind)
+                        ? renderedKind
+                        : AnnotatedSourceNodeKindProjection.From(node);
                 foreach (var annotation in found)
                 {
                     facts.Add(new PrintedAnnotationSpan(
@@ -442,9 +444,14 @@ public sealed record PrintedBodyMap
             }
             else
             {
-                kind = AnnotationAnchor.Best(statementSpans, annotation.SourceOffset) is { } fallback
-                    ? AnnotatedSourceNodeKindProjection.From(fallback)
-                    : AnnotatedSourceNodeKindProjection.From(function);
+                var fallback = printed
+                    ?? AnnotationAnchor.Best(statementSpans, annotation.SourceOffset);
+                kind = fallback is not null
+                    && ranges.TryGetNodeKind(fallback, out string? renderedKind)
+                        ? renderedKind
+                        : fallback is not null
+                            ? AnnotatedSourceNodeKindProjection.From(fallback)
+                            : AnnotatedSourceNodeKindProjection.From(function);
             }
 
             facts.Add(new PrintedAnnotationSpan(

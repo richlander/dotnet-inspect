@@ -233,6 +233,97 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void TransparentWrappersRecordTheSyntaxTheyExpose()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var boxed = new Box(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var coerced = new Coerce(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var managedRead = new LoadIndirect(
+            intType,
+            new LoadArgument(1, "managed", TypeRef.ByRef(intType)));
+        var pointerRead = new LoadIndirect(
+            intType,
+            new LoadArgument(2, "pointer", TypeRef.Pointer(intType)));
+        var conditional = new Coerce(
+            intType,
+            new Conditional(
+                new LoadArgument(3, "flag", boolType),
+                new Constant(1, intType),
+                new Constant(0, intType))
+            {
+                MergedType = intType,
+            });
+        var typeTest = new IsInstance(
+            intType,
+            new LoadArgument(4, "subject", objectType));
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, objectType, boxed));
+        block.Add(new StoreLocal(1, intType, coerced));
+        block.Add(new StoreLocal(2, intType, pointerRead));
+        block.Add(new StoreLocal(3, intType, conditional));
+        block.Add(new StoreLocal(4, boolType, typeTest));
+        block.Add(new Return(managedRead));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                intType,
+                [
+                    new Parameter("value", intType),
+                    new Parameter("managed", TypeRef.ByRef(intType)),
+                    new Parameter("pointer", TypeRef.Pointer(intType)),
+                    new Parameter("flag", boolType),
+                    new Parameter("subject", objectType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [objectType, intType, intType, intType, boolType],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        AssertSurfaceKind(ranges, boxed, "value", "NameExpression");
+        AssertSurfaceKind(ranges, coerced, "value", "NameExpression");
+        AssertSurfaceKind(ranges, managedRead, "managed", "NameExpression");
+        AssertSurfaceKind(ranges, pointerRead, "*pointer", "IndirectAccessExpression");
+        AssertSurfaceKind(ranges, conditional, "flag ? 1 : 0", "ConditionalExpression");
+        AssertSurfaceKind(ranges, typeTest, "subject is int", "PatternExpression");
+    }
+
+    [Fact]
+    public void UnplacedFactKeepsPrinterSelectedKind()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var node = new Box(
+            intType,
+            new LoadArgument(0, "value", intType));
+        var ranges = new PrintedRangeMap();
+        ranges.SetNodeKind(node, "NameExpression");
+        ranges.Complete("");
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [node] = [new Annotation(Alloc, 0)],
+            });
+
+        var fact = Assert.Single(map.Annotations);
+        Assert.Null(fact.NodeId);
+        Assert.Null(fact.Extent);
+        Assert.Equal("NameExpression", fact.Kind);
+    }
+
+    [Fact]
     public void RenderSpecializationKeepsPlacedFactAndNodeKindsEqual()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
@@ -1254,6 +1345,18 @@ public class PrintedBodyMapTests
         var span = Assert.Single(map.Nodes);
         Assert.Equal("NameExpression", span.Kind);
         Assert.Equal("efgh", Text(map, span.Extent));
+    }
+
+    static void AssertSurfaceKind(
+        PrintedRangeMap ranges,
+        IrNode node,
+        string expectedText,
+        string expectedKind)
+    {
+        Assert.True(ranges.TryGetRange(node, out var range));
+        Assert.Equal(expectedText, ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(node, out string? kind));
+        Assert.Equal(expectedKind, kind);
     }
 
     static int ComparePosition(int line, int column, int otherLine, int otherColumn)

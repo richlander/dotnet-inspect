@@ -1811,6 +1811,51 @@ public sealed partial class CSharpPrinter
     /// reconciling against an enum sibling use <see cref="TryCoerceEnumOperand"/>,
     /// the operand-shaped door into the same rules.
     /// </summary>
+    string CoerceNodeText(Coerce coerce)
+    {
+        string text = CoerceText(coerce.Operand, coerce.Target);
+        return WithNodeKind(
+            coerce,
+            text,
+            CoerceSurfaceKind(coerce.Operand, coerce.Target, text));
+    }
+
+    string CoerceSurfaceKind(IrExpression value, TypeRef? target, string? renderedText = null)
+    {
+        string text = renderedText ?? CoerceText(value, target);
+        if (target is { } explicitTarget)
+        {
+            string cast = $"({TypeText(explicitTarget)})";
+            if (text.StartsWith(cast, StringComparison.Ordinal)
+                || (text.StartsWith("checked(", StringComparison.Ordinal)
+                    || text.StartsWith("unchecked(", StringComparison.Ordinal))
+                    && text.Contains(cast, StringComparison.Ordinal))
+            {
+                return "ConversionExpression";
+            }
+        }
+        if (text.StartsWith('&'))
+            return "AddressExpression";
+        if (TryLongLiteralText(value) == text || value is Constant)
+            return "LiteralExpression";
+        if (target is { } integerTarget
+            && CoercionRendering.CanSpellBoolToInteger(EffectiveType(value), integerTarget))
+        {
+            return "ConditionalExpression";
+        }
+
+        return value switch
+        {
+            Conditional conditional => SpellsAsLogicalAnd(conditional)
+                ? "BinaryExpression"
+                : "ConditionalExpression",
+            SwitchExpression or UnionSwitchExpression or TupleSwitchExpression or PatternSwitchExpression
+                => "SwitchExpression",
+            Coalesce => "NullCoalescingExpression",
+            _ => RenderedNodeKind(value),
+        };
+    }
+
     string CoerceText(IrExpression value, TypeRef? target)
     {
         // The long-literal lens (#3347) at a value sink — a return, an argument, an
