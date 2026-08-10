@@ -342,7 +342,7 @@ public class DependsCommand
 
     private static void WriteMarkdown(PackageDependenciesView view, RowWindow? rows)
     {
-        OutputFormatter.WriteLimitedMarkdown(Console.Out,
-            MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default), rows);
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
+            opts => MarkoutSerializer.Serialize(view, PackageDependenciesContext.Default, opts));
     }
 }

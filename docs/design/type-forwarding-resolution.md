@@ -2676,7 +2676,7 @@ values. Analysis projects complete open signatures into
 `CatalogMemberJoinKey`, retains total physical storage and typed incomplete
 evidence in `CatalogCallGraphScope`, and serves both graph directions from one
 frozen generation. `CatalogMemberCorrespondencePlanTests`,
-`CatalogCallGraphScopeTests`, and `ProgressiveMemberCallGraphTests` gate
+`CatalogCallGraphScopeTests`, and `MemberCallGraphSessionTests` gate
 forwarded declaring/parameter/return types, duplicate and unavailable evidence,
 physical participant deduplication, generation release, and product reuse.
 `TypeResolutionContextTests.NestedForwarder_ResolvesFullDeclarationChain`
