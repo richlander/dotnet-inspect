@@ -1666,6 +1666,7 @@ public class SectionPipelineTests
             [
                 ApiComparisonQuery.Definition,
                 BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
             ],
             catalog.Pipeline.DeclaredQueries);
     }
@@ -1682,6 +1683,11 @@ public class SectionPipelineTests
         {
             DiffSections.AnalysisDiff.Name,
         };
+        var implementation = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            DiffSections.ImplementationDiff.Name,
+        };
 
         Assert.Equal(
             [ApiComparisonQuery.Definition],
@@ -1693,6 +1699,11 @@ public class SectionPipelineTests
             [BodySignalComparisonQuery.Definition],
             catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis));
         Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                implementation));
+        Assert.Equal(
             SectionCost.NetworkFree,
             Assert.Single(
                 catalog.Pipeline.SectionCosts,
@@ -1702,6 +1713,12 @@ public class SectionPipelineTests
             Assert.Single(
                 catalog.Pipeline.SectionCosts,
                 section => section.Name == DiffSections.AnalysisDiff.Name).Cost);
+        Assert.Equal(
+            SectionCost.Unbounded,
+            Assert.Single(
+                catalog.Pipeline.SectionCosts,
+                section => section.Name
+                    == DiffSections.ImplementationDiff.Name).Cost);
     }
 
     [Fact]
@@ -1735,7 +1752,9 @@ public class SectionPipelineTests
             new ApiSurface(),
             new ApiSurface(),
             () => throw new InvalidOperationException(
-                "Changes-only demand must not acquire Analysis indexes."));
+                "Changes-only demand must not acquire Analysis indexes."),
+            () => throw new InvalidOperationException(
+                "Changes-only demand must not acquire Implementation inputs."));
         List<InspectionQueryDefinition> changesExecuted = [];
         catalog.QueryRegistry.Run(
             catalog.Pipeline.GetRequiredQueries(
@@ -1749,14 +1768,45 @@ public class SectionPipelineTests
 
         Assert.Equal([ApiComparisonQuery.Definition], changesExecuted);
 
-        int composedInputsCreated = 0;
+        int implementationInputsCreated = 0;
+        var implementationContext = new DiffQueryContext(
+            new ApiSurface(),
+            new ApiSurface(),
+            createImplementationComparisonInput: () =>
+            {
+                implementationInputsCreated++;
+                return new ImplementationComparisonInput([], []);
+            });
+        List<InspectionQueryDefinition> implementationExecuted = [];
+        catalog.QueryRegistry.Run(
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.ImplementationDiff.Name,
+                }),
+            implementationContext,
+            (query, _) => implementationExecuted.Add(query));
+
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationExecuted);
+        Assert.Equal(1, implementationInputsCreated);
+
+        int analysisComposedInputsCreated = 0;
+        int implementationComposedInputsCreated = 0;
         var composedContext = new DiffQueryContext(
             new ApiSurface(),
             new ApiSurface(),
             () =>
             {
-                composedInputsCreated++;
+                analysisComposedInputsCreated++;
                 return new BodySignalComparisonInput([], []);
+            },
+            () =>
+            {
+                implementationComposedInputsCreated++;
+                return new ImplementationComparisonInput([], []);
             });
         List<InspectionQueryDefinition> composedExecuted = [];
         catalog.QueryRegistry.Run(
@@ -1766,6 +1816,7 @@ public class SectionPipelineTests
                 {
                     DiffSections.Changes.Name,
                     DiffSections.AnalysisDiff.Name,
+                    DiffSections.ImplementationDiff.Name,
                 }),
             composedContext,
             (query, _) => composedExecuted.Add(query));
@@ -1774,9 +1825,11 @@ public class SectionPipelineTests
             [
                 ApiComparisonQuery.Definition,
                 BodySignalComparisonQuery.Definition,
+                ImplementationComparisonQuery.Definition,
             ],
             composedExecuted);
-        Assert.Equal(1, composedInputsCreated);
+        Assert.Equal(1, analysisComposedInputsCreated);
+        Assert.Equal(1, implementationComposedInputsCreated);
     }
 
     [Fact]
@@ -1821,6 +1874,17 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
+        HashSet<InspectionQueryDefinition> implementationOnly =
+            DiffCommand.GetRequestedQueries(
+                catalog.Pipeline,
+                new DiffOptions
+                {
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.ImplementationDiff.Name,
+                    },
+                });
 
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
@@ -1828,6 +1892,9 @@ public class SectionPipelineTests
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
             implementationSelection);
+        Assert.Equal(
+            [ImplementationComparisonQuery.Definition],
+            implementationOnly);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,
