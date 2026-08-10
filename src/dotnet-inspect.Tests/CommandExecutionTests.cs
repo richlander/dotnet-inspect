@@ -1819,6 +1819,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Type_Listing_MarkdownUsesLfThroughout()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json", "-v:n", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains('\n', output);
+        Assert.DoesNotContain('\r', output);
+    }
+
+    [Fact]
     public async Task Type_SingleType_QuietVerbosity_RequiresMarkdown()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -6588,6 +6600,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signature | section |", output);
         Assert.Contains("| Decompiled Source | section |", output);
         Assert.Contains("| Annotated Source | section |", output);
+        Assert.Contains("| Annotated Source Document | section |", output);
         Assert.Contains("| Original Source | section |", output);
         Assert.Contains("| IL | section |", output);
         Assert.Contains("| Calls | section |", output);
@@ -6836,6 +6849,211 @@ public partial class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_AnnotatedSourceDocument_UsesStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var replayed = JsonSerializer.Deserialize(
+            output,
+            AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument);
+        Assert.NotNull(replayed);
+
+        using var document = JsonDocument.Parse(output);
+        var root = document.RootElement;
+
+        // The document is a text buffer plus overlays: one canonical rendering,
+        // and absolute spans into it. Lines and line ids are derived, not stored.
+        string text = root.GetProperty("text").GetString()!;
+        Assert.NotEmpty(text);
+        Assert.False(root.TryGetProperty("lines", out _));
+        Assert.False(root.TryGetProperty("placements", out _));
+        Assert.False(root.TryGetProperty("unplaced_annotations", out _));
+
+        var nodes = root.GetProperty("nodes").EnumerateArray().ToArray();
+        var regions = root.GetProperty("regions").EnumerateArray().ToArray();
+        Assert.NotEmpty(nodes);
+        Assert.NotEmpty(regions);
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "CSharp");
+        Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "Il");
+
+        // Every coordinate is an absolute, end-exclusive UTF-16 span into that
+        // text, so a consumer slices it directly -- no medium filter, no
+        // line/column indirection, and multiple spans where the interleave
+        // splits a construct.
+        foreach (var element in nodes.Concat(regions))
+        {
+            var spans = element.GetProperty("spans").EnumerateArray().ToArray();
+            Assert.NotEmpty(spans);
+            int previousEnd = 0;
+            foreach (var span in spans)
+            {
+                int start = span.GetProperty("start").GetInt32();
+                int length = span.GetProperty("length").GetInt32();
+                Assert.True(length > 0);
+                Assert.InRange(start, previousEnd, text.Length - length);
+                previousEnd = start + length;
+            }
+        }
+        Assert.Contains(nodes, node => node.GetProperty("spans").GetArrayLength() > 1);
+
+        // An IL node is an exact-offset instruction; a C# node has no offset to
+        // carry, so the property is absent rather than a sentinel.
+        var instructions = nodes
+            .Where(node => node.GetProperty("medium").GetString() == "Il")
+            .ToArray();
+        Assert.NotEmpty(instructions);
+        Assert.All(instructions, node => Assert.Equal("Instruction", node.GetProperty("kind").GetString()));
+        var ilOffsets = instructions
+            .Select(node => node.GetProperty("il_offset").GetInt32())
+            .ToArray();
+        Assert.True(ilOffsets.SequenceEqual(ilOffsets.Order()));
+        Assert.Equal(ilOffsets.Length, ilOffsets.Distinct().Count());
+        Assert.All(
+            nodes.Where(node => node.GetProperty("medium").GetString() == "CSharp"),
+            node => Assert.False(node.TryGetProperty("il_offset", out _)));
+
+        var facts = root.GetProperty("facts").EnumerateArray().ToArray();
+        var targets = root.GetProperty("targets").EnumerateArray().ToArray();
+        Assert.NotEmpty(facts);
+        Assert.NotEmpty(targets);
+
+        // Ids are the join, so they must be contiguous from 0 in list order on
+        // both planes and must resolve from every target.
+        Assert.Equal(
+            Enumerable.Range(0, nodes.Length),
+            nodes.Select(node => node.GetProperty("id").GetInt32()));
+        Assert.Equal(
+            Enumerable.Range(0, facts.Length),
+            facts.Select(fact => fact.GetProperty("id").GetInt32()));
+        Assert.All(targets, target =>
+        {
+            Assert.InRange(target.GetProperty("fact_id").GetInt32(), 0, facts.Length - 1);
+            Assert.InRange(target.GetProperty("node_id").GetInt32(), 0, nodes.Length - 1);
+        });
+
+        var csharpFacts = MediumFacts("CSharp");
+        var ilFacts = MediumFacts("Il");
+        Assert.NotEmpty(csharpFacts);
+        Assert.Equal(csharpFacts, ilFacts);
+
+        string[] MediumFacts(string medium) =>
+        [
+            .. targets
+                .Where(target => nodes[target.GetProperty("node_id").GetInt32()]
+                    .GetProperty("medium").GetString() == medium)
+                .Select(target => FactIdentity(facts[target.GetProperty("fact_id").GetInt32()]))
+                .Distinct()
+                .Order(),
+        ];
+
+        static string FactIdentity(JsonElement fact) => string.Join(
+            "|",
+            fact.GetProperty("source_offset").GetInt32(),
+            fact.GetProperty("descriptor").GetString(),
+            fact.GetProperty("category").GetString(),
+            fact.GetProperty("conditionality").GetString(),
+            fact.TryGetProperty("detail", out var detail) ? detail.GetString() : null,
+            fact.GetProperty("origin").GetString());
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsAmbiguousDocumentComposition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Signature,Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSourceDocumentJson_RejectsImplicitCallerSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source Document", "--json",
+            "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("must be the only selected section under --json", error);
+    }
+
+    [Fact]
+    public async Task Member_DuplicateAnnotatedSourceDocumentSelectors_UseStructuredJsonContract()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1",
+            "-S", "Annotated Source Document",
+            "-S", "annotated source document",
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
+    }
+
+    [Theory]
+    [InlineData("@all")]
+    [InlineData("Annotated*")]
+    [InlineData("Annotated Source D*")]
+    public async Task Member_ExpandedSectionsJson_DoesNotTreatMapAsExplicitComposition(string selection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", selection, "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.True(document.RootElement.TryGetProperty("namespace", out _));
+        Assert.False(document.RootElement.TryGetProperty("text", out _));
+    }
+
+    [Fact]
+    public async Task Type_AnnotatedSourceDocument_IsNotAdvertisedAsATypeSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "-S", "Annotated Source Document", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value 'Annotated Source Document' not found", error);
+    }
+
+    [Fact]
+    public void Member_AnnotatedSourceDocument_AuthorizesPdbResolution()
+    {
+        var type = new ApiType
+        {
+            Name = "Fixture",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.AnnotatedSourceDocument,
+            },
+        };
+
+        Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
     }
 
     [Fact]
@@ -7585,7 +7803,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Cost Overlay        section", output);
+        Assert.Matches(@"Cost Overlay\s+section", output);
     }
 
     [Fact]
@@ -7639,7 +7857,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Semantics Overlay   section", output);
+        Assert.Matches(@"Semantics Overlay\s+section", output);
     }
 
     [Fact]
@@ -9760,6 +9978,7 @@ public partial class CommandExecutionTests
         "Custom Attributes",
         "Decompiled Source",
         "Annotated Source",
+        "Annotated Source Document",
         "Cost Overlay",
         "Semantics Overlay",
         "Original Source",
@@ -10820,6 +11039,40 @@ public partial class CommandExecutionTests
         Assert.Contains("| Feature Switch | `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault` | `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault` |", output);
         Assert.Contains("| AppContext | `System.Text.Json.Serialization.RespectNullableAnnotationsDefault` |", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    /// <summary>
+    /// The aggregate <c>--all-libraries</c> sections pool rows across libraries and pick their
+    /// columns from the pooled data, so they are declared as a runtime-column
+    /// <c>MarkoutTable</c> rather than appended as Markdown text. This is the gate for that
+    /// routing on the real command path: <c>--rows</c> must window the aggregate table even
+    /// though nothing post-processes the rendered document any more.
+    ///
+    /// The separator assertion is the observable signature of the routing. markout sizes a
+    /// separator to its header text; the hand-built table this replaced always emitted a fixed
+    /// <c>---</c>, so a revert to string building would restore <c>| --- | --- | --- |</c> and
+    /// fail here.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedSection_WindowsRowsAtTheWriterSeam()
+    {
+        var (exit, all, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches");
+        var (windowedExit, windowed, _) = await RunAppAsync(
+            "package", "System.Text.Json", "--all-libraries", "-S", "Switches", "--rows", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, windowedExit);
+        Assert.Contains("## Switches", all, StringComparison.Ordinal);
+        Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
+        Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
+
+        static int DataRows(string output) =>
+            output.Split('\n').Count(line => line.StartsWith("| ", StringComparison.Ordinal))
+            - 2; // header and separator
+
+        Assert.True(DataRows(all) > 2, $"expected an unwindowed table wider than the window, got {DataRows(all)} rows");
+        Assert.Equal(2, DataRows(windowed));
     }
 
     [Fact]
@@ -12116,28 +12369,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_MultiSectionPartialMatchReportsCleanRenderError()
+    public async Task Package_MultiSectionProjectionMatchesAcrossTheDocument()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            // Markout applies the projection to each table independently, so a column that
-            // matches one section can still abort on an earlier heterogeneous section.
+            // A projection is a document-wide allow list. Tables that do not expose a requested
+            // column contribute nothing; the request succeeds when another selected table does.
             var (normalExit, normalOutput, normalError) = await RunAppAsync(
                 "package", packagePath, "-v:n", "--columns", "TFM", "--tips", "q");
 
-            Assert.Equal(1, normalExit);
-            Assert.Empty(normalOutput);
-            Assert.Contains("No columns matched projection: TFM", normalError);
-            Assert.DoesNotContain("System.InvalidOperationException", normalError);
+            Assert.Equal(0, normalExit);
+            Assert.Empty(normalError);
+            Assert.Contains("| TFM |", normalOutput);
+            Assert.Contains("net8.0", normalOutput);
 
             var (overviewExit, overviewOutput, overviewError) = await RunAppAsync(
                 "package", packagePath, "-S", "--columns", "Path", "--tips", "q");
 
-            Assert.Equal(1, overviewExit);
-            Assert.Empty(overviewOutput);
-            Assert.Contains("No columns matched projection: Path", overviewError);
-            Assert.DoesNotContain("System.InvalidOperationException", overviewError);
+            Assert.Equal(0, overviewExit);
+            Assert.Empty(overviewError);
+            Assert.Contains("| Path |", overviewOutput);
+            Assert.Contains("README.md", overviewOutput);
         }
         finally
         {

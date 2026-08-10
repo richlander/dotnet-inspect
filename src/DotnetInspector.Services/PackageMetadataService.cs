@@ -22,7 +22,7 @@ public static class PackageMetadataService
     {
         var normalizedName = packageName.ToLowerInvariant();
         var cacheKey = $"{normalizedName}@{version}";
-        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+        if (!SupportsNuGetOrgMetadata(sourceOptions, packageName, log))
             return null;
         PackageMetadata? cached;
         using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageMetadata))
@@ -79,7 +79,7 @@ public static class PackageMetadataService
     {
         var normalizedName = packageName.ToLowerInvariant();
         string cacheKey = $"{normalizedName}@{version}";
-        if (!SupportsNuGetOrgMetadata(sourceOptions, log))
+        if (!SupportsNuGetOrgMetadata(sourceOptions, packageName, log))
             return new PackageMetadata();
 
         // Try cache first (unless @latest forces refresh)
@@ -110,14 +110,30 @@ public static class PackageMetadataService
 
     internal static bool SupportsNuGetOrgMetadata(
         NuGetSourceOptions? sourceOptions,
+        string packageId,
         Action<string>? log = null)
     {
-        bool supported = NuGetSourceResolver.ResolveSources(sourceOptions)
-            .Any(source => source.IsNuGetOrg);
+        bool supported;
+        try
+        {
+            supported = NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageId)
+                .Any(source => source.IsNuGetOrg);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            supported = false;
+        }
+
         if (!supported)
         {
             log?.Invoke(
-                "NuGet.org aggregate metadata is unavailable because the configured package sources do not include api.nuget.org.");
+                $"NuGet.org aggregate metadata is unavailable for '{packageId}' because "
+                + "package source policy does not authorize api.nuget.org.");
         }
         return supported;
     }

@@ -166,8 +166,8 @@ public class ImplementsCommand
         }
         else
         {
-            OutputFormatter.WriteLimitedMarkdown(Console.Out,
-                MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
+            OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
         }
     }
 }

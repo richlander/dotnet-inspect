@@ -76,7 +76,7 @@ public sealed record MemberCallGraphView(
 /// <summary>
 /// Options for one progressively acquired member call graph.
 /// </summary>
-public sealed record ProgressiveMemberCallGraphOptions
+public sealed record MemberCallGraphOptions
 {
     public int Depth { get; init; } = 3;
     public int MaxNodes { get; init; } = 25;
@@ -114,21 +114,21 @@ public sealed record ProgressiveMemberCallGraphOptions
 /// index. One catalog generation and one physical graph serve both traversal
 /// directions. Projection never performs acquisition or another graph walk.
 ///
-/// The owning <see cref="AssemblyContextGroup"/> disposes this graph and its
-/// catalog before releasing retained image snapshots. The type is intended for
-/// one logical consumer and does not support concurrent calls.
+/// The owning <see cref="AssemblyContextGroup"/> disposes this session's graph
+/// and catalog before releasing retained image snapshots. The type is intended
+/// for one logical consumer and does not support concurrent calls.
 /// <c>Tiers_ShareSnapshotsAndBuildEachIndexAtMostOnce</c>,
 /// <c>DirectFullTier_SkipsScopedAndLaterCalleesReusesFull</c>,
 /// <c>DuplicateImages_BuildOneCrossLibraryIndex</c>, and
 /// <c>WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots</c> gate these
 /// acquisition, reuse, and lifetime properties.
 /// </remarks>
-public sealed class ProgressiveMemberCallGraph : IDisposable
+public sealed class MemberCallGraphSession : IDisposable
 {
     readonly AssemblyContextGroup _group;
     readonly AssemblyContextParticipant _root;
     readonly int _memberToken;
-    readonly ProgressiveMemberCallGraphOptions _options;
+    readonly MemberCallGraphOptions _options;
     readonly Dictionary<AssemblyAcquisitionRegistration, IndexBuildResult>
         _crossIndexes = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyImageIdentity, IndexBuildResult.Available>
@@ -144,15 +144,15 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
     int _fullTargetIndexBuilds;
     int _crossLibraryIndexBuilds;
 
-    public ProgressiveMemberCallGraph(
+    public MemberCallGraphSession(
         AssemblyContextGroup group,
         ResolvedAssemblyReference rootAssembly,
         int memberToken,
-        ProgressiveMemberCallGraphOptions? options = null)
+        MemberCallGraphOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(rootAssembly);
-        options ??= new ProgressiveMemberCallGraphOptions();
+        options ??= new MemberCallGraphOptions();
         options.Validate();
 
         _root = group.Participants.SingleOrDefault(
@@ -516,7 +516,7 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
         }
     }
 
-    internal ProgressiveMemberCallGraphBuildCounts BuildCounts =>
+    internal MemberCallGraphBuildCounts BuildCounts =>
         new(
             _scopedTargetIndexBuilds,
             _fullTargetIndexBuilds,
@@ -566,7 +566,7 @@ public sealed class ProgressiveMemberCallGraph : IDisposable
     }
 }
 
-internal readonly record struct ProgressiveMemberCallGraphBuildCounts(
+internal readonly record struct MemberCallGraphBuildCounts(
     int ScopedTargetIndexes,
     int FullTargetIndexes,
     int CrossLibraryIndexes);
