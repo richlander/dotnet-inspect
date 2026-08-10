@@ -305,7 +305,9 @@ public sealed record PrintedBodyMap
                     extent = nodes[id].Extent;
                     nodeId = id;
                 }
-                string kind = AnnotatedSourceNodeKindProjection.From(node);
+                string kind = nodeId is { } placedId
+                    ? nodes[placedId].Kind
+                    : AnnotatedSourceNodeKindProjection.From(node);
                 foreach (var annotation in found)
                 {
                     facts.Add(new PrintedAnnotationSpan(
@@ -362,7 +364,12 @@ public sealed record PrintedBodyMap
         foreach (var printed in ranges)
         {
             if (ranges.TryGetExtent(printed.Node, out var extent))
-                recorded.Add((printed.Node, AnnotatedSourceNodeKindProjection.From(printed.Node), extent, slot));
+            {
+                string kind = ranges.TryGetNodeKind(printed.Node, out string? renderedKind)
+                    ? renderedKind
+                    : AnnotatedSourceNodeKindProjection.From(printed.Node);
+                recorded.Add((printed.Node, kind, extent, slot));
+            }
             slot++;
         }
         recorded.Sort(static (a, b) =>
@@ -431,7 +438,7 @@ public sealed record PrintedBodyMap
             {
                 extent = nodes[id].Extent;
                 nodeId = id;
-                kind = AnnotatedSourceNodeKindProjection.From(printed);
+                kind = nodes[id].Kind;
             }
             else
             {

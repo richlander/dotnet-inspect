@@ -135,6 +135,7 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     readonly List<BoundPrintedRegion> _printedRegions = [];
     readonly Dictionary<IrNode, int> _index = [];
     readonly Dictionary<IrNode, int> _insertionPoints = [];
+    readonly Dictionary<IrNode, string> _nodeKinds = [];
     int[]? _lineStarts;
 
     /// <summary>The printed text every <see cref="PrintedRange"/> here indexes.</summary>
@@ -230,6 +231,25 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
         _index[node] = _ranges.Count;
         _ranges.Add(new PrintedRange(node, start..end));
     }
+
+    /// <summary>
+    /// Records the stable kind chosen by the rendering branch for
+    /// <paramref name="node"/>. Later calls replace the type-level default with
+    /// a more specific surface form.
+    /// </summary>
+    internal void SetNodeKind(IrNode node, string kind)
+        => _nodeKinds[node] = kind;
+
+    /// <summary>
+    /// Records the type-level kind only when no rendering branch has already
+    /// supplied a more specific surface form.
+    /// </summary>
+    internal void SetDefaultNodeKind(IrNode node, string kind)
+        => _nodeKinds.TryAdd(node, kind);
+
+    /// <summary>The stable rendered-syntax kind captured while the node printed.</summary>
+    internal bool TryGetNodeKind(IrNode node, out string kind)
+        => _nodeKinds.TryGetValue(node, out kind!);
 
     /// <summary>
     /// Records one named syntactic region at the exact character offsets where

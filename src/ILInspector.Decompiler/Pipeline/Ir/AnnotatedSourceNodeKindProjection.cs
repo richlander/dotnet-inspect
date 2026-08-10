@@ -152,4 +152,47 @@ internal static class AnnotatedSourceNodeKindProjection
             LoadToken { Kind: RuntimeTokenKind.Type, Type: not null } => "TypeOfExpression",
             _ => Kinds.GetValueOrDefault(node.GetType(), AnnotatedSourceNodeKinds.Unknown),
         };
+
+    /// <summary>
+    /// Returns the syntax kind when <paramref name="call"/> renders as a C#
+    /// operator, or <see langword="null"/> when it renders as an invocation.
+    /// </summary>
+    internal static string? OperatorKind(Call call)
+    {
+        if (call.Callee.HasThis
+            || (call.Callee.IsOperator == MetadataFactState.No || !call.Callee.IsSpecialName)
+                && !MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
+        {
+            return null;
+        }
+
+        string name = call.Callee.Name;
+        if (name.StartsWith("op_Checked", StringComparison.Ordinal))
+        {
+            string checkedName = name["op_Checked".Length..];
+            return (checkedName, call.Arguments.Count) switch
+            {
+                ("Explicit", 1) => "ConversionExpression",
+                ("Addition" or "Subtraction" or "Multiply" or "Division", 2) => "BinaryExpression",
+                ("UnaryNegation", 1) => "UnaryExpression",
+                _ => null,
+            };
+        }
+
+        return (name, call.Arguments.Count) switch
+        {
+            ("op_Equality" or "op_Inequality"
+                or "op_LessThan" or "op_LessThanOrEqual"
+                or "op_GreaterThan" or "op_GreaterThanOrEqual"
+                or "op_Addition" or "op_Subtraction"
+                or "op_Multiply" or "op_Division" or "op_Modulus"
+                or "op_BitwiseAnd" or "op_BitwiseOr" or "op_ExclusiveOr"
+                or "op_LeftShift" or "op_RightShift" or "op_UnsignedRightShift", 2)
+                => "BinaryExpression",
+            ("op_UnaryNegation" or "op_UnaryPlus" or "op_LogicalNot" or "op_OnesComplement", 1)
+                => "UnaryExpression",
+            ("op_Implicit" or "op_Explicit", 1) => "ConversionExpression",
+            _ => null,
+        };
+    }
 }

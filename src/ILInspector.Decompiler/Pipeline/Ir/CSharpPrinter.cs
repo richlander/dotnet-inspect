@@ -3274,6 +3274,13 @@ public sealed partial class CSharpPrinter
             return ExpressionCore(node);
         string text = ExpressionCore(node);
         _expressionText[node] = text;
+        _printedRanges!.SetDefaultNodeKind(node, AnnotatedSourceNodeKindProjection.From(node));
+        return text;
+    }
+
+    string WithNodeKind(IrExpression node, string text, string kind)
+    {
+        _printedRanges?.SetNodeKind(node, kind);
         return text;
     }
 
@@ -3301,14 +3308,29 @@ public sealed partial class CSharpPrinter
         // test the condition path spells: `!y` on an object is CS0023, the faithful
         // form is `y is null` (and `x == 0` for an integer). A bool operand returns
         // null from Truthiness and keeps the bare `!operand`.
-        LogicalNot { Operand: Comparison c } => ComparisonText(
-            Conditions.Inverse(c.Kind),
-            IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
-            c.Left, c.Right),
-        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
-        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
-        LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
-        LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
+        LogicalNot { Operand: Comparison c } n => WithNodeKind(
+            n,
+            ComparisonText(
+                Conditions.Inverse(c.Kind),
+                IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
+                c.Left,
+                c.Right),
+            "BinaryExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } n when InvertedEqualityOperatorCallText(call) is { } invertedEquality
+            => WithNodeKind(n, invertedEquality, "BinaryExpression"),
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } n when InvertedRelationalOperatorCallText(call) is { } invertedRelational
+            => WithNodeKind(n, invertedRelational, "BinaryExpression"),
+        LogicalNot { Operand: LogicalBinary logical } n when TryPropertyPatternText(logical, negated: true) is { } negatedPattern
+            => WithNodeKind(n, negatedPattern, "PatternExpression"),
+        LogicalNot { Operand: { } operand } n when Truthiness(operand) is { } negated
+            => WithNodeKind(
+                n,
+                negated.Inverted,
+                negated.Inverted.StartsWith('!')
+                    ? "UnaryExpression"
+                    : negated.Inverted.Contains(" is ", StringComparison.Ordinal)
+                        ? "PatternExpression"
+                        : "BinaryExpression"),
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
         Conditional t => ConditionalText(t),
@@ -3326,8 +3348,15 @@ public sealed partial class CSharpPrinter
         // routing guarantee; CoerceText decides cast, unchecked, name, or bare.
         Coerce co => CoerceText(co.Operand, co.Target),
         Convert v => ConvertText(v),
-        Call c when MultiDimArrayAccessText(c) is { } text => text,
-        Call c => CallText(c),
+        Call c when MultiDimArrayAccessText(c) is { } text
+            => WithNodeKind(
+                c,
+                text,
+                c.Callee.Name == "Set" ? "AssignmentStatement" : "ElementAccessExpression"),
+        Call c => WithNodeKind(
+            c,
+            CallText(c),
+            AnnotatedSourceNodeKindProjection.OperatorKind(c) ?? "InvocationExpression"),
         CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci), explicitIn: true)})",
         DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
@@ -3337,7 +3366,8 @@ public sealed partial class CSharpPrinter
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
         DynamicGetMember d => DynamicGetMemberText(d),
-        NewObject n when MultiDimArrayCreationText(n) is { } text => text,
+        NewObject n when MultiDimArrayCreationText(n) is { } text
+            => WithNodeKind(n, text, "ArrayCreationExpression"),
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
         TupleBinaryExpression t => $"{Operand(t.Left)} {(t.IsEquality ? "==" : "!=")} {Operand(t.Right)}",
@@ -4218,7 +4248,7 @@ public sealed partial class CSharpPrinter
     string LogicalText(LogicalBinary logical)
     {
         if (TryPropertyPatternText(logical) is { } propertyPattern)
-            return propertyPattern;
+            return WithNodeKind(logical, propertyPattern, "PatternExpression");
 
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
         return $"{LogicalOperandText(logical.Left, logical.Kind, rightOperand: false)} {op} {LogicalOperandText(logical.Right, logical.Kind, rightOperand: true)}";
@@ -4879,10 +4909,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>True when a non-instance call renders as a C# operator (`a != b`, `-x`) rather than a method invocation — the compound form that must parenthesize as an operand.</summary>
     bool IsOperatorCall(Call call)
-        => !call.Callee.HasThis
-            && (call.Callee.IsOperator != MetadataFactState.No && call.Callee.IsSpecialName
-                || MemberIdentity.IsKnownCoreLibraryOperator(call.Callee))
-            && OperatorSpelling(call) is not null;
+        => AnnotatedSourceNodeKindProjection.OperatorKind(call) is not null;
 
     /// <summary>
     /// The direct idiom for a negated operator-spelled equality/inequality

@@ -7394,6 +7394,71 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AnnotatedSourceDocument_UsesTheSyntaxThePrinterSelected()
+    {
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.StringEqual),
+            "left == right",
+            "BinaryExpression",
+            "InvocationExpression");
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.ReadMatrix),
+            "values[row, column]",
+            "ElementAccessExpression",
+            "InvocationExpression");
+        await AssertNodeKind(
+            nameof(CommandCaretGestureFixture.MakeMatrix),
+            "new int[2, 3]",
+            "ArrayCreationExpression",
+            "ObjectCreationExpression");
+
+        async Task AssertNodeKind(
+            string methodName,
+            string expectedText,
+            string expectedKind,
+            string rejectedKind)
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                typeof(CommandCaretGestureFixture).FullName!,
+                "--library",
+                TestAssemblyPath,
+                methodName,
+                "-S",
+                "Annotated Source Document",
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            string text = document.RootElement.GetProperty("text").GetString()!;
+            var nodes = document.RootElement.GetProperty("nodes").EnumerateArray().ToArray();
+            var node = Assert.Single(nodes, candidate =>
+            {
+                if (candidate.GetProperty("medium").GetString() != "CSharp")
+                    return false;
+                var span = Assert.Single(candidate.GetProperty("spans").EnumerateArray());
+                int start = span.GetProperty("start").GetInt32();
+                int length = span.GetProperty("length").GetInt32();
+                return text.Substring(start, length) == expectedText;
+            });
+
+            Assert.Equal(expectedKind, node.GetProperty("kind").GetString());
+            Assert.DoesNotContain(
+                nodes,
+                candidate => candidate.GetProperty("kind").GetString() == rejectedKind
+                    && candidate.GetProperty("spans").EnumerateArray().Any(span =>
+                    {
+                        int start = span.GetProperty("start").GetInt32();
+                        int length = span.GetProperty("length").GetInt32();
+                        return text.Substring(start, length) == expectedText;
+                    }));
+        }
+    }
+
+    [Fact]
     public async Task Member_AnnotatedSourceDocumentJson_RejectsAmbiguousDocumentComposition()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -17598,6 +17663,12 @@ public sealed class CommandCaretGestureFixture
     }
 
     public string Make() => new object().ToString() ?? "";
+
+    public static bool StringEqual(string left, string right) => left == right;
+
+    public static int ReadMatrix(int[,] values, int row, int column) => values[row, column];
+
+    public static int[,] MakeMatrix() => new int[2, 3];
 
     // Four boxes on one line, at four distinct IL offsets: the shape that makes
     // a line's facts disagree about what to underline. System.Tuple`8.Equals is

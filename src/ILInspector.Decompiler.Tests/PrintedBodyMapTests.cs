@@ -11,9 +11,12 @@ namespace ILInspector.Decompiler.Tests;
 public class PrintedBodyMapTests
 {
     static (string Output, PrintedRangeMap Ranges) Print(string methodName)
+        => Print(typeof(AllocSampleClass), methodName);
+
+    static (string Output, PrintedRangeMap Ranges) Print(Type fixtureType, string methodName)
     {
-        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
+        using var source = MetadataSource.Open(fixtureType.Assembly.Location);
+        var function = IrImporter.Import(source, fixtureType.FullName!, methodName);
         Assert.NotNull(function);
         var result = CSharpPrinter.PrintRaised(function!, out var ranges);
         Assert.NotNull(result.Output);
@@ -116,6 +119,57 @@ public class PrintedBodyMapTests
             []);
 
         Assert.False(AnnotatedSourceNodeKinds.IsKnown(Assert.Single(map.Nodes).Kind));
+    }
+
+    [Theory]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "-(a + b)", "UnaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.NegateSum), "a + b", "BinaryExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.MoneyToInt), "(int)m", "ConversionExpression")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdGet), "a[i, j]", "ElementAccessExpression")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdSet), "a[i, j] = v", "AssignmentStatement")]
+    [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdNew), "new int[3, 4]", "ArrayCreationExpression")]
+    public void RenderSpecializationsRecordTheirSurfaceKind(
+        Type fixtureType,
+        string methodName,
+        string text,
+        string expectedKind)
+    {
+        var (_, ranges) = Print(fixtureType, methodName);
+        var map = PrintedBodyMap.Create(ranges);
+
+        Assert.Contains(map.Nodes, node => node.Kind == expectedKind && Text(map, node.Extent) == text);
+        Assert.DoesNotContain(
+            map.Nodes,
+            node => node.Kind is "InvocationExpression" or "ObjectCreationExpression"
+                && Text(map, node.Extent) == text);
+    }
+
+    [Fact]
+    public void RenderSpecializationKeepsPlacedFactAndNodeKindsEqual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.NegateSum));
+        Assert.NotNull(function);
+        CSharpPrinter.PrintRaised(function!, out var ranges);
+        var addition = Assert.Single(
+            function!.Descendants.OfType<Call>(),
+            call => AnnotatedSourceNodeKindProjection.OperatorKind(call) == "BinaryExpression");
+
+        var map = PrintedBodyMap.Create(
+            ranges,
+            new Dictionary<IrNode, IReadOnlyList<IAnnotation>>
+            {
+                [addition] = [new Annotation(Alloc, addition.SourceOffset)],
+            });
+
+        var fact = Assert.Single(map.Annotations);
+        var node = map.Nodes[Assert.IsType<int>(fact.NodeId)];
+        Assert.Equal("BinaryExpression", fact.Kind);
+        Assert.Equal(node.Kind, fact.Kind);
+        Assert.Equal(node.Extent, fact.Extent);
     }
 
     [Fact]

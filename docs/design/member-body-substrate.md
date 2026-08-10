@@ -437,7 +437,10 @@ example — because the document describes the text, not how the decompiler
 reached it. A type-level mapping is refined from node state when one IR class
 prints different syntax: an indexed `LoadProperty` is
 `ElementAccessExpression`, while an ordinary property read is
-`MemberAccessExpression`.
+`MemberAccessExpression`. Renderer-only decisions such as operator-spelled
+calls and rectangular-array pseudo-members are captured beside the printer's
+range at emission time, so the portable kind follows the syntax that actually
+won rather than reconstructing that choice from IR afterwards.
 
 The strictness is intentionally one-way. Producers emit only cataloged values;
 consumers **must tolerate unknown kinds** so an additive vocabulary change does
