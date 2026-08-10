@@ -40,14 +40,31 @@ internal static class CallGraphSectionAdapter
     public static Markout.Graph ToGraph(
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
-        IReadOnlyList<string>? requestedFields = null)
+        IReadOnlyList<string>? requestedFields = null,
+        IReadOnlyList<CallGraphRow>? rows = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(spellMember);
 
-        var nodes = new List<Markout.GraphNode>(projection.Nodes.Length);
+        var selectedRows = rows ?? projection.Rows;
+        HashSet<int>? selectedNodeIds = null;
+        if (rows is not null)
+        {
+            selectedNodeIds = [projection.Focus.Id];
+            foreach (var row in selectedRows)
+            {
+                selectedNodeIds.Add(row.Edge.From);
+                selectedNodeIds.Add(row.Edge.To);
+            }
+        }
+
+        var nodes = new List<Markout.GraphNode>(
+            selectedNodeIds?.Count ?? projection.Nodes.Length);
         foreach (var node in projection.Nodes)
         {
+            if (selectedNodeIds is not null && !selectedNodeIds.Contains(node.Id))
+                continue;
+
             nodes.Add(new Markout.GraphNode(Key(node.Id), Label(node, spellMember, requestedFields))
             {
                 Group = Group(node),
@@ -57,9 +74,12 @@ internal static class CallGraphSectionAdapter
             });
         }
 
-        var edges = new List<Markout.GraphEdge>(projection.Edges.Length);
-        foreach (var edge in projection.Edges)
+        var edges = new List<Markout.GraphEdge>(selectedRows.Count);
+        foreach (var row in selectedRows)
+        {
+            var edge = row.Edge;
             edges.Add(new Markout.GraphEdge(Key(edge.From), Key(edge.To)) { Label = edge.LoopLabel });
+        }
 
         return new Markout.Graph(nodes, edges, focusKey: Key(projection.Focus.Id));
     }
