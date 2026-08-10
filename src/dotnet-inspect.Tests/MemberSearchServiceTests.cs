@@ -81,6 +81,42 @@ public class MemberSearchServiceTests
     }
 
     [Fact]
+    public async Task FindMembersAsync_InvalidAssemblyWarnsWithoutVerbose()
+    {
+        string path = Path.GetTempFileName();
+        await File.WriteAllTextAsync(
+            path,
+            "not a managed assembly",
+            TestContext.Current.CancellationToken);
+        using var httpClient = new HttpClient();
+        try
+        {
+            var capture = await ConsoleCapture.RunAsync(async () =>
+            {
+                List<MemberFindResult> results =
+                    await MemberSearchService.FindMembersAsync(
+                        new FindOptions
+                        {
+                            Pattern = ".NoSuchMember",
+                            Assemblies = [path],
+                            Members = true,
+                        },
+                        ["NoSuchMember"],
+                        new VerboseLogger(enabled: false),
+                        httpClient);
+                Assert.Empty(results);
+                return 0;
+            });
+
+            Assert.Contains($"Could not read {path}", capture.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task FindMembersAsync_WithLimitDoesNotResolveLaterSources()
     {
         using var httpClient = new HttpClient();

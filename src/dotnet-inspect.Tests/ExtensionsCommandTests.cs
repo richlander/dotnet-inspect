@@ -2,6 +2,7 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
@@ -15,6 +16,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for extension method discovery.
 /// </summary>
+[Collection("Console")]
 public class ExtensionsCommandTests
 {
     [Fact]
@@ -205,6 +207,92 @@ public class ExtensionsCommandTests
 
         Assert.Same(MetadataFindings.ExtensionMemberDescriptor, failure.Error.Descriptor);
         Assert.Contains("Finding inspection failed", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReachableSearchUsesWorkspaceQueries()
+    {
+        var options = new ExtensionsOptions
+        {
+            TargetType = typeof(ExtensionWorkspaceRoot).FullName!,
+            Assemblies = [typeof(ExtensionsCommandTests).Assembly.Location],
+            IncludeAll = true,
+            Reachable = true,
+            Depth = 1,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => ExtensionsCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            nameof(ExtensionWorkspaceMethods.WorkspaceExtension),
+            output);
+        Assert.Contains("\"reachable_path\": \".Reachable\"", output);
+    }
+
+    [Fact]
+    public async Task ReachabilityBudgetRejectionIsVisible()
+    {
+        string path = typeof(ExtensionsCommandTests).Assembly.Location;
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("first"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("second"));
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(first, policy),
+                    new AssemblyContextParticipant(second, policy),
+                ],
+                new AssemblyContextGroupOptions
+                {
+                    MaxRetainedImageBytes = new FileInfo(path).Length,
+                });
+        AssemblyContextExtensionReachabilityResult reachability =
+            AssemblyContextExtensionReachabilityQuery.Execute(
+                group,
+                typeof(ExtensionWorkspaceRoot).FullName!,
+                maxDepth: 1);
+        var entries = new AssemblyContextEntryMap(
+            [
+                (
+                    first.Registration,
+                    new AssemblySetEntry(
+                        path,
+                        "first",
+                        null,
+                        AssemblySetSourceKind.Assembly)),
+                (
+                    second.Registration,
+                    new AssemblySetEntry(
+                        path,
+                        "second",
+                        null,
+                        AssemblySetSourceKind.Assembly)),
+            ]);
+
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => ExtensionsCommand.WriteReachabilityFailures(
+                reachability,
+                entries));
+
+        Assert.Contains(
+            "Extension reachability inspection failed",
+            error);
+        Assert.Contains(
+            "retained-image budget was exhausted",
+            error);
     }
 
     [Fact]
@@ -541,4 +629,18 @@ public static class SampleExtensions
 public class SampleTargetType
 {
     public string Name { get; set; } = "";
+}
+
+public sealed class ExtensionWorkspaceRoot
+{
+    public ExtensionWorkspaceTarget Reachable { get; } = new();
+}
+
+public sealed class ExtensionWorkspaceTarget;
+
+public static class ExtensionWorkspaceMethods
+{
+    public static string WorkspaceExtension(
+        this ExtensionWorkspaceTarget target)
+        => target.ToString()!;
 }
