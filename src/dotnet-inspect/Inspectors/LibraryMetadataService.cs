@@ -41,6 +41,7 @@ internal static class LibraryMetadataService
         InspectionQueryRegistry<ScannerContext>? queryRegistry = null,
         ResolvedAssemblyReference? assemblyReference = null,
         AssemblyIntegrationsEntry? integrationsEntry = null,
+        bool integrationEvidenceUnavailable = false,
         bool discoveryOnly = false,
         Sections.InspectionTrace? trace = null)
     {
@@ -50,9 +51,26 @@ internal static class LibraryMetadataService
         {
             // Expand declared scanner prerequisites before narrowing body-analysis features, so a
             // prerequisite that needs the body index is not missed by the narrowing.
-            var requiredScanners = scannerRegistry is not null && scanners is not null
-                ? scannerRegistry.ExpandRequired(scanners)
-                : scanners;
+            HashSet<string>? effectiveScanners = scanners;
+            if (integrationEvidenceUnavailable
+                && scanners?.Contains(
+                    LibrarySections.ScannerIntegrationOpportunities)
+                    == true)
+            {
+                effectiveScanners =
+                    new HashSet<string>(scanners, scanners.Comparer);
+                effectiveScanners.Remove(
+                    LibrarySections.ScannerIntegrationOpportunities);
+                logger.Log(
+                    "Skipping integration opportunities because grouped "
+                    + $"Integrations evidence is unavailable for '{path}'.");
+            }
+
+            var requiredScanners =
+                scannerRegistry is not null
+                    && effectiveScanners is not null
+                    ? scannerRegistry.ExpandRequired(effectiveScanners)
+                    : effectiveScanners;
             if (requiredScanners is not null)
                 trace?.RecordClosure(requiredScanners);
             var requiredQueries = queryRegistry is not null && queries is not null

@@ -152,9 +152,10 @@ The library command retains its queried snapshot for the rest of inspection.
 `AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
 gates that shared-image boundary.
 
-Package `--all-libraries` creates one binding-consistent group per target
-framework, so `--tfm all` never combines different framework universes. Every
-root receives its own `AssemblyDependencyResolver`, and
+Package `--all-libraries` creates one binding-consistent group per package asset
+directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
+never combines different binding universes. Every root receives its own
+`AssemblyDependencyResolver`, and
 `SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
 one shared policy version required by the group. For each participant in group
 order, the query and asynchronous library pipeline consume one retained

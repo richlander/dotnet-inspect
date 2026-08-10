@@ -27,8 +27,9 @@ demand. One binding-consistent assembly context group per binding universe
 scans selected participants sequentially, preserves per-assembly identity,
 provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
-`--all-libraries` partitions binding universes by target framework and releases
-each participant before advancing. Progressive member call
+`--all-libraries` partitions binding universes by package asset directory,
+preserving non-`net*` framework and runtime contexts, and releases each
+participant before advancing. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. The `extensions`,
@@ -331,19 +332,22 @@ gate participant ordering, snapshot reuse, and general partial acquisition.
 gates the budget-limited case.
 
 Package `--all-libraries` constructs one
-`SourceRelativeAssemblyGroupBindingPolicy` per selected target framework and
-passes that shared policy snapshot to every participant in that group.
-`--tfm all` therefore creates separate groups rather than mixing framework
-universes. The host executes the group query only for explicit Integrations
-demand, including demand introduced by scanner prerequisites, correlates entries
-by acquisition registration, and projects them into the existing per-library
+`SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
+and passes that shared policy snapshot to every participant in that group.
+`--tfm all` therefore creates separate groups for distinct framework, asset-kind,
+and runtime directories rather than mixing binding universes. The host executes
+the group query only for explicit Integrations demand, including demand introduced
+by scanner prerequisites, correlates entries by acquisition registration, and
+projects them into the existing per-library
 Finding model. Query production and the asynchronous library pipeline consume
 one participant's retained snapshot before the group releases it and advances,
 so the group keeps its complete binding universe without retaining the package's
 cumulative image bytes. The legacy Integrations scanner recognizes populated
 Findings and does not rescan. The dependent integration-opportunity scanner
-consumes available findings unchanged and emits no gap rows when its prerequisite
-failed. Direct `library` and package `--library` remain single-assembly controls.
+consumes available findings unchanged and emits no gap rows when its
+prerequisite failed or a blank assembly identity made the participant a
+compatibility skip. Direct `library` and package `--library` remain
+single-assembly controls.
 Ecosystem and OpenTelemetry evidence form one grouped query outcome, so
 malformed participant metadata fails that grouped unit.
 Remote package participants carry the coordinate selected by acquisition rather
@@ -352,14 +356,19 @@ normalized nuspec coordinate when one exists and local-archive provenance
 otherwise. A grouped failure preserves successful rows but emits a warning for
 the affected library and returns a nonzero incomplete result.
 `PackageIntegrationsWorkspaceTests.Create_PartitionsTfmsAndRetainsParticipantGeneration`
-gates TFM partitioning, participant correlation, package provenance, and
-same-generation host inspection.
+and `Create_PartitionsNonNetFrameworkFolders` gate framework partitioning.
+`Create_PartitionsSameFrameworkAcrossAssetContexts` gates package asset context
+partitioning. Together they gate participant correlation, package provenance,
+and same-generation host inspection.
 `PackageIntegrationsWorkspaceTests.UseAssemblyAsync_ReleasesParticipantBeforeAdvancing`
 gates streaming image release.
 `PackageIntegrationsWorkspaceTests.OpportunityOnlyDemand_RequiresGroupedIntegrations`
 and
 `PackageIntegrationsWorkspaceTests.IntegrationFailure_SuppressesOpportunities`
 gate prerequisite activation and failure-safe opportunity composition.
+`PackageCommand_AllLibraries_BlankAssemblyNameSuppressesOpportunities` and
+`LibraryCommand_BlankAssemblyNameSuppressesOpportunities` gate compatibility
+skip suppression across grouped package and single-library hosts.
 `PackageIntegrationsWorkspaceTests.LocalAcquisition_UsesOnlyValidNuspecCoordinates`
 and `RemoteAcquisition_UsesResolvedCoordinate` gate acquisition provenance.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic

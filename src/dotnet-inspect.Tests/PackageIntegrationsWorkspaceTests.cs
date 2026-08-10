@@ -13,6 +13,96 @@ namespace DotnetInspector.Tests;
 public sealed class PackageIntegrationsWorkspaceTests
 {
     [Fact]
+    public void Create_PartitionsNonNetFrameworkFolders()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-workspace-").FullName;
+        try
+        {
+            string uap = Path.Combine(directory, "lib", "uap10.0");
+            string portable = Path.Combine(
+                directory,
+                "lib",
+                "portable-net45+win8");
+            Directory.CreateDirectory(uap);
+            Directory.CreateDirectory(portable);
+            string first = Path.Combine(uap, "First.dll");
+            string second = Path.Combine(portable, "Second.dll");
+            File.Copy(
+                typeof(PackageIntegrationsWorkspaceTests)
+                    .Assembly.Location,
+                first);
+            File.Copy(typeof(PdbContext).Assembly.Location, second);
+
+            using var workspace = PackageIntegrationsWorkspace.Create(
+                [
+                    new(
+                        first,
+                        "uap10.0",
+                        "lib/uap10.0"),
+                    new(
+                        second,
+                        "portable-net45+win8",
+                        "lib/portable-net45+win8"),
+                ],
+                "Test.Package",
+                "1.0.0");
+
+            Assert.Equal(2, workspace.ContextGroupCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Create_PartitionsSameFrameworkAcrossAssetContexts()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-workspace-").FullName;
+        try
+        {
+            string lib = Path.Combine(directory, "lib", "net8.0");
+            string runtime = Path.Combine(
+                directory,
+                "runtimes",
+                "win-x64",
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(lib);
+            Directory.CreateDirectory(runtime);
+            string first = Path.Combine(lib, "First.dll");
+            string second = Path.Combine(runtime, "Second.dll");
+            File.Copy(
+                typeof(PackageIntegrationsWorkspaceTests)
+                    .Assembly.Location,
+                first);
+            File.Copy(typeof(PdbContext).Assembly.Location, second);
+
+            using var workspace = PackageIntegrationsWorkspace.Create(
+                [
+                    Commands.PackageCommand
+                        .CreatePackageIntegrationAssembly(
+                            first,
+                            "lib/net8.0/First.dll"),
+                    Commands.PackageCommand
+                        .CreatePackageIntegrationAssembly(
+                            second,
+                            "runtimes/win-x64/lib/net8.0/Second.dll"),
+                ],
+                "Test.Package",
+                "1.0.0");
+
+            Assert.Equal(2, workspace.ContextGroupCount);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Create_PartitionsTfmsAndRetainsParticipantGeneration()
     {
         string directory = Directory.CreateTempSubdirectory(

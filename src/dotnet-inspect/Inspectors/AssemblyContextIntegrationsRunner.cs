@@ -31,6 +31,9 @@ internal sealed class AssemblyContextIntegrationsBatch
     internal ResolvedAssemblyReference? AssemblyForInspection(string path)
         => ResultFor(path).Assembly;
 
+    internal bool IntegrationEvidenceUnavailableFor(string path)
+        => ResultFor(path).Entry is null;
+
     ParticipantResult ResultFor(string path)
         => _resultByPath.TryGetValue(
             System.IO.Path.GetFullPath(path),

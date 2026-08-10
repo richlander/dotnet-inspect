@@ -8,7 +8,8 @@ namespace DotnetInspector.Inspectors;
 
 internal sealed record PackageIntegrationAssembly(
     string Path,
-    string? TargetFramework);
+    string? TargetFramework,
+    string? ContextKey = null);
 
 internal sealed class PackageIntegrationAcquisition
 {
@@ -166,7 +167,10 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
             int contextGroupCount = 0;
             foreach (IGrouping<string, PackageIntegrationAssembly> context
                 in assemblies.GroupBy(
-                    static assembly => assembly.TargetFramework ?? "",
+                    static assembly =>
+                        assembly.ContextKey
+                        ?? assembly.TargetFramework
+                        ?? "",
                     StringComparer.OrdinalIgnoreCase))
             {
                 List<Root> roots = [];

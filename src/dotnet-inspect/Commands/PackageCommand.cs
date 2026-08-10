@@ -2544,10 +2544,9 @@ public class PackageCommand
                                 extractPath,
                                 selection.Path)
                             .Replace('\\', '/');
-                        return new PackageIntegrationAssembly(
+                        return CreatePackageIntegrationAssembly(
                             selection.Path,
-                            TfmResolver.ExtractTfmFromPath(
-                                relativePath));
+                            relativePath);
                     }),
                     acquisition)
                 : null;
@@ -2563,7 +2562,8 @@ public class PackageCommand
             Task<LibraryInspection?> InspectAsync(
                 ResolvedAssemblyReference? assemblyReference,
                 AssemblyIntegrationsEntry? integrations)
-                => LibraryMetadataService.InspectAsync(
+            {
+                return LibraryMetadataService.InspectAsync(
                     selection.Path,
                     libraryOptions,
                     logger,
@@ -2575,7 +2575,12 @@ public class PackageCommand
                     queries: queries,
                     queryRegistry: queryRegistry,
                     assemblyReference: assemblyReference,
-                    integrationsEntry: integrations);
+                    integrationsEntry: integrations,
+                    integrationEvidenceUnavailable:
+                        integrationsWorkspace is not null
+                        && assemblyReference is null
+                        && integrations is null);
+            }
 
             LibraryInspection? inspection =
                 integrationsWorkspace is null
@@ -2593,7 +2598,8 @@ public class PackageCommand
             }
 
             inspection.FileName = relativePath;
-            inspection.Tfm = TfmResolver.ExtractTfmFromPath(relativePath);
+            inspection.Tfm =
+                TfmResolver.ExtractFrameworkFolderFromPath(relativePath);
             inspection.Source = SourceKind.NuGet;
             inspections.Add(inspection);
         }
@@ -2691,6 +2697,19 @@ public class PackageCommand
     internal static bool RequiresGroupedIntegrations(
         HashSet<InspectionQueryDefinition> queries) =>
         queries.Remove(AssemblyContextIntegrationsQuery.Definition);
+
+    internal static PackageIntegrationAssembly
+        CreatePackageIntegrationAssembly(
+            string path,
+            string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(relativePath);
+        return new PackageIntegrationAssembly(
+            path,
+            TfmResolver.ExtractFrameworkFolderFromPath(relativePath),
+            TfmResolver.ExtractAssetDirectoryFromPath(relativePath));
+    }
 
     internal static bool WriteGroupedIntegrationsFailures(
         IEnumerable<(string FileName, string Reason)> groupedFailures)
