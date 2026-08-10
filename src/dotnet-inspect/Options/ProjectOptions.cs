@@ -7,9 +7,13 @@ public record ProjectOptions : IProjectionOptions
 {
     public string ProjectPath { get; init; } = ".";
 
+    public bool ProjectPathExplicit { get; init; }
+
     public bool AgentsIndex { get; init; }
 
     public string? ReadmePackageId { get; init; }
+
+    public string? PackageFilter { get; init; }
 
     public bool Print { get; init; }
 
@@ -51,6 +55,8 @@ public record ProjectOptions : IProjectionOptions
 
     public bool Schema { get; init; }
 
+    public bool Effective { get; init; }
+
     public string[]? Select { get; init; }
 
     /// <summary>
@@ -67,6 +73,8 @@ public record ProjectOptions : IProjectionOptions
     public bool Count { get; init; }
 
     public RowWindow? Rows { get; init; }
+
+    public Verbosity Verbosity { get; init; } = Verbosity.Minimal;
 
     public bool Verbose { get; init; }
 

@@ -15669,6 +15669,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_AgentGuidanceSection_MatchesAgentsIndexAlias()
+    {
+        var agents = """
+            ---
+            name: selected
+            description: canonical section
+            ---
+            body
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Agent.Alias", "1.0.0", "README.md", "readme", agents));
+
+        try
+        {
+            var canonical = await RunAppAsync(
+                "project", projectPath, "-S", "Agent Guidance", "--jsonl");
+            var alias = await RunAppAsync(
+                "project", projectPath, "--agents-index", "--jsonl");
+
+            Assert.Equal(0, canonical.Exit);
+            Assert.Equal(canonical, alias);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_AgentsIndex_FoldsBlockScalarDescription()
     {
         var agents = """
@@ -15744,6 +15773,62 @@ public partial class CommandExecutionTests
 
             using var sourceDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Source")));
             Assert.Equal("skills/source/SKILL.md", sourceDocument.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_BareCommand_DefaultsToSkills()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Default", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/default/SKILL.md", "selected")]));
+
+        try
+        {
+            var implicitSelection = await RunAppAsync(
+                "project", projectPath, "--jsonl");
+            var explicitSelection = await RunAppAsync(
+                "project", projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, implicitSelection.Exit);
+            Assert.Equal(explicitSelection, implicitSelection);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_MissingDeclaredSkill_IsVisibleAndIncomplete()
+    {
+        const string id = "Test.Project.Missing.Skill";
+        const string version = "1.0.0";
+        const string skill = "skills/missing/SKILL.md";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(id, version, "README.md", "readme", Skills:
+                [new ProjectSkillDoc(skill, "selected")]));
+        File.Delete(Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            version,
+            skill.Replace('/', Path.DirectorySeparatorChar)));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(id, error);
+            Assert.Contains(skill, error);
+            Assert.Contains("Could not read", error);
         }
         finally
         {
@@ -16163,7 +16248,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Columns_ReturnsClearUnsupportedError()
+    public async Task Project_Columns_ProjectsSelectedColumns()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
@@ -16174,9 +16259,11 @@ public partial class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "project", projectPath, "-S", "Skills", "--columns", "Package");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains("project does not currently support --columns or --fields", error);
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("Package", output);
+            Assert.Contains("Test.Project.Columns", output);
+            Assert.DoesNotContain("skills/selected/SKILL.md", output);
         }
         finally
         {
@@ -16193,7 +16280,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "project", projectPath, "--print");
+                "project", projectPath, "-S", "@Project", "--print");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -16243,6 +16330,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Project_Discover_ProjectCategoryListsCanonicalSections()
+    {
+        var (exit, output, error) = await RunAppAsync("project", "-D", "@Project");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Skills", output);
+        Assert.Contains("Agent Guidance", output);
+        Assert.Contains("Package Docs", output);
+        Assert.DoesNotContain("@All", output);
+    }
+
+    [Fact]
+    public async Task Project_PackageFocus_RejectsNonDirectDependency()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Direct", "1.0.0", "README.md", "readme"));
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "project", projectPath,
+                "--package", "Test.Project.Transitive",
+                "-S", "Package Docs",
+                "--table");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("is not a direct dependency", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Project_Readme_PrefersReadmeOverAgentsAndProjectMd()
     {
         var agents = """
@@ -16264,6 +16388,29 @@ public partial class CommandExecutionTests
             Assert.Contains("# README body", output);
             Assert.DoesNotContain("# Agent guidance", output);
             Assert.DoesNotContain("# PROJECT body", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_PackageDocsSection_MatchesReadmeAlias()
+    {
+        const string id = "Test.Project.Readme.Alias";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(id, "1.0.0", "README.md", "# selected"));
+
+        try
+        {
+            var canonical = await RunAppAsync(
+                "project", projectPath, "--package", id, "-S", "Package Docs", "--print");
+            var alias = await RunAppAsync(
+                "project", projectPath, "--readme", id);
+
+            Assert.Equal(0, canonical.Exit);
+            Assert.Equal(canonical, alias);
         }
         finally
         {

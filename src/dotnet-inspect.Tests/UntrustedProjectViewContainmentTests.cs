@@ -146,7 +146,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
             {
                 ProjectPath = _assets,
                 AgentsIndex = agentsIndex,
-                Select = agentsIndex ? null : ["@All"],
+                Select = agentsIndex ? null : ["Skills"],
             }));
 
         Assert.Equal(0, exit);

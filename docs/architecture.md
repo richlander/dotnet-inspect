@@ -73,8 +73,17 @@ Inspects NuGet package metadata without extracting libraries:
 Inspects a restored project through `project.assets.json`:
 
 - Direct package references with resolved versions per selected TFM
-- Package `skills/**/SKILL.md` files from direct dependencies
-- Version-resolved README/PROJECT docs for one direct dependency
+- `Skills` from package `skills/**/SKILL.md` files; this is the bare-command
+  default
+- `Agent Guidance` from direct-dependency `AGENTS.md` files
+- `Package Docs` from version-resolved README/PROJECT documents, optionally
+  focused with `--package`
+
+The CLI host owns restored-assets parsing, filesystem access, and package
+acquisition. Typed project queries consume already-acquired documents, and the
+section pipeline requests only the producer needed by the selected section.
+`Package Docs` is explicit-only and unbounded; the network-free default does
+not authorize package acquisition.
 
 ### library
 

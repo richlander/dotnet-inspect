@@ -6,6 +6,12 @@ namespace DotnetInspector.Sections;
 public static class SectionCategoryNames
 {
     /// <summary>
+    /// Restored-project grounding artifacts from direct dependencies: skills, agent guidance,
+    /// and package documentation.
+    /// </summary>
+    public const string Project = "@Project";
+
+    /// <summary>
     /// The library command's ordinary identity, relationship, diagnostic, and dense-signal
     /// sections. Together with <see cref="Surface"/>, this forms the library base scope.
     /// </summary>

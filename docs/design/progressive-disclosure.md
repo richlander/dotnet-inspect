@@ -30,6 +30,9 @@ unrelated domain categories.
 Minimal views should remain close to one screenful. Prefer compact fields,
 counts, and summaries over unbounded inventories.
 
+The project command's minimal and bare-command view is `Skills`. Its other
+sections require an explicit selection.
+
 ## Categories
 
 Base categories define ordinary command evidence. Domain categories are
@@ -165,7 +168,13 @@ Select those sections or their authored category explicitly:
 ```bash
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect library System.Text.Json -S @Performance
+dotnet-inspect project ./src/App -S "Agent Guidance"
+dotnet-inspect project ./src/App --package Markout -S "Package Docs" --print
 ```
+
+Project `Package Docs` is unbounded because selecting it without `--package`
+may acquire documents for every direct dependency. `Agent Guidance` remains
+network-free but explicit-only so the bare command stays focused on Skills.
 
 ## Maintenance guidance
 

@@ -372,6 +372,20 @@ The library command's current authored ownership is:
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains.
 
+## Project category map
+
+The project command has one authored base category:
+
+| Category | Members |
+| --- | --- |
+| `@Project` | `Skills`, `Agent Guidance`, `Package Docs` |
+
+`Skills` is the single high-value automatic section. `Agent Guidance` is
+network-free but explicit-only. `Package Docs` is explicit-only and unbounded
+because selecting it may acquire documents for multiple direct dependencies.
+The compatibility options `--agents-index` and `--readme PACKAGE` lower to
+these canonical sections rather than maintaining separate output paths.
+
 ## Registration invariants
 
 The section pipeline enforces these invariants:
@@ -394,7 +408,9 @@ sets so stale and missing entries both fail.
 
 The library model is the reference implementation. Package has adopted the
 same size/cost axes and curated discovery, but its category graph remains
-smaller. Type, member, project, and API commands should migrate incrementally.
+smaller. Project has adopted typed query demand, canonical sections, and an
+authored category. Type, member, and remaining API commands should migrate
+incrementally.
 
 During migration:
 

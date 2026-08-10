@@ -115,7 +115,7 @@ same check and prints this repair when a stale checkout reaches the test suite.
 | Source | Examples | Notes |
 | ------ | -------- | ----- |
 | NuGet packages | `package System.Text.Json`, `type --package Markout` | Supports versions, custom sources, `nuget.config`, TFMs, package layout, dependencies, and vulnerabilities. |
-| Restored projects | `type Command --project ./src/App`, `project ./src/App -S Skills --print` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and dependency package skills; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
+| Restored projects | `type Command --project ./src/App`, `project ./src/App`, `project ./src/App -S "Agent Guidance"` | Uses an existing `project.assets.json` as restored-assets context for API lookup, relationship search, and direct-dependency Skills, Agent Guidance, and Package Docs; restore/build first if dependencies changed. No restore/build/MSBuild evaluation is run. |
 | Platform libraries | `library System.Private.CoreLib`, `library System.Text.Json --version 10.0.0`, `diff --platform System.Runtime@9.0.0..10.0.0` | Resolves installed SDK/runtime assemblies, including runtime-only implementation assemblies with no NuGet package. |
 | Local assets | `library ./bin/MyLib.dll`, `package ./pkg/MyLib.nupkg` | Useful for auditing builds before publishing. |
 
@@ -133,7 +133,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
+| Project guidance | `project` | Direct-dependency `Skills`, `Agent Guidance`, and version-resolved `Package Docs` from restored projects. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
@@ -149,7 +149,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Command | Purpose |
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
-| `project [path]` | Inspect restored direct package references for skill files and package docs. |
+| `project [path]` | Inspect restored direct package references through `Skills`, `Agent Guidance`, and `Package Docs` sections. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
@@ -507,13 +507,19 @@ dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --valu
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills --jsonl
+dotnet-inspect project ./src/App -S "Agent Guidance" --table
+dotnet-inspect project ./src/App --package Markout -S "Package Docs" --print
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
 
-For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated package and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Source` and `@Audit` expand to scenario-focused section groups.
+For compatibility, `project --agents-index` selects `Agent Guidance`, and
+`project --readme PACKAGE` selects and prints that dependency's `Package Docs`.
+Prefer the canonical section forms in new automation.
+
+For target-based queries, `-D` reports the effective schema by default: only sections and columns that can actually render for that query. Add `--schema` for the static schema. Bare `project [path]` renders `Skills`. Bare `-S` renders a bounded default view: `package` and `library` render their curated fixed overview, a single `type Type` renders `Type Info`, a `type` listing renders `API Info`, broad `member Type` summaries use `Method Groups`, and `member Type -m Name` uses `Methods` overload rows. Lists for `-S`, `--columns`, and `--fields` accept commas or semicolons. Curated project, package, and library catalogs do not expose a computed `@All`; select relevant authored categories or explicit sections instead. Workflow categories such as `@Project`, `@Source`, and `@Audit` expand to scenario-focused section groups.
 
 ## Common examples
 
@@ -534,7 +540,9 @@ dotnet-inspect type JsonSerializer --package System.Text.Json@8.0.0..8.0.5 --at 
 dotnet-inspect member JsonSerializer Serialize --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
 dotnet-inspect type Command --project ./src/App
 dotnet-inspect member Command --project ./src/App -S "Member Index"
-dotnet-inspect project ./src/App -S Skills
+dotnet-inspect project ./src/App
+dotnet-inspect project ./src/App -S "Agent Guidance"
+dotnet-inspect project ./src/App --package Markout -S "Package Docs" --print
 dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dotnet-inspect type string --shape

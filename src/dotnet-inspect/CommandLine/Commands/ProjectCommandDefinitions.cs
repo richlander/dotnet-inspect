@@ -9,7 +9,9 @@ public static class ProjectCommandDefinitions
 {
     public static Command CreateProjectCommand(SharedOptions opts)
     {
-        var projectCommand = new Command(ProjectCommand.Name, "Inspect restored project package references");
+        var projectCommand = new Command(
+            ProjectCommand.Name,
+            "Inspect guidance and documents from restored direct package dependencies");
 
         var pathArg = new Argument<string?>("path")
         {
@@ -18,11 +20,15 @@ public static class ProjectCommandDefinitions
         };
         var agentsIndexOption = new Option<bool>("--agents-index")
         {
-            Description = "Emit a compact AGENTS.md frontmatter manifest for direct package dependencies"
+            Description = "Compatibility alias for -S \"Agent Guidance\""
         };
         var readmeOption = new Option<string?>("--readme")
         {
-            Description = "Print the best package doc for one direct dependency, resolving its version from the project"
+            Description = "Compatibility alias for --package <id> -S \"Package Docs\" --print"
+        };
+        var packageOption = new Option<string?>("--package")
+        {
+            Description = "Focus Package Docs on one direct package dependency"
         };
         var tfmOption = new Option<string?>("--tfm")
         {
@@ -30,12 +36,12 @@ public static class ProjectCommandDefinitions
         };
         var frontmatterOption = new Option<bool>("--frontmatter")
         {
-            Description = "With --readme, print only the leading YAML frontmatter block"
+            Description = "With --print or --readme, print only the leading YAML frontmatter block"
         };
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body")
         {
-            Description = "With --readme, print only content after YAML frontmatter"
+            Description = "With --print or --readme, print only content after YAML frontmatter"
         };
         var outOption = new Option<string?>("--out")
         {
@@ -45,6 +51,7 @@ public static class ProjectCommandDefinitions
         projectCommand.Arguments.Add(pathArg);
         projectCommand.Options.Add(agentsIndexOption);
         projectCommand.Options.Add(readmeOption);
+        projectCommand.Options.Add(packageOption);
         projectCommand.Options.Add(tfmOption);
         projectCommand.Options.Add(frontmatterOption);
         projectCommand.Options.Add(bodyOption);
@@ -58,6 +65,7 @@ public static class ProjectCommandDefinitions
         opts.AddPrintOptionTo(projectCommand);
         opts.AddShapeProjectionOptionsTo(projectCommand);
         opts.AddNuGetOptionsTo(projectCommand);
+        projectCommand.Options.Add(opts.Effective);
 
         projectCommand.SetAction(async (parseResult, ct) =>
         {
@@ -72,8 +80,10 @@ public static class ProjectCommandDefinitions
             var options = new ProjectOptions
             {
                 ProjectPath = parseResult.GetValue(pathArg) ?? ".",
+                ProjectPathExplicit = parseResult.GetResult(pathArg)?.Tokens.Count > 0,
                 AgentsIndex = parseResult.GetValue(agentsIndexOption),
                 ReadmePackageId = parseResult.GetValue(readmeOption),
+                PackageFilter = parseResult.GetValue(packageOption),
                 Print = parseResult.GetValue(opts.Print),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 Value = parseResult.GetValue(opts.Value),
@@ -94,12 +104,14 @@ public static class ProjectCommandDefinitions
                 Discover = opts.ParseDiscover(parseResult),
                 Tree = opts.ParseTree(parseResult),
                 Schema = opts.ParseSchema(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
                 Select = opts.ParseSelect(parseResult),
                 SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),
                 Fields = opts.ParseFields(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
+                Verbosity = opts.ParseVerbosity(parseResult),
                 Verbose = parseResult.GetValue(opts.Verbose),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };

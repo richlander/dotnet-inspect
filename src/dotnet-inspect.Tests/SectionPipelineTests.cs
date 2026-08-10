@@ -1350,6 +1350,38 @@ public class SectionPipelineTests
         Assert.DoesNotContain(PackageSections.Files, sections);
     }
 
+    [Fact]
+    public void ProjectPipeline_ProjectCategoryContainsEverySection()
+    {
+        ProjectSectionCatalog catalog = ProjectSections.CreateCatalog();
+        SectionPipeline<ProjectInspection> pipeline = catalog.Pipeline;
+        IReadOnlyDictionary<string, string[]> categories = pipeline.GetCategoryMap();
+
+        Assert.Equal(
+            pipeline.AllSectionNames.OrderBy(name => name, StringComparer.Ordinal),
+            categories[SectionCategoryNames.Project].OrderBy(name => name, StringComparer.Ordinal));
+        Assert.DoesNotContain("@All", categories.Keys);
+        Assert.DoesNotContain("@None", categories.Keys);
+    }
+
+    [Fact]
+    public void ProjectPipeline_MinimalDemandRunsOnlySkillsQuery()
+    {
+        ProjectSectionCatalog catalog = ProjectSections.CreateCatalog();
+
+        Assert.Equal(
+            [ProjectSkillsQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal));
+        Assert.Equal(
+            [ProjectAgentGuidanceQuery.Definition],
+            catalog.Pipeline.GetRequiredQueries(
+                Verbosity.Minimal,
+                [ProjectSectionNames.AgentGuidance]));
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            catalog.QueryRegistry.CostOf(ProjectPackageDocumentsQuery.Definition));
+    }
+
     /// <summary>
     /// Every family member declares a predicate, and every predicate reaches a registered section.
     /// This is what lets the view, the descriptors, and the command all read membership from one
