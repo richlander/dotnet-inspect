@@ -653,6 +653,23 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (wantsSignals && options.Count && !effectiveDiscovery)
+            {
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
+            }
+
+            // Effective discovery renders the discovered rows below and answers the projection
+            // against them. Counting here would count the package document instead, which is a
+            // different payload than the one -D displays.
+            if (options.Count && !effectiveDiscovery)
+            {
+                CountOutput.WriteCountResult(
+                    OutputFormatter.FormatResult(result, options, pipeline),
+                    options.OutputPath);
+                return PackageIntegrityExitCode(result);
+            }
+
             if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
                 return PackageIntegrityExitCode(
                     WritePackageShapeProjection(result, options),
@@ -681,24 +698,8 @@ public class PackageCommand
 
             if (wantsSignals)
             {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, packageName, version, client, logger,
-                    acquirePdb: true, options.SourceOptions);
-            }
-
-            if (wantsSignals)
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, client, logger, options.SourceOptions);
-
-            // Effective discovery renders the discovered rows below and answers the projection
-            // against them. Counting here would count the package document instead, which is a
-            // different payload than the one -D displays.
-            if (options.Count && !effectiveDiscovery)
-            {
-                CountOutput.WriteCountResult(
-                    OutputFormatter.FormatResult(result, options, pipeline),
-                    options.OutputPath);
-                return PackageIntegrityExitCode(result);
+                await PopulatePackageSignalsAsync(
+                    result, extractPath, packageName, version, client, logger, options.SourceOptions);
             }
 
             // Output results
@@ -1630,6 +1631,22 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task PopulatePackageSignalsAsync(
+        InspectionResult result,
+        string extractPath,
+        string? packageName,
+        string? version,
+        HttpClient client,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions)
+    {
+        result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+            extractPath, packageName, version, client, logger,
+            acquirePdb: true, sourceOptions);
+        await AuditSignalBuilder.PopulatePackageAuditAsync(
+            result, client, logger, sourceOptions);
     }
 
     private static List<PackageFile> FilterPackageFiles(List<PackageFile> files, InspectionOptions options)
