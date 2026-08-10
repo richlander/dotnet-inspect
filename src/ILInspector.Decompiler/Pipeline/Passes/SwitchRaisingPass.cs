@@ -139,7 +139,7 @@ public sealed class SwitchRaisingPass : IIrPass
         var regions = new Dictionary<int, List<int>>();
         foreach (int target in caseTargets.Distinct())
         {
-            if (target == join)
+            if (target == terminalReturnJoin)
                 continue;
             if (!TryAddOwnedRegion(blocks, target, s, caseTargets, offsetToIndex,
                     preds, regions, owned, ref join))
