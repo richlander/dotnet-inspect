@@ -2203,24 +2203,48 @@ public static class CompileBackSourceComposer
         return leftHash.AsSpan().SequenceEqual(rightHash);
     }
 
-    sealed class CompilationClosureBindingPolicy(
-        AssemblyDependencyResolver resolver) : IAssemblyBindingPolicy
+    sealed class CompilationClosureBindingPolicy : IAssemblyBindingPolicy
     {
+        readonly AssemblyDependencyResolver _resolver;
+        readonly Dictionary<string, ResolvedAssemblyReference> _references =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public CompilationClosureBindingPolicy(
+            AssemblyDependencyResolver resolver)
+        {
+            _resolver = resolver;
+            foreach (ResolvedAssemblyDependency dependency in resolver.ResolveAll())
+            {
+                ResolvedAssemblyReference? reference =
+                    resolver.Acquire(dependency);
+                if (reference is not null)
+                {
+                    _references.TryAdd(
+                        Path.GetFileNameWithoutExtension(dependency.Path),
+                        reference);
+                }
+            }
+        }
+
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
         public AssemblyBindingSelection Select(AssemblyBindingRequest request)
         {
-            AssemblyBindingSelection siblingSelection = resolver.Select(
+            if (request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference)
+            {
+                return _references.TryGetValue(
+                    reference.Identity.Name,
+                    out ResolvedAssemblyReference? selected)
+                        ? AssemblyBindingSelection.Found(selected)
+                        : AssemblyBindingSelection.NotFound();
+            }
+
+            return _resolver.Select(
                 new AssemblyBindingRequest(
                     request.Target,
                     request.Origin,
                     AssemblyResolutionScope.Any));
-            // Roslyn prefers a sibling reference, but a missing sibling falls
-            // through to the platform closure rather than ending the bind.
-            return siblingSelection is AssemblyBindingSelection.Missing
-                && request.Scope == AssemblyResolutionScope.Platform
-                    ? resolver.Select(request)
-                    : siblingSelection;
         }
     }
 

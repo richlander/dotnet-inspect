@@ -1684,6 +1684,54 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void ResolveExternalTypeDefinition_DeclinesWhenVersionSkewedSiblingShadowsPlatform()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        string platformPath = typeof(System.Text.Json.JsonSerializer).Assembly.Location;
+        string facadePath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: TypeForwardedTo(typeof(System.Text.Json.JsonSerializer))]
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsPlatformFacade");
+        string assemblyPath = CompileFixture(
+            "public sealed class Fixture { }",
+            directory: fixtureDir,
+            assemblyName: "fixture");
+        using (var stream = File.OpenRead(platformPath))
+        using (var pe = new PEReader(stream))
+        {
+            Version platformVersion = pe.GetMetadataReader().GetAssemblyDefinition().Version;
+            File.WriteAllBytes(
+                Path.Combine(fixtureDir, "System.Text.Json.dll"),
+                BuildConfusableAssemblyImage(
+                    platformPath,
+                    new Version(platformVersion.Major - 1, 0, 0, 0)));
+        }
+        var facade = ResolvedAssemblyReference.CreateFromPath(
+            facadePath,
+            AssemblyResolutionProvenance.Local("test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(assemblyPath)
+            {
+                ExcludeTargetAssembly = true,
+            });
+        try
+        {
+            Assert.Null(
+                CompileBackSourceComposer.ResolveExternalTypeDefinition(
+                    facade,
+                    "System.Text.Json.JsonSerializer",
+                    resolver));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     // Close-negative for the shadow-decline (#3112 review): a compiler-authored sibling whose
     // simple name matches a *non-leading* segment of the interface spelling must NOT trigger a
     // decline. Only the FIRST segment (`System`) can be shadowed into a compile error, because
@@ -8851,7 +8899,9 @@ public class ReturnToSenderPrototypeTests
         return image.ToArray();
     }
 
-    static byte[] BuildConfusableAssemblyImage(string platformPath)
+    static byte[] BuildConfusableAssemblyImage(
+        string platformPath,
+        Version? version = null)
     {
         using var stream = File.OpenRead(platformPath);
         using var reader = new PEReader(stream);
@@ -8869,7 +8919,7 @@ public class ReturnToSenderPrototypeTests
         metadata.AddAssembly(
             metadata.GetOrAddString(
                 platformMetadata.GetString(platformAssembly.Name)),
-            platformAssembly.Version,
+            version ?? platformAssembly.Version,
             platformAssembly.Culture.IsNil
                 ? default
                 : metadata.GetOrAddString(
