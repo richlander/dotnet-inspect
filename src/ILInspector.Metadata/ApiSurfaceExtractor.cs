@@ -628,7 +628,8 @@ public static class ApiSurfaceExtractor
                 string methodName = reader.GetString(method.Name);
 
                 // Skip property accessors and event accessors
-                if (accessorMethods.Contains(methodHandle))
+                if (accessorMethods.Contains(methodHandle)
+                    && !isExplicitInterfaceImplementation)
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)

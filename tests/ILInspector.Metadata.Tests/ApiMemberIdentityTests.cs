@@ -456,6 +456,13 @@ public class ApiMemberIdentityTests
         Assert.DoesNotContain(
         type.Members,
         member => member.Name == "get_Value");
+        Assert.Contains(
+        type.Members,
+        member => member.Kind
+                == "explicit-interface-implementation"
+            && member.Name.EndsWith(
+                ".get_ExplicitValue",
+                StringComparison.Ordinal));
     }
 
     [Theory]
@@ -550,9 +557,17 @@ public class ApiMemberIdentityTests
             DateTime when] => when.Year;
     }
 
-    sealed class OrdinaryAccessorPrefixFixture
+    interface IExplicitPropertyFixture
+    {
+        int ExplicitValue { get; }
+    }
+
+    sealed class OrdinaryAccessorPrefixFixture :
+        IExplicitPropertyFixture
     {
         public int Value { get; set; }
+
+        int IExplicitPropertyFixture.ExplicitValue => 42;
 
         public int get_Standalone() => 1;
 

@@ -396,7 +396,9 @@ Unselected `System.Exception` support types additionally require the referenced 
 through the platform scope before retaining their base clause; manifest-less modules authenticate
 that platform reference directly from the base `TypeRef` while retaining the legacy target index.
 Method names that merely start with `get_`, `set_`, `add_`, or `remove_` remain ordinary methods
-unless property or event MethodSemantics identify them as accessors.
+unless property or event MethodSemantics identify them as accessors. Explicit-interface accessors
+remain explicit-interface-implementation members because their private property or event rows do
+not independently represent the public interface contract.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
 `Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase` gates malformed open-generic bases,
 `Evaluate_RetainsExceptionBaseClause` and `Evaluate_FallsBackForNetModule` gate the authenticated
