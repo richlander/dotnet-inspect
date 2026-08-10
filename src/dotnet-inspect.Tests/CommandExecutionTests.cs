@@ -14339,6 +14339,72 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiPackageCount_RendersStructuredSectionMap()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (packageInfoExit, packageInfoOutput, _) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info", "--count", "--json");
+            var (targetFrameworksExit, targetFrameworksOutput, _) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Target Frameworks", "--count", "--json");
+
+            Assert.Equal(0, packageInfoExit);
+            Assert.Equal(0, targetFrameworksExit);
+            var packageInfoCount = int.Parse(
+                packageInfoOutput.Trim(), CultureInfo.InvariantCulture);
+            var targetFrameworksCount = int.Parse(
+                targetFrameworksOutput.Trim(), CultureInfo.InvariantCulture);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info,Target Frameworks", "--count", "--json");
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            using var json = JsonDocument.Parse(jsonOutput);
+            var counts = json.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.Ordinal);
+            Assert.Equal(packageInfoCount, counts["Package Info"]);
+            Assert.Equal(targetFrameworksCount, counts["Target Frameworks"]);
+
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info,Target Frameworks", "--count", "--tsv");
+            Assert.Equal(0, tsvExit);
+            Assert.Empty(tsvError);
+            Assert.Equal(
+                $"section\tcount\nPackage Info\t{packageInfoCount}\nTarget Frameworks\t{targetFrameworksCount}\n",
+                tsvOutput.ReplaceLineEndings("\n"));
+
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info,Target Frameworks", "--count");
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.Contains($"| Package Info | {packageInfoCount} |\n", markdownOutput);
+            Assert.Contains($"| Target Frameworks | {targetFrameworksCount} |\n", markdownOutput);
+
+            var (windowedExit, windowedOutput, windowedError) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info", "--count", "--tsv", "--rows", "1");
+            Assert.Equal(0, windowedExit);
+            Assert.Empty(windowedError);
+            Assert.Equal("1\n", windowedOutput.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LegacyFileSectionNames_StillResolve()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
@@ -15413,9 +15479,19 @@ public partial class CommandExecutionTests
         {
             var (exit, output, _) = await RunAppAsync(
                 "package", firstPackage, secondPackage, "--path", "MISSING.md", "--tsv", "--count");
+            var (windowedCountExit, windowedCountOutput, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage,
+                "--path", "MISSING.md", "--jsonl", "--count", "--rows", "1");
+            var (windowedRowsExit, windowedRowsOutput, _) = await RunAppAsync(
+                "package", firstPackage, secondPackage,
+                "--path", "MISSING.md", "--jsonl", "--rows", "1");
 
             Assert.Equal(0, exit);
             Assert.Equal("2", output.Trim());
+            Assert.Equal(0, windowedCountExit);
+            Assert.Equal("1", windowedCountOutput.Trim());
+            Assert.Equal(0, windowedRowsExit);
+            Assert.Single(SplitOutputLines(windowedRowsOutput));
         }
         finally
         {

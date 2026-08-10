@@ -174,6 +174,11 @@ formats accept a category or other multi-section selection under `--count`.
 Their ordinary one-input-table restriction applies before reduction and does
 not reject this count-result table.
 
+For multiple package subjects, `Package Info` and package-file sections count
+their existing cross-package survey rows; other sections merge each package's
+structured section rows. `--rows` windows the table that owns each row unit
+before those per-section counts are combined.
+
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
 must declare and count its product-owned lowering, as the dependency commands

@@ -874,13 +874,14 @@ public class PackageCommand
         if (options.ShowContent)
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
-        if (!TryResolveMultiPackageRowSection(options, out var rowSection))
+        string? rowSection = null;
+        if (!options.Count && !TryResolveMultiPackageRowSection(options, out rowSection))
             return 1;
         bool wantsFilesSection = HasPathFilter(options)
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        if (!options.JsonOutput && rowSection == null)
+        if (!options.Count && !options.JsonOutput && rowSection == null)
         {
             CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
             CommandError.WriteLine("For package surveys, try: dotnet-inspect package <pkg>... --path @readme --tsv");
@@ -915,7 +916,7 @@ public class PackageCommand
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options);
+            return WriteMultiPackageCount(results, options, pipeline);
 
         if (options.JsonOutput)
         {
@@ -942,13 +943,70 @@ public class PackageCommand
 
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
-        string? rowSection,
-        InspectionOptions options)
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        CountOutput.WriteCount(
-            CountMultiPackageRows(results, rowSection, options),
-            options.OutputPath);
+        var projection = CaptureMultiPackageCountProjection(results, options, pipeline);
+        var ordered = OutputFormatter.ResolveCountMapSections(
+            pipeline, options.IncludeSections, options.FixedOverview);
+        CountOutput.Write(
+            projection, ordered, options.Format, options.NoHeader, options.OutputPath);
         return PackageIntegrityExitCode([.. results]);
+    }
+
+    private static CountProjection CaptureMultiPackageCountProjection(
+        IReadOnlyList<InspectionResult> results,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        var selectedSections = options.IncludeSections is { Count: > 0 } includeSections
+            ? new HashSet<string>(includeSections, StringComparer.OrdinalIgnoreCase)
+            : options.FixedOverview
+                ? new HashSet<string>(
+                    pipeline.BareSelectSectionNames,
+                    StringComparer.OrdinalIgnoreCase)
+                : throw new InvalidOperationException(
+                    "Multi-package count requires at least one selected section.");
+
+        var projection = new CountProjection();
+        var documentSections = new HashSet<string>(
+            selectedSections,
+            StringComparer.OrdinalIgnoreCase);
+
+        if (documentSections.Remove(PackageSections.PackageInfo))
+        {
+            projection.RecordRows(
+                PackageSections.PackageInfo,
+                WindowedCount(BuildMultiPackagePackageInfoRows(results).Length, options.Rows));
+        }
+
+        foreach (var section in selectedSections.Where(IsPackageFileSection))
+        {
+            documentSections.Remove(section);
+            projection.RecordRows(
+                section,
+                WindowedCount(
+                    BuildMultiPackageFileRows(results, section, options.SkipEmpty).Count,
+                    options.Rows));
+        }
+
+        if (documentSections.Count == 0)
+            return projection;
+
+        var documentOptions = options with
+        {
+            Select = null,
+            SelectDefault = false,
+            FixedOverview = false,
+            IncludeSections = documentSections,
+        };
+        foreach (var result in results)
+        {
+            projection.Merge(OutputFormatter.CapturePackageCountProjection(
+                result, documentOptions, pipeline));
+        }
+
+        return projection;
     }
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
@@ -2176,11 +2234,6 @@ public class PackageCommand
         return builder.ToString();
     }
 
-    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section, InspectionOptions options)
-        => IsPackageFileSection(section)
-            ? results.Sum(result => options.SkipEmpty ? GetPackageFileRows(result, section!).Count : Math.Max(1, GetPackageFileRows(result, section!).Count))
-            : results.Sum(result => new InspectionResultView(result).Metadata.Count);
-
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
         if (IsPackageFileSection(section))
@@ -2200,21 +2253,13 @@ public class PackageCommand
             return;
         }
 
-        var rows = results
-            .SelectMany(result =>
+        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty)
+            .Select(row => new[]
             {
-                var files = GetPackageFileRows(result, section);
-                if (files.Count == 0)
-                    return options.SkipEmpty ? [] : [[result.PackageName, result.Version, "", ""]];
-
-                return files
-                    .Select(file => new[]
-                    {
-                        result.PackageName,
-                        result.Version,
-                        file.Path,
-                        file.Size.ToString(CultureInfo.InvariantCulture),
-                    });
+                row.Package,
+                row.Version,
+                row.Path,
+                row.Size?.ToString(CultureInfo.InvariantCulture) ?? "",
             })
             .ToArray();
 
@@ -2245,25 +2290,40 @@ public class PackageCommand
 
     private static void WriteMultiPackageFilesJsonl(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
     {
+        var rows = BuildMultiPackageFileRows(results, section, options.SkipEmpty);
+        var (start, end) = ResolveRowWindow(rows.Count, options.Rows);
+        for (var i = start; i < end; i++)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(
+                rows[i],
+                PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+        }
+    }
+
+    private static List<PackageFileMultiJsonRow> BuildMultiPackageFileRows(
+        IReadOnlyList<InspectionResult> results,
+        string section,
+        bool skipEmpty)
+    {
+        var rows = new List<PackageFileMultiJsonRow>();
         foreach (var result in results)
         {
             var files = GetPackageFileRows(result, section);
             if (files.Count == 0)
             {
-                if (!options.SkipEmpty)
+                if (!skipEmpty)
                 {
-                    var empty = new PackageFileMultiJsonRow(result.PackageName, result.Version, "", null);
-                    Console.WriteLine(JsonSerializer.Serialize(empty, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
+                    rows.Add(new PackageFileMultiJsonRow(
+                        result.PackageName, result.Version, "", null));
                 }
                 continue;
             }
 
-            foreach (var file in files)
-            {
-                var row = new PackageFileMultiJsonRow(result.PackageName, result.Version, file.Path, file.Size);
-                Console.WriteLine(JsonSerializer.Serialize(row, PackageFileMultiJsonRowContext.Default.PackageFileMultiJsonRow));
-            }
+            rows.AddRange(files.Select(file => new PackageFileMultiJsonRow(
+                result.PackageName, result.Version, file.Path, file.Size)));
         }
+
+        return rows;
     }
 
     private static int PrintPackageBareSelection(
@@ -2373,15 +2433,7 @@ public class PackageCommand
 
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
-        var rows = results
-            .SelectMany(result => new InspectionResultView(result).Metadata
-                .Select(field => new[]
-                {
-                    result.PackageName,
-                    field.Key,
-                    field.Value?.ToString() ?? "",
-                }))
-            .ToArray();
+        var rows = BuildMultiPackagePackageInfoRows(results);
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
@@ -2394,6 +2446,29 @@ public class PackageCommand
             markoutWriter.Flush();
         }, options.Rows);
     }
+
+    private static string[][] BuildMultiPackagePackageInfoRows(
+        IReadOnlyList<InspectionResult> results)
+        => results
+            .SelectMany(result => new InspectionResultView(result).Metadata
+                .Select(field => new[]
+                {
+                    result.PackageName,
+                    field.Key,
+                    field.Value?.ToString() ?? "",
+                }))
+            .ToArray();
+
+    private static int WindowedCount(int count, RowWindow? rows)
+    {
+        var (start, end) = ResolveRowWindow(count, rows);
+        return end - start;
+    }
+
+    private static (int Start, int End) ResolveRowWindow(int count, RowWindow? rows)
+        => rows is { IsUnlimited: false } window
+            ? window.Resolve(count)
+            : (0, count);
 
     private static void ApplyNuspec(NuspecData nuspec, InspectionResult result)
     {

@@ -287,15 +287,8 @@ public static class OutputFormatter
             return JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
         }
 
-        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
         var view = new InspectionResultView(result, includeTitleVersion: false);
-        var writerOptions = BuildWriterOptions(result, options, pipeline);
-        if (selectAll)
-            writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
-        else if (selectInfo)
-            writerOptions.SectionOrder = pipeline.InfoSectionNames;
-        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        var writerOptions = BuildPackageDocumentWriterOptions(result, options, pipeline);
         if (options.Count)
         {
             var projection = CountProjectionFormatter.Capture(
@@ -308,6 +301,31 @@ public static class OutputFormatter
 
         return MarkoutSerializer.Serialize(
             view, InspectionContext.Default, writerOptions).TrimEnd();
+    }
+
+    internal static CountProjection CapturePackageCountProjection(
+        InspectionResult result,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => CountProjectionFormatter.Capture(
+            new InspectionResultView(result, includeTitleVersion: false),
+            InspectionContext.Default,
+            BuildPackageDocumentWriterOptions(result, options, pipeline));
+
+    private static MarkoutWriterOptions BuildPackageDocumentWriterOptions(
+        InspectionResult result,
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections);
+        var writerOptions = BuildWriterOptions(result, options, pipeline);
+        if (selectAll)
+            writerOptions.SectionOrder = pipeline.GetAllSelectorSections(result);
+        else if (selectInfo)
+            writerOptions.SectionOrder = pipeline.InfoSectionNames;
+        writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
+        return writerOptions;
     }
 
     /// <summary>
