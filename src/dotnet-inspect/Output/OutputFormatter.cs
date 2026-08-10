@@ -274,7 +274,9 @@ public static class OutputFormatter
         if (requested is not { Count: > 1 })
             return null;
 
-        return pipeline.AlphabeticalSectionOrder.Where(requested.Contains).ToList();
+        return requested.OrderBy(
+            section => section,
+            StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public static string FormatResult(InspectionResult result, InspectionOptions options,

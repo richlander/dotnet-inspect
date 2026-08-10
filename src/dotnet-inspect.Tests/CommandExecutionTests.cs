@@ -1770,6 +1770,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ApiShim_MultiSectionCount_ForwardsResolvedFormat()
+    {
+        var options = new ApiOptions
+        {
+            PlatformAssembly = "System.Text.Json",
+            IncludeSections = ["Classes", "Structs"],
+            Count = true,
+            JsonOutput = true,
+            Format = OutputFormat.Json,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var sections = document.RootElement
+            .EnumerateArray()
+            .Select(row => row.GetProperty("section").GetString()!)
+            .ToArray();
+        Assert.Equal(["Classes", "Structs"], sections);
+    }
+
+    [Fact]
     public async Task Api_PlatformLibrary_ListsTypes()
     {
         var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
@@ -3695,6 +3722,29 @@ public partial class CommandExecutionTests
         var rows = document.RootElement.EnumerateArray().ToArray();
         Assert.Equal(["Methods", "Type Info"], rows.Select(row => row.GetProperty("section").GetString()));
         Assert.All(rows, row => Assert.Equal(JsonValueKind.Number, row.GetProperty("count").ValueKind));
+    }
+
+    [Fact]
+    public async Task Member_MixedPipelineCountMap_RetainsRequestedZeroRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SampleKeywordParameterHost).FullName!,
+            "--library", TestAssemblyPath,
+            nameof(SampleKeywordParameterHost.Instance),
+            "-S", "Methods,Member Index,Signature",
+            "--count", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var counts = document.RootElement
+            .EnumerateArray()
+            .ToDictionary(
+                row => row.GetProperty("section").GetString()!,
+                row => row.GetProperty("count").GetInt32());
+        Assert.Equal(0, counts["Member Index"]);
+        Assert.Equal(0, counts["Methods"]);
+        Assert.Equal(1, counts["Signature"]);
     }
 
     /// <summary>

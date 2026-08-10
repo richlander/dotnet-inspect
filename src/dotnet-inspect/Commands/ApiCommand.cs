@@ -44,7 +44,7 @@ public class ApiCommand
             JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
-            FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatExplicitlySet = options.FormatExplicitlySet, Format = options.Format,
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
