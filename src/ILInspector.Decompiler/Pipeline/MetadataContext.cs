@@ -56,7 +56,6 @@ public sealed class MetadataContext : IDisposable
     ];
 
     readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _opened = new(StringComparer.OrdinalIgnoreCase);
-    readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _openedLocations = new(StringComparer.Ordinal);
     readonly ConcurrentDictionary<
         AssemblyAcquisitionRegistration,
         Lazy<OpenedAssembly?>> _openedRegistrations =
@@ -81,14 +80,6 @@ public sealed class MetadataContext : IDisposable
     internal OpenedAssembly? Open(string path)
     {
         return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(p))).Value;
-    }
-
-    internal OpenedAssembly? Open(TypeLocation location)
-    {
-        if (location.AssemblyPath is { Length: > 0 } path)
-            return Open(path);
-
-        return _openedLocations.GetOrAdd(location.AssemblyKey, _ => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(location.OpenRead))).Value;
     }
 
     internal OpenedAssembly? Open(ResolvedAssemblyReference assembly)
@@ -157,12 +148,9 @@ public sealed class MetadataContext : IDisposable
     {
         foreach (var opened in _opened.Values)
             if (opened.IsValueCreated) opened.Value?.Dispose();
-        foreach (var opened in _openedLocations.Values)
-            if (opened.IsValueCreated) opened.Value?.Dispose();
         foreach (var opened in _openedRegistrations.Values)
             if (opened.IsValueCreated) opened.Value?.Dispose();
         _opened.Clear();
-        _openedLocations.Clear();
         _openedRegistrations.Clear();
         _typeResolutionCatalog.Dispose();
     }

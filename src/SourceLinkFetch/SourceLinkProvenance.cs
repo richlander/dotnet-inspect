@@ -175,7 +175,7 @@ public static class SourceLinkProvenance
             }
 
             if (!TryCheckSubstitutionSelectsContent(
-                    url, origin, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
+                    url, origin.Host, resolution.SubstitutionOffset, resolution.SubstitutionLength, out rejection))
             {
                 return new SourceLinkProvenanceResult(
                     null,
@@ -284,7 +284,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     internal static bool TryCheckSubstitutionSelectsContent(
         string url,
-        in SourceLinkOrigin origin,
+        string host,
         int offset,
         int length,
         out string rejection)
@@ -304,7 +304,7 @@ public static class SourceLinkProvenance
         int fragmentStart = url.IndexOf('#', StringComparison.Ordinal);
         int pathEnd = queryStart >= 0 ? queryStart : (fragmentStart >= 0 ? fragmentStart : url.Length);
 
-        if (string.Equals(origin.Host, GitHubRawHost, StringComparison.Ordinal))
+        if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
         {
             // This host serves the path, so the path is the only place a substitution can select
             // anything. The query is already refused outright for this host, which leaves the
@@ -314,7 +314,7 @@ public static class SourceLinkProvenance
             if (offset < authorityEnd || end > pathEnd)
             {
                 rejection =
-                    $"'{origin.Host}' selects content by path, and the document text is " +
+                    $"'{host}' selects content by path, and the document text is " +
                     "substituted outside it, so every document resolves to the same file";
                 return false;
             }
@@ -327,19 +327,159 @@ public static class SourceLinkProvenance
         // else -- in the route, the repository segment, 'api-version', or a version selector that
         // the immutability rules already pin to one commit -- leaves the served file fixed.
         if (queryStart >= 0
-            && (TrySpanOfQueryValue(url, queryStart, "path", out int valueStart, out int valueEnd)
-                || TrySpanOfQueryValue(url, queryStart, "scopePath", out valueStart, out valueEnd))
-            && offset >= valueStart
-            && end <= valueEnd)
+            && TrySpanOfContentSelector(
+                url,
+                queryStart,
+                out int valueStart,
+                out int valueEnd,
+                out bool requestAlwaysFails)
+            && (requestAlwaysFails || (offset >= valueStart && end <= valueEnd)))
         {
             return true;
         }
 
         rejection =
-            $"'{origin.Host}' selects content by the 'path' or 'scopePath' parameter, and the " +
+            $"'{host}' selects content by the 'path' or 'scopePath' parameter, and the " +
             "document text is substituted outside it, so every document resolves to the same file";
         return false;
     }
+
+    /// <summary>
+    /// Whether a substitution may resolve: refuses one that would fetch a fixed file instead of
+    /// the document it represents, on a host whose content selector this reader knows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the <em>resolution</em> half of issue #3599, and it is deliberately a weaker
+    /// predicate than the attribution half above rather than the same one applied twice. Refusing
+    /// to resolve wherever attribution refuses was the obvious reading of the issue and is wrong:
+    /// measured on the six shapes pinned by
+    /// <c>SourceLinkMapConformanceTests.OnlyAnEntryThatCannotSelectContent_IsRefusedResolution</c>,
+    /// attribution refuses five and only two of those fetch the wrong file.
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>
+    ///     A wildcard in the path with an inert query alongside it
+    ///     (<c>.../{sha}/*?foo=bar</c>) is unattributable because this host ignores the query,
+    ///     yet the path still selects, so it fetches exactly the right file.
+    ///   </item>
+    ///   <item>
+    ///     A branch-based GitHub map (<c>.../o/r/main/*</c>) is unattributable because the
+    ///     revision/path boundary is not determinable, and fetches correctly regardless.
+    ///   </item>
+    ///   <item>
+    ///     A self-hosted server is unattributable because it is not a recognized host — and
+    ///     refusing it would stop this tool resolving source for every SourceLink deployment
+    ///     outside the two hosts whose grammar is written down here.
+    ///   </item>
+    /// </list>
+    /// <para>
+    /// So an unrecognized host keeps today's behavior: unknown grammar means no claim in either
+    /// direction, and the substitution resolves. At parse time, a known-host entry whose ordinary
+    /// substitution demonstrably misses the selector lands in
+    /// <see cref="SourceLinkResolver.RejectedKeys"/>. At resolution time, a concrete empty or
+    /// blank substitution that changes the host's selector binding yields to a valid less-specific
+    /// entry. Both remedies enforce the same rule: wrong content is worse than no content.
+    /// </para>
+    /// <para>
+    /// The direction of the call is worth naming. <see cref="Determine"/> asks the resolver what
+    /// a map resolves to, and here the resolver asks this class what a host reads. That is not a
+    /// cycle: this method is a pure question about a host's URL grammar, holds no state, and
+    /// reaches nothing on the resolver. The grammars live here because that is where the hosts
+    /// are already written down, and duplicating them into the matcher is what issue #3599
+    /// explicitly ruled out.
+    /// </para>
+    /// </remarks>
+    internal static bool CanSelectContent(string url, int offset, int length, out string rejection)
+    {
+        rejection = "";
+
+        if (offset < 0)
+        {
+            return true;
+        }
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
+        {
+            return true;
+        }
+
+        string host = CanonicalHost(uri);
+        if (!IsRecognizedSourceHost(host))
+        {
+            // An unrecognized host's grammar is unknown, so nothing here can say whether the
+            // substitution selects. Silence is the answer that preserves a working deployment.
+            return true;
+        }
+
+        return TryCheckSubstitutionSelectsContent(url, host, offset, length, out rejection);
+    }
+
+    /// <summary>
+    /// The DNS name a URL's authority denotes, in the ASCII form a request will actually use,
+    /// with the root label's trailing dot removed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three adversarial reviews found three spellings of one defect here: a host that names a
+    /// recognized server, compares unequal to it, and is served by it anyway. First
+    /// <see cref="Uri.Host"/> preserves the root label's dot, so
+    /// <c>raw.githubusercontent.com.</c> was read as a host this code had never heard of. Then
+    /// <see cref="Uri.Host"/> also preserves Unicode full stops, so <c>raw.githubusercontent.com</c>
+    /// followed by U+3002, U+FF0E, or U+FF61 did the same. Measured: all four spellings return
+    /// byte-identical content from GitHub, because the request is sent using the IDN form.
+    /// </para>
+    /// <para>
+    /// <see cref="Uri.IdnHost"/> is therefore the right reading — it is the name that goes on the
+    /// wire, with Unicode label separators folded to <c>'.'</c> and non-ASCII labels punycoded —
+    /// and the trailing dot it still carries is trimmed after. It throws for an authority that has
+    /// no IDN form, which is an authority no request can be sent to either, so the plain host is a
+    /// safe fallback there rather than a reason to refuse.
+    /// </para>
+    /// <para>
+    /// This is applied at the single point both readers derive a host from a URL, so that
+    /// attribution and resolution cannot disagree about which host a URL names. That disagreement
+    /// is the shape of defect issue #3391 fixed once already, and a host spelling is exactly the
+    /// kind of thing two readers drift apart on.
+    /// </para>
+    /// </remarks>
+    private static string CanonicalHost(Uri uri)
+    {
+        string host;
+        try
+        {
+            host = uri.IdnHost;
+        }
+        catch (UriFormatException)
+        {
+            // What an authority with no IDN form raises -- a scalar IDNA forbids outright, such
+            // as U+2066. It derives from FormatException, not ArgumentException. Such a host
+            // cannot be requested at all, so reading it literally concedes nothing, and the
+            // caller's inertness rule refuses it on its own terms rather than by crashing here.
+            host = uri.Host;
+        }
+        catch (ArgumentException)
+        {
+            host = uri.Host;
+        }
+
+        return host.TrimEnd('.');
+    }
+
+    /// <summary>
+    /// Whether this reader knows the URL grammar of a host, and can therefore say what a
+    /// substitution placed in one of its components does.
+    /// </summary>
+    /// <remarks>
+    /// This names the same set as the allow list in <see cref="TryReadOrigin"/>, and is
+    /// deliberately the only other reader of it, so a host admitted there gains a content
+    /// selector here in the same change rather than silently resolving unchecked. Both go through
+    /// <see cref="CanonicalHost"/>, so neither can be evaded by a spelling the other accepts.
+    /// </remarks>
+    internal static bool IsRecognizedSourceHost(string host) =>
+        string.Equals(host, GitHubRawHost, StringComparison.Ordinal)
+        || string.Equals(host, AzureDevOpsHost, StringComparison.Ordinal)
+        || host.EndsWith(VisualStudioHostSuffix, StringComparison.Ordinal);
 
     /// <summary>
     /// Refuses an origin whose own text carries a scalar that can act on whatever displays it.
@@ -399,11 +539,32 @@ public static class SourceLinkProvenance
 
         foreach ((string name, string value) in components)
         {
-            if (value is null)
+            if (!TryCheckTextIsInert(value, name, out rejection))
             {
-                continue;
+                return false;
             }
+        }
 
+        rejection = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Whether one component's text carries nothing that can act on whatever displays it.
+    /// </summary>
+    /// <remarks>
+    /// Split out so that a component can be judged before any canonicalization <em>this code</em>
+    /// applies rewrites it. <see cref="CanonicalHost"/> applies IDNA mapping, which deletes a soft
+    /// hyphen and a zero-width space outright — so a host checked only after canonicalization
+    /// would be sanitized rather than refused, and
+    /// <c>docs/design/untrusted-data-threat-model.md</c> settles on reject-don't-sanitize.
+    /// <see cref="Uri"/>'s own authority normalization still runs first and is deliberately not
+    /// pinned; see <c>ALiveFormatCharacterInAHostLabel_IsNotAttributable</c>.
+    /// </remarks>
+    private static bool TryCheckTextIsInert(string value, string name, out string rejection)
+    {
+        if (value is not null)
+        {
             int index = 0;
 
             foreach (Rune scalar in value.EnumerateRunes())
@@ -464,12 +625,144 @@ public static class SourceLinkProvenance
     }
 
     /// <summary>
+    /// Finds the span of the parameter value Azure DevOps actually selects content with, or
+    /// reports that both selectors are valued and the host refuses the request.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The first occurrence of each name binds; an <em>empty</em> value is not a selection, and
+    /// the host falls through to <c>scopePath</c> rather than serving the root listing. Reading
+    /// only the first name that appears — which is what this did — refused
+    /// <c>path&amp;scopePath=/*</c>, a map whose wildcard the host genuinely reads. Over-refusal
+    /// is a real defect in this predicate, so that mattered; found in review.
+    /// </para>
+    /// <para>
+    /// Measured against <c>dev.azure.com/dnceng-public/public</c>, repository
+    /// <c>dotnet-public-wiki</c> at commit <c>af56d96fdbd7c26e9fc94336b6f50dcc6ceff484</c>, where
+    /// the requested file is 985 bytes, the repository root listing is 425, and a missing file is
+    /// 404. Nine shapes, and the model above accounts for all nine:
+    /// </para>
+    /// <code>
+    /// path&amp;scopePath=/README.md                 200  985   empty path falls through
+    /// path=&amp;scopePath=/README.md                200  985   an explicit '=' is the same
+    /// path&amp;scopePath=/nope.txt                  404        and it is really selecting
+    /// path&amp;scopePath=/README.md&amp;path=/nope.txt  200  985   first occurrence, still empty
+    /// scopePath&amp;path=/README.md                 200  985   symmetric: empty scopePath yields
+    /// path&amp;path=/README.md                      200  425   no scopePath, so root listing
+    /// path&amp;scopePath&amp;path=/README.md             200  425   both empty, so root listing
+    /// scopePath=/README.md                     200  985
+    /// path=/README.md&amp;scopePath=/nope.txt       400        both selecting is an error
+    /// </code>
+    /// <para>
+    /// The last row is why a valued pair of both is left to resolve: it fetches nothing at all,
+    /// visibly, rather than serving one wrong file under every document's name, which is the
+    /// defect this predicate exists to stop.
+    /// </para>
+    /// </remarks>
+    private static bool TrySpanOfContentSelector(
+        string url,
+        int queryStart,
+        out int valueStart,
+        out int valueEnd,
+        out bool requestAlwaysFails)
+    {
+        bool pathSelects =
+            TrySpanOfQueryValue(url, queryStart, "path", out int pathStart, out int pathEnd)
+            && ValueSelects(url, pathStart, pathEnd);
+        bool scopePathSelects =
+            TrySpanOfQueryValue(
+                url,
+                queryStart,
+                "scopePath",
+                out int scopePathStart,
+                out int scopePathEnd)
+            && ValueSelects(url, scopePathStart, scopePathEnd);
+
+        requestAlwaysFails = pathSelects && scopePathSelects;
+
+        if (pathSelects)
+        {
+            valueStart = pathStart;
+            valueEnd = pathEnd;
+            return true;
+        }
+
+        if (scopePathSelects)
+        {
+            valueStart = scopePathStart;
+            valueEnd = scopePathEnd;
+            return true;
+        }
+
+        valueStart = 0;
+        valueEnd = 0;
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a selector value names anything, as the host judges it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Blank is not a selection, and blank is decided after decoding rather than on the raw text:
+    /// measured, <c>path=%20</c>, <c>path=+</c>, <c>path=%09</c>, <c>path=%0a</c>, <c>path=%0d</c>
+    /// and <c>path=%C2%A0</c> all fall through to <c>scopePath</c> exactly as an absent value
+    /// does, and <c>path=%20</c> alone answers with the repository root listing. Comparing raw
+    /// lengths made this reader treat those as selections and refuse maps the host resolves,
+    /// which is over-refusal — a real defect in this predicate. Found in review.
+    /// </para>
+    /// <para>
+    /// The host does not <em>trim</em>, so this is emptiness and not normalization:
+    /// <c>path=%20/README.md</c> answers 404 rather than serving the file.
+    /// </para>
+    /// </remarks>
+    private static bool ValueSelects(string url, int valueStart, int valueEnd)
+    {
+        if (valueEnd <= valueStart)
+        {
+            return false;
+        }
+
+        string raw = url.Substring(valueStart, valueEnd - valueStart);
+
+        // '+' is a space in a form-encoded value, which is how these hosts read a query.
+        string decoded;
+        try
+        {
+            decoded = Uri.UnescapeDataString(raw.Replace('+', ' '));
+        }
+        catch (UriFormatException)
+        {
+            // Undecodable text is not blank, and refusing to call it blank keeps the caller from
+            // falling through to a selector the host will not reach.
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(decoded);
+    }
+
+    /// <summary>
     /// Finds the span of a named query parameter's value in the URL's raw text.
     /// </summary>
     /// <remarks>
-    /// The caller has already refused a repeated parameter, so the first match is the only match.
+    /// <para>
     /// The span is measured in the raw string rather than a parsed collection because it is
     /// compared against a substitution offset into that same string.
+    /// </para>
+    /// <para>
+    /// The first occurrence wins, which is what these hosts serve, so the span is the one the
+    /// host reads even when the caller has not separately refused a repeat. The attribution
+    /// reader does refuse one; the content-selector reader does not, and relies on this.
+    /// </para>
+    /// <para>
+    /// Names are compared decoded, because the host decodes them: measured against a live Azure
+    /// DevOps endpoint, <c>%70ath=/README.md</c> returns that file, and
+    /// <c>%70ath=/README.md&amp;path=/nope.txt</c> returns it too rather than 404. Comparing the
+    /// raw text would leave the first pair invisible here while the host serves it — an
+    /// adversarial review found exactly that, turning <c>%70ath=/fixed.cs&amp;path=/*</c> into a
+    /// map whose wildcard this reader sees, the host never reads, and every document resolves
+    /// through to one file.
+    /// </para>
     /// </remarks>
     /// <param name="queryStart">The index of the <c>?</c> that begins the query.</param>
     private static bool TrySpanOfQueryValue(
@@ -490,11 +783,17 @@ public static class SourceLinkProvenance
             int amp = url.IndexOf('&', i);
             int pairEnd = amp < 0 || amp > limit ? limit : amp;
             int eq = url.IndexOf('=', i);
+            bool hasValue = eq >= 0 && eq < pairEnd;
 
-            if (eq >= 0 && eq < pairEnd
-                && url.AsSpan(i, eq - i).Equals(name, StringComparison.OrdinalIgnoreCase))
+            if (DecodedNameMatches(url.AsSpan(i, (hasValue ? eq : pairEnd) - i), name))
             {
-                valueStart = eq + 1;
+                // A pair written without '=' still binds the name: measured, Azure DevOps reads
+                // "&path&path=/*" as a path of "" and serves the repository root listing for
+                // every document, ignoring the second pair entirely. Skipping the valueless pair
+                // as if it were not there left the wildcard in the occurrence the host never
+                // reads -- issue #3599 again, found in review. Its value is the empty span, which
+                // no substitution can land inside, so the entry is refused.
+                valueStart = hasValue ? eq + 1 : pairEnd;
                 valueEnd = pairEnd;
                 return true;
             }
@@ -508,6 +807,113 @@ public static class SourceLinkProvenance
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether a raw query parameter name denotes <paramref name="name"/> once the percent-escapes
+    /// the host decodes have been applied and the array brackets its model binder deletes have
+    /// been removed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Decoding happens during the comparison rather than into a buffer so that a name cannot be
+    /// read one way here and another way by the caller. An escape that is not two hex digits is
+    /// left as the literal <c>'%'</c> it is, which is how these hosts read it.
+    /// </para>
+    /// <para>
+    /// An empty <c>[]</c> group is deleted wherever it appears — not only at the ends — in a
+    /// single left-to-right pass. The host does not rescan what a deletion brings together, so
+    /// <c>p[[]]ath</c> collapses to <c>p[]ath</c> and stays unbound while <c>p[]ath</c> binds.
+    /// Both directions are measured; see
+    /// <c>AnArraySuffixedContentSelector_BindsTheSameParameter</c>.
+    /// </para>
+    /// <para>
+    /// Case folds over ASCII only. <see cref="char.ToUpperInvariant(char)"/> maps U+017F LATIN
+    /// SMALL LETTER LONG S to <c>'S'</c>, which made this reader see <c>ſcopePath</c> as
+    /// <c>scopePath</c> while the host ignores it entirely — so a map could put the wildcard in a
+    /// parameter only this reader believes exists. Found in review and measured: <c>ſcopePath</c>
+    /// alone answers with the repository root listing, and <c>ſcopePath=/A.cs</c> beside
+    /// <c>scopePath=/README.md</c> serves README for every document.
+    /// </para>
+    /// </remarks>
+    private static bool DecodedNameMatches(ReadOnlySpan<char> raw, string name)
+    {
+        int matched = 0;
+        int i = 0;
+
+        while (i < raw.Length)
+        {
+            if (!TryDecodeAt(raw, i, out char c, out int next))
+            {
+                return false;
+            }
+
+            if (c == '['
+                && TryDecodeAt(raw, next, out char close, out int afterClose)
+                && close == ']')
+            {
+                i = afterClose;
+                continue;
+            }
+
+            if (matched == name.Length || AsciiLower(c) != AsciiLower(name[matched]))
+            {
+                return false;
+            }
+
+            matched++;
+            i = next;
+        }
+
+        return matched == name.Length;
+    }
+
+    /// <summary>
+    /// Lowercases an ASCII letter and leaves every other scalar alone, so that no non-ASCII
+    /// scalar can be folded onto one of these parameter names.
+    /// </summary>
+    private static char AsciiLower(char c) =>
+        (uint)(c - 'A') <= 'Z' - 'A' ? (char)(c | 0x20) : c;
+
+    /// <summary>
+    /// Reads the character at <paramref name="i"/> as the host decodes it, reporting where the
+    /// text it was spelled with ends.
+    /// </summary>
+    private static bool TryDecodeAt(ReadOnlySpan<char> raw, int i, out char c, out int next)
+    {
+        if (i >= raw.Length)
+        {
+            c = default;
+            next = i;
+            return false;
+        }
+
+        if (raw[i] == '%'
+            && i + 2 < raw.Length
+            && TryReadHexDigit(raw[i + 1], out int high)
+            && TryReadHexDigit(raw[i + 2], out int low))
+        {
+            c = (char)((high << 4) | low);
+            next = i + 3;
+            return true;
+        }
+
+        c = raw[i];
+        next = i + 1;
+        return true;
+    }
+
+    private static bool TryReadHexDigit(char c, out int value)
+    {
+        value = c switch
+        {
+            >= '0' and <= '9' => c - '0',
+            >= 'a' and <= 'f' => c - 'a' + 10,
+            >= 'A' and <= 'F' => c - 'A' + 10,
+            _ => -1,
+        };
+
+        return value >= 0;
     }
 
     /// <summary>
@@ -560,7 +966,7 @@ public static class SourceLinkProvenance
             return false;
         }
 
-        if (ContainsEncodedSeparatorOrDotSegment(url, out string encoded))
+        if (ContainsEncodedSeparator(url, out string encoded))
         {
             // Uri preserves these verbatim through canonicalization, so a canonicalize-then-check
             // step passes while a server that percent-decodes before resolving dot segments still
@@ -569,10 +975,25 @@ public static class SourceLinkProvenance
             return false;
         }
 
+        // The host is judged as Uri reports it, before CanonicalHost applies IDNA mapping. That
+        // mapping deletes a soft hyphen and a zero-width space rather than preserving them, so a
+        // check made only on the canonical form would silently sanitize a hostile host into a
+        // clean one and attribute it -- the opposite of the reject-don't-sanitize rule the threat
+        // model settles on, and a regression of the round-17 refusal this restates.
+        //
+        // "As Uri reports it" is the honest limit, not "as written": Uri itself removes U+202A
+        // through U+202E from an authority before this code runs, measured. That is deliberately
+        // not pinned here -- ALiveFormatCharacterInAHostLabel_IsNotAttributable says why -- and it
+        // concedes nothing, because what Uri hands back carries no scalar that can act on a sink.
+        if (!TryCheckTextIsInert(uri.Host, "host", out rejection))
+        {
+            return false;
+        }
+
         // AbsolutePath has had dot segments removed, so traversal has already been applied and the
         // segments below name where content is really served from.
         string[] segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        string host = uri.Host;
+        string host = CanonicalHost(uri);
 
         if (string.Equals(host, GitHubRawHost, StringComparison.Ordinal))
         {
@@ -1037,7 +1458,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     private static bool TryCheckQueryParameters(string query, string host, out string rejection)
     {
-        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        ReadOnlySpan<char> pairs = QueryAfterDelimiter(query);
         var seen = new List<string>();
 
         foreach (Range range in pairs.Split('&'))
@@ -1139,7 +1560,7 @@ public static class SourceLinkProvenance
     /// </remarks>
     private static string? ReadSingleQueryValue(string query, string name, out string rejection)
     {
-        ReadOnlySpan<char> pairs = query.AsSpan().TrimStart('?');
+        ReadOnlySpan<char> pairs = QueryAfterDelimiter(query);
         string? found = null;
         bool present = false;
 
@@ -1209,11 +1630,16 @@ public static class SourceLinkProvenance
         return found;
     }
 
+    private static ReadOnlySpan<char> QueryAfterDelimiter(string query)
+    {
+        ReadOnlySpan<char> pairs = query;
+        return !pairs.IsEmpty && pairs[0] == '?' ? pairs[1..] : pairs;
+    }
+
     /// <summary>
-    /// Detects percent-encoded path separators and percent-encoded dot segments, which survive
-    /// <see cref="Uri"/> canonicalization unchanged.
+    /// Detects percent-encoded path separators, which survive <see cref="Uri"/> canonicalization.
     /// </summary>
-    private static bool ContainsEncodedSeparatorOrDotSegment(string url, out string encoded)
+    private static bool ContainsEncodedSeparator(string url, out string encoded)
     {
         for (int i = 0; i + 2 < url.Length; i++)
         {
@@ -1224,8 +1650,7 @@ public static class SourceLinkProvenance
 
             ReadOnlySpan<char> pair = url.AsSpan(i + 1, 2);
             if (pair.Equals("2f", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("5c", StringComparison.OrdinalIgnoreCase) ||
-                pair.Equals("2e", StringComparison.OrdinalIgnoreCase))
+                pair.Equals("5c", StringComparison.OrdinalIgnoreCase))
             {
                 encoded = url.Substring(i, 3);
                 return true;

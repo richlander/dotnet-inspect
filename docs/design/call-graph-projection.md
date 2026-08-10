@@ -162,11 +162,16 @@ safe for a given output grammar belongs to the renderer that knows the grammar
 ## Progressive acquisition
 
 The projection needs `CallTreeNode` roots; how a host *acquires* them is a
-separate concern (issue #3266). `dotnet-inspect` owns a
-`ProgressiveMemberCallGraph` seam
-(`src/dotnet-inspect/Inspectors/ProgressiveMemberCallGraph.cs`) that serves one
-member's graph in three cumulative layers, cheapest first, so a host can paint
-the outbound half immediately and fill in the expensive tiers as they land:
+separate concern (issue #3266). `DotnetInspector.Queries` owns a
+`MemberCallGraphSession` seam over one `AssemblyContextGroup`
+(`src/DotnetInspector.Queries/MemberCallGraphSession.cs`). It consumes
+typed assembly descriptors and workspace-owned immutable snapshots rather than
+filesystem paths, and serves one member's graph in three cumulative layers,
+cheapest first, so a host can paint the outbound half immediately and fill in
+the expensive tiers as they land:
+
+`Session` names the stateful memoization and lifetime boundary. Progressive
+acquisition is a capability of that session, not a separate call-graph kind.
 
 1. **`Callees`** — a scoped single-body build that decodes only the selected
    member. The callee tree is bounded at depth 1 (immediate callees); there is
@@ -197,15 +202,25 @@ projection. The scoped build exists only for the progressive first paint: a
 consumer that wants the whole graph calls `Callers()` or `CrossLibrary()`
 directly and pays exactly one full build, with callees derived for free from it.
 Once the full build lands it supersedes the scoped one, which is never rebuilt.
+The full build releases the scoped index, while both builds read the same
+workspace snapshot; each participant source is opened at most once. Participants
+with the same assembly identity and MVID share one full index even when the
+group contains multiple acquisition descriptors for that image.
 For the cross-library tier, `CatalogCallGraphScope` then plans each distinct
 source signature once, unions all type-resolution requests, freezes one catalog
 generation, projects every plan once, and stores physical definitions, call
 sites, and edges once. Both traversal directions and every later
 `CallGraphProjection` reuse that storage; Mermaid does not trigger a second
-walk or acquisition. `ProgressiveMemberCallGraph.Dispose()` releases the graph
-generation and catalog. The `IndexBuildGuard`-collected seam tests assert index
-build counts, while `CatalogCallGraphScopeTests` pins the single-generation,
-single-policy-evaluation, shared-storage, release, duplicate-artifact, and
+walk or acquisition. The owning `AssemblyContextGroup` disposes the graph
+generation and catalog before releasing its retained snapshots; explicit graph
+disposal can release them earlier. A required participant failure raises
+`MemberCallGraphAcquisitionException` with typed acquisition failures rather
+than returning a success-shaped partial graph.
+`MemberCallGraphSessionTests` asserts index build and source-open counts,
+stream-only input, duplicate-image reuse, typed failures, projection reuse, and
+group-owned release, including disposal of the catalog scope.
+`CatalogCallGraphScopeTests` pins the single-generation,
+single-policy-evaluation, shared-storage, duplicate-artifact, and
 incomplete-evidence contracts.
 
 Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy

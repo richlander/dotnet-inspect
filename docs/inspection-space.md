@@ -14,14 +14,25 @@ shared contracts, not dynamically loaded plugins.
 ## Status
 
 This document describes the target core architecture and the principles that
-govern its migration. No command runs through a workspace today. Library
-metadata and direct-reference inspection are the first typed-query canaries:
-the section catalog plans typed demand and executes it through a
-prerequisite-aware registry, while the command still owns orchestration.
-Existing foundations also include shared image and inspection session ownership,
-catalog generations, `CoreCache`, typed provenance and resolution currencies,
-and `InertString`; the workspace model describes how those pieces will be
-composed.
+govern its migration. Library metadata, direct-reference, extension-method,
+custom-attribute, SourceLink, and API-comparison inspection are the first
+typed-query canaries: section catalogs plan typed demand and execute it through
+prerequisite-aware registries, while commands still own orchestration. The
+`diff` Changes section consumes one API-comparison result over host-resolved
+surfaces, retaining Metadata-owned Finding correspondence and compatibility
+classification without coupling the query to endpoint acquisition or output.
+The library CLI and package
+`--all-libraries` now use an ephemeral workspace for focused Integrations
+demand. One binding-consistent assembly context group scans every selected
+participant sequentially, preserves per-assembly identity, provenance, and
+failures, and retains each available immutable snapshot for the rest of that
+library inspection without reopening the source path. Progressive member call
+graphs now run over the same group: they build Analysis indexes from retained
+snapshots, keep one cross-assembly catalog generation for both traversal
+directions, and remain independent of rendering. Other foundations include
+shared image and inspection session ownership, catalog generations, `CoreCache`,
+typed provenance and resolution currencies, and `InertString`; the remaining
+workspace model describes how those pieces will be composed.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
@@ -253,6 +264,72 @@ Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.
 
+The first implemented group contract owns typed
+`ResolvedAssemblyReference` participants paired with their binding-policy
+snapshots. Every participant in a group must carry the same binding-policy
+version identity. The group acquires each selected image lazily, validates it
+against its descriptor, and retains one immutable, non-pooled byte snapshot
+under a cumulative group budget reserved before snapshot allocation. Metadata
+exposes that bounded immutable snapshot acquisition as a narrow public
+capability; raw PE and metadata readers remain private, and Queries receives no
+friend access to Metadata. Callback access receives a scoped stack-only image
+view; direct access returns a stack-only read-only span result. Disposing the
+group prevents new access and releases its retained references after active
+callbacks complete, but it never attempts to revoke or recycle an already
+returned span.
+`InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
+isolation, callback and span lifetimes, concurrent disposal, bounded retention,
+per-participant single-flight acquisition, and typed acquisition failures.
+`InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
+derived-resource-before-snapshot disposal order.
+`InspectionWorkspaceTests.WorkspaceDisposal_ContinuesAfterAGroupFails` gates
+all-group cleanup after an owned-resource failure, and
+`InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
+gates preservation of an in-flight callback failure when deferred cleanup also
+fails.
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` gates the absence of
+production Metadata friends.
+
+`AssemblyContextIntegrationsQuery` is the first query over a complete group. It
+visits participants in their immutable input order, borrows a narrow
+`AssemblyInspectionSession` over each retained snapshot without reopening the
+source, and returns the ecosystem and OpenTelemetry evidence owned by Metadata.
+Each entry carries an opaque participant registration, assembly identity,
+resolution provenance, and either materialized evidence or a typed failure.
+Partial inspection is therefore explicit and meaningful. The query is
+`Unbounded`: the group byte budget bounds retained content, but participant
+count and metadata scanning work still require explicit demand. The baseline
+executor remains sequential; cancellation-aware and concurrent group executors
+are later policy work. Late malformed-metadata mapping is implemented but not
+yet independently gated.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
+and
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
+gate participant ordering, snapshot reuse, and general partial acquisition.
+`AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
+gates the budget-limited case.
+
+`MemberCallGraphSession` is the first group-owned derived Analysis resource.
+It builds one scoped target index only for first paint, one full target index
+when a caller-capable tier is requested, and one full index per distinct
+cross-library image. The group owns its catalog lifetime and disposes the
+catalog before releasing snapshots. Stream-only participants use the same path,
+and projection is downstream of acquisition. Typed participant acquisition
+failures remain visible as `MemberCallGraphAcquisitionException`.
+`MemberCallGraphSessionTests` gates build and source-open counts,
+stream-only operation, duplicate-image reuse, typed failures, projection reuse,
+and group-owned disposal.
+`MemberCallGraphSessionTests.WorkspaceDisposal_DisposesOwnedGraphBeforeSnapshots`
+also gates disposal of the graph's catalog scope.
+`MemberCallGraphSessionTests.MalformedMetadata_IsTypedAndCached` gates
+malformed-image failure caching, and
+`MemberCallGraphSessionTests.InvalidImageClassification_CoversMetadataDecoderExceptions`
+gates the complete metadata-decoder exception classification.
+
+Other domain catalogs, query authorization, integration-opportunity
+composition, concurrent execution, and broader command migration remain later
+slices.
+
 Domain catalogs operate inside a group. A catalog may advance through
 progressive generations as new candidates or binding roots are discovered while
 the group itself remains alive. Each generation is scoped to the resolution and
@@ -380,14 +457,17 @@ own acquisition cost or producer dependencies.
 
 The existing `ScannerRegistry` remains an assembly-local predecessor: its
 explicit prerequisites, once-per-run resources, deterministic ordering, and
-tracing are useful foundations. `DotnetInspector.Queries` now owns the first
-typed sequential plan and the direct-reference section binding. String keys,
-mutable CLI models, path-shaped residual inputs, and library-command ownership
-remain migration boundaries rather than workspace contracts.
+tracing are useful foundations. `DotnetInspector.Queries` now owns typed
+metadata, direct-reference, extension-method, custom-attribute, and SourceLink
+plans. String keys, mutable CLI models, path-shaped residual inputs, and
+library-command ownership remain migration boundaries rather than workspace
+contracts.
 
-The initial registry contains only network-free metadata queries. It passes each
-query's maximum transitive cost into the host execution scope; capability
-lowering for network or source-content queries remains part of their migration.
+The registry executes synchronous and asynchronous queries in deterministic
+prerequisite order. It passes each query's maximum transitive cost into the host
+execution scope. SourceLink demonstrates the network boundary: a moderated
+document prerequisite may acquire one PDB, while availability and integrity
+declare unbounded work and accept host-owned HTTP clients and an optional cache.
 
 ### Executor
 
@@ -586,8 +666,8 @@ Those parts need not be duplicated on every leaf. Identity belongs at the
 highest container that knows the subject; native coordinates stay on the
 lowest producer that owns their semantics. A body-local fact may carry only an
 IL offset while its enclosing result carries the member subject and assembly
-binding. A portable source line may depend on its containing stream for the
-coordinate plane. Composition supplies the full operand without flattening it
+binding. A portable structural span may depend on its containing text buffer for
+the coordinate plane. Composition supplies the full operand without flattening it
 into one key.
 
 Member inspection is the worked pattern. A selector is a portable question, a
@@ -600,11 +680,14 @@ and the physical body owner instead of collapsing them.
 
 Source projection demonstrates the same pattern at another scale. An in-process
 correlation may retain live annotation objects and IR relationships. Its
-portable projection materializes annotation data and rebased extents so another
+portable projection materializes annotation data and text spans so another
 consumer can retain, filter, or render the relation without those live objects.
-The line's IL offset remains scoped to its physical body, while annotation
-extents use the containing rendered stream's coordinate plane. The projection
-does not claim to recover the original graph.
+An instruction's IL offset remains scoped to its physical body, while structural
+coordinates become absolute spans over the rendered text — the projection's own
+canonical artifact — so a discontinuous construct names the same characters,
+line breaks included, however the media were woven, and no coordinate depends on
+a line identity the payload does not carry. The projection does not claim to
+recover the original graph.
 
 These examples are precedents, not core types. Their owning documents define
 the exact currencies and conversions.

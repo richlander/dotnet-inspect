@@ -3,6 +3,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -25,7 +26,8 @@ public class DiffCommand
     public const string Name = "diff";
     public static async Task<int> ExecuteAsync(DiffOptions options)
     {
-        var pipeline = DiffSections.CreatePipeline();
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+        var pipeline = catalog.Pipeline;
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
@@ -190,11 +192,18 @@ public class DiffCommand
 
             try
             {
+                HashSet<InspectionQueryDefinition> requestedQueries =
+                    GetRequestedQueries(pipeline, options);
+                InspectionQueryResults queryResults = catalog.QueryRegistry.Run(
+                    requestedQueries,
+                    new DiffQueryContext(inputs.FromSurface, inputs.ToSurface));
+
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
                     await WriteSelectedDocumentAsync(
                         inputs,
                         options,
+                        queryResults,
                         context.HttpClient,
                         logger);
                     return 0;
@@ -218,8 +227,9 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderFindingTransitionsView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderFindingTransitionsView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
@@ -249,8 +259,9 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderImplementationDiffView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderImplementationDiffView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
@@ -275,13 +286,18 @@ public class DiffCommand
                     }
                     else
                     {
-                        var output = DiffOutputFormatter.RenderAnalysisDiffView(view);
-                        Console.WriteLine(OutputFormatter.ApplyRowLimit(output, options.Rows));
+                        var output = DiffOutputFormatter.RenderAnalysisDiffView(
+                            view, OutputFormatter.CreateWindowedOptions(options.Rows));
+                        Console.WriteLine(output);
                     }
                     return 0;
                 }
 
-                var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+                var diff = BuildApiDiff(
+                    queryResults.Get(ApiComparisonQuery.Definition),
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    options);
 
                 if (options.Tabular)
                 {
@@ -690,9 +706,39 @@ public class DiffCommand
     private static bool SelectsDetailedChanges(DiffOptions options)
         => options.IncludeSections?.Contains(DiffSections.Changes.Name) == true;
 
+    internal static HashSet<InspectionQueryDefinition> GetRequestedQueries(
+        SectionPipeline<DiffDiscoveryModel> pipeline,
+        DiffOptions options)
+    {
+        bool writesDocument =
+            options.JsonOutput
+            || options.IncludeSections is { Count: > 1 };
+        HashSet<string>? querySections = options.IncludeSections;
+
+        if (writesDocument)
+        {
+            if (querySections is null && options.AllocRegressionsOnly)
+            {
+                querySections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    DiffSections.AnalysisDiff.Name,
+                };
+            }
+        }
+        else if (SelectsFindingTransitions(options)
+            || SelectsImplementationDiff(options)
+            || SelectsAnalysisDiff(options))
+        {
+            return [];
+        }
+
+        return pipeline.GetRequiredQueries(Verbosity.Minimal, querySections);
+    }
+
     private static async Task WriteSelectedDocumentAsync(
         DiffInputs inputs,
         DiffOptions options,
+        InspectionQueryResults queryResults,
         HttpClient httpClient,
         VerboseLogger logger)
     {
@@ -707,7 +753,11 @@ public class DiffCommand
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
         {
-            var diff = BuildApiDiff(inputs.FromSurface, inputs.ToSurface, options);
+            var diff = BuildApiDiff(
+                queryResults.Get(ApiComparisonQuery.Definition),
+                inputs.FromSurface,
+                inputs.ToSurface,
+                options);
             changesView = DiffOutputFormatter.BuildDetailedChangesView(
                 inputs.Name,
                 ApplyFilters(diff, options),
@@ -777,9 +827,8 @@ public class DiffCommand
             return;
         }
 
-        Console.WriteLine(OutputFormatter.ApplyRowLimit(
-            DiffOutputFormatter.RenderDocumentView(view),
-            options.Rows));
+        Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
+            view, OutputFormatter.CreateWindowedOptions(options.Rows)));
     }
 
     internal sealed record AnalysisDiffResult(List<AnalysisDiffRow> Rows, string Summary);
@@ -963,7 +1012,8 @@ public class DiffCommand
                         packageName,
                         packageVersion,
                         isPlatformAssembly: options.PlatformVersionRange is not null,
-                        logger.Log);
+                        logger.Log,
+                        sourceOptions: options.SourceOptions);
                 }
 
                 foreach (var target in targets)
@@ -1162,20 +1212,24 @@ public class DiffCommand
             });
         }
 
-        var markdown = DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion);
-        return OutputFormatter.ApplyRowLimit(markdown, options.Rows);
+        return DiffOutputFormatter.RenderFullMarkdown(name, typeDiffs, fromVersion, toVersion,
+            OutputFormatter.CreateWindowedOptions(options.Rows));
     }
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
+        => BuildApiDiff(
+            ApiComparisonQuery.Execute(fromSurface, toSurface),
+            fromSurface,
+            toSurface,
+            options);
+
+    private static ApiDiff BuildApiDiff(
+        ApiFindingComparison comparison,
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        DiffOptions options)
     {
-        var diff = ResearchDiff.Compare(
-                ResearchDiffInput.FromApiSurface(fromSurface),
-                ResearchDiffInput.FromApiSurface(toSurface),
-                new ResearchDiffOptions(
-                    ResearchChangeMechanism.Api,
-                    IncludeAllApi: options.IncludeAll,
-                    ApiScope: ApiDiffScope.Signature)).ApiDiff
-            ?? new ApiDiff();
+        var diff = comparison.ApiDiff;
 
         if (options.MemberFilter.Count == 0)
             return diff;

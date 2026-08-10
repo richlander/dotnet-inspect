@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using InertText;
 using Analysis = ILInspector.Analysis;
@@ -29,6 +30,7 @@ public sealed class ScannerContext : IDisposable
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
+    public SourceLinkQueryContext? SourceLinkContext { get; init; }
 
     /// <summary>
     /// When supplied, records scanner execution and expensive resource acquisition. Null for an
