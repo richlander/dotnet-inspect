@@ -1,17 +1,18 @@
+using System.Collections.Immutable;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Services;
 
 namespace DotnetInspector.Inspectors;
 
 /// <summary>
-/// Searches member names across the same six ordered sources as type search (packages, libraries,
-/// platform assemblies/frameworks, projects, and bin directories), routed through the closed-set
-/// <see cref="Corpus.SearchMembers"/>. Member search is exact/glob only — there is no fuzzy or
-/// namespace-prefix fallback — so the collected matches are the final results. Resolution and the
-/// streaming early-exit for a result limit are shared with type search via
+/// Searches member names across the same ordered sources as type search through
+/// workspace-backed typed queries. Member search is exact/glob only — there is
+/// no fuzzy or namespace-prefix fallback — so the collected matches are the
+/// final results. Resolution and streaming early-exit for a result limit are shared via
 /// <see cref="FindSourceCollector"/>.
 /// </summary>
 internal static class MemberSearchService
@@ -27,19 +28,26 @@ internal static class MemberSearchService
         VerboseLogger logger,
         HttpClient httpClient)
     {
-        return await CollectMembersAsync(options, patterns, logger, httpClient);
+        using var workspace = new AssemblySetInspectionWorkspace();
+        return await CollectMembersAsync(
+            options,
+            patterns,
+            logger,
+            httpClient,
+            workspace);
     }
 
     /// <summary>
-    /// Resolves the configured sources and searches their members through the corpus. When a result
-    /// limit is active the sources are streamed one at a time (later sources are never resolved once
-    /// the limit is met); otherwise the whole set is resolved once and scanned together.
+    /// Resolves configured sources and searches their members through typed
+    /// participant queries. With a result limit, sources stream one at a time
+    /// and later sources are not resolved after the limit is met.
     /// </summary>
     private static async Task<List<MemberFindResult>> CollectMembersAsync(
         FindOptions options,
         IReadOnlyList<string> patterns,
         VerboseLogger logger,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        AssemblySetInspectionWorkspace workspace)
     {
         List<MemberFindResult> results = [];
 
@@ -50,36 +58,66 @@ internal static class MemberSearchService
             using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
             AssemblySetDiagnosticWriter.Write(assemblySet);
 
-            // Streaming caps each source at the remaining budget so later sources are never resolved
-            // once the limit is met; the unbounded path passes null so the corpus scans the whole set.
-            int? remaining = options.Limit.HasValue
-                ? options.Limit.Value - results.Count
-                : null;
-
-            var corpus = CorpusProducer.ToCorpus(assemblySet);
-            var outcome = corpus.SearchMembers(patterns, options.IncludeAll, remaining);
-
-            foreach (var skippedPath in outcome.SkippedAssemblies)
-                logger.LogWarning($"Could not read {skippedPath}");
-
-            foreach (var match in outcome.Results)
-            {
-                var member = match.Member;
-                results.Add(new MemberFindResult
+            workspace.RunPerAssembly(
+                assemblySet,
+                AssemblyContextMemberMatchesQuery.Definition,
+                group => AssemblyContextMemberMatchesQuery.Execute(
+                    group,
+                    patterns,
+                    options.IncludeAll,
+                    options.Limit.HasValue
+                        ? options.Limit.Value - results.Count
+                        : null),
+                (assembly, entry) =>
                 {
-                    Pattern = member.Pattern,
-                    Match = member.IsGlob ? MatchKind.Glob : MatchKind.Exact,
-                    Member = member.MemberName,
-                    Kind = member.Kind,
-                    DeclaringType = member.DeclaringType,
-                    Namespace = member.DeclaringNamespace ?? "",
-                    Signature = member.Signature,
-                    ReturnType = member.ReturnType,
-                    Library = member.Assembly,
-                    Source = match.Source ?? "",
-                    SourceVersion = match.Version,
-                });
-            }
+                    switch (entry)
+                    {
+                        case AssemblyContextEntry<
+                            AssemblyMemberMatches>.Available available:
+                            foreach (MemberSearchResult member
+                                in available.Value.Members)
+                            {
+                                results.Add(new MemberFindResult
+                                {
+                                    Pattern = member.Pattern,
+                                    Match = member.IsGlob
+                                        ? MatchKind.Glob
+                                        : MatchKind.Exact,
+                                    Member = member.MemberName,
+                                    Kind = member.Kind,
+                                    DeclaringType = member.DeclaringType,
+                                    Namespace =
+                                        member.DeclaringNamespace ?? "",
+                                    Signature = member.Signature,
+                                    ReturnType = member.ReturnType,
+                                    Library =
+                                        Path.GetFileNameWithoutExtension(
+                                            assembly.Path),
+                                    Source = assembly.Source,
+                                    SourceVersion = assembly.Version,
+                                });
+                            }
+                            WriteInspectionFailures(
+                                assembly,
+                                available.Value.InspectionFailures,
+                                logger);
+                            break;
+                        case AssemblyContextEntry<
+                            AssemblyMemberMatches>.Rejected rejected:
+                            CommandError.WriteWarning(
+                                $"Could not read {assembly.Path}: {rejected.Failure.Detail}");
+                            break;
+                        case AssemblyContextEntry<
+                            AssemblyMemberMatches>.Failed failed:
+                            CommandError.WriteWarning(
+                                $"Could not read {assembly.Path}: {failed.Error.Message}");
+                            break;
+                    }
+                },
+                (assembly, failure) =>
+                    CommandError.WriteWarning(
+                        $"Could not read {assembly.Path}: {failure}"),
+                ReachedLimit);
         }
 
         if (options.Limit.HasValue)
@@ -90,5 +128,23 @@ internal static class MemberSearchService
 
         await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
         return results;
+    }
+
+    private static void WriteInspectionFailures(
+        AssemblySetEntry assembly,
+        ImmutableArray<ApiSurfaceInspectionFailure> failures,
+        VerboseLogger logger)
+    {
+        if (failures.IsEmpty)
+            return;
+
+        CommandError.WriteWarning(
+            $"Member search in {assembly.Path} skipped {failures.Length} metadata row(s).");
+        foreach (ApiSurfaceInspectionFailure failure in failures)
+        {
+            logger.LogWarning(
+                $"Member search rejected {failure.Operation} at 0x{failure.SubjectToken:X8}: "
+                + $"{failure.Kind}: {failure.Detail}");
+        }
     }
 }
