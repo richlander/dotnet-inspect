@@ -990,6 +990,24 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void LibrarySourcePlan_ExplicitLocalDiagnosticsReadCachedPdbWithoutDownloading()
+    {
+        foreach (string section in new[]
+        {
+            SectionNames.SourceLinkDiagnostics,
+            SectionNames.NonNormalizedPaths,
+        })
+        {
+            var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section };
+            var plan = LibrarySourcePlans.For(Verbosity.Quiet, include);
+
+            Assert.False(plan.AllowPdbDownload);
+            Assert.False(plan.CollectSourceFiles);
+            Assert.True(plan.ReadCachedPdb);
+        }
+    }
+
+    [Fact]
     public void LibrarySourcePlan_PreservesAuthorizationForEverySelection()
     {
         string[] sourceSections =
@@ -1036,7 +1054,8 @@ public class SectionPipelineTests
         {
             Assert.True(sectionNames.Add(section.Name));
             Assert.NotEqual(LibrarySourcePlanModes.None, section.Modes);
-            Assert.True(section.DownloadPdb);
+            Assert.True(section.DownloadPdb || section.ReadCachedPdb);
+            Assert.False(section.CollectSourceFiles && !section.DownloadPdb);
         }
     }
 

@@ -5313,7 +5313,7 @@ public partial class CommandExecutionTests
     public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v21";
+        const string currentCategory = "effective-v22";
         string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string assemblyPath = Path.Combine(directory, "Instructions.dll");
@@ -10299,7 +10299,7 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_ScopedEffectiveDiscoveryDoesNotPoisonBareCache()
     {
-        const string currentCategory = "effective-v21";
+        const string currentCategory = "effective-v22";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-scope-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);

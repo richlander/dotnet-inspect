@@ -36,7 +36,8 @@ public enum PdbCustomDebugInformationStatus
 /// </summary>
 public sealed record PdbCustomDebugInformationResult(
     PdbCustomDebugInformationStatus Status,
-    byte[]? Value);
+    byte[]? Value,
+    string? Error = null);
 
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
@@ -1129,11 +1130,24 @@ public class PdbContext : IDisposable
             value = info.Value;
         }
 
-        return found
-            ? new(
+        if (!found)
+            return new(PdbCustomDebugInformationStatus.Absent, null);
+
+        try
+        {
+            return new(
                 PdbCustomDebugInformationStatus.Present,
-                _pdbReader.GetBlobBytes(value))
-            : new(PdbCustomDebugInformationStatus.Absent, null);
+                _pdbReader.GetBlobBytes(value));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return new(
+                PdbCustomDebugInformationStatus.Present,
+                null,
+                ex.Message);
+        }
     }
 
     private static IEnumerable<MethodDefinitionHandle> EnumerateSelectedMethods(

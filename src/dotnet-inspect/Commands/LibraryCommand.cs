@@ -2038,9 +2038,8 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    // Bumped to v21: References now owns both the flat and tree projections, so the effective
-    // catalog no longer contains a separate Dependencies section.
-    private const string EffectiveCategory = "effective-v21";
+    // Bumped to v22: effective catalogs can now include SourceLink: Diagnostics.
+    private const string EffectiveCategory = "effective-v22";
 
     static LibraryCommand()
     {

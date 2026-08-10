@@ -599,6 +599,42 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void MalformedSourceLinkValue_PreservesPresenceAndReportsUnusableMap()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+        WriteMalformedSourceLinkValuePdb(assemblyPath, pdbPath);
+
+        try
+        {
+            using (var context = PdbContext.Open(assemblyPath))
+            {
+                var result = context.ReadModuleCustomDebugInformation(SourceLinkKind);
+                Assert.Equal(PdbCustomDebugInformationStatus.Present, result.Status);
+                Assert.Null(result.Value);
+                Assert.NotNull(result.Error);
+            }
+
+            using var source = SourceLinkService.Open(assemblyPath);
+            Assert.True(source.HasSourceLink);
+            Assert.Equal(SourceLinkMapStatus.Unusable, source.SourceLinkMap.Status);
+            Assert.Contains(
+                "could not be read",
+                source.SourceLinkMap.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DuplicateCustomDebugInformation_IsRejectedWithoutCopyingItsBlobs()
     {
         string directory = Path.Combine(
@@ -707,6 +743,21 @@ public sealed class MetadataSourceFindingsTests
                 pdbMetadata.GetOrAddBlob(blob));
         });
         PatchStreamSize(image, "#GUID", 0);
+        File.WriteAllBytes(pdbPath, image);
+    }
+
+    static void WriteMalformedSourceLinkValuePdb(string assemblyPath, string pdbPath)
+    {
+        byte[] image = WritePortablePdb(assemblyPath, pdbPath, pdbMetadata =>
+        {
+            var blob = new BlobBuilder();
+            blob.WriteUTF8("""{"documents":{"/_/*":"https://example.test/*"}}""");
+            pdbMetadata.AddCustomDebugInformation(
+                EntityHandle.ModuleDefinition,
+                pdbMetadata.GetOrAddGuid(SourceLinkKind),
+                pdbMetadata.GetOrAddBlob(blob));
+        });
+        PatchStreamSize(image, "#Blob", 0);
         File.WriteAllBytes(pdbPath, image);
     }
 

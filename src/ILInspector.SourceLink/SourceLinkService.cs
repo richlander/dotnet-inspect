@@ -294,7 +294,15 @@ public sealed class SourceLinkService : IDisposable
             }
 
             if (sourceLink.Value is null)
+            {
+                if (sourceLink.Error is not null)
+                {
+                    _sourceLinkError =
+                        $"the SourceLink custom debug information could not be read: {sourceLink.Error}";
+                    _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+                }
                 return;
+            }
 
             _sourceLinkJson = Encoding.UTF8.GetString(sourceLink.Value);
             _map = SLF.SourceLinkResolver.Parse(_sourceLinkJson);

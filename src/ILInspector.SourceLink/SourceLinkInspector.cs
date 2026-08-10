@@ -65,7 +65,7 @@ public static class SourceLinkInspector
 
         foreach (string key in map.DocumentKeys)
         {
-            if (key.StartsWith("/_", StringComparison.Ordinal))
+            if (key.StartsWith("/_/", StringComparison.Ordinal))
                 continue;
             hasNormalizedPaths = false;
             nonNormalizedPaths ??= [];
