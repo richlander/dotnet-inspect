@@ -517,6 +517,27 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void PopulateAnnotatedSourceDocument_PreservesFailureForSectionAndRawOutput()
+    {
+        var failure = DecompilerResult.Failure(
+            DiagnosticIds.InternalError,
+            "InvalidOperationException: document failed");
+        var sections = new MemberCodeView();
+
+        Assert.True(ApiOutputFormatter.PopulateAnnotatedSourceDocument(
+            sections,
+            sourceDocument: null,
+            failure));
+        Assert.Same(failure, sections.AnnotatedSourceDocumentFailure);
+        Assert.Equal(
+            "DEC0001: InvalidOperationException: document failed",
+            sections.AnnotatedSourceDocumentCode.Content);
+        Assert.Equal(
+            "DEC0001: InvalidOperationException: document failed",
+            ApiCommand.AnnotatedSourceDocumentError(sections));
+    }
+
+    [Fact]
     public void PopulateCSharpSections_AppliesBodyModifierFactsToAllOverlays()
     {
         var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
