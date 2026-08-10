@@ -428,6 +428,76 @@ public class PrintedBodyMapTests
     }
 
     [Fact]
+    public void SynthesizedStackallocDeclarationsStayOutsideStatementRanges()
+    {
+        static int SlotOf(PrintedRangeMap map, IrNode node)
+            => map.Select((range, index) => (range.Node, index))
+                .Single(x => ReferenceEquals(x.Node, node))
+                .index;
+
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var pointerType = TypeRef.Pointer(intType);
+        var allocation = new StackAllocate(new Constant(16, intType));
+        var store = new StoreLocal(0, pointerType, allocation);
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [pointerType],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(store, out var storeRange));
+        Assert.Equal("int* V_0 = (int*)__stackalloc;\n", ranges.Output[storeRange]);
+        Assert.True(ranges.TryGetRange(allocation, out var allocationRange));
+        Assert.Equal("stackalloc byte[16]", ranges.Output[allocationRange]);
+        Assert.True(SlotOf(ranges, allocation) < SlotOf(ranges, store));
+
+        using var source = MetadataSource.Open(typeof(UnsafeSampleClass).Assembly.Location);
+        var imported = IrImporter.Import(
+            source,
+            typeof(UnsafeSampleClass).FullName!,
+            nameof(UnsafeSampleClass.StackScratch));
+        Assert.NotNull(imported);
+        CSharpPrinter.PrintRaised(imported!, out var importedRanges);
+        var slotStore = Assert.Single(
+            imported!.Descendants.OfType<StoreStackSlot>(),
+            candidate => candidate.Value is StackAllocate);
+        var slotAllocation = Assert.IsType<StackAllocate>(slotStore.Value);
+
+        Assert.True(importedRanges.TryGetRange(slotStore, out var slotRange));
+        Assert.Equal("byte* S_256 = __stackalloc;\n", importedRanges.Output[slotRange]);
+        Assert.True(SlotOf(importedRanges, slotAllocation) < SlotOf(importedRanges, slotStore));
+
+        using var returnSource = MetadataSource.Open(typeof(LifetimeSampleClass).Assembly.Location);
+        var returnFunction = IrImporter.Import(
+            returnSource,
+            typeof(LifetimeSampleClass).FullName!,
+            nameof(LifetimeSampleClass.EscapingStackPointer));
+        Assert.NotNull(returnFunction);
+        CSharpPrinter.PrintRaised(returnFunction!, out var returnRanges);
+        var returnStatement = Assert.Single(
+            returnFunction!.Descendants.OfType<Return>(),
+            candidate => candidate.Value is StackAllocate);
+        var returnAllocation = Assert.IsType<StackAllocate>(returnStatement.Value);
+
+        Assert.True(returnRanges.TryGetRange(returnStatement, out var returnRange));
+        Assert.Equal("return (int*)__stackalloc;\n", returnRanges.Output[returnRange]);
+        Assert.True(SlotOf(returnRanges, returnAllocation) < SlotOf(returnRanges, returnStatement));
+    }
+
+    [Fact]
     public void RenderSpecializationKeepsPlacedFactAndNodeKindsEqual()
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);

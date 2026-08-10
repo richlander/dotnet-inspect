@@ -1806,9 +1806,33 @@ public sealed partial class CSharpPrinter
         int start = sb.Length;
         AppendStatementCore(sb, node, indent);
         RecordExpressionRanges(sb, node, start);
-        _printedRanges.Record(node, start, sb.Length);
+        int statementStart = EmitsSynthesizedStackallocDeclaration(node)
+            ? LastLineStart(sb, start)
+            : start;
+        _printedRanges.Record(node, statementStart, sb.Length);
         if (HasNamedRegions(node))
             _printedRanges.RecordRegion(PrintedRegionRole.Construct, start, sb.Length);
+    }
+
+    bool EmitsSynthesizedStackallocDeclaration(IrNode node)
+        => node switch
+        {
+            Return { Value: StackAllocate }
+                => _function.Signature.ReturnType is { Kind: TypeRefKind.Pointer },
+            StoreLocal { Value: StackAllocate, Type.Kind: TypeRefKind.Pointer } store
+                => store.Type is not null && store.Value.ResultType is not null,
+            StoreStackSlot { Value: StackAllocate } store
+                => StackSlotTargetType(store) is { Kind: TypeRefKind.Pointer }
+                    && store.Value.ResultType is not null,
+            _ => false,
+        };
+
+    static int LastLineStart(StringBuilder sb, int lowerBound)
+    {
+        for (int i = sb.Length - 2; i >= lowerBound; i--)
+            if (sb[i] == '\n')
+                return i + 1;
+        return lowerBound;
     }
 
     static bool HasNamedRegions(IrNode node)
@@ -2050,9 +2074,7 @@ public sealed partial class CSharpPrinter
             string value = returnPointer.Equals(stackAllocate.ResultType)
                 ? localName
                 : $"({TypeText(returnPointer)}){localName}";
-            int returnStart = sb.Length;
             sb.Append(pad).Append("return ").Append(value).AppendLf(";");
-            _printedRanges?.Record(node, returnStart, sb.Length);
             return;
         }
         if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store
