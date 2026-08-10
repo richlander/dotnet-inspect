@@ -375,10 +375,12 @@ public class ApiCommand
             return (null!, 1);
 
         if (options is MemberOptions memberFormat
-            && options.Discover is null
-            && !ValidateMemberGraphFormat(memberFormat, selectionSections))
+            && options.Discover is null)
         {
-            return (null!, 1);
+            memberFormat = NormalizeMemberGraphFormat(memberFormat, selectionSections);
+            options = memberFormat;
+            if (!ValidateMemberGraphFormat(memberFormat, selectionSections))
+                return (null!, 1);
         }
 
         // Auto-promote verbosity when -S targets specific sections
@@ -443,7 +445,7 @@ public class ApiCommand
     {
         if (options.Tree)
         {
-            if (options.FormatExplicitlySet)
+            if (options.FormatFlagExplicitlySet)
             {
                 CommandError.Write(
                     "--tree is a standalone output format and cannot combine with another output format.");
@@ -481,6 +483,33 @@ public class ApiCommand
         }
 
         return true;
+    }
+
+    private static MemberOptions NormalizeMemberGraphFormat(
+        MemberOptions options,
+        IReadOnlyCollection<string>? sections)
+    {
+        if (options.Tree && !options.FormatFlagExplicitlySet)
+        {
+            return options with
+            {
+                JsonOutput = false,
+                Tabular = false,
+                Tsv = false,
+                Jsonl = false,
+                TabularExplicitlySet = false,
+                PlainText = false,
+                MermaidOutput = false,
+            };
+        }
+
+        bool onlyCallGraph =
+            sections is { Count: 1 }
+            && sections.Contains(SectionNames.CallGraph, StringComparer.OrdinalIgnoreCase);
+        if (options.MermaidOutput && !options.FormatFlagExplicitlySet && !onlyCallGraph)
+            return options with { MermaidOutput = false };
+
+        return options;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -1386,7 +1415,7 @@ public class ApiCommand
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
-            var writer = new Markout.MarkoutWriter(sw, options.CreateFormatter(), writerOptions);
+            var writer = new Markout.MarkoutWriter(sw, new MarkdownFormatter(), writerOptions);
             ApiOutputFormatter.SerializeTypeDocument(
                 view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                 explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);

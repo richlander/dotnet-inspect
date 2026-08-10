@@ -1647,15 +1647,15 @@ public static class ApiOutputFormatter
                 analysisInspection.BuildCallTree(graphToken));
             var selectedRows = RowWindow.Apply(options?.Rows, projection.Rows);
             memberCode.CallGraphRowCount = selectedRows.Count;
-            bool graphWindowIsEmpty =
-                options is { Tabular: false, Rows: not null }
-                && selectedRows.Count == 0;
             bool loweringNeedsSelectedGraph =
                 options is { Tabular: false, Rows: not null }
                 && (options.PlainText
                     || options.EmbeddedMermaid
                     || options.MermaidOutput
                     || options is MemberOptions { Tree: true });
+            bool graphWindowIsEmpty =
+                loweringNeedsSelectedGraph
+                && selectedRows.Count == 0;
             // A lone focus node with no edges is the empty state, not a graph.
             if (projection.Edges.Length > 0 && !graphWindowIsEmpty)
             {

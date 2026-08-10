@@ -151,10 +151,16 @@ public partial record ApiOptions : IProjectionOptions
     public bool JsonArray { get; init; }
 
     /// <summary>
-    /// True when the user explicitly chose an output format via CLI flags.
+    /// True when the user explicitly chose an output format via CLI flags or an environment default.
     /// When false, commands are free to apply their own default format (e.g., shape/tree).
     /// </summary>
     public bool FormatExplicitlySet { get; init; }
+
+    /// <summary>
+    /// True when the user explicitly chose an output format via a CLI flag.
+    /// Unlike <see cref="FormatExplicitlySet"/>, environment defaults are excluded.
+    /// </summary>
+    public bool FormatFlagExplicitlySet { get; init; }
 
     public bool NoHeader { get; init; }
     public int? Limit { get; init; }

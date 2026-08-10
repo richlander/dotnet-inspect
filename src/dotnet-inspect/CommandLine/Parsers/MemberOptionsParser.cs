@@ -315,6 +315,7 @@ public static class MemberOptionsParser
             Jsonl = outputFormat == OutputFormat.Jsonl,
             TabularExplicitlySet = opts.IsTableExplicitlySet(parseResult),
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
+            FormatFlagExplicitlySet = opts.IsFormatFlagExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
             MermaidOutput = outputFormat == OutputFormat.Mermaid,
             EmbeddedMermaid = embeddedMermaid,

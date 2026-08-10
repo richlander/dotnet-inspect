@@ -259,6 +259,7 @@ public class MemberCallGraphSectionTests
             IncludeSections = [SectionNames.CallGraph],
             Tree = true,
             FormatExplicitlySet = true,
+            FormatFlagExplicitlySet = true,
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
@@ -277,6 +278,7 @@ public class MemberCallGraphSectionTests
             AssemblyPath = "missing.dll",
             IncludeSections = [SectionNames.Signature, SectionNames.CallGraph],
             MermaidOutput = true,
+            FormatFlagExplicitlySet = true,
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));
@@ -287,7 +289,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task CallGraphSection_EmptyWindowDoesNotRenderFocusAsARow()
+    public async Task CallGraphSection_EmptyMarkdownWindowRendersTableHeadersWithoutFocusRow()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -303,8 +305,29 @@ public class MemberCallGraphSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
         var section = result.Output[result.Output.IndexOf("## Call Graph", StringComparison.Ordinal)..];
-        Assert.Contains("No inbound callers or outbound calls found for this method.", section);
+        Assert.Contains("| From | From Group | To | To Group | Label |", section);
+        Assert.DoesNotContain("No inbound callers or outbound calls found for this method.", section);
         Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), section);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_EmptyTreeWindowRendersEmptyStateWithoutFocusRow()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            Rows = RowWindow.Range(100, 100),
+            Tree = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), result.Output);
     }
 
     [Fact]

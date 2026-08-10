@@ -258,6 +258,7 @@ public class MemberOptionsParserTests
         Assert.False(options.Jsonl);
         Assert.True(options.TabularExplicitlySet);
         Assert.True(options.FormatExplicitlySet);
+        Assert.True(options.FormatFlagExplicitlySet);
     }
 
     [Fact]
@@ -269,6 +270,7 @@ public class MemberOptionsParserTests
         Assert.True(options.MermaidOutput);
         Assert.False(options.EmbeddedMermaid);
         Assert.True(options.IsRawOutput);
+        Assert.True(options.FormatFlagExplicitlySet);
     }
 
     [Fact]
@@ -317,6 +319,7 @@ public class MemberOptionsParserTests
             Assert.False(options.Jsonl);
             Assert.True(options.TabularExplicitlySet);
             Assert.True(options.FormatExplicitlySet);
+            Assert.False(options.FormatFlagExplicitlySet);
         }
         finally
         {
@@ -343,6 +346,7 @@ public class MemberOptionsParserTests
             Assert.Empty(parseResult.Errors);
             Assert.Equal(expectedFormat, opts.ResolveFormat(parseResult));
             Assert.True(opts.IsFormatExplicitlySet(parseResult));
+            Assert.False(opts.IsFormatFlagExplicitlySet(parseResult));
             Assert.False(opts.IsTableExplicitlySet(parseResult));
         }
         finally
