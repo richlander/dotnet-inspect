@@ -3348,11 +3348,7 @@ public sealed partial class CSharpPrinter
             => WithNodeKind(
                 n,
                 negated.Inverted,
-                negated.Inverted.StartsWith('!')
-                    ? "UnaryExpression"
-                    : negated.Inverted.Contains(" is ", StringComparison.Ordinal)
-                        ? "PatternExpression"
-                        : "BinaryExpression"),
+                negated.InvertedKind),
         LogicalNot n => $"!{Operand(n.Operand)}",
         LogicalBinary l => LogicalText(l),
         Conditional t => ConditionalText(t),
@@ -3419,7 +3415,10 @@ public sealed partial class CSharpPrinter
             ? $"stackalloc {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.ToArray().Select(e => Expression((IrExpression)e)))} }}"
             : $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => CoerceText(b.Operand, b.Type),
-        IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
+        IsInstance i => WithNodeKind(
+            i,
+            $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
+            IsValueTypeTarget(i.Type) ? "TypeTestExpression" : "ConversionExpression"),
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
         RecursivePropertyDeclarationPattern p => $"{Operand(p.Value)} is {{ {CSharpNaming.ContainedIdentifier(p.PropertyName)}: {TypeText(p.PatternType)} {LocalName(p.LocalIndex)} }}",
         SingleElementListPattern p => $"{Operand(p.Value)} is [{ListPatternAlternativesText(p)}]",
@@ -3647,7 +3646,7 @@ public sealed partial class CSharpPrinter
     /// same-assembly shape resolution tell them apart where they can, and an
     /// unresolved definition with neither hint still prints raw rather than guess.
     /// </summary>
-    (string Direct, string Inverted)? Truthiness(IrExpression operand)
+    (string Direct, string Inverted, string DirectKind, string InvertedKind)? Truthiness(IrExpression operand)
     {
         // An `isinst T` tested as a branch condition is the C# type-test operator
         // `obj is T` — valid for any target, reference or value. Spelling it with
@@ -3660,7 +3659,11 @@ public sealed partial class CSharpPrinter
         {
             string valueText = TypeTestValueText(ii.Operand);
             string typeText = TypeText(ii.Type);
-            return ($"{valueText} is {typeText}", $"{valueText} is not {typeText}");
+            return (
+                $"{valueText} is {typeText}",
+                $"{valueText} is not {typeText}",
+                "PatternExpression",
+                "PatternExpression");
         }
 
         if (operand is IsPattern pattern)
@@ -3668,10 +3671,15 @@ public sealed partial class CSharpPrinter
             string valueText = TypeTestValueText(pattern.Value);
             string typeText = TypeText(pattern.Type);
             string direct = $"{valueText} is {typeText} {LocalName(pattern.LocalIndex)}";
-            string inverted = ReferenceOwnership.LocalReferencesOnlyWithin(_function, pattern.LocalIndex, [pattern])
-                ? $"{valueText} is not {typeText}"
-                : $"!({direct})";
-            return (direct, inverted);
+            bool canUseNegatedPattern = ReferenceOwnership.LocalReferencesOnlyWithin(
+                _function,
+                pattern.LocalIndex,
+                [pattern]);
+            return (
+                direct,
+                canUseNegatedPattern ? $"{valueText} is not {typeText}" : $"!({direct})",
+                "PatternExpression",
+                canUseNegatedPattern ? "PatternExpression" : "UnaryExpression");
         }
 
         // A `ref bool`/`bool*` deref loads via `ldind.u1`, so its IR ResultType is
@@ -3686,8 +3694,16 @@ public sealed partial class CSharpPrinter
             return null;
 
         string text = ValueTypeUnionValueReceiverText(operand) ?? Operand(operand);
-        (string, string) reference = ($"{text} is not null", $"{text} is null");
-        (string, string) integer = ($"{text} != 0", $"{text} == 0");
+        (string, string, string, string) reference = (
+            $"{text} is not null",
+            $"{text} is null",
+            "PatternExpression",
+            "PatternExpression");
+        (string, string, string, string) integer = (
+            $"{text} != 0",
+            $"{text} == 0",
+            "BinaryExpression",
+            "BinaryExpression");
 
         // A bitwise/shift Binary is provably integral — these IL ops only operate
         // on integer or enum operands — even when its nominal result type is a

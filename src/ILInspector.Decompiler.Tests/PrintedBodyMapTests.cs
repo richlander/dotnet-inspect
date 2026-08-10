@@ -129,6 +129,7 @@ public class PrintedBodyMapTests
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.IsNotNullReference), "o is not null", "PatternExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.FloatUnordered), "!(a <= b)", "UnaryExpression")]
     [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.ConstantUIntSpan), "new uint[] { 1, 10, 100, 1000, 10000 }", "ArrayCreationExpression")]
+    [InlineData(typeof(CfgSampleClass), nameof(CfgSampleClass.AsWithoutPattern), "o as string", "ConversionExpression")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdGet), "a[i, j]", "ElementAccessExpression")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdSet), "a[i, j] = v", "AssignmentStatement")]
     [InlineData(typeof(RectangularArraySamples), nameof(RectangularArraySamples.MdNew), "new int[3, 4]", "ArrayCreationExpression")]
@@ -182,6 +183,52 @@ public class PrintedBodyMapTests
         Assert.True(ranges.TryGetRange(diamond, out var range));
         Assert.Equal("exists && true", ranges.Output[range]);
         Assert.True(ranges.TryGetNodeKind(diamond, out string? kind));
+        Assert.Equal("BinaryExpression", kind);
+    }
+
+    [Fact]
+    public void IntegerTruthinessContainingPatternTextRecordsBinaryKind()
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var stringType = TypeRef.CoreLib("System", "String");
+        var typeTest = new Comparison(
+            ComparisonKind.NotEqual,
+            isUnsigned: false,
+            new IsInstance(
+                stringType,
+                new LoadArgument(0, "value", objectType)),
+            new Constant(null, objectType));
+        var integerConditional = new Conditional(
+            typeTest,
+            new Constant(1, intType),
+            new Constant(0, intType))
+        {
+            MergedType = intType,
+        };
+        var negated = new LogicalNot(integerConditional);
+        var block = new Block(0);
+        block.Add(new Return(negated));
+        var container = new BlockContainer();
+        container.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("synthetic", "", "Holder"),
+            new MethodSignature(
+                boolType,
+                [new Parameter("value", objectType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        var result = CSharpPrinter.Print(function, out var ranges);
+
+        Assert.NotNull(result.Output);
+        Assert.True(ranges.TryGetRange(negated, out var range));
+        Assert.Equal("(value is string ? 1 : 0) == 0", ranges.Output[range]);
+        Assert.True(ranges.TryGetNodeKind(negated, out string? kind));
         Assert.Equal("BinaryExpression", kind);
     }
 
