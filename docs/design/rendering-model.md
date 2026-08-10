@@ -106,11 +106,11 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
+The `--files` view renders a tree. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. `member -S "Call Graph"` renders a Markdown edge table by default; `--tree` and `--mermaid` select standalone graph renderings, while `--markdown --mermaid` embeds the diagram in the composable Markdown document. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
 
 ### Default rendering should be the most useful
 
-When a lens has multiple possible rendering modes, the default should be the most broadly useful one. For `--files`, tree rendering is the default because it conveys structure -- the primary reason you'd look at files. Flat lists are available implicitly via other tools (`--json` piped through `jq`, for example) but the default serves the common case.
+When a lens has multiple possible rendering modes, the default should be the most broadly useful one. For `--files`, tree rendering is the default because it conveys structure -- the primary reason you'd look at files. A call graph is not intrinsically hierarchical, so its Markdown default is an edge table; tree and Mermaid views remain explicit. Flat lists are available implicitly via other tools (`--json` piped through `jq`, for example) but the default serves the common case.
 
 ## Summary Table
 

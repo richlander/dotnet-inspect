@@ -549,15 +549,23 @@ public class SharedOptions
     /// When false, commands are free to apply their own default format.
     /// </summary>
     public bool IsFormatExplicitlySet(ParseResult parseResult)
+        => IsFormatFlagExplicitlySet(parseResult)
+           || OutputFormatResolver.GetEnvironmentOverride() != null;
+
+    /// <summary>
+    /// Returns true when the user explicitly chose an output format via CLI flags.
+    /// Environment defaults are excluded so command-specific shape flags can supersede them.
+    /// </summary>
+    public bool IsFormatFlagExplicitlySet(ParseResult parseResult)
     {
-        if (IsTableExplicitlySet(parseResult)) return true;
+        if (IsTableFlagExplicitlySet(parseResult)) return true;
         if (parseResult.GetResult(Json) is { Implicit: false }) return true;
         if (parseResult.GetResult(Markdown) is { Implicit: false }) return true;
         if (parseResult.GetResult(PlainText) is { Implicit: false }) return true;
         if (parseResult.GetResult(Mermaid) is { Implicit: false }) return true;
         if (parseResult.GetResult(Bare) is { Implicit: false }) return true;
         if (parseResult.GetResult(Verbosity) is { Implicit: false }) return true;
-        return OutputFormatResolver.GetEnvironmentOverride() != null;
+        return false;
     }
 
     public bool IsTableExplicitlySet(ParseResult parseResult) =>
