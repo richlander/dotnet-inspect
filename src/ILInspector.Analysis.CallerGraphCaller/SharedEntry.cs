@@ -51,6 +51,14 @@ namespace Shared
         public static void UseGenericStore() =>
             Target.ArityApi.Store<string>(1);
 
+        public static unsafe void UseCdeclStore(
+            delegate* unmanaged[Cdecl]<int, int> value) =>
+            Target.FunctionPointerApi.Store(value);
+
+        public static unsafe void UseStdcallStore(
+            delegate* unmanaged[Stdcall]<int, int> value) =>
+            Target.FunctionPointerApi.Store(value);
+
         public static void CallBodiless(Target.IBodilessApi target) =>
             target.Invoke();
 

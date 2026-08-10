@@ -102,6 +102,30 @@ with a temporary NuGet config that includes both the .NET 11 daily feed and
 nuget.org. Most projects target the nightly `net11.0` SDK, while a few fixture
 projects still target stable `net10.0` packs.
 
+### Refreshing an older Windows checkout
+
+`.gitattributes` pins tracked text files to LF, but Git may leave CRLF bytes in
+a Windows working tree created before that policy was added. The tree still
+appears clean because Git compares normalized content. Check the effective
+working-tree endings with:
+
+```powershell
+git ls-files --eol | Select-String 'w/(crlf|mixed).*eol=lf'
+```
+
+No output means the checkout follows the policy. If files are listed, run the
+following commands from the repository root. First commit or stash any work and
+confirm `git status --short` is empty, because the final command discards
+working-tree changes:
+
+```powershell
+git rm --cached -r .
+git reset --hard HEAD
+```
+
+`RepositoryLineEndingTests.TrackedLfFilesHaveLfWorkingTreeEndings` enforces the
+same check and prints this repair when a stale checkout reaches the test suite.
+
 ## What it inspects
 
 | Source | Examples | Notes |
