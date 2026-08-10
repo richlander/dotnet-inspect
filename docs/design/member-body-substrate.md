@@ -309,8 +309,8 @@ base to factor out.
 
 What the four producers *do* share is the **line**. A rendered body is an ordered
 line stream, and the correlation layer joins two such streams on the IL offset.
-Three line types carry this, split by whether the line is a fast display value,
-an in-process correlation value, or a portable consumer value:
+Two line types carry this, split by whether the line is a fast display value or
+an in-process correlation value:
 
 - **`SourceLine(string Text, int Offset)`** — the fast, medium-neutral line. Both
   the C# and IL fast paths are just display-ready text plus an anchor, so one type
@@ -323,14 +323,23 @@ an in-process correlation value, or a portable consumer value:
   IL offset) before joining, adopting the currency without pulling the
   decompiler-pipeline decoder into the raw view.
 - **`BoundSourceLine(string Text, int Offset, SourceLineKind Kind,
-  IReadOnlyList<IAnnotation> Annotations)`** — the in-process interleave currency.
-  It carries bound annotations as *structure* (not baked into `Text`) so the merge
-  printer owns their presentation, plus a `Kind`.
-- **`AnnotatedSourceLine(string Text, int Offset, SourceLineKind Kind,
-  IReadOnlyList<PrintedAnnotationSpan> Annotations)`** — the portable form a
-  consumer can retain, serialize, filter, and render without the IR graph or
-  `IAnnotation` instances. Annotation extents use the coordinate space of the
-  containing stream; the producer rebases them when it interleaves lines.
+  IReadOnlyList<IAnnotation> Annotations)`** — the **in-process** interleave
+  currency. It carries bound annotations as *structure* (not baked into `Text`)
+  so the merge printer owns their presentation, plus a `Kind`. The
+  `IAnnotation` references keep it inside the process that built them.
+
+Both carry **producer-rendered, display-ready text**. Indentation, braces,
+IL comment-column alignment, and medium-owned commentary are already in `Text`
+by the time either exists, so no consumer has to re-render or re-parse to
+show a line. What differs between them is lifetime and what else they carry, not
+the fidelity of the text.
+
+There is deliberately **no portable line type**. The portable form of the same
+rendering is a *text buffer* — `AnnotatedSourceDocument.Text`, the same
+display-ready text joined with `\n` — because a line that leaves the process is
+not an identity worth minting. Line ids would have to be renumbered whenever the
+interleave changed, and a payload that anchors facts to them cannot express a
+fact about part of a line or about a construct printed across several.
 
 `SourceLineKind` is just **`{ CSharp, Il }`** — the one bit the merge frames on.
 It is deliberately *not* a structural taxonomy (no `BlockOpen`/`Statement`/depth):
@@ -338,20 +347,196 @@ the containment tree already exists as `IrNode` (`Children` + `SourceOffset`), a
 the line stream is its *flat rendered projection*. Each medium pretty-prints its
 own lines — indentation, braces, IL comment-column alignment, and medium-owned
 commentary such as local and stack state already live in `Text`. Research facts
-do not: every line kind carries them as data, and only a renderer turns them into
-labels. The correlation layer therefore owns cross-medium framing and annotation
-presentation, for which `Kind` plus the structured fact list is exactly enough.
+do not: they stay data, never baked into text, and only a renderer turns them
+into labels. `BoundSourceLine` holds them inline because correlation is a
+single-pass, in-process fold; the portable document reaches them by target
+instead. The correlation layer therefore owns cross-medium framing and annotation
+presentation, for which `Kind` plus the fact plane is exactly enough.
 
 The printer carries a separate structural coordinate plane. Its bound
 `PrintedRangeMap` records exact character ranges while the IR graph is alive;
-`PrintedBodyMap` projects them to portable, end-exclusive `PrintedExtent`
-coordinates. Node extents and the printer-recorded
+`PrintedBodyMap` is the **body-local printer projection** that bridges to
+portable, end-exclusive `PrintedExtent` coordinates. Node extents and the
+printer-recorded
 `PrintedRegionRole { Construct, Header, Body, Else, Catch, Finally, Case }`
 regions form a laminar family, enforced when the portable map is constructed.
 That lets a consumer rebuild containment from coordinates alone without parent
 pointers. Multi-line nodes remain in the projection rather than disappearing,
 and a fact whose node could not be placed remains present with a null extent
 rather than inheriting a guessed position.
+
+`PrintedBodyMap` stays deliberately denormalized — a placed annotation repeats
+the kind and extent of the node it sits on — because a caret renderer wants one
+self-describing row. What it does *not* leave implicit is the join:
+`PrintedNodeSpan` carries an `Id`, and `PrintedAnnotationSpan` carries the
+nullable `NodeId` it was actually anchored to. That id is minted while `IrNode`
+identity is still alive. Recovering the same join afterwards by matching kind
+and extent is ambiguous the moment two nodes print the same characters, so the
+document form below normalizes on the id rather than re-deriving it. Node ids
+are cut from a canonical order — extent, then kind, then the original
+`PrintedRangeMap` slot — because that map promises only descendants-before-
+ancestors, and ids taken from emission order would be reproducible by accident.
+
+#### The portable document: text, nodes, regions, facts, targets
+
+`AnnotatedSourceDocument` is the transport envelope, and it is a **text buffer
+plus overlays** — the model an editor or a compiler uses for a file, not a table
+of rows that happen to be lines.
+
+- **`Text`** — the canonical rendered artifact: the exact interleaved C#/IL
+  rendering, the same display-ready text the in-process stream carries, joined
+  with `\n`. Lines and columns are **derived** from it by counting newlines, and
+  nothing in the payload is identified by one. It must be **well-formed UTF-16**,
+  and the constructor rejects an unpaired high or low surrogate — naming `Text`
+  and the offending index — rather than repairing one. Spans index the *decoded*
+  text and a lone code unit has no UTF-8 form, so `System.Text.Json` substitutes
+  U+FFFD for it: the replayed document would be a different string, unequal to
+  the original, with every absolute span past the substitution naming characters
+  it was not minted for. Nothing is normalised, because silently rewriting the
+  buffer would move coordinates the producer already computed. The hazard never
+  reaches here as a raw code unit anyway — `ILStringEscaper` and the portable
+  fact escaping already contain it as a visible ASCII `\uXXXX` spelling, which
+  is ordinary text a reader can see and a span can address.
+- **`Nodes`** — `AnnotatedSourceNode(int Id, string Kind, SourceLineKind Medium,
+  IReadOnlyList<AnnotatedSourceSpan> Spans, int? IlOffset)`. C# nodes keep the
+  ids `PrintedBodyMap` minted; every IL line becomes a `Kind = "Instruction"`
+  node carrying its own `IlOffset`, appended after the C# nodes in strict offset
+  order. That kind is an invariant rather than a label: `Kind == "Instruction"`
+  (compared ordinally) holds **exactly** when the node is IL text with a
+  non-null `IlOffset`, so an offset-bearing `Block`, an offsetless
+  `Instruction`, and a C# `Instruction` are all rejected, while a structural IL
+  node keeps a null offset and a different kind. A consumer — and target
+  validation — can therefore read either the kind or the offset and trust the
+  other. `Medium` and `Kind` are explicit because the same shape is where
+  **future producers** put original-source syntax, comments, XML documentation,
+  and SourceLink- or lexer-derived spans — none of which are facts, and none of
+  which need a new plane.
+- **`Regions`** — `AnnotatedSourceRegion(PrintedRegionRole Role,
+  IReadOnlyList<AnnotatedSourceSpan> Spans)`. Regions stay a separate structural
+  plane because a region names a syntactic *part* of a construct rather than
+  anything a fact is stated about, but they carry the same span currency, so
+  both planes are resolved by the same slice.
+- **`Facts`** — `AnnotatedSourceFact(int Id, string Descriptor, string Category,
+  AnnotationConditionality Conditionality, string? Detail, int SourceOffset,
+  AnnotatedSourceFactOrigin Origin)`. A fact carries **no coordinates**.
+- **`Targets`** — `AnnotatedSourceTarget(int FactId, int NodeId)`.
+
+**One coordinate currency: the absolute span.** `AnnotatedSourceSpan(int Start,
+int Length)` is an end-exclusive range of **UTF-16 code units** over the decoded
+`Text`, exactly as Roslyn's `TextSpan` indexes `SourceText`. There is no second
+coordinate space to reconcile, no medium filter to apply before dereferencing a
+coordinate, and no line/column indirection: a consumer slices the string. JSON
+escaping — `\n`, or `\uXXXX` for a non-ASCII scalar — is *transport*, so the
+offsets apply to the .NET or JavaScript string a consumer decoded, not to the
+bytes on the wire. Because `Text` is well-formed UTF-16, that decode is exact:
+no offset can land past a code unit the encode replaced. A paired surrogate is
+one scalar and stays raw in the buffer, still costing the two code units the
+coordinates count.
+
+**A node carries several spans because the interleave makes constructs
+discontinuous.** A C# construct printed across lines with IL woven between them
+does not occupy one run of the rendered text. Its exact characters are therefore
+the maximal contiguous runs the interleave leaves — line breaks stay *inside* a
+span where the C# lines are adjacent, and an inserted IL line is what ends one.
+A single start-to-end span would swallow the instructions; per-line spans would
+lose the construct's own newlines. **A run ended by IL still keeps the line break
+it was printed with**, whenever the construct continues onto a later C# line:
+the break is the construct's text, and dropping it makes the runs concatenate
+`for (...)` onto `{` and `...;` onto `}` — C# that was never rendered. Exactly
+that one newline is kept, never a character of the IL that follows. Spans are
+ordered, separated, non-overlapping, and non-empty, and the constructor
+enforces all four plus bounds. Bounds are checked by subtraction (`Start > Text.Length ||
+Length > Text.Length - Start`) and run ends are tracked widened, because a
+hostile `Start + Length` overflows `int`, wraps negative, and would read as
+comfortably inside the buffer — deferring the failure to whichever consumer
+sliced by it.
+
+**Nodes are text structure; facts are semantic observation.** Neither implies the
+other: a node with no fact is the ordinary case (most nodes have none), and a
+body with no facts still has a full node plane. The separation is what lets
+future syntax/trivia/XML-doc producers add nodes without touching the fact
+vocabulary.
+
+**`Targets` is the only join, and it is why a cross-medium fact is stated once.**
+`Fact → target → node → spans → text` is the whole walk, in one shape, with no
+polymorphic target kind to switch on. A fact observed on a C# node and on its
+exact-offset instruction is one row in `Facts` with two rows in `Targets` —
+unambiguously one observation, where the old shape repeated it on two lines and
+left a consumer to compare tuples and guess. Facts are deduplicated on their full
+semantic identity (descriptor, category, conditionality, detail, source offset,
+origin) *after* portable escaping, and the constructor enforces that uniqueness
+along with contiguous ids, resolvable and non-duplicated target pairs, and — for
+a target on an IL node — an `IlOffset` equal to the fact's own `SourceOffset`.
+
+**A fact with no target is the explicit unanchored case.** It is not a missing
+row and not a third kind of placement: the observation is real, and nothing in
+the text was the right thing to point at. Dropping it would lose the
+observation; inventing a span would turn absence of evidence into a confident,
+wrong coordinate.
+
+**Origin separates the two planes of the member.**
+`AnnotatedSourceFactOrigin.Body` facts are about the body and may target a node;
+`MemberHeader` facts are about the member as a whole, carry `SourceOffset = -1`,
+and never target anything — which is a statement about the member, not a failure
+to anchor. Origin is part of fact identity, so a header fact never merges with a
+body fact that happens to share a descriptor.
+
+Every invariant above is enforced in the constructor and gated by a named test.
+`PrintedBodyMapTests.AnnotatedSourceDocumentRejectsSpansThatAreNotCoordinates`
+covers the span rules, text bounds, and the overflowing `int.MaxValue` span;
+`...RejectsMisplacedIlOffsets` covers the `Instruction`-kind invariant in both
+directions, offsets belonging to IL nodes only, being unique and strictly
+increasing, and staying optional for a future structural IL node;
+`...RejectsBrokenIdentity` and `...RejectsFalseTargetClaims` cover
+contiguous ids, fact deduplication, dangling and duplicated targets, the
+instruction-offset agreement, and the header-fact rules;
+`...AnnotatedSourceDocumentSnapshotsValidatesAndReplays` covers the input
+snapshot, structural equality, and JSON replay. On the producer side,
+`AnnotatedSourceDocumentProjectionTests.MultiLineCSharpStructureIsSpannedAroundTheInterleavedIl`
+is the non-vacuity gate for the discontinuity claim: it asserts that
+instructions really are printed inside the construct's range, that no span
+selects one, and that the runs still concatenate to a verbatim stretch of the
+rendered C#, line breaks included.
+
+The portable merge preserves C# line order and strictly increasing IL offsets
+simultaneously: when reconstructed C# orders statements differently from the
+instruction stream, an IL instruction is deferred until its target C# line has
+appeared rather than emitted out of method order. The human `Annotated Source`
+renderer keeps its established C#-adjacent layout; this stronger ordering is the
+machine payload's contract.
+
+The CLI exposes the envelope as the explicit-only `Annotated Source Document`
+member section. Markdown renders the source-generated JSON in a fenced block,
+while `-S "Annotated Source Document" --json` emits the envelope **directly** —
+the document itself as the root object, using the normal snake-case JSON
+convention — rather than nesting it inside the ordinary API document. Repeating
+the exact literal selector (in any case) still routes to that direct envelope;
+combining it with any other section under `--json` is rejected as ambiguous
+rather than silently picking one shape. Wildcard and category selections retain
+the ordinary document JSON shape, even when they resolve only to this section. A
+member whose printer emits no C# body still carries its instruction nodes and
+facts; printer failure is an error rather than a successful empty envelope.
+Document failure remains scoped to that section when it is co-selected, so
+sibling member sections still render; an explicit raw-document request reports
+the diagnostic and fails. IL string operands escape
+unpaired UTF-16 surrogates so JSON replay preserves every code unit rather than
+silently substituting U+FFFD. Portable fact identifiers and details apply the
+same containment, including values supplied by custom fact producers.
+Literal backslashes are escaped too, keeping that encoding distinct from a
+contained surrogate and therefore reversible. That containment is what makes the
+document's own rule — `Text` is well-formed UTF-16, and an unpaired surrogate is
+rejected rather than repaired — one a producer already satisfies: the malformed
+value is visible ASCII by the time a document is built.
+
+The first independent consumer is
+`prototypes/annotated-source-viewer/`. It derives lines from `Text`, uses the
+absolute spans directly as JavaScript UTF-16 indexes, follows
+`fact → target → node → spans → text`, highlights separated runs without
+selecting interleaved IL, and keeps targetless facts visible. Its model tests
+pin those consumer-side assumptions without importing the decompiler.
+Production is opt-in and uses
+an isolated import: printing and style lenses mutate IR, so sharing that graph
+would let selecting the payload alter sibling projections.
 
 The cheap, common case is the scalar render — "just give me everything, IL or
 C#" — a whole body or type in one language. Skeleton is the degenerate case

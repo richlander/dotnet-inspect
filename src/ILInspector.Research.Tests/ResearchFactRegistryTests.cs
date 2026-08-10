@@ -590,6 +590,19 @@ public sealed class ResearchConstructorFixture
     }
 }
 
+public sealed class ResearchAllocatingConstructorFixture
+{
+    public ResearchAllocatingConstructorFixture()
+        : this(new object())
+    {
+    }
+
+    public ResearchAllocatingConstructorFixture(object value)
+    {
+        GC.KeepAlive(value);
+    }
+}
+
 public sealed class ResearchInitializerOnlyFixture
 {
     public int Value = 42;

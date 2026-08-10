@@ -1,4 +1,5 @@
 using DotnetInspector.Services;
+using DotnetInspector.Packages;
 using ILInspector.Findings;
 using ILInspector.SourceLink;
 
@@ -18,7 +19,8 @@ public sealed class SourceLinkQueryContext
         string? packageVersion = null,
         bool isPlatformAssembly = false,
         ISourceLinkQueryCache? cache = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        NuGetSourceOptions? sourceOptions = null)
     {
         Source = source ?? throw new ArgumentNullException(nameof(source));
         Subject = subject ?? throw new ArgumentNullException(nameof(subject));
@@ -29,6 +31,7 @@ public sealed class SourceLinkQueryContext
         IsPlatformAssembly = isPlatformAssembly;
         Cache = cache;
         Log = log;
+        SourceOptions = sourceOptions;
     }
 
     public SourceLinkService Source { get; }
@@ -40,6 +43,7 @@ public sealed class SourceLinkQueryContext
     public bool IsPlatformAssembly { get; }
     public ISourceLinkQueryCache? Cache { get; }
     public Action<string>? Log { get; }
+    public NuGetSourceOptions? SourceOptions { get; }
 }
 
 /// <summary>Registers the shared SourceLink query family on a host registry.</summary>
@@ -139,6 +143,7 @@ public static class SourceLinkDocumentsQuery
                 context.PackageVersion,
                 context.IsPlatformAssembly,
                 context.Log,
+                sourceOptions: context.SourceOptions,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (!context.Source.HasPdb)

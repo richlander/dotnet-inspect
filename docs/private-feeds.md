@@ -113,6 +113,26 @@ Both `Username` and `ClearTextPassword` are required, even for feeds that ignore
 The source name inside `<packageSourceCredentials>` must match the `key` of the entry in
 `<packageSources>`.
 
+### Restrict package ids to feeds
+
+dotnet-inspect honors NuGet package source mapping from the selected configuration:
+
+```xml
+<packageSourceMapping>
+  <packageSource key="contoso">
+    <package pattern="Contoso.*" />
+  </packageSource>
+  <packageSource key="nuget.org">
+    <package pattern="*" />
+  </packageSource>
+</packageSourceMapping>
+```
+
+Exact package ids take priority over prefixes, and the longest matching prefix wins. Mapping
+is applied independently to top-level packages, dependencies, RID companions, platform packs,
+tool redirects, search results, and routing probes. If mapping is present, an unmatched package
+id or a mapping whose named source is not active is an error.
+
 Four forms look like they should work here and do not:
 
 | Form | What happens |

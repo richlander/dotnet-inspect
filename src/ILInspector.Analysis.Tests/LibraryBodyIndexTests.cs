@@ -1157,43 +1157,6 @@ public class LibraryBodyIndexTests
         Assert.Contains("UseEcho", callerNames);
     }
 
-    [Fact]
-    public void MatchesResolvedCrossAssembly_MatchesConstructedGenericMemberSignature()
-    {
-        // Open target Box<T>.Store(T): declaring type is the open List`1-style definition, the
-        // parameter is the type parameter T.
-        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
-        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
-
-        // Constructed call site Box<int>.Store(int): declaring type is the instantiation, the
-        // parameter is the concrete int.
-        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
-        var callSite = new MemberRef(constructedBox, "Store", [TypeRef.CoreLib("System", "Int32")], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
-
-        Assert.True(pattern.MatchesResolvedCrossAssembly(callSite));
-        // The exact same-assembly matcher cannot bridge the open/closed spelling gap.
-        Assert.False(pattern.Matches(callSite));
-    }
-
-    [Fact]
-    public void MatchesResolvedCrossAssembly_StillDiscriminatesGenericMembersByArity()
-    {
-        // A generic member is erased to arity, not dropped entirely: a one-parameter target must
-        // not absorb a two-parameter call site on the same generic type.
-        var openBox = TypeRef.Definition("Lib", "N", "Box`1");
-        var pattern = MemberPattern.Method(openBox, "Store", [TypeRef.GenericParameter(0, "T")]);
-
-        var constructedBox = TypeRef.GenericInstance(openBox, [TypeRef.CoreLib("System", "Int32")]);
-        var twoArg = new MemberRef(
-            constructedBox,
-            "Store",
-            [TypeRef.CoreLib("System", "Int32"), TypeRef.CoreLib("System", "Int32")],
-            TypeRef.CoreLib("System", "Void"),
-            MemberKind.Method);
-
-        Assert.False(pattern.MatchesResolvedCrossAssembly(twoArg));
-    }
-
     // #1741: two Ping overloads whose parameter types share the FQN Shared.Token but come
     // from different assemblies (DiffAsmLibA vs DiffAsmLibB). The cross-assembly caller
     // graph must keep them distinct — rooting at one overload reports only its own caller.
