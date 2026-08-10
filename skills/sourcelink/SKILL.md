@@ -57,7 +57,9 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Sou
 dnx dotnet-inspect -y -- library System.Text.Json -S "Source Files" --urls --blob
 ```
 
-To check *whether* SourceLink is present and valid (rather than fetch source),
-see the `signals` skill (`SourceLink: Availability`, `SourceLink: Integrity`,
-and `SourceLink: Missing Files`). These checks also aggregate across selected
-package libraries.
+To check *whether* SourceLink is present and usable (rather than fetch source),
+see the `signals` skill. Library `Signals` summarizes map usability and
+`SourceLink: Diagnostics` reports parse errors or rejected mappings;
+`SourceLink: Availability`, `SourceLink: Integrity`, and
+`SourceLink: Missing Files` check the mapped documents. The document checks
+also aggregate across selected package libraries.

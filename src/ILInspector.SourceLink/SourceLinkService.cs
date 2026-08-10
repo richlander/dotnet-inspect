@@ -112,6 +112,51 @@ public sealed class SourceLinkService : IDisposable
             return _sourceLinkJson;
         }
     }
+    public SourceLinkMapInspection SourceLinkMap
+    {
+        get
+        {
+            EnsureCurrentPdbState();
+
+            if (!_sourceLinkPresent)
+                return SourceLinkMapInspection.Absent;
+
+            if (_map is null)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    _sourceLinkError ?? "the SourceLink map could not be read",
+                    [],
+                    []);
+            }
+
+            if (_map.ParseError is not null)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    _map.ParseError,
+                    _map.DocumentKeys,
+                    _map.RejectedKeys);
+            }
+
+            if (_map.IsEmpty)
+            {
+                return new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    "the SourceLink map contains no usable document mappings",
+                    _map.DocumentKeys,
+                    _map.RejectedKeys);
+            }
+
+            return new SourceLinkMapInspection(
+                _map.RejectedKeys.Count > 0
+                    ? SourceLinkMapStatus.PartiallyUsable
+                    : SourceLinkMapStatus.Usable,
+                null,
+                _map.DocumentKeys,
+                _map.RejectedKeys);
+        }
+    }
     public string? RepositoryUrl => Provenance().Origin?.RepositoryUrl;
     public string? CommitHash => Provenance().Origin?.Revision;
 

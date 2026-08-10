@@ -156,6 +156,12 @@ per-source-file reachability pass (`SourceLink: Availability`,
 scales with source-file count. The slow, exhaustive content check
 (`SourceLink: Integrity`) is opt-in only.
 
+For libraries, SourceLink presence and map usability are separate observations.
+`Signals` reports a present map as usable, partially usable, or unusable;
+`SourceLink: Diagnostics` lists parse failures and rejected document mappings.
+`Non-normalized Paths` separately lists SourceLink document keys that do not use
+the deterministic `/_/` prefix.
+
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |

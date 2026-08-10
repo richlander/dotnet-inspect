@@ -318,7 +318,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(52 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(53 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -1282,6 +1282,7 @@ public class SectionPipelineTests
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols
             ],

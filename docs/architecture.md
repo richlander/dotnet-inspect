@@ -458,7 +458,8 @@ The layers cooperate as follows:
 
 1. `PdbContext` extracts named documents, checksums, sequence-point ranges,
    type/member/token relationships, and raw CDI blobs.
-2. `ILInspector.SourceLink` extracts and parses the SourceLink map.
+2. `ILInspector.SourceLink` extracts and parses the SourceLink map, retaining
+   map-level errors and individually rejected document keys for audit output.
 3. The high-level resolver combines raw PDB correlation with document-name
    fallback and canonical path selection.
 4. SourceLinkFetch applies the winning map entry and establishes provenance.

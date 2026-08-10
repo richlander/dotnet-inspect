@@ -88,6 +88,7 @@ public static class LibrarySections
             .Add<SafetyContext>()
             .Add<CostContext>()
             .Add<SourceFiles>(SourceLinkDiscoverable)
+            .Add<SourceLinkDiagnostics>(SourceLinkDiscoverable)
             .Add<SourceLinkAudit>(
                 SourceAvailabilityQuery.Definition,
                 SourceLinkDiscoverable)
@@ -156,12 +157,14 @@ public static class LibrarySections
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.Signals,
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
+                SectionNames.SourceLinkDiagnostics,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles,
                 SectionNames.SourceLinkIntegrity)
@@ -851,6 +854,18 @@ public static class LibrarySections
         public static bool IsExpensive => false;
         public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
+    }
+
+    public sealed class SourceLinkDiagnostics : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.SourceLinkDiagnostics;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.NetworkFree;
+        public static string? ScannerKey => null;
+        public static bool CanRender(LibraryInspection model)
+            => model.SourceLinkMap?.HasDiagnostics == true;
     }
 
 }

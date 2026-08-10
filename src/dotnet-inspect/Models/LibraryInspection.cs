@@ -170,6 +170,9 @@ public class LibraryInspection
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? SourceLinkJson { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceLinkMapInspection? SourceLinkMap { get; set; }
+
     public List<string>? NonNormalizedPaths { get; set; }
 
     /// <summary>
