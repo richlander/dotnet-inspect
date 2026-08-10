@@ -115,6 +115,48 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
+    public void AuthoredUnsafeBody_DoesNotWidenTheFinalRtsShell()
+    {
+        using var fixture = FidelityFixture.Create(
+            """
+            public class Class1
+            {
+                public static unsafe int M(nint value) { return *(int*)value; }
+            }
+            """,
+            rejectedBody: "return 0;",
+            authoredBody: "return *(int*)value;");
+
+        var result = fixture.Isolate();
+
+        Assert.NotNull(result);
+        Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
+        Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
+        Assert.Contains("did not compile", result.Detail);
+    }
+
+    [Fact]
+    public void AuthoredPrimaryConstructorCapture_DoesNotWidenTheFinalRtsShell()
+    {
+        using var fixture = FidelityFixture.Create(
+            """
+            public class Class1(int seed)
+            {
+                public int M() { return seed; }
+            }
+            """,
+            rejectedBody: "return 0;",
+            authoredBody: "return seed;");
+
+        var result = fixture.Isolate();
+
+        Assert.NotNull(result);
+        Assert.Equal(ReturnToSender.FaultIsolationKind.ShellOrClosureDefect, result.Kind);
+        Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
+        Assert.Contains("did not compile", result.Detail);
+    }
+
+    [Fact]
     public void AuthoredConstructorBody_PreservesTheFinalRtsConstructorChain()
     {
         using var fixture = FidelityFixture.Create(
@@ -411,7 +453,8 @@ public sealed class ValidDifferentFaultIsolationTests
                 references ?? RoslynTestReferences.TrustedPlatform,
                 new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
-                    optimizationLevel: OptimizationLevel.Release));
+                    optimizationLevel: OptimizationLevel.Release,
+                    allowUnsafe: true));
             var emit = compilation.Emit(assemblyPath);
             Assert.True(
                 emit.Success,

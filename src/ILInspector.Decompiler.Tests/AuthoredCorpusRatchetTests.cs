@@ -1870,6 +1870,24 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// Run identity proves a row postdates the legacy unstamped era. Deleting only the
+    /// methodology stamp must not make a v3 product-defect regression disappear behind
+    /// the v1 fallback while the three methodology-independent metrics still pass.
+    /// </summary>
+    [Fact]
+    public void Ratchet_AnIdentifiedNewestRowCannotFallBackToLegacyMethodology()
+    {
+        var comparison = AuthoredCorpusRatchet.CompareNewestRow(
+        [
+            Row(date: "2026-08-09", productBodyDefect: 5, methodology: 3),
+            Row(date: "2026-08-10", productBodyDefect: 5197, methodology: null),
+        ]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("must state methodologyVersion", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The trend store's <c>validDifferent</c> member carries the sub-buckets *and*
     /// their total, and the total is the number the ratchet's <c>valid</c> metric is
     /// built from. The run emitted the parts without the sum, so an author assembling a
@@ -1937,7 +1955,7 @@ public class AuthoredCorpusRatchetTests
             Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: null)]);
 
         Assert.True(fabricated.Skipped);
-        Assert.Contains("invalidBreakdown", fabricated.SkipReason!, StringComparison.Ordinal);
+        Assert.Contains("must state methodologyVersion", fabricated.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>

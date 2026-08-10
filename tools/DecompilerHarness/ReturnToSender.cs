@@ -2477,14 +2477,19 @@ static class ReturnToSender
 
         try
         {
-            var authoredTargetBody = request.TargetBody with
+            var finalArtifact = CompileBackSourceComposer.Compose(request);
+            if (BuildTargetIdentity(request) is not { } identity
+                || !SpanAttribution.TrySubstituteBody(
+                    finalArtifact.Source,
+                    authoredBody,
+                    identity,
+                    parseOptions,
+                    out string authoredSource))
             {
-                Source = authoredBody,
-                Decisions = [],
-            };
-            var authoredArtifact = CompileBackSourceComposer.Compose(
-                WithTargetBody(request, authoredTargetBody));
-            var tree = CSharpSyntaxTree.ParseText(authoredArtifact.Source, parseOptions);
+                return null;
+            }
+
+            var tree = CSharpSyntaxTree.ParseText(authoredSource, parseOptions);
             var compilation = CSharpCompilation.Create(
                 CompilationAssemblyName,
                 [tree],
@@ -2494,7 +2499,7 @@ static class ReturnToSender
             var emit = compilation.Emit(stream);
             return new AuthoredBodyCompilation(
                 sourceMember,
-                authoredArtifact.Source,
+                authoredSource,
                 emit.Diagnostics,
                 emit.Success ? stream.ToArray() : null);
         }

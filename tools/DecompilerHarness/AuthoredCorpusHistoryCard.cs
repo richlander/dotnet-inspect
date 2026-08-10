@@ -66,11 +66,11 @@ static class AuthoredCorpusHistoryCard
             runs.Add(run);
         }
 
-        // A digest no run could have produced is a schema error, not a measurement
-        // defect, so it is refused at the boundary where the file is read rather than
-        // left for a consumer to walk past.
+        // A malformed or internally inconsistent run identity is a schema error, not
+        // a measurement defect, so it is refused at the boundary where the file is
+        // read rather than left for a consumer to walk past.
         if (AuthoredCorpusRatchet.RefuseMalformedIdentities(runs) is { } malformed)
-            throw new JsonException($"History row records an identity no run could produce: {malformed}");
+            throw new JsonException($"History row records a malformed run identity: {malformed}");
         if (AuthoredCorpusRatchet.RefuseUnknownMethodologies(runs) is { } unknown)
             throw new JsonException($"History row records an unknown methodology: {unknown}");
         if (AuthoredCorpusRatchet.RefuseFrontierAttributionMethodologyMismatch(runs) is { } mismatch)
@@ -373,8 +373,8 @@ internal sealed record HistoryRun(
     /// </summary>
     [property: JsonPropertyName("poolSha256")] string? PoolSha256 = null)
 {
-    // Rows predating the span-attribution change carry no methodologyVersion;
-    // treat them as v1 (substitution lower bound).
+    // Unidentified rows predating the span-attribution change carry no
+    // methodologyVersion; treat them as v1 (substitution lower bound).
     public int Methodology => MethodologyVersion ?? 1;
 
     /// <summary>

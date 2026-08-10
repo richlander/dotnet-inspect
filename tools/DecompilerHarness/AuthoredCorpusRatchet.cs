@@ -238,8 +238,8 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
-    /// Names the first row carrying an identity no run could have produced, or
-    /// <see langword="null"/> when every row is well formed.
+    /// Names the first row carrying a malformed or internally inconsistent run
+    /// identity, or <see langword="null"/> when every row is well formed.
     ///
     /// <para>This condemns the <em>whole</em> baseline, which is the point. Comparability
     /// compares digests as opaque ordinal strings, so <c>""</c> is not read as "no
@@ -250,6 +250,12 @@ static class AuthoredCorpusRatchet
     /// and reports <c>RATCHET OK</c> with exit 0 on a run that genuinely regressed. That
     /// is the same fallthrough that made an unidentified baseline dangerous in the first
     /// place. A file containing a malformed row is corrupt, not partially usable.</para>
+    ///
+    /// <para>The unstamped v1 fallback belongs only to rows that predate run identity.
+    /// Once a row records a pool or corpus digest, deleting <c>methodologyVersion</c>
+    /// cannot make a newer measurement historical; accepting that shape would silently
+    /// change its invalid-attribution lineage and remove <c>productBodyDefect</c> from
+    /// the comparison.</para>
     /// </summary>
     internal static string? RefuseMalformedIdentities(IReadOnlyList<HistoryRun> runs)
     {
@@ -262,6 +268,11 @@ static class AuthoredCorpusRatchet
                 return $"{where}: poolSha256 '{run.PoolSha256}' is not a digest a run could record";
             if (!IdentityIsWellFormed(run.CorpusSha256))
                 return $"{where}: corpusSha256 '{run.CorpusSha256}' is not a digest a run could record";
+            if ((run.PoolSha256 is not null || run.CorpusSha256 is not null)
+                && run.MethodologyVersion is null)
+            {
+                return $"{where}: an identified run must state methodologyVersion";
+            }
         }
 
         return null;
@@ -374,6 +385,8 @@ static class AuthoredCorpusRatchet
             return Comparison.Skip($"baseline is malformed ({malformed})");
         if (RefuseUnknownMethodologies(baselines) is { } unknown)
             return Comparison.Skip($"baseline is malformed ({unknown})");
+        if (current.Identified && !current.MethodologyStated)
+            return Comparison.Skip("current run is identified but does not state methodologyVersion");
         if (!AuthoredCorpusMethodology.IsKnownVersion(current.Methodology))
         {
             return Comparison.Skip(
@@ -427,6 +440,8 @@ static class AuthoredCorpusRatchet
         ArgumentNullException.ThrowIfNull(runs);
         if (runs.Count < 2)
             return Comparison.Skip("store holds fewer than two runs");
+        if (RefuseMalformedIdentities(runs) is { } malformed)
+            return Comparison.Skip($"store is malformed ({malformed})");
 
         var newest = runs[^1];
         if (!IsTrustworthy(newest))

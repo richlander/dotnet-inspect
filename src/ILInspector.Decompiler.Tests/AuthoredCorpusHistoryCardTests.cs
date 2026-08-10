@@ -173,6 +173,19 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void ParseHistory_RequiresMethodologyWhenRunIdentityIsPresent()
+    {
+        string poolSha = new('a', 64);
+        var exception = Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+            [
+                $$"""{"date":"2026-08-02","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":25},"poolSha256":"{{poolSha}}"}""",
+            ]));
+
+        Assert.Contains("must state methodologyVersion", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParseHistory_RejectsUnknownMethodologyVersion()
     {
         var exception = Assert.Throws<JsonException>(
