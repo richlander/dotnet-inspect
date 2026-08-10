@@ -149,8 +149,10 @@ public class MemberCallGraphSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
-        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), result.Output);
+        Assert.Contains("## Call Graph", result.Output);
+        var section = result.Output[result.Output.IndexOf("## Call Graph", StringComparison.Ordinal)..];
+        Assert.Contains("No inbound callers or outbound calls found for this method.", section);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), section);
     }
 
     [Fact]
