@@ -7301,6 +7301,17 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(regions);
         Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "CSharp");
         Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "Il");
+        var csharpKinds = nodes
+            .Where(node => node.GetProperty("medium").GetString() == "CSharp")
+            .Select(node => node.GetProperty("kind").GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.All(csharpKinds, kind => Assert.True(
+            ILInspector.Decompiler.AnnotatedSourceNodeKinds.IsKnown(kind),
+            $"CLI emitted undocumented node kind {kind}."));
+        Assert.Contains("ForStatement", csharpKinds);
+        Assert.Contains("ObjectCreationExpression", csharpKinds);
+        Assert.DoesNotContain("ForLoop", csharpKinds);
+        Assert.DoesNotContain("NewObject", csharpKinds);
 
         // Every coordinate is an absolute, end-exclusive UTF-16 span into that
         // text, so a consumer slices it directly -- no medium filter, no

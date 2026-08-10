@@ -34,20 +34,62 @@ public class PrintedBodyMapTests
 
         // Read the emitted spans, not recomputed coordinates. Checking only the
         // count let a map of entirely bogus spans pass.
-        var expected = new List<(string Kind, string Text)>();
+        var expected = new HashSet<(string Kind, PrintedExtent Extent)>();
         foreach (var printed in ranges)
         {
-            if (!ranges.TryGetExtent(printed.Node, out _))
+            if (!ranges.TryGetExtent(printed.Node, out var extent))
                 continue;
-            int start = printed.Characters.Start.GetOffset(output.Length);
-            int end = printed.Characters.End.GetOffset(output.Length);
-            expected.Add((printed.Node.GetType().Name, output[start..end].TrimEnd('\r', '\n')));
+            expected.Add((
+                AnnotatedSourceNodeKindProjection.From(printed.Node),
+                extent));
         }
 
         Assert.Equal(expected.Count, map.Nodes.Count);
-        Assert.Equal(
-            expected.Order(),
-            map.Nodes.Select(node => (node.Kind, Text(map, node.Extent))).Order());
+        Assert.True(expected.SetEquals(map.Nodes.Select(node => (node.Kind, node.Extent))));
+    }
+
+    [Fact]
+    public void StableKindProjectionMakesAnExplicitDecisionForEveryIrNode()
+    {
+        var concreteNodes = typeof(IrNode).Assembly
+            .GetTypes()
+            .Where(type => !type.IsAbstract && typeof(IrNode).IsAssignableFrom(type))
+            .OrderBy(type => type.FullName)
+            .ToArray();
+        var mappings = AnnotatedSourceNodeKindProjection.Mappings
+            .OrderBy(pair => pair.Key.FullName)
+            .ToArray();
+
+        Assert.NotEmpty(concreteNodes);
+        Assert.Equal(concreteNodes, mappings.Select(pair => pair.Key));
+        Assert.All(mappings, pair => Assert.True(
+            AnnotatedSourceNodeKinds.IsKnown(pair.Value),
+            $"{pair.Key.Name} maps to undocumented kind {pair.Value}."));
+        Assert.DoesNotContain(mappings, pair => pair.Value == AnnotatedSourceNodeKinds.Unknown);
+
+        Assert.Equal("ConversionExpression", AnnotatedSourceNodeKindProjection.From(
+            new Coerce(
+                TypeRef.CoreLib("System", "Int64"),
+                new Constant(1, TypeRef.CoreLib("System", "Int32")))));
+        Assert.Equal("AssignmentStatement", AnnotatedSourceNodeKindProjection.From(
+            new StoreStackSlot(0, new Constant(1, TypeRef.CoreLib("System", "Int32")))));
+        Assert.Equal("BinaryExpression", AnnotatedSourceNodeKindProjection.From(
+            new LogicalBinary(
+                LogicalKind.And,
+                new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                new Constant(false, TypeRef.CoreLib("System", "Boolean")))));
+    }
+
+    [Fact]
+    public void ReplayToleratesKindsAddedByANewerProducer()
+    {
+        var map = new PrintedBodyMap(
+            ["future"],
+            [new PrintedNodeSpan(0, "FutureSyntax", new PrintedExtent(0, 0, 0, 6))],
+            [],
+            []);
+
+        Assert.False(AnnotatedSourceNodeKinds.IsKnown(Assert.Single(map.Nodes).Kind));
     }
 
     [Fact]
@@ -156,9 +198,9 @@ public class PrintedBodyMapTests
     [Fact]
     public void PlacedFactsNameTheExactNodeTheyWereAnchoredTo()
     {
-        // Two nodes print the same characters under the same kind, so recovering
-        // the join by matching kind and extent could only guess. The id is
-        // minted while IrNode identity is alive, which is what makes it exact.
+        // Two implementation nodes print one identical surface-syntax element.
+        // They normalize to one portable node while identity is still alive, so
+        // either implementation node resolves to the same unambiguous id.
         var first = new LoadLocal(0, TypeRef.CoreLib("System", "Int32"));
         var second = new LoadLocal(1, TypeRef.CoreLib("System", "Int32"));
         var ranges = new PrintedRangeMap();
@@ -170,11 +212,10 @@ public class PrintedBodyMapTests
             ranges,
             new Dictionary<IrNode, IReadOnlyList<IAnnotation>> { [second] = [new Annotation(Alloc, 12)] });
 
-        Assert.Equal(2, map.Nodes.Count);
-        Assert.Equal(map.Nodes[0].Extent, map.Nodes[1].Extent);
+        var node = Assert.Single(map.Nodes);
         var fact = Assert.Single(map.Annotations);
-        Assert.Equal(1, fact.NodeId);
-        Assert.Equal(map.Nodes[1].Extent, fact.Extent);
+        Assert.Equal(node.Id, fact.NodeId);
+        Assert.Equal(node.Extent, fact.Extent);
     }
 
     [Fact]
@@ -1043,7 +1084,7 @@ public class PrintedBodyMapTests
 
         var map = PrintedBodyMap.Create(ranges);
         var span = Assert.Single(map.Nodes);
-        Assert.Equal("LoadLocal", span.Kind);
+        Assert.Equal("NameExpression", span.Kind);
         Assert.Equal("efgh", Text(map, span.Extent));
     }
 

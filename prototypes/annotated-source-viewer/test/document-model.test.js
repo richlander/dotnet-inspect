@@ -4,6 +4,8 @@ import {
   buildLines,
   lineMedium,
   nodeIdsForFact,
+  nodeIdsForKind,
+  nodeKinds,
   nodesAtOffset,
   parseDocument,
   segmentsForLine,
@@ -28,6 +30,16 @@ test("one fact resolves through targets to C# and IL nodes", () => {
 
   assert.deepEqual(nodeIdsForFact(sampleDocument, 0), [1, 3]);
   assert.deepEqual(unanchoredFacts(sampleDocument).map(fact => fact.id), [2]);
+});
+
+test("node kinds form a sorted structural selector", () => {
+  assert.deepEqual(nodeKinds(sampleDocument), [
+    "ForStatement",
+    "Instruction",
+    "ObjectCreationExpression",
+  ]);
+  assert.deepEqual(nodeIdsForKind(sampleDocument, "Instruction"), [2, 3]);
+  assert.deepEqual(nodeIdsForKind(sampleDocument, "FutureSyntax"), []);
 });
 
 test("multi-span nodes highlight each separated run without filling gaps", () => {
