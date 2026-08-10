@@ -1,3 +1,5 @@
+using Markout;
+
 namespace DotnetInspector.Output;
 
 /// <summary>
@@ -63,6 +65,27 @@ public readonly record struct RowWindow
             ArgumentOutOfRangeException.ThrowIfLessThan(e, start);
         return new(RowWindowKind.Range, 0, start, end);
     }
+
+    /// <summary>
+    /// Projects this window onto the Markout writer option that applies it during
+    /// rendering. An unlimited window becomes <c>null</c>, because Markout expresses
+    /// "every row" by leaving <see cref="MarkoutWriterOptions.RowWindow"/> unset
+    /// rather than by carrying a negative count.
+    /// </summary>
+    public MarkoutRowWindow? ToMarkout() => Kind switch
+    {
+        _ when IsUnlimited => null,
+        RowWindowKind.Head => MarkoutRowWindow.Head(_count),
+        RowWindowKind.Tail => MarkoutRowWindow.Tail(_count),
+        RowWindowKind.Range => MarkoutRowWindow.Range(_start, _end),
+        _ => null,
+    };
+
+    /// <summary>
+    /// Null-tolerant form of <see cref="ToMarkout()"/>, for the common case of a
+    /// <c>--rows</c> option that may be absent.
+    /// </summary>
+    public static MarkoutRowWindow? ToMarkout(RowWindow? window) => window?.ToMarkout();
 
     /// <summary>
     /// Resolves this window against a table that rendered
