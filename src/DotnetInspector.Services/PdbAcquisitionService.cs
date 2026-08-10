@@ -16,6 +16,7 @@ public static class PdbAcquisitionService
         bool isPlatformAssembly,
         Action<string>? log,
         bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -43,6 +44,7 @@ public static class PdbAcquisitionService
             log,
             isPlatformAssembly,
             cacheOnly,
+            sourceOptions,
             cancellationToken).ConfigureAwait(false);
 
         if (result.PdbFilePath != null)
@@ -57,6 +59,7 @@ public static class PdbAcquisitionService
         HttpClient httpClient,
         Action<string>? log,
         bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(assembly);
@@ -83,6 +86,7 @@ public static class PdbAcquisitionService
             isPlatformAssembly,
             log,
             cacheOnly,
+            sourceOptions,
             cancellationToken);
     }
 }

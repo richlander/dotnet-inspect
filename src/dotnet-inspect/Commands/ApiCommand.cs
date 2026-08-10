@@ -673,7 +673,8 @@ public class ApiCommand
                     ? PackageExtractor.ParsePackageReference(options.PackagePath)
                     : (null, null);
                 await SourceEnricher.AcquirePdbAsync(context, httpClient, pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
             return context.PortablePdbPath;
         }
@@ -940,7 +941,8 @@ public class ApiCommand
 
                 await SourceEnricher.AcquirePdbAsync(context, httpClient,
                     pkgName, pkgVersion,
-                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log);
+                    isPlatformAssembly: !string.IsNullOrEmpty(options.PlatformAssembly), logger.Log,
+                    sourceOptions: options.SourceOptions);
             }
 
             // Capture the acquired portable PDB path now so the decompiler can reuse it for local
