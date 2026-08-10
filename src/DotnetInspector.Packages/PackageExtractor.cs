@@ -66,7 +66,7 @@ internal sealed record PackageVersionResolution(
 public static class PackageExtractor
 {
     private const int MaxToolWrapperRedirectHops = 8;
-    private static readonly TimeSpan CachedVersionResolutionTimeout =
+    internal static TimeSpan CachedVersionResolutionTimeout { get; } =
         TimeSpan.FromSeconds(1);
 
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
