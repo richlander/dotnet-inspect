@@ -51,14 +51,18 @@ the ownership boundaries below, not the project count.
 
 ## Implementation status
 
-`DotnetInspector.Queries` now implements metadata-image, direct-reference,
-extension-method, custom-attribute, SourceLink audit, API-comparison,
-assembly-context Integrations, and progressive member call-graph slices. The
-API-comparison seam retains Metadata-owned Finding correspondence and
-compatibility classification over two host-resolved surfaces. The call-graph
-seam composes Analysis indexes and one catalog generation over workspace-owned
-immutable snapshots; both return typed results without choosing a renderer or
-output format.
+`DotnetInspector.Queries` and the optional
+`DotnetInspector.ResearchQueries` companion now implement metadata-image,
+direct-reference, extension-method, custom-attribute, SourceLink audit,
+API-comparison, Analysis body-signal comparison, assembly-context Integrations,
+and progressive member call-graph slices. The API-comparison seam retains
+Metadata-owned Finding correspondence and compatibility classification over
+two host-resolved surfaces. The body-signal seam consumes already-acquired
+Analysis indexes and retains `ResearchComparison`; keeping that query in the
+companion assembly avoids imposing Research and Decompiler dependencies on
+core query consumers. The call-graph seam composes Analysis indexes and one
+catalog generation over workspace-owned immutable snapshots. These queries
+return typed results without choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference, and
 extension-method and custom-attribute queries through a typed, content-shaped
 registry over a host-owned `AssemblyInspectionSession`. The `References`,
@@ -73,6 +77,11 @@ query across every participant in one binding-consistent assembly context
 group. The command projects per-participant evidence or failure into
 compatibility models and continues each library inspection over the same
 retained immutable image.
+The diff CLI binds Changes and Analysis Diff to their concrete query
+definitions. Its transitional Analysis adapter resolves member targets and
+opens `LibraryBodyIndex` values lazily inside selected query execution; the L1
+query itself receives content-derived indexes rather than paths, and the CLI
+continues to own ranking and rendering.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
@@ -233,7 +242,8 @@ consumer's convenience.
 ## Current migration state
 
 Metadata-image, direct-reference, extension-method, custom-attribute,
-SourceLink, and API-comparison inspection are the first vertical L1 canaries:
+SourceLink, API-comparison, and Analysis body-signal comparison inspection are
+the first vertical L1 canaries:
 
 - `DotnetInspector.Queries` owns typed query definitions, typed result retrieval,
   prerequisite expansion, and query cost.
@@ -261,13 +271,17 @@ SourceLink, and API-comparison inspection are the first vertical L1 canaries:
   both their Finding correspondence and Metadata-owned compatibility
   classification. The `diff` command keeps endpoint acquisition and member
   filtering host-owned.
+- `BodySignalComparisonQuery` consumes old/new `LibraryBodyIndex` collections
+  and returns the Research-owned `ResearchComparison`. The diff adapter builds
+  those indexes only under selected Analysis query demand; path acquisition
+  remains an explicit host-owned migration boundary.
 - Library and package sections bind to the same SourceLink query definitions.
   Package owns compatible/highest-TFM asset selection and aggregation, not a
   parallel audit implementation.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
-  `Custom Attributes`, and diff `Changes` bind to query definitions by object
-  identity. A section may bind multiple definitions; diagnostic names are
-  never lookup keys.
+  `Custom Attributes`, and the diff `Changes` and `Analysis Diff` sections bind
+  to query definitions by object identity. A section may bind multiple
+  definitions; diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.

@@ -29,25 +29,32 @@ dnx dotnet-inspect -y -- library System.Text.Json -S Signals
 
 ## Safety and interop surface
 
-`-S @Audit` drills the safety surface of a library: `Unsafe Members`, `P/Invoke
-Methods`, and `Switches`. (For unsafe operations inside one method, see the
-`correctness` skill; for what switches mean across versions, see
-`compatibility`.)
+`-S @Audit` includes `Unsafe Members` and `P/Invoke Methods` alongside library
+signals, symbols, and path audit evidence. `Switches` is a separate section;
+select it explicitly for feature-switch and trim/AOT knobs. (For unsafe
+operations inside one method, see the `correctness` skill; for what switches
+mean across versions, see `compatibility`.)
 
 ```bash
-dnx dotnet-inspect -y -- library MyLib.dll -S @Audit
+dnx dotnet-inspect -y -- library MyLib.dll -S "@Audit,Switches"
 dnx dotnet-inspect -y -- library MyLib.dll -S "Unsafe Members,P/Invoke Methods"
 ```
 
 ## SourceLink provenance
 
-Distinct from *fetching* source (the `sourcelink` skill), these report whether
-debuggable source provenance exists and holds up: `SourceLink: Availability`
-(are documents embedded or reachable), `SourceLink: Integrity` (do the
-documents validate), and `SourceLink: Missing Files` (gaps). The same sections
-work on `library` and aggregate selected libraries on `package`.
+Distinct from *fetching* source (the `sourcelink` skill), `-S @SourceLink`
+groups the provenance sections: `SourceLink: Availability` (is it wired up),
+`SourceLink: Integrity` (do the documents validate), and `SourceLink: Missing
+Files` (gaps). The same sections work on `library` and aggregate selected
+libraries on `package`. Availability and missing-file checks may send HEAD
+requests for uncached SourceLink URLs. The integrity pass fetches and hashes
+fetchable, non-embedded compiler-source documents, so request these networked
+checks explicitly.
 
 ```bash
-dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Availability,SourceLink: Integrity"
+dnx dotnet-inspect -y -- library System.Text.Json -D @SourceLink
+dnx dotnet-inspect -y -- library System.Text.Json \
+  -S "SourceLink: Availability,SourceLink: Missing Files"
+dnx dotnet-inspect -y -- library System.Text.Json -S "SourceLink: Integrity"
 dnx dotnet-inspect -y -- package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 ```

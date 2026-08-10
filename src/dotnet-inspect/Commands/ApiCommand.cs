@@ -1308,6 +1308,18 @@ public class ApiCommand
 
         if (options.Count)
         {
+            // A call graph declares edge rows in its projection. Count those rows directly
+            // rather than scanning the rendered tree, which has a different node-shaped
+            // lowering and therefore cannot answer the row question.
+            if (options.IncludeSections is { Count: 1 } sections
+                && sections.Contains(SectionNames.CallGraph)
+                && view.MemberCode?.CallGraphRowCount is { } graphRows)
+            {
+                CountOutput.WriteCount(graphRows);
+                ApiOutputFormatter.WriteCallGraphWarning(view);
+                return 0;
+            }
+
             var writerOptions = ApiOutputFormatter.BuildTypeWriterOptions(type, options);
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             var sw = new StringWriter { NewLine = "\n" };
