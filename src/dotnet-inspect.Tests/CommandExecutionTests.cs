@@ -348,6 +348,24 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir) CreateLocalDependencyPackage()
+        => CreateLocalReadmePackage(
+            "Test.DependencyGroups",
+            "README.md",
+            "readme",
+            extraNuspecMetadata:
+            """
+            <dependencies>
+              <group targetFramework="net8.0">
+                <dependency id="Test.Dependency.One" />
+              </group>
+              <group targetFramework="net9.0">
+                <dependency id="Test.Dependency.One" />
+                <dependency id="Test.Dependency.Two" />
+              </group>
+            </dependencies>
+            """);
+
     private static (string PackagePath, string TempDir) CreateLocalReadmePackage(
         string id,
         string readmeFile,
@@ -16590,6 +16608,34 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(firstTempDir, recursive: true);
             Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiplePackages_SignalsUseSelectedTfm()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "--tfm", "net9.0", "-S", "Signals", "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            foreach (var package in document.RootElement.EnumerateArray())
+            {
+                var directDependencies = Assert.Single(
+                    package.GetProperty("audit_signals").EnumerateArray(),
+                    signal => signal.GetProperty("signal").GetString() == "Direct dependencies");
+                Assert.Equal("2", directDependencies.GetProperty("value").GetString());
+                Assert.Equal("net9.0", directDependencies.GetProperty("evidence").GetString());
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 

@@ -314,27 +314,10 @@ public static class OutputFormatter
         SectionPipeline<InspectionResult> pipeline)
     {
         var renderOptions = options with { Count = false, JsonOutput = false };
-        var markdownDocuments = results
-            .Select(result => FormatResult(result, renderOptions, pipeline))
-            .ToList();
-        var ordered = ResolveCountMapSections(
-            pipeline, options.IncludeSections, options.FixedOverview);
-        if (ordered != null)
-        {
-            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var markdown in markdownDocuments)
-            {
-                foreach (var (section, count) in CountOutput.CountMarkdownTableRowsBySection(markdown))
-                    counts[section] = counts.GetValueOrDefault(section) + count;
-            }
-            CountOutput.WriteCountMap(counts, ordered, options.OutputPath);
-        }
-        else
-        {
-            CountOutput.WriteCount(
-                markdownDocuments.Sum(CountOutput.CountMarkdownTableRows),
-                options.OutputPath);
-        }
+        CountOutput.WriteCount(
+            results.Sum(result => CountOutput.CountMarkdownTableRows(
+                FormatResult(result, renderOptions, pipeline))),
+            options.OutputPath);
     }
 
     /// <summary>
