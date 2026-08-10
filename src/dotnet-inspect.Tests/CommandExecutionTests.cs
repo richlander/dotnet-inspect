@@ -14556,6 +14556,27 @@ public partial class CommandExecutionTests
             Assert.Empty(wildcardError);
             Assert.Equal("2\n", wildcardOutput.ReplaceLineEndings("\n"));
 
+            var (emptyProjectionExit, emptyProjectionOutput, emptyProjectionError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--fields", "Vulnerabilities",
+                    "--tsv", "--no-header");
+            var (emptyCountExit, emptyCountOutput, emptyCountError) =
+                await RunAppAsync(
+                    "package", packagePath, packagePath,
+                    "-S", "Package Info", "--fields", "Vulnerabilities",
+                    "--count");
+            Assert.Equal(0, emptyProjectionExit);
+            Assert.Empty(emptyProjectionOutput);
+            Assert.Contains(
+                "Note: 1 field has no data: Vulnerabilities",
+                emptyProjectionError);
+            Assert.Equal(0, emptyCountExit);
+            Assert.Equal("0\n", emptyCountOutput.ReplaceLineEndings("\n"));
+            Assert.Contains(
+                "Note: 1 field has no data: Vulnerabilities",
+                emptyCountError);
+
             var (windowedExit, windowedOutput, windowedError) = await RunAppAsync(
                 "package", packagePath, packagePath,
                 "-S", "Package Info", "--count", "--tsv", "--rows", "1");
@@ -14571,6 +14592,34 @@ public partial class CommandExecutionTests
             Assert.Equal(0, projectedWindowExit);
             Assert.Empty(projectedWindowError);
             Assert.Equal("0\n", projectedWindowOutput.ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_MultiPackageBareCount_PopulatesSelectedFileSections()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "--skip-empty", "--count", "--json");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var json = JsonDocument.Parse(output);
+            var counts = json.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.Ordinal);
+            Assert.Equal(2, counts["Package nuspec file"]);
+            Assert.Equal(2, counts["Package README file"]);
         }
         finally
         {

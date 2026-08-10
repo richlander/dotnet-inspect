@@ -107,6 +107,30 @@ public static class ProjectionDiagnostics
     public static void DiagnoseRendered(string[]? requestedNames, string renderedOutput)
     {
         var missing = DocumentSchema.DiagnoseRendered(requestedNames, renderedOutput);
+        WriteMissing(missing);
+    }
+
+    /// <summary>
+    /// Reports requested names that matched the schema but are absent from a typed projection.
+    /// </summary>
+    public static void DiagnoseProjected(
+        string[]? requestedNames,
+        IEnumerable<string> presentNames)
+    {
+        if (requestedNames is not { Length: > 0 })
+            return;
+
+        var candidates = presentNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var missing = requestedNames
+            .Where(name => SelectResolver.ResolveSingle(name, candidates).Matches.Count == 0)
+            .ToArray();
+        WriteMissing(missing);
+    }
+
+    private static void WriteMissing(string[] missing)
+    {
         if (missing.Length == 0)
             return;
 

@@ -877,10 +877,14 @@ public class PackageCommand
         string? rowSection = null;
         if (!options.Count && !TryResolveMultiPackageRowSection(options, out rowSection))
             return 1;
+        var countSections = options.Count
+            ? ResolveMultiPackageCountSections(options, pipeline)
+            : null;
         bool wantsFilesSection = HasPathFilter(options)
             || IsPackageFileSection(rowSection)
             || options.IncludeSections?.Any(IsPackageFileSection) == true
-            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+            || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections)
+            || countSections?.Any(IsPackageFileSection) == true;
         if (!options.Count && !options.JsonOutput && rowSection == null)
         {
             CommandError.Write("Multiple package output requires --json or a row format such as --table, --tsv, or --jsonl.");
@@ -959,14 +963,7 @@ public class PackageCommand
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)
     {
-        var selectedSections = options.IncludeSections is { Count: > 0 } includeSections
-            ? new HashSet<string>(includeSections, StringComparer.OrdinalIgnoreCase)
-            : options.FixedOverview
-                ? new HashSet<string>(
-                    pipeline.BareSelectSectionNames,
-                    StringComparer.OrdinalIgnoreCase)
-                : throw new InvalidOperationException(
-                    "Multi-package count requires at least one selected section.");
+        var selectedSections = ResolveMultiPackageCountSections(options, pipeline);
 
         var projection = new CountProjection();
         var documentSections = new HashSet<string>(
@@ -975,11 +972,12 @@ public class PackageCommand
 
         if (documentSections.Remove(PackageSections.PackageInfo))
         {
+            var rows = BuildMultiPackagePackageInfoRows(results, options.Fields);
+            ProjectionDiagnostics.DiagnoseProjected(
+                options.Fields, rows.Select(row => row[1]));
             projection.RecordRows(
                 PackageSections.PackageInfo,
-                WindowedCount(
-                    BuildMultiPackagePackageInfoRows(results, options.Fields).Length,
-                    options.Rows));
+                WindowedCount(rows.Length, options.Rows));
         }
 
         foreach (var section in selectedSections.Where(IsPackageFileSection))
@@ -1010,6 +1008,18 @@ public class PackageCommand
 
         return projection;
     }
+
+    private static HashSet<string> ResolveMultiPackageCountSections(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => options.IncludeSections is { Count: > 0 } includeSections
+            ? new HashSet<string>(includeSections, StringComparer.OrdinalIgnoreCase)
+            : options.FixedOverview
+                ? new HashSet<string>(
+                    pipeline.BareSelectSectionNames,
+                    StringComparer.OrdinalIgnoreCase)
+                : throw new InvalidOperationException(
+                    "Multi-package count requires at least one selected section.");
 
     private static bool TryResolveMultiPackageRowSection(InspectionOptions options, out string? section)
     {
@@ -2436,6 +2446,8 @@ public class PackageCommand
     private static void WriteMultiPackagePackageInfoTable(IReadOnlyList<InspectionResult> results, InspectionOptions options)
     {
         var rows = BuildMultiPackagePackageInfoRows(results, options.Fields);
+        ProjectionDiagnostics.DiagnoseProjected(
+            options.Fields, rows.Select(row => row[1]));
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
