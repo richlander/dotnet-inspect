@@ -904,7 +904,7 @@ public class PackageCommand
         }
 
         if (options.Count)
-            return WriteMultiPackageCount(results, rowSection, options);
+            return WriteMultiPackageCount(results, rowSection, options, pipeline);
 
         if (options.JsonOutput)
         {
@@ -932,11 +932,15 @@ public class PackageCommand
     internal static int WriteMultiPackageCount(
         IReadOnlyList<InspectionResult> results,
         string? rowSection,
-        InspectionOptions options)
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        CountOutput.WriteCount(
-            CountMultiPackageRows(results, rowSection, options),
-            options.OutputPath);
+        if (rowSection == null)
+            OutputFormatter.WritePackageResultsCount(results, options, pipeline);
+        else
+            CountOutput.WriteCount(
+                CountMultiPackageRows(results, rowSection, options),
+                options.OutputPath);
         return PackageIntegrityExitCode([.. results]);
     }
 
@@ -2181,9 +2185,9 @@ public class PackageCommand
         return builder.ToString();
     }
 
-    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string? section, InspectionOptions options)
+    private static int CountMultiPackageRows(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)
         => IsPackageFileSection(section)
-            ? results.Sum(result => options.SkipEmpty ? GetPackageFileRows(result, section!).Count : Math.Max(1, GetPackageFileRows(result, section!).Count))
+            ? results.Sum(result => options.SkipEmpty ? GetPackageFileRows(result, section).Count : Math.Max(1, GetPackageFileRows(result, section).Count))
             : results.Sum(result => new InspectionResultView(result).Metadata.Count);
 
     private static void WriteMultiPackageTable(IReadOnlyList<InspectionResult> results, string section, InspectionOptions options)

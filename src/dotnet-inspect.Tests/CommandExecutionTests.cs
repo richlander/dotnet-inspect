@@ -16559,6 +16559,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_MultiplePackages_SignalsCountAggregatesRenderedRows()
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalRefPackage("System.Runtime");
+        var (secondPackagePath, secondTempDir) = CreateLocalRefPackage("System.Collections");
+        try
+        {
+            var (firstExit, firstOutput, firstError) = await RunAppAsync(
+                "package", firstPackagePath, "-S", "Signals", "--count");
+            var (secondExit, secondOutput, secondError) = await RunAppAsync(
+                "package", secondPackagePath, "-S", "Signals", "--count");
+            var (combinedExit, combinedOutput, combinedError) = await RunAppAsync(
+                "package", firstPackagePath, secondPackagePath,
+                "-S", "Signals", "--count", "--json");
+
+            Assert.Equal(0, firstExit);
+            Assert.Equal(0, secondExit);
+            Assert.Equal(0, combinedExit);
+            Assert.Empty(firstError);
+            Assert.Empty(secondError);
+            Assert.Empty(combinedError);
+            var expected = int.Parse(firstOutput, CultureInfo.InvariantCulture)
+                + int.Parse(secondOutput, CultureInfo.InvariantCulture);
+            Assert.True(expected > 0);
+            Assert.Equal(
+                expected.ToString(CultureInfo.InvariantCulture),
+                combinedOutput.Trim());
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_Signals_RendersRegistryBackedRows()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
