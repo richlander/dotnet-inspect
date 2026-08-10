@@ -241,6 +241,7 @@ public partial record ApiOptions
 public record TypeOptions : ApiOptions
 {
     public string? TypeFilter { get; init; }
+    internal int? MemberLimit { get; init; }
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }

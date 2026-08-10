@@ -45,7 +45,8 @@ public class ApiCommand
             Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet, Format = options.Format,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
+            MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -1091,9 +1092,17 @@ public class ApiCommand
             return 1;
         }
 
-        if (options is TypeOptions { ShapeOutput: true } && !options.Count)
+        if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
-            ApiOutputFormatter.WriteShapeOutput(type, foundIn, packageName, packageVersion, options.MemberFilter, options.KindFilter, options.Verbosity);
+            ApiOutputFormatter.WriteShapeOutput(
+                type,
+                foundIn,
+                packageName,
+                packageVersion,
+                options.MemberFilter,
+                options.KindFilter,
+                options.Verbosity,
+                typeOptions.MemberLimit);
             return 0;
         }
 

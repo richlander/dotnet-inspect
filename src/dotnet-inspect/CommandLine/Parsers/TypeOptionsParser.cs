@@ -178,6 +178,7 @@ public static class TypeOptionsParser
             MemberFilter = memberFilter,
             KindFilter = kindFilter,
             Limit = memberLimit ?? typeLimit,
+            MemberLimit = memberLimit,
             ShowDocs = false,  // Type command: docs off by default
             DocsExplicitlySet = false,
             BrowsableUrls = parseResult.GetValue(opts.BrowsableUrls)
