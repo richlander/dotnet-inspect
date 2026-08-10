@@ -305,11 +305,13 @@ arity check applies when a constructed constraint or base names a TypeDef in its
 `ConstructedConstraintRequiresMatchingSameImageArity` gate both paths. Constructed
 TypeRefs without a resolution context remain unclassified
 (`ConstructedCoreConstraintWithoutResolutionStaysUndetermined`).
-Authentication
-walks hostile dependency graphs with an explicit worklist rather than process recursion.
+Authentication walks both external dependency graphs and same-image TypeSpec base chains
+with explicit bounded worklists rather than process recursion.
 `Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
 `Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles;
-`DeepConstructedBaseAuthenticationUsesBoundedStack` gates bounded native-stack use; and
+`DeepConstructedBaseAuthenticationUsesBoundedStack` and
+`SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack` gate bounded native-stack
+use; and
 `ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
 Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
 hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
@@ -327,7 +329,11 @@ A per-generation type-request budget bounds both discovery
 after the frozen context is applied
 (`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
 non-cacheable rejection across catalog generations
-(`BudgetExhaustionIsNotPromotedAcrossGenerations`). An extraction lease keeps retained
+(`BudgetExhaustionIsNotPromotedAcrossGenerations`). A selected dependency that cannot be
+opened or decoded also remains unclassified, but its typed resolution rejection is projected
+as a bounded representative `ApiSurface.InspectionFailures` entry rather than disappearing
+behind `Undetermined`
+(`DependencyOpenFailureIsVisibleOnApiSurface`). An extraction lease keeps retained
 sessions alive through the full API read
 while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
 lifetime. Each inventory or retained-session open

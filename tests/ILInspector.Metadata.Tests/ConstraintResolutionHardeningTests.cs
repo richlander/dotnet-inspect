@@ -10,6 +10,53 @@ namespace ILInspector.Metadata.Tests;
 public class ConstraintResolutionHardeningTests
 {
     [Fact]
+    public void SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack()
+    {
+        const int Count = 256;
+        byte[] dependencyImage =
+            BuildSameImageTypeSpecificationBaseChain(Count);
+        byte[] consumerImage =
+            BuildConsumer(
+                "Consumer",
+                "SameImageChain",
+                "T0",
+                constructed: false);
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            Descriptor(dependencyImage);
+        TypeParameterTypeKind kind = default;
+        Exception? failure = null;
+        var thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    using var pe = Reader(consumerImage);
+                    using var catalog = new TypeResolutionCatalog();
+                    ApiSurface surface = ApiSurfaceExtractor.Extract(
+                        pe,
+                        source,
+                        catalog,
+                        new MappingPolicy(dependency));
+                    kind = Assert.Single(
+                        Assert.Single(surface.Types).TypeParameters)
+                        .TypeKind;
+                }
+                catch (Exception ex)
+                {
+                    failure = ex;
+                }
+            },
+            maxStackSize: 128 * 1024);
+
+        thread.Start();
+        thread.Join();
+
+        Assert.Null(failure);
+        Assert.Equal(TypeParameterTypeKind.ReferenceType, kind);
+    }
+
+    [Fact]
     public void DeepConstructedBaseAuthenticationUsesBoundedStack()
     {
         const int Count = 1_000;
@@ -352,6 +399,40 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void DependencyOpenFailureIsVisibleOnApiSurface()
+    {
+        byte[] dependencyImage =
+            BuildSimpleType("Dependency", "Base0");
+        byte[] consumerImage = BuildTwoConstraintConsumer();
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference dependency =
+            UnreadableDescriptor(dependencyImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(dependency));
+
+        Assert.All(
+            surface.Types,
+            static type => Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(type.TypeParameters).TypeKind));
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve generic parameter constraints",
+            failure.Operation);
+        Assert.Contains(
+            "dependency could not be opened",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DiscoveryBudgetExhaustionIsVisibleOnApiSurface()
     {
         byte[] image = BuildTwoConstraintConsumer();
@@ -445,6 +526,30 @@ public class ConstraintResolutionHardeningTests
         AddGenericParameter(metadata, terminal);
         AddType(metadata, "Filler1");
         AddType(metadata, "Filler2");
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSameImageTypeSpecificationBaseChain(
+        int count)
+    {
+        MetadataBuilder metadata = NewMetadata("SameImageChain");
+        AddModule(metadata);
+        TypeDefinitionHandle[] definitions =
+            new TypeDefinitionHandle[count];
+        for (int i = count - 1; i >= 0; i--)
+        {
+            definitions[i] =
+                AddType(
+                    metadata,
+                    $"T{i}",
+                    i + 1 < count
+                        ? AddConstructedClass(
+                            metadata,
+                            definitions[i + 1])
+                        : default);
+            AddGenericParameter(metadata, definitions[i]);
+        }
+
         return Serialize(metadata);
     }
 
@@ -860,6 +965,19 @@ public class ConstraintResolutionHardeningTests
             identity,
             path: null,
             () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("test"));
+    }
+
+    static ResolvedAssemblyReference UnreadableDescriptor(byte[] image)
+    {
+        using var pe = Reader(image);
+        AssemblyReferenceIdentity identity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                pe.GetMetadataReader());
+        return ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => throw new IOException("Synthetic read failure."),
             AssemblyResolutionProvenance.Local("test"));
     }
 

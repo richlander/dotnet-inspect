@@ -21,6 +21,43 @@ public class ApiFindingClassifierTests
     static readonly FindingSubject Subject = new("api", "API");
 
     [Fact]
+    public void ConstraintResolutionFailureDoesNotSuppressTypeAddition()
+    {
+        var oldSurface = Surface();
+        oldSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "resolve generic parameter constraints",
+                0x01000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "A dependency could not be opened."));
+        var newSurface = Surface(Type("Added"));
+        var options = new ApiDiffOptions(ApiDiffScope.All);
+
+        ApiDiff legacy =
+            ApiDiffAnalyzer.Compare(
+                oldSurface,
+                newSurface,
+                options);
+        ApiDiff classified =
+            ClassifyFor(
+                oldSurface,
+                newSurface,
+                options);
+
+        Assert.Contains(
+            legacy.TypeDiffs.SelectMany(
+                static type => type.Changes),
+            static change => change.Kind == ChangeKind.TypeAdded);
+        Assert.Contains(
+            classified.TypeDiffs.SelectMany(
+                static type => type.Changes),
+            static change => change.Kind == ChangeKind.TypeAdded);
+        Assert.Single(legacy.InspectionFailures);
+        Assert.Single(classified.InspectionFailures);
+    }
+
+    [Fact]
     public void TypeFacetChanges_MatchLegacyAnalyzerExactly()
     {
         var oldSurface = Surface(

@@ -257,8 +257,10 @@ public static class ApiDiffAnalyzer
 
         var oldTypes = BuildTypeLookup(oldSurface);
         var newTypes = BuildTypeLookup(newSurface);
-        bool oldIdentityIncomplete = oldSurface.InspectionFailures.Count > 0;
-        bool newIdentityIncomplete = newSurface.InspectionFailures.Count > 0;
+        bool oldIdentityIncomplete =
+            HasIncompleteTypeIdentity(oldSurface);
+        bool newIdentityIncomplete =
+            HasIncompleteTypeIdentity(newSurface);
 
         var allTypeNames = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var key in oldTypes.Keys) allTypeNames.Add(key);
@@ -338,6 +340,13 @@ public static class ApiDiffAnalyzer
             TotalPotentiallyBreaking = totalPotentiallyBreaking
         };
     }
+
+    internal static bool HasIncompleteTypeIdentity(
+        ApiSurface surface) =>
+        surface.InspectionFailures.Any(
+            static failure =>
+                failure.Operation
+                    != "resolve generic parameter constraints");
 
     private static Dictionary<string, ApiType> BuildTypeLookup(ApiSurface surface)
     {

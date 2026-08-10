@@ -513,123 +513,125 @@ public static class MetadataTypeDeclarationProbe
     internal static MetadataTypeDefinitionKind ClassifyDefinitionKind(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        bool declaringAssemblyDefinesCoreLibraryRoot) =>
-        ClassifyDefinitionKind(
-            reader,
-            handle,
-            declaringAssemblyDefinesCoreLibraryRoot,
-            []);
-
-    static MetadataTypeDefinitionKind ClassifyDefinitionKind(
-        MetadataReader reader,
-        TypeDefinitionHandle handle,
-        bool declaringAssemblyDefinesCoreLibraryRoot,
-        HashSet<TypeDefinitionHandle> active)
+        bool declaringAssemblyDefinesCoreLibraryRoot)
     {
-        if (active.Count
-            >= MetadataSafetyPolicy.MaxRelationshipNodes)
+        var visited = new HashSet<TypeDefinitionHandle>();
+        TypeDefinitionHandle current = handle;
+        bool requiresClass = false;
+        while (true)
         {
-            return MetadataTypeDefinitionKind.Unknown;
-        }
-
-        if (!active.Add(handle))
-            return MetadataTypeDefinitionKind.Unknown;
-
-        try
-        {
-            TypeDefinition definition =
-                reader.GetTypeDefinition(handle);
-            if ((definition.Attributes
-                    & System.Reflection.TypeAttributes.Interface) != 0)
+            if (visited.Count
+                    >= MetadataSafetyPolicy.MaxRelationshipNodes
+                || !visited.Add(current))
             {
-                return MetadataTypeDefinitionKind.Interface;
-            }
-
-            if (declaringAssemblyDefinesCoreLibraryRoot
-                && MetadataTypeDefinitionNameReader.Read(
-                    reader,
-                    handle)
-                    is MetadataTypeDefinitionNameReadResult.Read ownName
-                && ownName.Name.ToMetadataFullName()
-                    == "System.Enum")
-            {
-                return MetadataTypeDefinitionKind.Class;
-            }
-
-            if (definition.BaseType.IsNil)
-                return MetadataTypeDefinitionKind.Class;
-
-            if (definition.BaseType.Kind
-                == HandleKind.TypeSpecification)
-            {
-                return ClassifyTypeSpecificationBase(
-                    reader,
-                    (TypeSpecificationHandle)definition.BaseType,
-                    declaringAssemblyDefinesCoreLibraryRoot,
-                    active);
-            }
-
-            MetadataTypeDefinitionNameReadResult read =
-                definition.BaseType.Kind switch
-                {
-                    HandleKind.TypeDefinition =>
-                        MetadataTypeDefinitionNameReader.Read(
-                            reader,
-                            (TypeDefinitionHandle)definition.BaseType),
-                    HandleKind.TypeReference =>
-                        MetadataTypeDefinitionNameReader.Read(
-                            reader,
-                            (TypeReferenceHandle)definition.BaseType),
-                    _ => new MetadataTypeDefinitionNameReadResult.Rejected(
-                        MetadataTypeNameFailure.Malformed(
-                            definition.BaseType,
-                            "A type definition has an unsupported base-type handle.")),
-                };
-            if (read is not MetadataTypeDefinitionNameReadResult.Read named)
                 return MetadataTypeDefinitionKind.Unknown;
-
-            if (named.Name.ToMetadataFullName()
-                is not ("System.ValueType" or "System.Enum"))
-            {
-                return MetadataTypeDefinitionKind.Class;
             }
 
-            bool authenticCoreType =
-                definition.BaseType.Kind switch
+            try
+            {
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(current);
+                if ((definition.Attributes
+                        & System.Reflection.TypeAttributes.Interface) != 0)
                 {
-                    HandleKind.TypeDefinition =>
-                        declaringAssemblyDefinesCoreLibraryRoot,
-                    HandleKind.TypeReference =>
-                        ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                    return requiresClass
+                        ? MetadataTypeDefinitionKind.Unknown
+                        : MetadataTypeDefinitionKind.Interface;
+                }
+
+                if (declaringAssemblyDefinesCoreLibraryRoot
+                    && MetadataTypeDefinitionNameReader.Read(
+                        reader,
+                        current)
+                        is MetadataTypeDefinitionNameReadResult.Read ownName
+                    && ownName.Name.ToMetadataFullName()
+                        == "System.Enum")
+                {
+                    return MetadataTypeDefinitionKind.Class;
+                }
+
+                if (definition.BaseType.IsNil)
+                    return MetadataTypeDefinitionKind.Class;
+
+                if (definition.BaseType.Kind
+                    == HandleKind.TypeSpecification)
+                {
+                    if (!TryReadTypeSpecificationClassBase(
                             reader,
-                            reader.GetTypeReference(
-                                (TypeReferenceHandle)definition.BaseType)
-                                .ResolutionScope),
-                    _ => false,
-                };
-            return authenticCoreType
-                ? MetadataTypeDefinitionKind.ValueType
-                : MetadataTypeDefinitionKind.Class;
-        }
-        catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException
-                or ArgumentException)
-        {
-            return MetadataTypeDefinitionKind.Unknown;
-        }
-        finally
-        {
-            active.Remove(handle);
+                            (TypeSpecificationHandle)definition.BaseType,
+                            declaringAssemblyDefinesCoreLibraryRoot,
+                            out current))
+                    {
+                        return MetadataTypeDefinitionKind.Unknown;
+                    }
+
+                    requiresClass = true;
+                    continue;
+                }
+
+                MetadataTypeDefinitionNameReadResult read =
+                    definition.BaseType.Kind switch
+                    {
+                        HandleKind.TypeDefinition =>
+                            MetadataTypeDefinitionNameReader.Read(
+                                reader,
+                                (TypeDefinitionHandle)definition.BaseType),
+                        HandleKind.TypeReference =>
+                            MetadataTypeDefinitionNameReader.Read(
+                                reader,
+                                (TypeReferenceHandle)definition.BaseType),
+                        _ => new MetadataTypeDefinitionNameReadResult.Rejected(
+                            MetadataTypeNameFailure.Malformed(
+                                definition.BaseType,
+                                "A type definition has an unsupported base-type handle.")),
+                    };
+                if (read is not MetadataTypeDefinitionNameReadResult.Read named)
+                    return MetadataTypeDefinitionKind.Unknown;
+
+                if (named.Name.ToMetadataFullName()
+                    is not ("System.ValueType" or "System.Enum"))
+                {
+                    return MetadataTypeDefinitionKind.Class;
+                }
+
+                bool authenticCoreType =
+                    definition.BaseType.Kind switch
+                    {
+                        HandleKind.TypeDefinition =>
+                            declaringAssemblyDefinesCoreLibraryRoot,
+                        HandleKind.TypeReference =>
+                            ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
+                                reader,
+                                reader.GetTypeReference(
+                                    (TypeReferenceHandle)definition.BaseType)
+                                    .ResolutionScope),
+                        _ => false,
+                    };
+                MetadataTypeDefinitionKind kind = authenticCoreType
+                    ? MetadataTypeDefinitionKind.ValueType
+                    : MetadataTypeDefinitionKind.Class;
+                return requiresClass
+                    && kind != MetadataTypeDefinitionKind.Class
+                        ? MetadataTypeDefinitionKind.Unknown
+                        : kind;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or ArgumentException)
+            {
+                return MetadataTypeDefinitionKind.Unknown;
+            }
         }
     }
 
-    static MetadataTypeDefinitionKind ClassifyTypeSpecificationBase(
+    static bool TryReadTypeSpecificationClassBase(
         MetadataReader reader,
         TypeSpecificationHandle handle,
         bool declaringAssemblyDefinesCoreLibraryRoot,
-        HashSet<TypeDefinitionHandle> active)
+        out TypeDefinitionHandle rootHandle)
     {
+        rootHandle = default;
         if (!TypeSpecificationRoot.TryRead(
                 reader,
                 handle,
@@ -639,48 +641,26 @@ public static class MetadataTypeDeclarationProbe
             || root.RawTypeKind
                 != (byte)SignatureTypeKind.Class)
         {
-            return MetadataTypeDefinitionKind.Unknown;
+            return false;
         }
 
-        if (root.Type.Kind == HandleKind.TypeDefinition)
-        {
-            TypeDefinitionHandle rootHandle =
-                (TypeDefinitionHandle)root.Type;
-            if (!TryGetGenericParameterCount(
+        if (root.Type.Kind != HandleKind.TypeDefinition)
+            return false;
+
+        rootHandle = (TypeDefinitionHandle)root.Type;
+        return TryGetGenericParameterCount(
+                reader,
+                rootHandle,
+                out int genericParameterCount)
+            && genericParameterCount
+                == root.GenericArgumentCount
+            && (!declaringAssemblyDefinesCoreLibraryRoot
+                || MetadataTypeDefinitionNameReader.Read(
                     reader,
-                    rootHandle,
-                    out int genericParameterCount)
-                || genericParameterCount
-                    != root.GenericArgumentCount
-                || declaringAssemblyDefinesCoreLibraryRoot
-                    && MetadataTypeDefinitionNameReader.Read(
-                        reader,
-                        rootHandle)
-                        is MetadataTypeDefinitionNameReadResult.Read named
-                    && named.Name.ToMetadataFullName()
-                        is "System.ValueType" or "System.Enum")
-            {
-                return MetadataTypeDefinitionKind.Unknown;
-            }
-
-            MetadataTypeDefinitionKind actual =
-                ClassifyDefinitionKind(
-                    reader,
-                    rootHandle,
-                    declaringAssemblyDefinesCoreLibraryRoot,
-                    active);
-            return actual == MetadataTypeDefinitionKind.Class
-                ? actual
-                : MetadataTypeDefinitionKind.Unknown;
-        }
-
-        if (root.Type.Kind != HandleKind.TypeReference)
-            return MetadataTypeDefinitionKind.Unknown;
-
-        // The ELEMENT_TYPE_CLASS marker belongs to the referring image and is
-        // not evidence about an external definition. The resolution builder
-        // authenticates the copied dependency before accepting Class.
-        return MetadataTypeDefinitionKind.Unknown;
+                    rootHandle)
+                    is not MetadataTypeDefinitionNameReadResult.Read named
+                || named.Name.ToMetadataFullName()
+                    is not ("System.ValueType" or "System.Enum"));
     }
 
     internal static bool TryGetGenericParameterCount(

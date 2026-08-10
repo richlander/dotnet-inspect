@@ -49,6 +49,7 @@ internal static class TypeParameterKindClassifier
         readonly Dictionary<
             (TypeReferenceHandle Handle, int? GenericArgumentCount),
             ConstraintClass> _resolvedClasses = [];
+        MetadataTypeNameFailure? _resolutionFailure;
         readonly List<TypeResolutionRequest> _requestOrder = [];
         TypeResolutionContext? _context;
         bool _requestBudgetExhausted;
@@ -77,6 +78,8 @@ internal static class TypeParameterKindClassifier
             _projectedRequests.Count;
         internal MetadataTypeNameFailure? RequestBudgetFailure =>
             _requestBudgetFailure;
+        internal MetadataTypeNameFailure? ResolutionFailure =>
+            _resolutionFailure;
 
         internal RequestCheckpoint Checkpoint() =>
             new(_requestOrder.Count, _requestBudgetFailure);
@@ -169,16 +172,22 @@ internal static class TypeParameterKindClassifier
             if (outcome
                 is not TypeResolutionOutcome.Resolved resolved)
             {
-                if (outcome is TypeResolutionOutcome.Rejected
-                    {
-                        Failure:
-                            TypeResolutionFailure.RequestBudgetExceeded
-                                budget,
-                    })
+                if (outcome is TypeResolutionOutcome.Rejected rejected)
                 {
-                    RecordAuthenticationBudgetFailure(
-                        handle,
-                        budget.Budget);
+                    if (rejected.Failure
+                        is TypeResolutionFailure.RequestBudgetExceeded
+                            budget)
+                    {
+                        RecordAuthenticationBudgetFailure(
+                            handle,
+                            budget.Budget);
+                    }
+                    else
+                    {
+                        RecordResolutionFailure(
+                            handle,
+                            rejected.Failure);
+                    }
                 }
 
                 _resolvedClasses.Add(
@@ -228,6 +237,54 @@ internal static class TypeParameterKindClassifier
                     handle,
                     "Type-resolution dependency authentication exceeded "
                         + $"the configured budget of {budget}.");
+
+        void RecordResolutionFailure(
+            TypeReferenceHandle handle,
+            TypeResolutionFailure failure)
+        {
+            if (_resolutionFailure is not null
+                || failure
+                    is TypeResolutionFailure.PlanExpansionRequired)
+            {
+                return;
+            }
+
+            string detail = failure switch
+            {
+                TypeResolutionFailure.CandidateOpenFailed open =>
+                    "A generic-constraint dependency could not be opened: "
+                        + open.Failure.Detail,
+                TypeResolutionFailure.DeclarationRejected rejected =>
+                    "A generic-constraint dependency declaration could not "
+                        + $"be decoded: {rejected.Rejection.Detail}",
+                TypeResolutionFailure.DiscoveryBudgetExceeded budget =>
+                    "Type-resolution dependency discovery exceeded "
+                        + $"the configured candidate budget of {budget.Budget}.",
+                TypeResolutionFailure.HopBudgetExceeded budget =>
+                    "Type-resolution dependency forwarding exceeded "
+                        + $"the configured hop budget of {budget.Budget}.",
+                TypeResolutionFailure.ForwarderCycle =>
+                    "Type-resolution dependency forwarding contains a cycle.",
+                TypeResolutionFailure.UnsupportedModuleExport =>
+                    "A generic-constraint dependency is exported from an "
+                        + "unsupported module.",
+                TypeResolutionFailure.UnsupportedModuleReference =>
+                    "A generic-constraint dependency begins from unsupported "
+                        + "module.",
+                TypeResolutionFailure.UnregisteredAssembly =>
+                    "A generic-constraint dependency assembly was not "
+                        + "registered in the frozen resolution generation.",
+                TypeResolutionFailure.InvalidBindingPolicy invalid =>
+                    "The generic-constraint binding policy returned "
+                        + $"'{invalid.Failure.Kind}'.",
+                _ => "Generic-constraint resolution was rejected.",
+            };
+            _resolutionFailure =
+                MetadataTypeNameFailure.ForMechanism(
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    handle,
+                    detail);
+        }
 
         TypeResolutionRequest? CreateRequest(
             MetadataReader reader,

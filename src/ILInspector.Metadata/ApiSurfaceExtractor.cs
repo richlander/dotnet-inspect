@@ -96,6 +96,16 @@ public static class ApiSurfaceExtractor
                 default,
                 budgetFailure);
         }
+
+        if (constraintResolution.Plan.ResolutionFailure
+            is { } resolutionFailure)
+        {
+            AddInspectionFailure(
+                surface,
+                "resolve generic parameter constraints",
+                default,
+                resolutionFailure);
+        }
     }
 
     static ApiSurface ExtractCore(
