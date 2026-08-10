@@ -192,6 +192,8 @@ wc -l | tr -d ' '
 
 > Goal: Read the best README document from inside the nupkg.
 
+### 6a. Print the README
+
 ```bash
 dotnet-inspect package System.CommandLine@2.0.3 -S "Package README file" --print
 ```
@@ -220,6 +222,16 @@ dotnet-inspect package Markout Polly --path @agents --path @readme --match first
 `project` grounding and API commands with `--project` both use an existing
 `project.assets.json` as the restored-assets context. Passing a project file or
 directory only locates that file; dotnet-inspect does not restore or build.
+
+### 6b. Resolve package skill paths
+
+```bash
+dotnet-inspect package Markout -S "Package skill files" --paths
+```
+
+```expect
+skills/markout/SKILL.md
+```
 
 ## 7. Search NuGet for packages
 
