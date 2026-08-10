@@ -174,7 +174,7 @@ public class ExtensionsCommand
             .ToLookup(
                 static finding => finding.Payload.Anchor,
                 static finding => finding.Payload);
-        var normalizedTarget = TypeMatcher.Normalize(targetType);
+        var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
         List<ExtensionMethodResult> results = [];
 
         foreach (var member in census.Members)
@@ -205,7 +205,7 @@ public class ExtensionsCommand
             }
 
             if (!TypeMatcher.Matches(
-                    TypeMatcher.Normalize(member.ExtendedType),
+                    FqnParser.NormalizeTypeName(member.ExtendedType),
                     normalizedTarget))
             {
                 continue;
@@ -244,8 +244,8 @@ public class ExtensionsCommand
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
-        OutputFormatter.WriteLimitedMarkdown(Console.Out,
-            MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
+        OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
     }
 
     private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)

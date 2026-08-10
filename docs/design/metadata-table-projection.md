@@ -280,8 +280,8 @@ counts, so they remain a single `Metadata: Image` section.
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view, nor in any other verbosity view, nor in `-S @All`. Three separate
-mechanisms are involved, and they do different jobs:
+`-v:m` view, in any other automatic verbosity view, or in either library base
+category. Three separate mechanisms are involved, and they do different jobs:
 
 - Each metadata table descriptor sets `ExplicitOnly => true`. That is a render
   gate — `SectionPipeline.IsRequested` returns `false` for an `ExplicitOnly`
@@ -392,16 +392,15 @@ worked example that document points at.
   (`-p:PublishAot=false`), so on that package the property rests on the code
   being SRM-only rather than on the runtime being unable to comply. A malformed
   coded index resolves to a visible failure marker, not a fabricated target.
-- **Heaps are opt-in.** The string/blob/user-string/guid heaps are the largest
+- **Heaps are explicit-only.** The string/blob/user-string/guid heaps are the largest
   amplification surface, so nothing that merely asks for *more output* may turn
   one on — only naming a heap section does. Verbosity is the axis that would
   otherwise leak them, which is what
   `MetadataLensTests.MetadataLens_NoVerbosity_RendersAnyHeapListing` gates: it
-  runs the two maximal requests the CLI accepts, `-v:d` (defined by the output
-  contract as "all sections") and `-S @All`, and asserts no heap section
-  renders under either. `-v:m` and `-v:n` are not run and do not need to be —
-  they are strict subsets of `-v:d`, so a section absent there cannot appear
-  under them.
+  runs the maximal automatic request, `-v:d`, and both base-category
+  selections, `-S @Library` and `-S @Surface`, and asserts no heap section
+  renders through any of them. `-v:m` and `-v:n` are not run and do not need to
+  be — they are strict subsets of `-v:d`.
 
 ### Two orthogonal axes
 

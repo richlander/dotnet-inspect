@@ -27,14 +27,16 @@ public class SymbolPackageDownloaderTests : IDisposable
             guid, pdbAge: 1, pdbFileName: "Missing.pdb", isPortable: true,
             assemblyPath: "/tmp/Missing.dll",
             packageName: "Example.Package",
-            packageVersion: "1.0.0");
+            packageVersion: "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
         var firstCount = handler.RequestCount;
 
         var second = await downloader.DownloadPdbAsync(
             guid, pdbAge: 1, pdbFileName: "Missing.pdb", isPortable: true,
             assemblyPath: "/tmp/Missing.dll",
             packageName: "Example.Package",
-            packageVersion: "1.0.0");
+            packageVersion: "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(first.PdbFilePath);
         Assert.Null(second.PdbFilePath);
@@ -56,7 +58,8 @@ public class SymbolPackageDownloaderTests : IDisposable
             guid, pdbAge: 1, pdbFileName: pdbFileName, isPortable: true,
             assemblyPath: "/tmp/Missing.dll",
             packageName: "Example.Package",
-            packageVersion: "1.0.0");
+            packageVersion: "1.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(result.PdbFilePath);
         // snupkg acquisition is keyed off assembly name + GUID, so an unusable
@@ -81,7 +84,8 @@ public class SymbolPackageDownloaderTests : IDisposable
             isPortable: true,
             assemblyPath: "/tmp/System.Text.Json.dll",
             packageName: "System.Text.Json",
-            packageVersion: "8.0.0");
+            packageVersion: "8.0.0",
+            cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.All(handler.RequestUris, uri =>
         {
@@ -90,6 +94,81 @@ public class SymbolPackageDownloaderTests : IDisposable
         });
         Assert.Contains(handler.RequestUris, uri =>
             uri.Contains("/System.Text.Json.pdb/00112233445566778899AABBCCDDEEFFFFFFFFFF/System.Text.Json.pdb", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DownloadPdbAsync_CancellationStopsSymbolRequest()
+    {
+        var handler = new BlockingHandler();
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(client);
+        using var cancellation = new CancellationTokenSource();
+        var guid = Guid.NewGuid();
+
+        Task<PdbDownloadResult> download = downloader.DownloadPdbAsync(
+            guid,
+            pdbAge: 1,
+            pdbFileName: $"Cancel-{guid:N}.pdb",
+            isPortable: true,
+            assemblyPath: "/tmp/Cancel.dll",
+            isPlatformAssembly: true,
+            cancellationToken: cancellation.Token);
+
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => download);
+    }
+
+    [Fact]
+    public async Task DownloadPdbAsync_PrivateMappingDoesNotProbeNuGetOrgSnupkg()
+    {
+        string configPath = Path.Combine(
+            Path.GetTempPath(),
+            $"symbol-mapping-{Guid.NewGuid():N}.config");
+        File.WriteAllText(configPath, """
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="https://private.example/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Private.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var handler = new CountingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(client);
+
+        try
+        {
+            await downloader.DownloadPdbAsync(
+                Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"),
+                pdbAge: 1,
+                pdbFileName: "Symbols.pdb",
+                isPortable: true,
+                assemblyPath: "/tmp/Private.Package.dll",
+                packageName: "Private.Package",
+                packageVersion: "1.0.0",
+                sourceOptions: new NuGetSourceOptions { ConfigFile = configPath },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.DoesNotContain(
+                handler.RequestUris,
+                uri => uri.Contains(".snupkg", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(
+                handler.RequestUris,
+                uri => uri.Contains("private.package", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 
     public void Dispose()
@@ -108,6 +187,21 @@ public class SymbolPackageDownloaderTests : IDisposable
             RequestCount++;
             RequestUris.Add(request.RequestUri?.ToString() ?? "");
             return Task.FromResult(responder(request));
+        }
+    }
+
+    private sealed class BlockingHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource<bool> RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 }

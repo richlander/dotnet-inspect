@@ -47,7 +47,10 @@ internal sealed class LineLimitingTextWriter : TextWriter
             {
                 _lineCount++;
                 if (_lineCount >= _maxLines)
+                {
+                    _limitReached = true;
                     return;
+                }
             }
         }
     }
@@ -67,7 +70,10 @@ internal sealed class LineLimitingTextWriter : TextWriter
                 {
                     _lineCount++;
                     if (_lineCount >= _maxLines)
+                    {
+                        _limitReached = true;
                         return;
+                    }
                 }
             }
         }

@@ -917,7 +917,9 @@ public static class TimelineCommand
                 {
                     Packages = [$"{packageId}@{address.Version.ToNormalizedString()}"],
                     Tfm = options.Tfm,
-                    SourceOptions = options.SourceOptions,
+                    SourceOptions = NuGetSourceResolver.RestrictToSources(
+                        options.SourceOptions,
+                        address.ReportingSourceUrls),
                     TempDirPrefix = "inspect-timeline",
                     IncludePackageRuntimeAssemblies = true,
                 },
@@ -1277,9 +1279,9 @@ public static class TimelineCommand
             return;
         }
 
-        var writer = new MarkoutWriter(new MarkdownFormatter());
+        var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
-        Console.WriteLine(OutputFormatter.ApplyRowLimit(writer.ToString(), options.Rows));
+        Console.WriteLine(writer.ToString().TrimEnd());
     }
 
     internal sealed record TimelineEvaluation(

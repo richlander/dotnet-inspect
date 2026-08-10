@@ -56,10 +56,17 @@ static class FidelityCheck
     /// corpus sensor compares numbers that were never comparable.
     /// </summary>
     /// <remarks>
-    /// v2 (#3491) added generated-member ordinal correspondence. Roslyn's local-function
+    /// v2 (#3580) added generated-member ordinal correspondence. Roslyn's local-function
     /// and state-machine names embed an ordinal over the containing type's members, which
     /// necessarily differs once one side is a reconstructed skeleton, so v1 reported
     /// operand differences between identical bodies.
+    /// <para>
+    /// v3 (#3645) removes the older per-side synthesized-member rewrite. That rewrite
+    /// masked real differences between overloads because uniqueness is not a property
+    /// either side can establish alone. The correspondence now owns lambda methods and
+    /// their cache fields as well as local functions and state machines, so the unsafe
+    /// fallback is no longer needed.
+    /// </para>
     /// <para>
     /// The flag set is the trigger this version is <em>gated</em> on, but it is not the
     /// whole of what it protects: the equality rules also include how
@@ -75,12 +82,13 @@ static class FidelityCheck
     /// body that compared unequal before cannot compare equal after. Measured on the
     /// pinned corpus, it moved nothing: <c>Area=Fidelity</c> is 68/0 before and after,
     /// because the corpus carries no <c>EXPLICITTHIS</c> signature and no instance
-    /// function pointer. A v2 baseline therefore stays comparable to a v2 run. A renderer
+    /// function pointer. A baseline therefore stays comparable within one contract
+    /// version. A renderer
     /// change that is not monotone, or that moves a corpus number, does not get this
     /// argument and must bump.
     /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 2;
+    internal const int CurrentContractVersion = 3;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
@@ -91,13 +99,10 @@ static class FidelityCheck
         // renumbers the containing-method ordinal in every closure name it
         // synthesizes. That renumbering is not decompiler evidence (#3503).
         //
-        // The two options split the name space rather than overlapping: the
-        // correspondence owns `d__`, `g__` and `b__` and folds only where the
-        // ordinal-free key is one-to-one on both sides, and the per-side
-        // rewrite keeps `<>9__`, which it still folds on weaker evidence
-        // (#3645). Retiring that last form needs a field index the
-        // correspondence does not have yet, which is the next slice.
-        | IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals
+        // The correspondence folds only where the ordinal-free key is one-to-one on
+        // both sides. That two-sided evidence is the entire contract: the retired
+        // per-side rewrite could not distinguish overloads and masked real differences
+        // (#3645), so contract v3 removes it rather than layering the two mechanisms.
         | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
 
     const int MaxTransientEmptyEmitAttempts = 3;
@@ -398,7 +403,23 @@ static class FidelityCheck
     /// filtering, so an all-matching predicate cannot disguise an unbounded sweep.
     /// </param>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<string, bool>? typeFilter = null)
-        => Evaluate(assemblyPath, lowered: false, typeFilter);
+        => Evaluate(assemblyPath, lowered: false, ClusterMode.Off, typeFilter, methodFilter: null);
+
+    /// <summary>
+    /// Runs the fidelity check only for methods admitted by
+    /// <paramref name="methodFilter"/>. The selector receives metadata identity
+    /// before per-method import, render, disassembly, or compile-back work. The
+    /// selected method is still compiled in a whole-module skeleton.
+    /// </summary>
+    public static IReadOnlyList<CompileBackResult> Evaluate(
+        string assemblyPath,
+        Func<string, bool> typeFilter,
+        Func<EvaluationMethod, bool> methodFilter)
+    {
+        ArgumentNullException.ThrowIfNull(typeFilter);
+        ArgumentNullException.ThrowIfNull(methodFilter);
+        return Evaluate(assemblyPath, lowered: false, ClusterMode.Off, typeFilter, methodFilter);
+    }
 
     /// <summary>
     /// Runs the fidelity check roundtrip for a chosen view — the shipped raised
@@ -408,7 +429,7 @@ static class FidelityCheck
     /// cross-method import seam from the open source (lambda raising).
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, Func<string, bool>? typeFilter = null)
-        => Evaluate(assemblyPath, lowered, ClusterMode.Off, typeFilter);
+        => Evaluate(assemblyPath, lowered, ClusterMode.Off, typeFilter, methodFilter: null);
 
     /// <summary>
     /// Compatibility overload: <paramref name="cluster"/> true selects the
@@ -416,7 +437,7 @@ static class FidelityCheck
     /// then escalate only its failures to the reconstruction closure).
     /// </summary>
     public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, bool cluster, Func<string, bool>? typeFilter = null)
-        => Evaluate(assemblyPath, lowered, cluster ? ClusterMode.Escalate : ClusterMode.Off, typeFilter);
+        => Evaluate(assemblyPath, lowered, cluster ? ClusterMode.Escalate : ClusterMode.Off, typeFilter, methodFilter: null);
 
     /// <summary>
     /// Evaluates one assembly with the chosen reconstruction-closure (cluster)
@@ -424,7 +445,12 @@ static class FidelityCheck
     /// environment variable selects <see cref="ClusterMode.Escalate"/> for the
     /// console path.
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, ClusterMode clusterMode, Func<string, bool>? typeFilter = null)
+    public static IReadOnlyList<CompileBackResult> Evaluate(
+        string assemblyPath,
+        bool lowered,
+        ClusterMode clusterMode,
+        Func<string, bool>? typeFilter = null,
+        Func<EvaluationMethod, bool>? methodFilter = null)
     {
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
@@ -442,6 +468,13 @@ static class FidelityCheck
                     + $"'{assemblyPath}' does not contain managed metadata.",
                     nameof(typeFilter));
             }
+            if (methodFilter is not null)
+            {
+                throw new ArgumentException(
+                    $"The method filter selected no processable method because "
+                    + $"'{assemblyPath}' does not contain managed metadata.",
+                    nameof(methodFilter));
+            }
 
             return results;
         }
@@ -455,7 +488,28 @@ static class FidelityCheck
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in selectedTypes)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode);
+        {
+            EvaluateType(
+                reader,
+                pe,
+                source,
+                typeHandle,
+                references,
+                parseOptions,
+                compileOptions,
+                render,
+                results,
+                clusterMode: clusterMode,
+                methodFilter: methodFilter);
+        }
+
+        if (methodFilter is not null && results.Count == 0)
+        {
+            throw new ArgumentException(
+                "The method filter selected no processable method after type filtering. "
+                + "Match EvaluationMethod.Type, Method, and Overload against a method with a body.",
+                nameof(methodFilter));
+        }
 
         return results;
     }
@@ -823,7 +877,8 @@ static class FidelityCheck
         IReadOnlyList<string> assemblies,
         IReadOnlyList<CompileBackTarget> targets,
         bool lowered,
-        PrinterOptions? options)
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         var methodTargets = targets
             .Select(target => new MethodTarget(
@@ -836,7 +891,7 @@ static class FidelityCheck
                 DisplayMethod: $"{target.Type}::{target.Method}"))
             .ToArray();
 
-        return EvaluateTargets(assemblies, methodTargets, lowered, options)
+        return EvaluateTargets(assemblies, methodTargets, lowered, options, readSymbols)
             .Select(row => row.Result)
             .ToArray();
     }
@@ -844,7 +899,12 @@ static class FidelityCheck
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
         => EvaluateTargets(assemblies, targets, lowered, options: null);
 
-    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered, PrinterOptions? options)
+    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<MethodTarget> targets,
+        bool lowered,
+        PrinterOptions? options,
+        bool readSymbols = true)
     {
         if (targets.Count == 0)
             return [];
@@ -872,7 +932,12 @@ static class FidelityCheck
                 var portablePath = PortablePath(assemblyPath);
                 var reader = pe.GetMetadataReader();
                 MetadataSource source;
-                try { source = MetadataSource.Open(assemblyPath, context: metadata); }
+                try
+                {
+                    source = readSymbols
+                        ? MetadataSource.Open(assemblyPath, context: metadata)
+                        : MetadataSource.OpenWithoutSymbols(assemblyPath, context: metadata);
+                }
                 catch { continue; }
                 RegisterSourceContext(source, metadata);
                 using (source)
@@ -1098,6 +1163,13 @@ static class FidelityCheck
         string OrigText, IReadOnlyList<string> OrigOps, bool IsFull);
 
     /// <summary>
+    /// Stable metadata identity available before a method is imported, rendered,
+    /// disassembled, or compiled back. The overload is the method-name ordinal in
+    /// metadata order, matching <see cref="CompileBackResult.Overload"/>.
+    /// </summary>
+    internal readonly record struct EvaluationMethod(string Type, string Method, int Overload);
+
+    /// <summary>
     /// Imports, renders, and disassembles every recompilable method of one type.
     /// Null when the type is not a class/struct we recompile. The render/IL work
     /// is independent of how the methods are later compiled (grouped or per-method).
@@ -1105,12 +1177,13 @@ static class FidelityCheck
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
-        Func<string, bool>? typeFilter = null)
+        Func<string, bool>? typeFilter = null,
+        Func<EvaluationMethod, bool>? methodFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
             return null; // nested types are emitted by their enclosing type
-        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries, typeFilter);
+        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries, typeFilter, methodFilter);
     }
 
     /// <summary>
@@ -1124,7 +1197,8 @@ static class FidelityCheck
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
-        Func<string, bool>? typeFilter = null)
+        Func<string, bool>? typeFilter = null,
+        Func<EvaluationMethod, bool>? methodFilter = null)
     {
         if (maxEntries <= 0)
             return null;
@@ -1154,6 +1228,8 @@ static class FidelityCheck
             overloads[key] = overload + 1;
             if (method.RelativeVirtualAddress == 0 || IsGeneratedMethod(reader, method, name))
                 continue;
+            if (methodFilter is not null && !methodFilter(new EvaluationMethod(fullType, name, overload)))
+                continue;
 
             var function = IrImporter.Import(source, fullType, name, overload);
             if (function is null)
@@ -1174,7 +1250,7 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncBodyModifier
                 || function.IsRuntimeAsync == MetadataFactState.Yes;
-            var wholeMember = TryRenderTargetMember(pe, source, mh);
+            var wholeMember = TryRenderTargetMember(pe, source, mh, targeted: methodFilter is not null);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -1338,11 +1414,12 @@ static class FidelityCheck
         ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
         int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off,
-        Func<string, bool>? typeFilter = null)
+        Func<string, bool>? typeFilter = null,
+        Func<EvaluationMethod, bool>? methodFilter = null)
     {
         if (maxEntries <= 0)
             return;
-        if (CollectType(reader, pe, source, typeHandle, render, maxEntries, typeFilter) is not var (fullType, entries) || entries.Count == 0)
+        if (CollectType(reader, pe, source, typeHandle, render, maxEntries, typeFilter, methodFilter) is not var (fullType, entries) || entries.Count == 0)
             return;
         results.AddRange(EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
@@ -3659,12 +3736,12 @@ static class FidelityCheck
     /// (keeping the legacy <see cref="EmitMethod"/> path) for member kinds not yet
     /// migrated — constructors interact with lifted field initializers, and
     /// accessors are emitted as whole properties — or when production does not
-    /// complete. The whole type is rendered once (batched) and memoized, so
-    /// resolving each of a type's members costs one shared setup, not one per
-    /// member.
+    /// complete. Broad evaluation renders the whole type once and memoizes the
+    /// batch; method-filtered evaluation uses the product's targeted member path
+    /// so unselected siblings are not rendered.
     /// </summary>
     static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
-        PEReader pe, MetadataSource source, MethodDefinitionHandle mh)
+        PEReader pe, MetadataSource source, MethodDefinitionHandle mh, bool targeted)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
@@ -3673,11 +3750,34 @@ static class FidelityCheck
         if (entry.Member.Kind is not ("method" or "operator"))
             return null;
 
-        var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
-        var rendered = memo.GetOrAdd(entry.Type, static (type, src) => RenderTypeMembers(type, src), source);
-        if (!rendered.TryGetValue(entry.Member, out var result) || !result.IsComplete || result.Text is null)
+        var result = targeted
+            ? RenderTargetMember(entry.Type, entry.Member, source)
+            : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
+        if (result is null || !result.IsComplete || result.Text is null)
             return null;
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
+    {
+        try
+        {
+            return SourceContextCache.TryGetValue(source, out var context)
+                ? MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null, context.Resolver, context)
+                : MemberBodyProducer.ProduceMember(type, member, source.Path, pdbPath: null);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    static MemberRenderResult? RenderTypeMemberBatch(
+        PEReader pe, ApiType type, ApiMember member, MetadataSource source)
+    {
+        var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
+        var rendered = memo.GetOrAdd(type, static (candidate, src) => RenderTypeMembers(candidate, src), source);
+        return rendered.GetValueOrDefault(member);
     }
 
     /// <summary>

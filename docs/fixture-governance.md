@@ -56,6 +56,21 @@ metadata just because consumers observe them from another assembly.
 - Add or update contract tests when introducing a new boundary so the semantic
   axis cannot be erased by later cleanup.
 
+## Compiler-produced test sources
+
+Compiler-produced source in a test project should live in a feature-focused
+`*Samples.cs` file next to its owning tests. Name the file for the behavior it
+exercises, keep related sample types together, and preserve the source shape
+whose emitted IL is the evidence.
+
+Do not add unrelated fixtures to `CfgSampleClass.cs`. Migrate its existing
+standalone sample types incrementally when their owning feature changes,
+without renaming symbols or combining the move with behavior changes. Validate
+each extraction in Release with the focused tests and any affected source
+inventory, fidelity, or corpus gates; a source-file move can change PDB
+documents, metadata ordering, and corpus identities even when method bodies are
+unchanged.
+
 ## Expectation ownership
 
 Fixtures are test assets, not product. Reserve adversarial rigor for the

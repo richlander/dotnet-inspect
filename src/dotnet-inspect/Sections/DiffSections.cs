@@ -1,19 +1,53 @@
+using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using Markout;
 
 namespace DotnetInspector.Sections;
 
 public sealed record DiffDiscoveryModel;
 
+public sealed record DiffQueryContext(
+    ApiSurface FromSurface,
+    ApiSurface ToSurface);
+
+public sealed record DiffSectionCatalog(
+    SectionPipeline<DiffDiscoveryModel> Pipeline,
+    InspectionQueryRegistry<DiffQueryContext> QueryRegistry);
+
 public static class DiffSections
 {
+    public static DiffSectionCatalog CreateCatalog()
+    {
+        var queryRegistry = CreateQueryRegistry();
+        return new DiffSectionCatalog(
+            CreatePipeline(queryRegistry.CostOf),
+            queryRegistry);
+    }
+
     public static SectionPipeline<DiffDiscoveryModel> CreatePipeline()
     {
+        var queryRegistry = CreateQueryRegistry();
+        return CreatePipeline(queryRegistry.CostOf);
+    }
+
+    private static SectionPipeline<DiffDiscoveryModel> CreatePipeline(
+        Func<InspectionQueryDefinition, InspectionCost> queryCost)
+    {
         return new SectionPipeline<DiffDiscoveryModel>()
-            .Add<Changes>()
+            .UseQueryCosts(queryCost)
+            .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>()
             .Add<ImplementationDiff>()
             .Add<FindingTransitions>();
     }
+
+    public static InspectionQueryRegistry<DiffQueryContext> CreateQueryRegistry()
+        => new InspectionQueryRegistry<DiffQueryContext>()
+            .Add(
+                ApiComparisonQuery.Definition,
+                static context => ApiComparisonQuery.Execute(
+                    context.FromSurface,
+                    context.ToSurface));
 
     public static DocumentSchema CreateSchema()
     {

@@ -185,7 +185,8 @@ public class PdbContext : IDisposable
     public long FileSize { get; }
 
     /// <summary>
-    /// Last write time captured at open time (avoids repeated lstat syscalls).
+    /// Last write time retained from the authoritative acquisition or captured
+    /// from the open file handle.
     /// </summary>
     public DateTime LastWriteTimeUtc { get; }
 
@@ -219,7 +220,8 @@ public class PdbContext : IDisposable
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
-        bool entireImagePrefetched)
+        bool entireImagePrefetched,
+        DateTime? lastWriteTimeUtc)
     {
         _peStream = peStream;
         _peReader = peReader;
@@ -230,7 +232,7 @@ public class PdbContext : IDisposable
         FileSize = peStream.Length;
         LastWriteTimeUtc = peStream is FileStream fileStream
             ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
-            : default;
+            : lastWriteTimeUtc ?? default;
     }
 
     /// <summary>
@@ -241,8 +243,15 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default);
 
     /// <summary>
+    /// Opens the PE image and reads its debug directory without loading an embedded or adjacent
+    /// PDB. Used by latency-bounded metadata discovery that does not need source documents.
+    /// </summary>
+    public static PdbContext OpenMetadataOnly(string assemblyPath, Action<string>? log = null)
+        => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
+
+    /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
-    /// The optional path is used only for adjacent PDB discovery and file metadata.
+    /// The optional path is used only for adjacent PDB discovery.
     /// </summary>
     public static PdbContext Open(
         ResolvedAssemblyReference assembly,
@@ -254,7 +263,8 @@ public class PdbContext : IDisposable
             assembly.Path,
             assembly.Identity.Name,
             log,
-            PEStreamOptions.Default);
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc);
     }
 
     /// <summary>
@@ -289,25 +299,48 @@ public class PdbContext : IDisposable
         => Open(
             assemblyPath,
             log,
-            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: true);
+
+    /// <summary>
+    /// Opens an acquisition descriptor with its complete authoritative image prefetched.
+    /// </summary>
+    public static PdbContext OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen,
+            assembly.LastWriteTimeUtc);
+    }
 
     static PdbContext Open(
         string assemblyPath,
         Action<string>? log,
-        PEStreamOptions streamOptions)
+        PEStreamOptions streamOptions,
+        bool loadLocalPdb = true)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
             Path.GetFileName(assemblyPath),
             log,
-            streamOptions);
+            streamOptions,
+            lastWriteTimeUtc: null,
+            loadLocalPdb);
 
     static PdbContext Open(
         Stream stream,
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
-        PEStreamOptions streamOptions)
+        PEStreamOptions streamOptions,
+        DateTime? lastWriteTimeUtc,
+        bool loadLocalPdb = true)
     {
         PEReader peReader;
         try
@@ -326,13 +359,15 @@ public class PdbContext : IDisposable
             assemblyPath,
             assemblyDisplayName,
             log,
-            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0);
+            (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
+            lastWriteTimeUtc);
 
         if (!peReader.HasMetadata)
             return context;
 
         context.ReadDebugDirectory();
-        context.TryLoadLocalPdb();
+        if (loadLocalPdb)
+            context.TryLoadLocalPdb();
 
         return context;
     }

@@ -49,6 +49,10 @@ public class TypeView
     [JsonIgnore]
     public List<PartialSourceFileInfo>? AdditionalSourceFiles { get; set; }
 
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public bool CallGraphIncomplete { get; set; }
+
     [MarkoutSkipNull]
     [MarkoutPropertyName("TFM")]
     public string? Tfm { get; set; }
@@ -846,6 +850,18 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
+
+    [MarkoutSection(Name = SectionNames.AnnotatedSourceDocument)]
+    public CodeSection AnnotatedSourceDocumentCode { get; set; }
+
+    /// <summary>The structured value backing <see cref="AnnotatedSourceDocumentCode"/>.</summary>
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.AnnotatedSourceDocument? AnnotatedSourceDocument { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public ILInspector.Decompiler.DecompilerResult? AnnotatedSourceDocumentFailure { get; set; }
 
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }

@@ -47,7 +47,17 @@ public enum CallGraphNodeKind
 /// facts about the member, not presentation: a host projects whichever it was asked for and
 /// ignores the rest.
 /// </param>
-public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind, CallTreePerf? Perf = null);
+/// <param name="GraphEvidence">
+/// Distinct physical evidence carried by the projected tree occurrences that
+/// collapsed onto this logical node.
+/// </param>
+public sealed record CallGraphNode(
+    int Id,
+    MemberRef Member,
+    string Label,
+    CallGraphNodeKind Kind,
+    CallTreePerf? Perf = null,
+    ImmutableArray<GraphNodeEvidence> GraphEvidence = default);
 
 /// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
@@ -72,7 +82,7 @@ public readonly record struct CallGraphEdge(int From, int To, string? LoopLabel)
 /// <para>
 /// This is the host-neutral product layer that sits <em>below</em> host applications, so
 /// every consumer shares one graph semantics regardless of output format. It owns the
-/// concerns a host must not re-invent: stable generic-erased node identity, duplicate /
+/// concerns a host must not re-invent: Analysis-owned node identity, duplicate /
 /// shared-node and cycle collapsing, inbound edge inversion, depth-limited and external
 /// boundary classification, loop-call edge annotation, and deterministic node and edge
 /// ordering.
@@ -131,23 +141,31 @@ public sealed class CallGraphProjection
         // token. Only a resolved / placeholder pair may differ — the placeholder is
         // unknown identity, not a contradiction (a bodiless target the builders resolve
         // asymmetrically).
+        bool useGraphEvidence =
+            HasCompleteGraphEvidence(callerRoot)
+            && HasCompleteGraphEvidence(calleeRoot);
         if (callerRoot is not null && calleeRoot is not null
             && callerResolved == calleeResolved
-            && IdentityKey(callerRoot.Member) != IdentityKey(calleeRoot.Member))
+            && Identity(callerRoot, useGraphEvidence)
+                != Identity(calleeRoot, useGraphEvidence))
             throw new ArgumentException($"{nameof(callerRoot)} and {nameof(calleeRoot)} must describe the same selected member.");
 
         var focus = calleeResolved ? calleeRoot!.Member
             : callerResolved ? callerRoot!.Member
             : (calleeRoot ?? callerRoot)!.Member;
 
-        var builder = new Builder();
+        var builder = new Builder(useGraphEvidence);
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that focus, so map both roots to the same id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
         // Each tree measured half of the focus: the callee root owns fan-out, the caller
         // root owns fan-in and the root classification. Merge them rather than picking one,
         // or the focus reports a direction it never measured.
-        int focusId = builder.RegisterFocus(focus, MergePerf(calleeRoot?.Perf, callerRoot?.Perf));
+        int focusId = builder.RegisterFocus(
+            focus,
+            MergePerf(calleeRoot?.Perf, callerRoot?.Perf),
+            calleeRoot?.GraphEvidence,
+            callerRoot?.GraphEvidence);
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -169,30 +187,58 @@ public sealed class CallGraphProjection
         return Create(null, calleeRoot);
     }
 
-    private sealed class MutableNode(int id, MemberRef member, string label, CallGraphNodeKind kind, CallTreePerf? perf)
+    private sealed class MutableNode(
+        int id,
+        MemberRef member,
+        string label,
+        CallGraphNodeKind kind,
+        CallTreePerf? perf)
     {
         public int Id { get; } = id;
         public MemberRef Member { get; } = member;
         public string Label { get; } = label;
         public CallGraphNodeKind Kind { get; set; } = kind;
         public CallTreePerf? Perf { get; set; } = perf;
+        public List<GraphNodeEvidence> GraphEvidence { get; } = [];
     }
 
-    private sealed class Builder
+    private sealed class Builder(bool useGraphEvidence)
     {
-        private readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
+        private readonly Dictionary<GraphNodeIdentity, int> _ids = [];
         private readonly List<MutableNode> _nodes = [];
         private readonly Dictionary<(int From, int To), int> _edgeIndex = [];
         private readonly List<CallGraphEdge> _edges = [];
 
-        public int RegisterFocus(MemberRef member, CallTreePerf? perf) => GetOrAdd(member, CallGraphNodeKind.Focus, perf);
+        public int RegisterFocus(
+            MemberRef member,
+            CallTreePerf? perf,
+            GraphNodeEvidence? firstEvidence,
+            GraphNodeEvidence? secondEvidence)
+        {
+            GraphNodeIdentity identity = useGraphEvidence
+                ? (firstEvidence ?? secondEvidence)!.Identity
+                : GraphNodeIdentity.FromMember(member);
+            int id = GetOrAdd(
+                identity,
+                member,
+                CallGraphNodeKind.Focus,
+                perf,
+                firstEvidence);
+            AddEvidence(_nodes[id], secondEvidence);
+            return id;
+        }
 
         /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
         public void WalkCallers(CallTreeNode node, int nodeId)
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
+                int childId = GetOrAdd(
+                    Identity(child, useGraphEvidence),
+                    child.Member,
+                    KindFor(child.Status),
+                    child.Perf,
+                    child.GraphEvidence);
                 AddEdge(childId, nodeId, LoopLabel(child.Perf));
                 WalkCallers(child, childId);
             }
@@ -203,7 +249,12 @@ public sealed class CallGraphProjection
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
+                int childId = GetOrAdd(
+                    Identity(child, useGraphEvidence),
+                    child.Member,
+                    KindFor(child.Status),
+                    child.Perf,
+                    child.GraphEvidence);
                 AddEdge(nodeId, childId, LoopLabel(child.Perf));
                 WalkCallees(child, childId);
             }
@@ -213,18 +264,38 @@ public sealed class CallGraphProjection
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
-                nodes.Add(new CallGraphNode(node.Id, node.Member, node.Label, node.Kind, node.Perf));
+            {
+                nodes.Add(
+                    new CallGraphNode(
+                        node.Id,
+                        node.Member,
+                        node.Label,
+                        node.Kind,
+                        node.Perf,
+                        [.. node.GraphEvidence]));
+            }
             return new CallGraphProjection(nodes.MoveToImmutable(), [.. _edges]);
         }
 
-        private int GetOrAdd(MemberRef member, CallGraphNodeKind candidate, CallTreePerf? perf)
+        private int GetOrAdd(
+            GraphNodeIdentity identity,
+            MemberRef member,
+            CallGraphNodeKind candidate,
+            CallTreePerf? perf,
+            GraphNodeEvidence? evidence)
         {
-            var key = IdentityKey(member);
-            if (!_ids.TryGetValue(key, out var id))
+            if (!_ids.TryGetValue(identity, out var id))
             {
                 id = _nodes.Count;
-                _ids[key] = id;
-                _nodes.Add(new MutableNode(id, member, Label(member), candidate, perf));
+                _ids[identity] = id;
+                var node = new MutableNode(
+                    id,
+                    member,
+                    Label(member),
+                    candidate,
+                    perf);
+                AddEvidence(node, evidence);
+                _nodes.Add(node);
                 return id;
             }
 
@@ -237,7 +308,22 @@ public sealed class CallGraphProjection
             // A member reached by both walks was measured twice, each time by a walk that
             // only indexes one direction, so merge the observations field by field.
             info.Perf = MergePerf(info.Perf, perf);
+            AddEvidence(info, evidence);
             return id;
+        }
+
+        static void AddEvidence(
+            MutableNode node,
+            GraphNodeEvidence? evidence)
+        {
+            if (evidence is null
+                || node.GraphEvidence.Any(
+                    existing => existing.Storage.Equals(evidence.Storage)))
+            {
+                return;
+            }
+
+            node.GraphEvidence.Add(evidence);
         }
 
         private void AddEdge(int from, int to, string? loopLabel)
@@ -255,30 +341,26 @@ public sealed class CallGraphProjection
         }
     }
 
-    /// <summary>
-    /// A stable structural identity for a member so shared callees, cycles, the
-    /// focus-as-caller-and-callee, and self-recursion all collapse to one node. This
-    /// mirrors the Analysis layer's cross-assembly caller-graph identity
-    /// (<see cref="GenericMemberIdentity"/>): the open-definition side (the focus root and
-    /// caller nodes, which <c>BuildCallerTree</c> builds without method type arguments)
-    /// and the constructed-call-site side (callee edges decoded from IL) must erase to the
-    /// <em>same</em> key, so a generic member that calls itself collapses onto one node
-    /// instead of splitting. Non-generic members keep their exact instantiated signature —
-    /// including the return type, which alone separates C# conversion operators — while
-    /// same-name / same-arity generic overloads coarsen, the accepted trade the rest of
-    /// the product already makes. The declaring type is assembly-qualified, so
-    /// same-namespace / same-name types from different assemblies stay distinct (#1741).
-    /// </summary>
-    internal static string IdentityKey(MemberRef member)
+    static GraphNodeIdentity Identity(
+        CallTreeNode node,
+        bool useGraphEvidence) =>
+        useGraphEvidence
+            ? node.GraphEvidence!.Identity
+            : GraphNodeIdentity.FromMember(node.Member);
+
+    static bool HasCompleteGraphEvidence(CallTreeNode? root)
     {
-        // Mirror LibraryBodyIndex.CallerGraphKey exactly so the projection and the builder
-        // compute byte-identical keys for the same MemberRef.
-        var eraseGenericSignature = GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments);
-        var openDeclaring = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType);
-        var shape = eraseGenericSignature
-            ? GenericMemberIdentity.ErasedParameterShape(member.OpenSignatureParameters)
-            : string.Join(",", member.ParameterTypes.Select(GenericMemberIdentity.KeyFragment));
-        return $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{member.Name}|{member.ParameterTypes.Length}|{shape}|{GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
+        if (root is null)
+            return true;
+        if (root.GraphEvidence is null)
+            return false;
+        foreach (CallTreeNode child in root.Children)
+        {
+            if (!HasCompleteGraphEvidence(child))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>Compact, host-neutral member spelling offered as a default node label.</summary>

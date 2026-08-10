@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using CSharpText;
 using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
@@ -658,6 +659,21 @@ public sealed partial class CSharpPrinter
     {
         string pad = new(' ', indent * 4);
         var blocks = container.Blocks;
+        IrNode? lastStatementBeforeTrailingLocalFunctions = null;
+        if (topLevel && blocks.Count > 0)
+        {
+            // Local-function declarations execute nothing and may legally follow
+            // the host's terminal return, so they do not make that return non-terminal.
+            var statements = blocks[^1].Children;
+            for (int i = statements.Count - 1; i >= 0; i--)
+            {
+                if (statements[i] is LocalFunctionStatement)
+                    continue;
+                lastStatementBeforeTrailingLocalFunctions = statements[i];
+                break;
+            }
+        }
+
         // A label binds to the next statement, even one in a following block, so
         // an empty labeled block is fine mid-container. It only strands when the
         // container ends with no statement after the label; track that and emit a
@@ -678,15 +694,19 @@ public sealed partial class CSharpPrinter
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
             // the label as invalid C#.
-            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset) && block.Children.Count == 1;
+            bool labeledReturnOnly = _labelTargets.Contains(block.StartOffset)
+                && block.Children.Count(statement => statement is not LocalFunctionStatement) == 1;
             var emit = new List<IrNode>();
             foreach (var statement in block.Children)
             {
                 if (ReferenceEquals(statement, _chainStatement) || _fieldInitStores.Contains(statement))
                     continue;   // lifted to the signature initializer / field declarations
-                bool isLast = topLevel && i == blocks.Count - 1 && ReferenceEquals(statement, block.Children[^1]);
-                if (isLast && !labeledReturnOnly && statement is Return { Value: null })
-                    break;
+                bool isLastStatement = ReferenceEquals(statement, lastStatementBeforeTrailingLocalFunctions);
+                bool statementOwnsLabel = statement.SourceOffset >= 0
+                    && _labelTargets.Contains(statement.SourceOffset);
+                if (isLastStatement && !labeledReturnOnly && !statementOwnsLabel
+                    && statement is Return { Value: null })
+                    continue;
                 emit.Add(statement);
             }
 
@@ -5161,10 +5181,10 @@ public sealed partial class CSharpPrinter
                 }
             }
 
-            // Opt-in readable names: a local with no usable source name gets a
-            // synthesized name from IR evidence (its type, loop-counter role),
-            // collision-resolved against names already taken. Off by default, so
-            // the shipped V_index output is untouched.
+            // When enabled, a local with no usable source name gets a synthesized
+            // name from IR evidence (its type, loop-counter role), collision-
+            // resolved against names already taken. The library default remains
+            // off; the CLI enables this for user-facing source.
             if (_options.ReadableLocalNames)
             {
                 var counters = LoopCounterLocals();
@@ -5234,7 +5254,7 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// Locals written by a <see cref="ForLoop"/>'s increment — the induction
     /// variables that earn the conventional <c>i</c>/<c>j</c>/<c>k</c> name in the
-    /// opt-in readable-names mode. Evidence from the structured tree, not a guess.
+    /// readable-names mode. Evidence from the structured tree, not a guess.
     /// </summary>
     HashSet<int> LoopCounterLocals()
     {

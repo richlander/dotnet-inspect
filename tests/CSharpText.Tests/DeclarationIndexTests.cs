@@ -21,6 +21,8 @@ namespace CSharpText.Tests;
 /// </remarks>
 public class DeclarationIndexTests
 {
+    private const string StableConditionalCorpusFile = "ConditionalCorpusFixture.cs";
+
     [Fact]
     public void EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex()
     {
@@ -92,6 +94,7 @@ public class DeclarationIndexTests
         int inside = 0;
         int containing = 0;
         int containingVouched = 0;
+        bool stableFixtureCovered = false;
 
         foreach (var file in ConditionalCorpus())
         {
@@ -101,6 +104,9 @@ public class DeclarationIndexTests
                 continue;
 
             files++;
+            stableFixtureCovered |= Path.GetFileName(file).Equals(
+                StableConditionalCorpusFile,
+                StringComparison.Ordinal);
 
             var actual = DeclarationIndex.Build(lines).Declarations.ToList();
 
@@ -159,11 +165,12 @@ public class DeclarationIndexTests
             }
         }
 
-        // Non-vacuity, and it is load-bearing twice over. The first two floors catch a corpus that
-        // stopped containing conditional files at all, which would make this gate pass by
-        // comparing nothing -- the precise way its predecessor failed. The third asserts the
-        // population it is *not* comparing is non-empty too, so a change that quietly widened the
-        // skip until every declaration fell inside a region could not pass here.
+        // Non-vacuity, and it is load-bearing twice over. The owned fixture keeps this gate from
+        // depending only on incidental directives elsewhere in the repository. The population
+        // floors prevent that fixture from replacing the broad real-source corpus, which would
+        // make a green result much weaker. The inside floor asserts the population this test is
+        // deliberately not comparing is non-empty too, so quietly widening the skip cannot pass.
+        Assert.True(stableFixtureCovered, $"{StableConditionalCorpusFile} was not compared");
         Assert.True(files >= 5, $"no conditional corpus to gate anything: {files} files");
         Assert.True(compared >= 300, $"conditional corpus too small to gate anything: {compared} declarations");
         Assert.True(inside > 0, $"the skip is vacuous: no declaration touched a conditional region");
@@ -3476,10 +3483,9 @@ public class DeclarationIndexTests
     /// <summary>
     /// <para>
     /// The files carrying a conditional directive, which is a different corpus from
-    /// <see cref="Corpus"/> and has to be, because this repository has almost none:
-    /// five files in fourteen hundred, and not one of them is in this test binary's
-    /// dependency closure, so the PDB-discovered corpus contains zero. A gate built on that
-    /// corpus would pass by comparing nothing.
+    /// <see cref="Corpus"/> and has to be, because this repository has almost none. The owned
+    /// fixture is in this test binary's dependency closure, but the broad population is not, so
+    /// the PDB-discovered corpus is too small to gate the recovery behavior on its own.
     /// </para>
     /// <para>
     /// The <c>#if</c> text search is a candidate filter, not the answer -- Roslyn confirms every

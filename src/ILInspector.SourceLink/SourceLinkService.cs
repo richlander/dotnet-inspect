@@ -65,6 +65,14 @@ public sealed class SourceLinkService : IDisposable
         ISourceLinkIndexCache? cache)
         => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache, log);
 
+    /// <summary>
+    /// Opens only the PE metadata and debug directory. Embedded and adjacent PDBs are not loaded.
+    /// </summary>
+    public static SourceLinkService OpenMetadataOnly(
+        string assemblyPath,
+        Action<string>? log = null)
+        => new(PdbContext.OpenMetadataOnly(assemblyPath, log), DefaultCache, log);
+
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,
@@ -75,6 +83,15 @@ public sealed class SourceLinkService : IDisposable
         string assemblyPath,
         Action<string>? log = null)
         => new(PdbContext.OpenPrefetched(assemblyPath, log), DefaultCache, log);
+
+    public static SourceLinkService OpenPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+        => new(
+            PdbContext.OpenPrefetched(assembly, log),
+            cache ?? DefaultCache,
+            log);
 
     public PdbContext Context => _context;
     public bool HasPdb => _context.HasPdb;

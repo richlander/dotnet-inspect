@@ -1,4 +1,5 @@
 using System.Text;
+using CSharpText;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -72,7 +73,7 @@ public sealed record MemberTargetSelector(
         var (digestHead, digest) = SplitDigest(work);
         var (overloadHead, overloadIndex) = FqnParser.TrySplitOverload(digestHead);
         var genericArity = TryGetGenericArity(overloadHead);
-        var name = TypeMatcher.NormalizeMemberName(overloadHead);
+        var name = FqnParser.NormalizeMemberName(overloadHead);
         return new MemberTargetSelector(
             requested,
             name,

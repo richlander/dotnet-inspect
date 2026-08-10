@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -289,15 +290,16 @@ public static class InspectionCommandDefinitions
         };
         assemblyPathArg.DefaultValueFactory = _ => null;
 
-        var referencesOption = new Option<bool>("--references") { Description = "Show library references" };
-        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Show library dependencies as a tree (tip: use 'depends --library' instead)" };
+        var referencesOption = new Option<bool>("--references") { Description = "Legacy alias for -S References" };
+        var dependenciesOption = new Option<bool>("--dependencies") { Description = "Legacy alias for -S References --tree" };
+        var referenceDepthOption = new Option<int?>("--depth") { Description = "With -S References --tree: maximum depth (1 = direct references only)" };
         var asmPlatformOption = new Option<string?>("--platform") { Description = "Inspect platform library (e.g., System.Text.Json)" };
         var asmPackageOption = new Option<string?>("--package") { Description = "Inspect library from NuGet package (e.g., System.Text.Json or System.Text.Json@9.0.4)" };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
-        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0, or 'all' for every TFM)" };
+        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
@@ -310,6 +312,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Arguments.Add(assemblyPathArg);
         assemblyCommand.Options.Add(referencesOption);
         assemblyCommand.Options.Add(dependenciesOption);
+        assemblyCommand.Options.Add(referenceDepthOption);
         assemblyCommand.Options.Add(asmPlatformOption);
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
@@ -327,6 +330,7 @@ public static class InspectionCommandDefinitions
         // trace should advertise the flag. A flag every command accepts and only one honours is
         // worse than an unrecognized argument, which at least fails loudly.
         assemblyCommand.Options.Add(opts.Trace);
+        assemblyCommand.Options.Add(opts.Effective);
         opts.AddAllOptionsTo(assemblyCommand);
         opts.AddCountOptionTo(assemblyCommand);
         opts.AddPrintOptionTo(assemblyCommand);
@@ -345,6 +349,7 @@ public static class InspectionCommandDefinitions
             string? platformAssembly = explicitPlatform;
             var requestedFramework = parseResult.GetValue(asmFrameworkOption);
             var requestedPlatformVersion = parseResult.GetValue(asmVersionOption);
+            NuGetSourceOptions? sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
 
             if (!string.IsNullOrEmpty(source) && string.IsNullOrEmpty(explicitPlatform) && string.IsNullOrEmpty(explicitPackage))
             {
@@ -369,7 +374,8 @@ public static class InspectionCommandDefinitions
                         source, HttpClientFactory.Shared, log,
                         requestedFramework,
                         platformVersion: requestedPlatformVersion,
-                        useRuntimeAssemblies: true);
+                        useRuntimeAssemblies: true,
+                        sourceOptions: sourceOptions);
                     if (error == null && asmPath != null)
                         platformAssembly = source;
                     else if (!string.IsNullOrEmpty(requestedFramework) || !string.IsNullOrEmpty(requestedPlatformVersion))
@@ -427,6 +433,7 @@ public static class InspectionCommandDefinitions
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
+                ReferenceTreeDepth = parseResult.GetValue(referenceDepthOption),
                 PackagePath = packagePath,
                 IncludePrerelease = parseResult.GetValue(asmPrereleaseOption),
                 PlatformAssembly = platformAssembly,
@@ -452,6 +459,7 @@ public static class InspectionCommandDefinitions
                 Trace = parseResult.GetValue(opts.Trace),
                 Verbosity = opts.ParseVerbosity(parseResult),
                 Discover = opts.ParseDiscover(parseResult),
+                Effective = parseResult.GetValue(opts.Effective),
                 Tree = parseResult.GetValue(opts.Tree),
                 Select = select,
                 SelectDefault = selectDefault,

@@ -73,8 +73,9 @@ The first implementation is `ILOffsetProjectionProducer`:
 
 The capability replaces product friendship. Research and the CLI consume
 explicit Metadata operations; neither receives `PEReader` or `MetadataReader`.
-The source rejects resolver operations after its owning session is disposed,
-while copied body data remains safe to retain.
+`LayeringTests.Metadata_FriendsOnlyTestAssemblies` enforces the complete
+Metadata friend set. The source rejects resolver operations after its owning
+session is disposed, while copied body data remains safe to retain.
 
 This establishes the migration pattern for the existing member projection:
 top-level contracts, a focused `MemberProjectionProducer`, and a thin

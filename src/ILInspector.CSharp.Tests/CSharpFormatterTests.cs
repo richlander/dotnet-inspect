@@ -78,6 +78,40 @@ public sealed class CSharpFormatterTests
         Assert.Empty(declaration.Diagnostics);
     }
 
+    [Theory]
+    [InlineData(CSharpTypeNamePolicy.Qualified, "public System.Threading.Tasks.Task Run()", false)]
+    [InlineData(CSharpTypeNamePolicy.ShortWithUsings, "public Task Run()", true)]
+    [InlineData(CSharpTypeNamePolicy.ContextualShort, "public Task Run()", false)]
+    public void TypeNamePolicyAppliesToIndividualMemberDeclarations(
+        CSharpTypeNamePolicy policy,
+        string expectedDeclaration,
+        bool expectsGeneratedUsing)
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Worker", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Run",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.Threading.Tasks.Task",
+                MemberName = "Run"
+            }
+        };
+        var formatter = new CSharpFormatter(new CSharpFormatOptions
+        {
+            TypeNamePolicy = policy,
+            Usings = policy == CSharpTypeNamePolicy.ContextualShort
+                ? ["System.Threading.Tasks"]
+                : []
+        });
+
+        var declaration = formatter.FormatMemberUnit(type, member);
+
+        Assert.Contains(expectedDeclaration, declaration.Text, StringComparison.Ordinal);
+        Assert.Equal(expectsGeneratedUsing, declaration.Usings.Contains("System.Threading.Tasks"));
+    }
+
     [Fact]
     public void FormatsParameterListsWithAttributesDefaultsAndEscapedKeywords()
     {

@@ -29,7 +29,8 @@ public static class DependencyResolutionService
     /// </summary>
     public static async Task<List<DependencyNode>> ResolveDependencyTreeAsync(
         HttpClient client, List<PackageDependency> dependencies, string tfm,
-        HashSet<string> globalSeen, Action<string>? log)
+        HashSet<string> globalSeen, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
     {
         List<DependencyNode> nodes = [];
 
@@ -41,7 +42,13 @@ public static class DependencyResolutionService
             log?.Invoke($"Resolving: {dep.Id} {dep.Version}");
 
             var (children, author) = await ResolveChildDependenciesAsync(
-                client, dep.Id, dep.Version, tfm, globalSeen, log).ConfigureAwait(false);
+                client,
+                dep.Id,
+                dep.Version,
+                tfm,
+                globalSeen,
+                log,
+                sourceOptions).ConfigureAwait(false);
 
             nodes.Add(new DependencyNode(dep.Id, dep.Version, author, children));
         }
@@ -100,7 +107,8 @@ public static class DependencyResolutionService
 
     private static async Task<(List<DependencyNode> Children, string? Author)> ResolveChildDependenciesAsync(
         HttpClient client, string packageId, string versionRange, string tfm,
-        HashSet<string> globalSeen, Action<string>? log)
+        HashSet<string> globalSeen, Action<string>? log,
+        NuGetSourceOptions? sourceOptions)
     {
         try
         {
@@ -111,7 +119,11 @@ public static class DependencyResolutionService
             // nuspec (from cache or the flat-container endpoint) instead of downloading and
             // extracting the whole .nupkg.
             string? nuspecXml = await DotnetInspector.Packages.PackageExtractor.TryGetNuspecXmlAsync(
-                client, packageId, version, log).ConfigureAwait(false);
+                client,
+                packageId,
+                version,
+                log,
+                sourceOptions).ConfigureAwait(false);
             if (nuspecXml == null) return ([], null);
 
             var nuspec = NuspecParser.ParseContent(nuspecXml);
@@ -121,10 +133,20 @@ public static class DependencyResolutionService
             var selection = SelectDependencyGroup(nuspec.DependencyGroups, tfm);
             if (selection.Group?.Dependencies is not { Count: > 0 }) return ([], nuspec.Authors);
 
-            var children = await ResolveDependencyTreeAsync(client, selection.Group.Dependencies, selection.TargetFramework ?? tfm, globalSeen, log).ConfigureAwait(false);
+            var children = await ResolveDependencyTreeAsync(
+                client,
+                selection.Group.Dependencies,
+                selection.TargetFramework ?? tfm,
+                globalSeen,
+                log,
+                sourceOptions).ConfigureAwait(false);
             return (children, nuspec.Authors);
         }
         catch (NuspecParseException)
+        {
+            throw;
+        }
+        catch (PackageSourceMappingException)
         {
             throw;
         }

@@ -191,8 +191,7 @@ no longer resolves in the pinned assembly — treat it like a Drifted verify row
 - Do not delete the `vendor/authored-source-corpus` orphan branch or migrate its
   bodies onto `main`. The vendored snapshot is the reproducible oracle.
 - Build the harness with the solution graph: `dotnet build dotnet-inspect.slnx
-  -c Release`. If a user-global NuGet feed trips NU1507, add `--configfile
-  ./nuget.config`.
+  -c Release`.
 - Verify and benchmark over the pinned assemblies, never a fresh local build of
   the tool (that reintroduces #1404 circularity).
 

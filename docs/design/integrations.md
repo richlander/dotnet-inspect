@@ -119,6 +119,48 @@ The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
 metadata inventory.
 
+## Group-scoped query
+
+`AssemblyContextIntegrationsQuery` is the first typed query that runs across an
+entire assembly context group. It scans each participant sequentially in group
+order and returns both ecosystem and OpenTelemetry evidence with the
+participant's opaque identity and resolution provenance. It does not deduplicate
+signals across assemblies: companion assemblies may expose different useful
+currency, and preserving the producing assembly lets later composition decide
+how to group or present it.
+
+Image acquisition rejection remains explicit beside available participant
+results, so a budget-limited group cannot look like a complete group with fewer
+integrations. Late malformed-metadata mapping is implemented but not yet
+independently gated. The query reuses the workspace's immutable snapshots and
+does not reopen paths or streams.
+`AssemblyContextIntegrationsQueryTests.RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots`
+and
+`AssemblyContextIntegrationsQueryTests.Execute_CarriesAcquisitionFailureBesideLaterResults`
+gate participant ordering, snapshot reuse, and general partial acquisition.
+`AssemblyContextIntegrationsQueryTests.Execute_ReportsBudgetExhaustionAsIncompleteEntry`
+gates the budget-limited case.
+
+The library CLI and package `--all-libraries` host now execute this query when a
+focused `Integration:` section or `@Integrations` is selected. The section
+catalog binds every member of the family to the same query definition by object
+identity and owns a separate group-query registry because the query consumes an
+`AssemblyContextGroup`, not a single-library scanner context.
+
+The command creates one group for the selected assembly set, projects each typed
+entry into the corresponding `LibraryInspection`, and retains the workspace's
+authoritative immutable image for the rest of that library inspection. A path
+retarget after query execution therefore cannot mix one assembly's integration
+evidence with another assembly's metadata or opportunity scan.
+`AssemblyContextIntegrationsRunner_LendsTheQueriedSnapshotToLibraryInspection`
+gates that shared-image boundary.
+
+`Integration: Opportunities` remains a CLI composition scanner. It consumes the
+query-produced existing-integration evidence before scanning for missing
+registration surfaces; opportunity production has not moved into the L1 group
+query. Cancellation-aware group execution and optional concurrency remain later
+slices.
+
 ## Relationship to sections and categories
 
 The focused `Integration:` sections are members of the `@Integrations` section

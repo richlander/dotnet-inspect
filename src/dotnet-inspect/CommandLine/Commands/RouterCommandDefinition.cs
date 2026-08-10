@@ -207,14 +207,14 @@ public static class RouterCommandDefinition
             if (hasVersionQuery || target.Contains('@'))
                 return ["package", .. tokens];
 
-            var sourceKeys = NuGetSourceResolver.ResolveSourceKeys(sourceOptions);
             var context = new CommandContext(verbose: false);
             if (PlatformResolver.IsPlatformCandidate(target))
             {
                 var (resolvedPath, _, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
                     target,
                     context.HttpClient,
-                    context.Logger.Log);
+                    context.Logger.Log,
+                    sourceOptions: sourceOptions);
                 if (resolvedPath != null && resolvedError == null)
                 {
                     AssemblySurfaceClassificationOutcome classification =
@@ -241,7 +241,7 @@ public static class RouterCommandDefinition
             string? platformLookupFailure = null;
             var memberSplit = SharedParsers.TrySplitQualifiedTypeMember(
                 target,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)
@@ -285,7 +285,7 @@ public static class RouterCommandDefinition
 
             var typeProbe = SourceResolver.TryResolveQualifiedTypeName(
                 target,
-                sourceKeys,
+                sourceOptions,
                 allowPlatformPrefixFallback,
                 message => platformLookupFailure = message);
             if (platformLookupFailure is not null)
@@ -325,7 +325,7 @@ public static class RouterCommandDefinition
 
             if (PlatformResolver.IsPlatformCandidate(target))
             {
-                if (await PackageExistsAsync(target, sourceKeys, sourceOptions, context))
+                if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
 
                 return ["type", target, .. tail];
@@ -343,14 +343,17 @@ public static class RouterCommandDefinition
 
         private static async Task<bool> PackageExistsAsync(
             string packageName,
-            IReadOnlyList<string> sourceKeys,
             NuGetSourceOptions sourceOptions,
             CommandContext context)
         {
-            if (NuGetCache.TryGetLatestCachedVersion(
+            if (PackageExtractor.HasCachedCandidateVersion(
                     packageName,
-                    sourceKeys) != null)
+                    SourceResolver.ResolveSourceKeysForProbe(
+                        sourceOptions,
+                        packageName)))
+            {
                 return true;
+            }
 
             try
             {

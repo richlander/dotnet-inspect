@@ -340,8 +340,16 @@ one that was here, and it had gone stale by two.
 - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
   `..%5c` survive canonicalization, so a "canonicalize, then prefix-check" step
   passes while a server that percent-decodes before resolving dot segments still
-  traverses out. Encoded separators and encoded dot segments are rejected rather
-  than assumed resolved.
+  traverses out. Encoded separators are rejected rather than assumed resolved.
+  Encoded dots are different: `System.Uri` decodes them, removes encoded parent
+  segments from the path before the origin is read, and sends that canonical
+  path. Provenance therefore follows the final origin exactly as it does for
+  literal `..`; an encoded dot in a file name is not treated as traversal.
+  Measured against `dotnet/runtime` commit `9904b934...`, GitHub serves
+  `README%2Emd` as the same 4800 bytes and SHA-256 as `README.md`. Gated by
+  `SourceLinkProvenanceTests.AnEncodedDotOutsideAParentSegment_RemainsAttributable`,
+  `...AnEncodedParentSegment_ReportsWhereContentIsReallyServedFrom`, and
+  `...AnEncodedDotInAnAzureContentPath_RemainsAttributable`.
 - `https://raw.githubusercontent.com@evil.example/...` parses with host
   `evil.example` and user info `raw.githubusercontent.com`. The host allow list
   rejects it, since `Uri` takes the authority after the last `@`; user info is
@@ -438,6 +446,19 @@ one that was here, and it had gone stale by two.
   same 985 bytes and SHA-256 as `path=/README.md`, while `scopePath=/` returns a
   different 425-byte response. Gated by
   `SourceLinkProvenanceTests.ASubstitutionThatSelectsNoContent_IsNotAttributable`.
+- A query has one delimiter, not an arbitrary run of them. Trimming every
+  leading `?` from
+  `items??versionType=commit&version={sha}&path=/*` made this reader see
+  `versionType=commit`; Azure sees the first parameter as `?versionType`,
+  ignores it, and applies the default branch interpretation to `version`.
+  A 40-hex branch is valid, so the URL could serve a branch while provenance
+  and the cache identity named the same text as a commit. The reader now removes
+  exactly one delimiter and refuses the unknown `?versionType` name for
+  attribution. Resolution remains available because `path` still selects the
+  requested document. Gated by
+  `SourceLinkProvenanceTests.AnExtraQueryDelimiter_DoesNotTurnABranchIntoAnAttributedCommit`;
+  the non-refusal boundary is pinned by the corresponding row in
+  `SourceLinkMapConformanceTests.OnlyAnEntryThatCannotSelectContent_IsRefusedResolution`.
 - The two content selectors are each allow-listed, and their *combination* was
   never considered. `path` names an item and `scopePath` a collection, and the
   host refuses to be asked for both rather than preferring one: measured,

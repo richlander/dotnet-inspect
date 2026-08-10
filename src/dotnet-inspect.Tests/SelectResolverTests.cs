@@ -35,6 +35,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Equal("Package Info", Assert.Single(result.ExactSections));
     }
 
     [Fact]
@@ -45,6 +46,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Package Info", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Empty(result.ExactSections);
     }
 
     [Fact]
@@ -58,6 +60,33 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Contains("Performance Triage", result.Sections);
         Assert.Empty(result.Unresolved);
+        Assert.Equal("Performance Triage", Assert.Single(result.ExactSections));
+    }
+
+    [Fact]
+    public void ResolveSelect_DependencyAlias_ResolvesToReferences()
+    {
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Dependencies"], ["References"]);
+
+        Assert.Equal("References", Assert.Single(result.Sections!));
+        Assert.Empty(result.Unresolved);
+    }
+
+    [Fact]
+    public void TryResolveCategory_AliasDoesNotOverrideExactSection()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Performance"] = ["Performance: Boxing"]
+        };
+
+        Assert.False(SelectResolver.TryResolveCategory(
+            "Performance", categories, ["Performance"], out _, out _));
+        Assert.True(SelectResolver.TryResolveCategory(
+            "Performance", categories, [], out var category, out var sections));
+        Assert.Equal("@Performance", category);
+        Assert.Equal("Performance: Boxing", Assert.Single(sections));
     }
 
     [Fact]
@@ -107,6 +136,7 @@ public class SelectResolverTests
         Assert.NotNull(result.Sections);
         Assert.Empty(result.Unresolved);
         Assert.Equal(["Statistics", "Vulnerabilities"], result.Sections!.OrderBy(s => s).ToArray());
+        Assert.Empty(result.ExactSections);
     }
 
     [Fact]
@@ -149,6 +179,21 @@ public class SelectResolverTests
         Assert.Single(result.Unresolved);
         Assert.False(result.Unresolved[0].IsGlob);
         Assert.Contains("Package Info", result.Unresolved[0].Suggestions);
+    }
+
+    [Fact]
+    public void ResolveSelect_ExactMiss_SuggestsCategoriesAndSectionsTogether()
+    {
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["@Library"] = ["Library Info"]
+        };
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            ["Library"], ["Library Info"], categories: categories);
+
+        var miss = Assert.Single(result.Unresolved);
+        Assert.Equal(["@Library", "Library Info"], miss.Suggestions);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using ILInspector.Metadata;
+using ILInspector.Decompiler;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -50,6 +51,12 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<SourceFileInfo>))]
 [JsonSerializable(typeof(PackageSourceFileInfo))]
 [JsonSerializable(typeof(List<PackageSourceFileInfo>))]
+[JsonSerializable(typeof(PackageSourceLinkIssue))]
+[JsonSerializable(typeof(List<PackageSourceLinkIssue>))]
+[JsonSerializable(typeof(PackageSourceLinkFile))]
+[JsonSerializable(typeof(List<PackageSourceLinkFile>))]
+[JsonSerializable(typeof(PackageSourceAvailability))]
+[JsonSerializable(typeof(PackageSourceIntegrity))]
 public partial class JsonContext : JsonSerializerContext
 {
 }
@@ -115,6 +122,26 @@ public partial class ApiTypeJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 public partial class ApiTypeCompactJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext
+{
+}
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(AnnotatedSourceDocument))]
+internal partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext
 {
 }
 

@@ -6,15 +6,15 @@
 
 ## Status
 
-Design and staged implementation plan for replacing the former collection of
-type-forwarder helpers and spelling-based caller matching with one structured
+Implemented architecture replacing the former collection of type-forwarder
+helpers and spelling-based caller matching with one structured
 reference-to-definition system.
 
-Slices 1 through 4 are implemented: declaration, acquisition, resolution,
-definition consumers, source/API consumers, platform lookup, and facade
-classification now use structured contracts. Direct caller correspondence and
-graph cleanup remain. The delivery continues to follow the primitive-first
-approach used by `InertString` in
+Slices 1 through 6 are delivered. Declaration, acquisition, resolution,
+definition consumers, source/API consumers, platform lookup, facade
+classification, direct caller correspondence, and call graphs use the
+structured contracts. The delivery followed the primitive-first approach used
+by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
@@ -32,23 +32,24 @@ TypeRef
                       -> TypeDef
 ```
 
-The product currently represents different parts of that relationship as
-assembly-name strings, canonicalized strings, file paths, and nullable returns.
-Each consumer then reconstructs the relationship it needs:
+Before this migration, the product represented different parts of that
+relationship as assembly-name strings, canonicalized strings, file paths, and
+nullable returns. Each consumer then reconstructed the relationship it needed:
 
-- `TypeForwardResolver` follows forwarders and returns `TypeLocation`.
-- `LibraryBodyIndex` repeats the traversal because it needs readers with a
+- `TypeForwardResolver` followed forwarders and returned `TypeLocation`.
+- `LibraryBodyIndex` repeated the traversal because it needed readers with a
   different lifetime.
 - `PdbContext`, `SourceLinkService`, `SourceEnricher`, and `ApiServices`
-  recover a target assembly name and construct a sibling path.
-- `PlatformResolver.FindLibraryContainingType` sweeps framework files and
-  returns the first defining or forwarding assembly name, while
-  `IsFacadeOnlyAssembly` separately interprets forwarder rows.
+  recovered a target assembly name and constructed a sibling path.
+- `PlatformResolver.FindLibraryContainingType` swept framework files and
+  returned the first defining or forwarding assembly name, while
+  `IsFacadeOnlyAssembly` separately interpreted forwarder rows.
 - `CallerScopeFilter`, `CallerScopeTypeFilter`, and
-  `MemberPattern.MatchesCrossAssembly` compare different projections of a
+  `MemberPattern.MatchesCrossAssembly` compared different projections of a
   type's assembly spelling.
-- `TypeRef.CanonicalAssembly` deliberately erases which core-library facade a
-  reference named.
+- `TypeRef.CanonicalAssembly` erased which core-library facade a reference
+  named. It remains a local decompiler normalization, not a resolution or
+  correspondence identity.
 
 Recent PRs expose the cost of that representation:
 
@@ -1564,9 +1565,9 @@ from one module with declarations from another.
 This preserves the single PE-lifetime owner established by
 `AssemblyInspectionSession`; it does not lend a reader to a consumer or dispose
 a session that a consumer cache expects to retain. The catalog outlives every
-`TypeResolutionContext` and graph cache containing its keys. This removes the
-reason `LibraryBodyIndex` currently repeats traversal beside
-`TypeForwardResolver`.
+`TypeResolutionContext` and graph cache containing its keys. `LibraryBodyIndex`,
+the decompiler, and the compile-back harness now consume that owner; the former
+per-call `TypeForwardResolver` compatibility path has been removed.
 
 Candidate discovery and correspondence are separate phases.
 `TypeResolutionCatalog` is the inspection-lifetime owner. Its internal
@@ -2345,25 +2346,28 @@ Graph joins hash only catalog-issued join tokens, never
 `ResolvedTypeDefinitionKey`. A member key containing only tokens whose kind is
 `Exact` yields an exact edge. Matching keys containing any token whose kind is
 `IndeterminateDuplicateArtifact` yield an
-`IndeterminateCorrespondence` edge carrying the catalog's duplicate evidence.
+indeterminate logical node; `GraphNodeEvidence.Correspondence` retains the
+catalog's duplicate evidence on every physical definition or call site that
+supports it.
 
 When both sides have the same degraded key under one catalog and binding scope,
-the graph likewise retains an `IndeterminateCorrespondence` edge and emits
-incomplete-graph evidence; it does not report exact definition correspondence.
+the graph likewise joins them only as indeterminate correspondence; it does not
+report exact definition correspondence.
 Both `UnboundBinding` and `Unavailable` are eligible because each preserves the
 complete terminal binding request. `NotFound`, ambiguous, rejected, or
-cross-catalog uses do not degraded-join. Every non-success remains attached to
-its storage node, never enters a shared unresolved bucket, and never becomes an
-ordinary "no edge."
+cross-catalog uses do not degraded-join. Those projections retain unique
+`GraphNodeStorageKey` identities and appear through
+`CatalogCallGraphScope.IncompleteNodes` / `IncompleteEdges`; every non-success
+remains attached to its physical evidence and never becomes an ordinary
+"no edge."
 
-Today's graph joins on canonical simple assembly names and therefore merges
-version, culture, token, and several core-library facade spellings. The
-degraded projection is intentionally narrower: it preserves an unavailable join
-only when the complete binding request agrees. Version-skewed or differently
-identified references remain separate storage nodes with incomplete evidence.
-Trusted platform policy resolves supported core-library facade differences
-before this fallback. This compatibility narrowing is explicit and gated; it is
-not described as preservation of the old graph.
+The catalog graph no longer joins on canonical simple assembly-name strings.
+Version, culture, token, and core-library facade differences are resolved
+through source-relative binding policy before member correspondence. The
+degraded projection is intentionally narrower: it preserves an unavailable
+join only when the complete binding request agrees. Version-skewed or
+differently identified references remain separate storage nodes with
+incomplete evidence.
 
 Every metadata-driven degraded component carries the source candidate through
 `AssemblyBindingDomainKey`. `CurrentAssembly` and `ModuleReference` additionally
@@ -2374,12 +2378,13 @@ complete identity and scope also agree. Cross-source fragmentation is the
 intentional soundness boundary: without resolved correspondence, the catalog
 has no proof that two private binding domains denote one type.
 
-This is a separate migration slice because it changes graph-key construction
-and cache identity. The `ScopeGraph` cache owns a lease on the acquisition
-catalog that minted its keys; cache reuse checks both `AssemblyCatalogId` and
-`AssemblyCatalogGenerationId`, reporting a typed mismatch rather than returning
-misses from a dead key space. It neither serializes keys nor mixes keys from
-another catalog or generation. It is not a separate forwarding model.
+`CatalogCallGraphScope` owns the catalog and frozen context that minted its
+keys. It plans each distinct source signature once, unions requests before
+freezing, projects each plan once, and stores physical definitions, call sites,
+and edges once for both traversal directions. `ReleaseGraph` disposes that
+generation; a later query creates a new generation without reopening the
+already-owned body indexes. The scope neither serializes keys nor mixes keys
+from another catalog or generation. It is not a separate forwarding model.
 
 ### Source and API consumers
 
@@ -2562,9 +2567,9 @@ explicit resource budgets.
 - Implement the iterative cross-assembly engine.
 - Make catalog and resolution caches safe for concurrent Analysis with
   single-flight opens and probes.
-- Port the current `TypeForwardResolver` behavioral coverage to engine tests,
-  but leave that compatibility resolver's scope and per-call behavior unchanged
-  until its consumers migrate with caller-owned catalogs in Slice 3.
+- Port the former `TypeForwardResolver` behavioral coverage to engine tests.
+  Delete that compatibility resolver after its consumers migrate with
+  caller-owned catalogs.
 
 Claim: one typed request resolves to one typed definition or one explicit
 non-success outcome, with one lifetime owner.
@@ -2623,6 +2628,11 @@ paths.
 Claim: `Callers` finds a caller compiled through a facade by comparing resolved
 definition keys, with no spelling alias model.
 
+Direct `Callers` applies this correspondence to the declaring type. Forwarding
+of non-core-library parameter types remains downstream work in
+[#3513](https://github.com/richlander/dotnet-inspect/issues/3513); graph
+correspondence resolves every named signature type independently.
+
 ### Slice 6: graph correspondence and cleanup
 
 - Split total graph storage identity from optional resolved member
@@ -2633,17 +2643,43 @@ definition keys, with no spelling alias model.
 - Add architecture gates that prevent direct resolution logic from returning
   to Analysis or the CLI.
 
-Slice 6 is in progress under
+Slice 6 is delivered by
+[#3782](https://github.com/richlander/dotnet-inspect/pull/3782),
+[#3856](https://github.com/richlander/dotnet-inspect/pull/3856), and
+[#3876](https://github.com/richlander/dotnet-inspect/pull/3876), closing
 [#3780](https://github.com/richlander/dotnet-inspect/issues/3780). Metadata
-currently issues generation-scoped `DefinitionJoinToken` values for exact and
-duplicate-indeterminate TypeDef correspondence classes and
-`UnresolvedBindingKey` values for complete unbound or unavailable binding
-requests. Analysis now materializes one reusable open-signature correspondence
-plan and projects it through one frozen context into a generation-scoped
-`CatalogMemberJoinKey` or typed incomplete evidence. Total graph storage
-identity, `ScopeGraph` migration, unresolved-edge presentation, and
-cache-lifetime binding remain to be delivered together so the storage shape is
-validated by its first consumer rather than added as an unused parallel key.
+issues generation-scoped `DefinitionJoinToken` and `UnresolvedBindingKey`
+values. Analysis projects complete open signatures into
+`CatalogMemberJoinKey`, retains total physical storage and typed incomplete
+evidence in `CatalogCallGraphScope`, and serves both graph directions from one
+frozen generation. `CatalogMemberCorrespondencePlanTests`,
+`CatalogCallGraphScopeTests`, and `MemberCallGraphSessionTests` gate
+forwarded declaring/parameter/return types, duplicate and unavailable evidence,
+physical participant deduplication, generation release, and product reuse.
+`TypeResolutionContextTests.NestedForwarder_ResolvesFullDeclarationChain`
+gates the nested-forwarder composition from declaration chain through final
+definition.
+`ReturnToSenderPrototypeTests.CompileBackTargets_RoundTripsForwardedExternalExplicitInterfaceMethod`
+gates the compile-back harness's structured forwarder wiring.
+`ResolveExternalTypeDefinition_AcceptsByteIdenticalPlatformSibling`,
+`ResolveExternalTypeDefinition_DeclinesWhenSiblingSpoofsDurableAddress`, and
+`ResolveExternalTypeDefinition_DeclinesWhenPlatformSelectionDiffersFromCompilationClosure`
+gate candidate consistency when resolution tightens a signed forwarder hop.
+`CompileBackTargets_AcceptsByteIdenticalDirectSignedInterfaceSibling` and
+`CompileBackTargets_DeclinesDirectSignedInterfaceSpoof` apply the same check to
+the target assembly's initial platform-signed `AssemblyRef`; unsigned
+hand-authored references retain the prior closure scan. The structured engine
+replays the complete initial binding and forwarding walk through Roslyn's
+sibling-first closure and requires the same assembly identity, matching
+defining-image SHA-256 digest, and durable TypeDef address.
+`CreateCompilationClosure_FreezesResolverAndRoslynToSameDependencyImage` gates
+that Roslyn references and structured inspection share one frozen acquisition
+generation even when a dependency path is replaced afterward.
+`CompileBackPropertyGetters_SharesOneCompilationClosure` and the cluster/all
+scope gate keep that generation assembly-scoped rather than target-scoped.
+`AssemblyDependencyResolverTests.Acquire_SnapshotBudgetExhaustionIsTyped`
+gates the cumulative retained-image budget, while
+`AuthoredBody_ReusesFrozenRtsCompilationClosure` gates reuse by authored replay.
 
 Claim: direct callers and transitive call graphs share one definition identity.
 

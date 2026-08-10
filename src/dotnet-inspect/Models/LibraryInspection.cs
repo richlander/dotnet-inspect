@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Findings;
@@ -46,6 +47,9 @@ internal static class LibraryInspectionDisplay
 
 public class LibraryInspection
 {
+    [JsonIgnore]
+    public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
+
     [JsonIgnore]
     public string? Tfm { get; set; }
 
@@ -233,6 +237,32 @@ public class LibraryInspection
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? SourceIntegrityMismatches { get; set; }
+
+    private SourceAvailabilityResult? _sourceAvailabilityQueryResult;
+
+    [JsonIgnore]
+    public SourceAvailabilityResult? SourceAvailabilityQueryResult
+    {
+        get => _sourceAvailabilityQueryResult;
+        set
+        {
+            _sourceAvailabilityQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    private SourceIntegrityResult? _sourceIntegrityQueryResult;
+
+    [JsonIgnore]
+    public SourceIntegrityResult? SourceIntegrityQueryResult
+    {
+        get => _sourceIntegrityQueryResult;
+        set
+        {
+            _sourceIntegrityQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AssemblyInfo? AssemblyInfo { get; set; }
@@ -487,8 +517,7 @@ public class LibraryInspection
     }
 
     /// <summary>
-    /// Image-level metadata facts for the <c>@Metadata</c> lens: the metadata version, heap
-    /// sizes, and the per-table physical row counts.
+    /// Typed result of the metadata-image query backing the <c>@Metadata</c> lens.
     ///
     /// This is deliberately the *cheap* half of the lens. It is what the per-table sections'
     /// <c>CanRender</c> consults, so a table with no rows never renders an empty section, and it
@@ -496,17 +525,32 @@ public class LibraryInspection
     /// happens at render time for the selected tables only, so selecting one table never pays to
     /// project the other sixteen.
     ///
-    /// Null when the metadata scanner did not run (no metadata section was requested) or when the
-    /// image carries no metadata at all. Those are different facts, and the lens distinguishes
-    /// them: an image with no metadata reports that rather than rendering success-shaped empty
-    /// sections.
+    /// Null means the query did not run. <see cref="MetadataImageResult.NoMetadata"/> and
+    /// <see cref="MetadataImageResult.Failed"/> remain distinct so absence and acquisition failure
+    /// cannot collapse into the same empty rendering.
     /// </summary>
     [JsonIgnore]
-    public MetadataImageOverview? MetadataOverview { get; set; }
+    public MetadataImageResult? MetadataImageResult
+    {
+        get;
+        set
+        {
+            field = value;
+            _inspectionFailuresInitialized = false;
+            _inspectionFailures = null;
+        }
+    }
+
+    /// <summary>The available metadata overview, or null when the query did not produce one.</summary>
+    [JsonIgnore]
+    public MetadataImageOverview? MetadataOverview =>
+        MetadataImageResult is MetadataImageResult.Available available
+            ? available.Overview
+            : null;
 
     /// <summary>
     /// The path the metadata lens re-opens to project rows at render time. Captured from the
-    /// scanner rather than recovered from <see cref="FileName"/>, which is a display name and
+    /// query adapter rather than recovered from <see cref="FileName"/>, which is a display name and
     /// not always a resolvable path (extracted package assemblies resolve elsewhere).
     /// </summary>
     [JsonIgnore]
@@ -607,6 +651,27 @@ public class LibraryInspection
             AddFailure(failures, "Type Forwarders", TypeForwarderInspection);
             AddFailure(failures, "Union Types", UnionTypeInspection);
             AddFailure(failures, "Switches", SwitchInspection);
+            if (MetadataImageResult is MetadataImageResult.Failed metadataFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    MetadataSectionNames.Image,
+                    MetadataImageQuery.Definition.Name,
+                    metadataFailure.Error.Message));
+            }
+            if (SourceAvailabilityQueryResult is SourceAvailabilityResult.Failed availabilityFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    DotnetInspector.Sections.SectionNames.SourceLinkAvailability,
+                    SourceAvailabilityQuery.Definition.Name,
+                    availabilityFailure.Reason));
+            }
+            if (SourceIntegrityQueryResult is SourceIntegrityResult.Failed integrityFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    DotnetInspector.Sections.SectionNames.SourceLinkIntegrity,
+                    SourceIntegrityQuery.Definition.Name,
+                    integrityFailure.Reason));
+            }
             AddFailure(
                 failures,
                 DotnetInspector.Sections.SectionNames.ArrayPoolEscapes,
@@ -984,11 +1049,6 @@ public class LibraryInspection
     [JsonIgnore]
     public int SwitchCount { get; set; }
 
-    /// <summary>
-    /// View routing flag: when true, show nested dependency tree instead of flat references.
-    /// </summary>
-    [JsonIgnore]
-    public bool UseDependenciesView { get; set; }
 }
 
 public sealed record SourceFileInfo(string Type, string? Url);

@@ -78,8 +78,11 @@ public class SymbolPackageDownloader
         string? packageVersion = null,
         Action<string>? log = null,
         bool isPlatformAssembly = false,
-        bool cacheOnly = false)
+        bool cacheOnly = false,
+        NuGetSourceOptions? sourceOptions = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
@@ -103,7 +106,8 @@ public class SymbolPackageDownloader
         if (isMicrosoftPackage && pdbFileNameUsable)
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
-            var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log, cacheOnly).ConfigureAwait(false);
+            var msdlResult = await TryLocateFromMsdlAsync(
+                pdbFileName, symbolKey, log, cacheOnly, cancellationToken).ConfigureAwait(false);
             if (msdlResult.PdbFilePath != null)
                 return msdlResult;
             if (msdlResult.WindowsPdbDetected)
@@ -111,10 +115,12 @@ public class SymbolPackageDownloader
         }
 
         // Try downloading symbol package (.snupkg)
-        if (!string.IsNullOrEmpty(packageName) && !string.IsNullOrEmpty(packageVersion))
+        if (!string.IsNullOrEmpty(packageName)
+            && !string.IsNullOrEmpty(packageVersion)
+            && IsNuGetOrgEligibleForPackage(sourceOptions, packageName))
         {
             var snupkgResult = await TryLocateFromSymbolPackageAsync(
-                packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly).ConfigureAwait(false);
+                packageName, packageVersion, assemblyPath, symbolKey, pdbGuid, log, cacheOnly, cancellationToken).ConfigureAwait(false);
             if (snupkgResult.PdbFilePath != null)
                 return snupkgResult;
             if (snupkgResult.WindowsPdbDetected)
@@ -124,7 +130,8 @@ public class SymbolPackageDownloader
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
         if (!isMicrosoftPackage && pdbFileNameUsable)
         {
-            var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log, cacheOnly).ConfigureAwait(false);
+            var symbolResult = await TryLocateFromSymbolServerAsync(
+                pdbFileName, symbolKey, log, cacheOnly, cancellationToken).ConfigureAwait(false);
             if (symbolResult.PdbFilePath != null)
                 return symbolResult;
             if (symbolResult.WindowsPdbDetected)
@@ -135,14 +142,38 @@ public class SymbolPackageDownloader
         return new PdbDownloadResult(null, windowsPdbDetected);
     }
 
+    private static bool IsNuGetOrgEligibleForPackage(
+        NuGetSourceOptions? sourceOptions,
+        string packageName)
+    {
+        try
+        {
+            return NuGetSourceResolver.ResolveSourcesForPackage(
+                    sourceOptions,
+                    packageName)
+                .Any(source => source.IsNuGetOrg);
+        }
+        catch (PackageSourceMappingException ex)
+            when (ex.Failure is
+                PackageSourceMappingFailure.NoPattern
+                or PackageSourceMappingFailure.InactiveSource)
+        {
+            return false;
+        }
+    }
+
     private async Task<PdbDownloadResult> TryLocateFromMsdlAsync(
-        string pdbFileName, string symbolKey, Action<string>? log, bool cacheOnly = false)
+        string pdbFileName,
+        string symbolKey,
+        Action<string>? log,
+        bool cacheOnly,
+        CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
 
         var cacheKey = GetSymbolServerCacheKey(pdbFileName, symbolKey);
-        var cached = await ClassifyStoredPdbAsync(cacheKey).ConfigureAwait(false);
+        var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         if (cached.Portable)
         {
             log?.Invoke("Using cached PDB from MSDL");
@@ -164,6 +195,7 @@ public class SymbolPackageDownloader
         {
             var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
                 _client, url, log: log,
+                cancellationToken: cancellationToken,
                 trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
             using var response = httpResult.Response;
             if (response == null || !response.IsSuccessStatusCode)
@@ -173,12 +205,12 @@ public class SymbolPackageDownloader
                 return new PdbDownloadResult(null, windowsPdbDetected);
             }
 
-            using (var content = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+            using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
             {
-                await _pdbStore.PutAsync(cacheKey, content).ConfigureAwait(false);
+                await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
             }
 
-            var headerCheck = await ClassifyStoredPdbAsync(cacheKey).ConfigureAwait(false);
+            var headerCheck = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
             if (headerCheck.Portable)
             {
                 log?.Invoke("Successfully downloaded PDB from MSDL");
@@ -190,6 +222,10 @@ public class SymbolPackageDownloader
                 log?.Invoke("MSDL returned a Windows PDB (not supported)");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             log?.Invoke($"MSDL error: {ex.Message}");
@@ -199,7 +235,14 @@ public class SymbolPackageDownloader
     }
 
     private async Task<PdbDownloadResult> TryLocateFromSymbolPackageAsync(
-        string packageName, string packageVersion, string assemblyPath, string symbolKey, Guid pdbGuid, Action<string>? log, bool cacheOnly = false)
+        string packageName,
+        string packageVersion,
+        string assemblyPath,
+        string symbolKey,
+        Guid pdbGuid,
+        Action<string>? log,
+        bool cacheOnly,
+        CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         var normalizedName = packageName.ToLowerInvariant();
@@ -208,7 +251,7 @@ public class SymbolPackageDownloader
 
         // Check cache first
         var cacheKey = GetCachedPdbKey(normalizedName, normalizedVersion, assemblyPath, symbolKey);
-        var cached = await ClassifyStoredPdbAsync(cacheKey).ConfigureAwait(false);
+        var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         if (cached.Portable)
         {
             log?.Invoke($"Using cached PDB: {Path.GetFileNameWithoutExtension(assemblyPath)}.pdb");
@@ -238,6 +281,7 @@ public class SymbolPackageDownloader
             {
                 var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
                     _client, snupkgUrl, log: log,
+                    cancellationToken: cancellationToken,
                     trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response is not { IsSuccessStatusCode: true })
@@ -248,10 +292,14 @@ public class SymbolPackageDownloader
 
                 log?.Invoke($"Found symbol package at: {snupkgUrl}");
                 var result = await ExtractPdbFromSymbolPackage(
-                    response, cacheKey, assemblyPath, pdbGuid, windowsPdbDetected, log).ConfigureAwait(false);
+                    response, cacheKey, assemblyPath, pdbGuid, windowsPdbDetected, log, cancellationToken).ConfigureAwait(false);
                 if (result.WindowsPdbDetected)
                     windowsPdbDetected = true;
                 return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -266,14 +314,23 @@ public class SymbolPackageDownloader
     private async Task<PdbDownloadResult> ExtractPdbFromSymbolPackage(
         HttpResponseMessage response,
         string cacheKey, string assemblyPath,
-        Guid pdbGuid, bool windowsPdbDetected, Action<string>? log)
+        Guid pdbGuid,
+        bool windowsPdbDetected,
+        Action<string>? log,
+        CancellationToken cancellationToken)
     {
         var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
 
         SnupkgPdbResult extracted;
-        using (var content = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+        using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         {
-            extracted = SnupkgPdbReader.ExtractPortablePdb(content, assemblyName, pdbGuid, log);
+            cancellationToken.ThrowIfCancellationRequested();
+            extracted = SnupkgPdbReader.ExtractPortablePdb(
+                content,
+                assemblyName,
+                pdbGuid,
+                log);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         if (extracted.WindowsPdbDetected)
@@ -287,7 +344,7 @@ public class SymbolPackageDownloader
 
         using (var pdbStream = new MemoryStream(extracted.PdbBytes, writable: false))
         {
-            await _pdbStore.PutAsync(cacheKey, pdbStream).ConfigureAwait(false);
+            await _pdbStore.PutAsync(cacheKey, pdbStream, cancellationToken).ConfigureAwait(false);
         }
 
         log?.Invoke("Successfully located PDB from symbol package");
@@ -295,14 +352,18 @@ public class SymbolPackageDownloader
     }
 
     private async Task<PdbDownloadResult> TryLocateFromSymbolServerAsync(
-        string pdbFileName, string symbolKey, Action<string>? log, bool cacheOnly = false)
+        string pdbFileName,
+        string symbolKey,
+        Action<string>? log,
+        bool cacheOnly,
+        CancellationToken cancellationToken)
     {
         using var trafficScope = NetworkTelemetry.Scope(NetworkTrafficKind.SymbolDownload);
         bool windowsPdbDetected = false;
 
         // Check cache before hitting the network
         var cacheKey = GetSymbolServerCacheKey(pdbFileName, symbolKey);
-        var cached = await ClassifyStoredPdbAsync(cacheKey).ConfigureAwait(false);
+        var cached = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         if (cached.Portable)
         {
             log?.Invoke("Using cached PDB from symbol server");
@@ -332,6 +393,7 @@ public class SymbolPackageDownloader
             {
                 var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
                     _client, url, log: log,
+                    cancellationToken: cancellationToken,
                     trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
                 using var response = httpResult.Response;
                 if (response == null || !response.IsSuccessStatusCode)
@@ -340,12 +402,12 @@ public class SymbolPackageDownloader
                     continue;
                 }
 
-                using (var content = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    await _pdbStore.PutAsync(cacheKey, content).ConfigureAwait(false);
+                    await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
                 }
 
-                var headerCheck = await ClassifyStoredPdbAsync(cacheKey).ConfigureAwait(false);
+                var headerCheck = await ClassifyStoredPdbAsync(cacheKey, cancellationToken).ConfigureAwait(false);
                 if (headerCheck.Portable)
                 {
                     var serverHost = new Uri(server).Host;
@@ -358,6 +420,10 @@ public class SymbolPackageDownloader
                     log?.Invoke("Symbol server returned a Windows PDB (not supported)");
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 log?.Invoke($"Symbol server error: {ex.Message}");
@@ -367,12 +433,14 @@ public class SymbolPackageDownloader
         return new PdbDownloadResult(null, windowsPdbDetected);
     }
 
-    private async Task<(bool Portable, bool Windows)> ClassifyStoredPdbAsync(string cacheKey)
+    private async Task<(bool Portable, bool Windows)> ClassifyStoredPdbAsync(
+        string cacheKey,
+        CancellationToken cancellationToken)
     {
         Stream? stream;
         try
         {
-            stream = await _pdbStore.TryOpenAsync(cacheKey).ConfigureAwait(false);
+            stream = await _pdbStore.TryOpenAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         }
         catch (ArgumentException)
         {
@@ -386,6 +454,7 @@ public class SymbolPackageDownloader
 
         await using (stream.ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return SnupkgPdbReader.ClassifyHeader(stream);
         }
     }

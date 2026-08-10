@@ -39,7 +39,7 @@ selection controls rendering.
 | `Signals` | summary evidence including SourceLink/provenance signals | opt-in; may acquire one missing PDB |
 | `SourceLink: Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
 | `SourceLink: Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
-| `SourceLink: Missing Files` | files not reachable or embedded | opt-in; derived from availability pass |
+| `SourceLink: Missing Files` | compiler source paths that are neither reachable nor embedded | opt-in; derived from availability pass |
 | `SourceLink: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
 ### Package
@@ -51,17 +51,24 @@ another command merely to continue a package inspection.
 | --- | --- |
 | `Signals` | package and dependency evidence, plus binary/source provenance summaries |
 | `SourceLink: Files` | SourceLink URL rows aggregated from package libraries, with library provenance |
+| `SourceLink: Availability` | aggregate reachability and embedded-source coverage across selected package libraries |
+| `SourceLink: Missing Files` | unreachable source paths plus unavailable/failed library rows, with package-library provenance |
+| `SourceLink: Integrity` | aggregate checksum verification across selected package libraries |
 
-The package `SourceLink: Files` section defaults to the same library selection
-rules as other package-library views: compatible/highest TFM unless a TFM selector
-says otherwise. This keeps the section scoped and avoids exploding output by
-default.
+The package SourceLink sections default to the same library selection rules as
+other package-library views: compatible/highest TFM unless a TFM selector says
+otherwise. This keeps the sections scoped and avoids multiplying work across
+every asset group by default.
 
-It shares its name with the library section because it is the same data from the
-same collector, and it is rooted in `@SourceLink` on the package command so the
-prefix stays honest. The legacy `Source Files` spelling still resolves. The
-package command exposes only this one member of the family today; `type` still
-spells its equivalent `Source Files`, which is the remaining inconsistency.
+The package and library availability, missing-file, and integrity sections bind
+to the same typed queries. Package owns only asset selection, aggregation, and
+library provenance. `SourceLink: Missing Files` is a second view of the
+availability result, not a second network pass. All four package sections are
+rooted in `@SourceLink`; the legacy `Source Files` spelling still resolves for
+the file listing. `type` still spells its equivalent `Source Files`.
+
+Effective discovery never executes the unbounded availability or integrity
+queries merely to list these package sections.
 
 ### Type and member
 
@@ -161,7 +168,7 @@ This is a fail-closed rule: missing SourceLink is better than wrong SourceLink.
 
 ### Discovery-time cache-only probe
 
-`-D` discovery lists the SourceLink section family only when a local PDB
+Library `-D` discovery lists the SourceLink section family only when a local PDB
 (embedded, adjacent, or already in the symbol cache) exposes a SourceLink
 document — determined **network-free**. `LibraryMetadataService.ProbeLocalSourceLinkAsync`
 opens the assembly and, if no embedded/adjacent PDB is present, consults the
@@ -188,11 +195,14 @@ use the network only when the selected section justifies it.
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 
-The section pipeline encodes this with capabilities:
+The section pipeline lowers selected SourceLink sections to typed query demand:
 
-- `MayDownloadPdb`: a section may acquire symbols.
-- `MayAuditSources`: a section may issue per-file HEAD requests.
-- `MayFetchSources`: a section may download source bodies.
+- `SourceLinkDocumentsQuery` declares moderated cost and may acquire one matching
+  PDB.
+- `SourceAvailabilityQuery` declares unbounded cost and consumes the document
+  query before issuing per-file HEAD requests.
+- `SourceIntegrityQuery` declares unbounded cost and consumes the same document
+  query before downloading source bodies.
 
 Detailed verbosity can authorize some lighter provenance enrichment, but it must
 not silently authorize bulk SourceLink URL checks or source-body downloads. Bulk
@@ -206,6 +216,8 @@ network requests.
 - Version/package metadata caches prevent repeated NuGet lookups.
 - PDB caches avoid repeated symbol downloads.
 - Symbol-package PDB caches are identity-keyed to avoid multi-TFM collisions.
+- Source availability and integrity queries accept an optional host cache;
+  filesystem-free hosts may run without one.
 - Effective-section caches may summarize what sections are renderable, but must
   be invalidated when section semantics change.
 

@@ -20,6 +20,12 @@ public record SelectMiss(string Value, IReadOnlyList<string> Suggestions, bool I
 public record SelectResult(HashSet<string>? Sections, IReadOnlyList<SelectMiss> Unresolved)
 {
     public bool HasError => Unresolved.Count > 0;
+
+    /// <summary>
+    /// Canonical section names reached through an exact name or compatible legacy alias.
+    /// Category and glob expansions are intentionally excluded.
+    /// </summary>
+    public HashSet<string> ExactSections { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -54,6 +60,7 @@ public static class SelectResolver
         ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
         ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
         ["Escape"] = SectionNames.ArrayPoolEscapes,
+        ["Dependencies"] = SectionNames.References,
         ["Source Files"] = SectionNames.SourceLinkFiles,
         ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
         ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
@@ -103,6 +110,44 @@ public static class SelectResolver
     public static bool IsActiveInfoSelector(bool selectDefault, HashSet<string>? includeSections)
         => selectDefault && includeSections is { Count: > 0 };
 
+    internal static bool TryResolveCategory(
+        string value,
+        IReadOnlyDictionary<string, string[]>? categories,
+        IReadOnlyCollection<string> knownSections,
+        out string category,
+        out string[] sections)
+    {
+        category = "";
+        sections = [];
+        if (categories == null)
+            return false;
+
+        var exactCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(value, StringComparison.OrdinalIgnoreCase));
+        if (exactCategory != null)
+        {
+            category = exactCategory;
+            sections = categories[exactCategory];
+            return true;
+        }
+
+        if (knownSections.Any(section =>
+                section.Equals(value, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (!CategoryAliases.TryGetValue(value, out var alias))
+            return false;
+
+        var aliasedCategory = categories.Keys.FirstOrDefault(candidate =>
+            candidate.Equals(alias, StringComparison.OrdinalIgnoreCase));
+        if (aliasedCategory == null)
+            return false;
+
+        category = aliasedCategory;
+        sections = categories[aliasedCategory];
+        return true;
+    }
+
     /// <summary>
     /// Resolves a single name against known sections: exact (case-insensitive), then glob.
     /// When <paramref name="singleGlob"/> is true, a glob must match exactly one section
@@ -111,11 +156,19 @@ public static class SelectResolver
     public static (List<string> Matches, SelectMiss? Miss) ResolveSingle(
         string name, string[] knownSections, bool singleGlob = false)
     {
+        var (matches, miss, _) = ResolveSingleWithProvenance(name, knownSections, singleGlob);
+        return (matches, miss);
+    }
+
+    private static (List<string> Matches, SelectMiss? Miss, bool IsExact)
+        ResolveSingleWithProvenance(
+            string name, string[] knownSections, bool singleGlob = false)
+    {
         // Exact match (case-insensitive)
         var exact = knownSections.FirstOrDefault(s =>
             s.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (exact != null)
-            return ([exact], null);
+            return ([exact], null, true);
 
         // Legacy alias for a renamed section (keeps old selectors working).
         if (LegacySectionAliases.TryGetValue(name, out var canonical))
@@ -123,7 +176,7 @@ public static class SelectResolver
             var aliased = knownSections.FirstOrDefault(s =>
                 s.Equals(canonical, StringComparison.OrdinalIgnoreCase));
             if (aliased != null)
-                return ([aliased], null);
+                return ([aliased], null, true);
         }
 
         // Glob match
@@ -136,12 +189,12 @@ public static class SelectResolver
             if (globMatches.Count > 0)
             {
                 if (singleGlob && globMatches.Count > 1)
-                    return (globMatches, new SelectMiss(name, globMatches, IsGlob: true));
+                    return (globMatches, new SelectMiss(name, globMatches, IsGlob: true), false);
 
-                return (globMatches, null);
+                return (globMatches, null, false);
             }
 
-            return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true));
+            return ([], new SelectMiss(name, knownSections.ToList(), IsGlob: true), false);
         }
 
         // No match. Offer close fuzzy matches, or the full section list when none is close
@@ -151,8 +204,8 @@ public static class SelectResolver
             return ([], new SelectMiss(
                 name,
                 [.. knownSections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase)],
-                ListsAllSections: true));
-        return ([], new SelectMiss(name, suggestions));
+                ListsAllSections: true), false);
+        return ([], new SelectMiss(name, suggestions), false);
     }
 
     /// <summary>
@@ -178,6 +231,7 @@ public static class SelectResolver
 
         categories ??= BuildFallbackCategories(knownSections);
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var exact = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<SelectMiss>();
 
         if (selectDefault)
@@ -199,9 +253,13 @@ public static class SelectResolver
                 continue;
             }
 
-            var (matches, miss) = ResolveSingle(value, knownSections);
+            var (matches, miss, isExactSection) = ResolveSingleWithProvenance(value, knownSections);
             foreach (var m in matches)
+            {
                 matched.Add(m);
+                if (isExactSection)
+                    exact.Add(m);
+            }
             if (miss != null)
             {
                 // Fall back to a category alias (e.g. retired "Performance Triage" / bare
@@ -216,11 +274,30 @@ public static class SelectResolver
                     continue;
                 }
 
+                if (!miss.IsGlob)
+                {
+                    var suggestions = GetSuggestions(
+                        value,
+                        [.. knownSections, .. categories.Keys]);
+                    if (suggestions.Count > 0)
+                    {
+                        unresolved.Add(miss with
+                        {
+                            Suggestions = suggestions,
+                            ListsAllSections = false
+                        });
+                        continue;
+                    }
+                }
+
                 unresolved.Add(miss);
             }
         }
 
-        return new(matched.Count > 0 ? matched : null, unresolved);
+        return new(matched.Count > 0 ? matched : null, unresolved)
+        {
+            ExactSections = exact
+        };
     }
 
     private static IReadOnlyDictionary<string, string[]> BuildFallbackCategories(string[] knownSections)
@@ -239,23 +316,29 @@ public static class SelectResolver
     private static List<string> GetSuggestions(string value, string[] allNames, int maxResults = 6)
     {
         var suggestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var valueKey = SuggestionKey(value);
 
         foreach (var name in allNames)
-            if (name.StartsWith(value, StringComparison.OrdinalIgnoreCase))
+            if (SuggestionKey(name).StartsWith(valueKey, StringComparison.OrdinalIgnoreCase))
                 suggestions.Add(name);
 
-        var valueLower = value.ToLowerInvariant();
+        var valueLower = valueKey.ToLowerInvariant();
         foreach (var name in allNames)
         {
-            var score = StringDistance.Similarity(valueLower, name.ToLowerInvariant());
+            var score = StringDistance.Similarity(
+                valueLower,
+                SuggestionKey(name).ToLowerInvariant());
             if (score >= 0.5)
                 suggestions.Add(name);
         }
 
         return suggestions
             .OrderByDescending(s => StringDistance.Similarity(
-                value.ToLowerInvariant(), s.ToLowerInvariant()))
+                valueLower, SuggestionKey(s).ToLowerInvariant()))
             .Take(maxResults)
             .ToList();
     }
+
+    private static string SuggestionKey(string value)
+        => value.StartsWith('@') ? value[1..] : value;
 }
