@@ -61,6 +61,28 @@ public sealed class ValidDifferentFaultIsolationTests
     }
 
     [Fact]
+    public void AuthoredMultilineLiteral_PreservesItsValue()
+    {
+        using var fixture = FidelityFixture.Create(
+            "public class Class1\r\n"
+            + "{\r\n"
+            + "    public string M()\r\n"
+            + "    {\r\n"
+            + "        return @\"alpha\r\n\r\nomega\";\r\n"
+            + "    }\r\n"
+            + "}\r\n",
+            rejectedBody: "return \"different\";",
+            authoredBody: "return @\"alpha\r\n\r\nomega\";");
+
+        var result = fixture.Isolate();
+
+        Assert.NotNull(result);
+        Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        Assert.Equal(ReturnToSender.FaultIsolationMethod.FidelityControl, result.Method);
+        Assert.Contains("reproduced the original IL", result.Detail);
+    }
+
+    [Fact]
     public void AuthoredBodyThatDoesNotCompile_ClassifiesShellOrClosureDefect()
     {
         using var fixture = FidelityFixture.Create(
