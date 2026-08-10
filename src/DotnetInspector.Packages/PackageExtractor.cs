@@ -242,7 +242,9 @@ public static class PackageExtractor
         }
 
         // Resolve NuGet sources
-        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packageName);
         IReadOnlyList<NuGetSource> authorizedSources =
             NuGetSourceResolver.ResolveAuthorizedSources(
                 sourceOptions,
@@ -706,7 +708,9 @@ public static class PackageExtractor
         var cachedPath = NuGetCache.TryGetCachedPackage(
             normalizedName,
             normalizedVersion,
-            NuGetSourceResolver.ResolveSourceKeys(sourceOptions));
+            NuGetSourceResolver.ResolveSourceKeysForPackage(
+                sourceOptions,
+                packageId));
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
         {
             var cachedNuspec = Directory
@@ -716,7 +720,9 @@ public static class PackageExtractor
                 return await File.ReadAllTextAsync(cachedNuspec).ConfigureAwait(false);
         }
 
-        foreach (var source in NuGetSourceResolver.ResolveSources(sourceOptions))
+        foreach (var source in NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packageId))
         {
             var url = await GetNuspecUrlAsync(client, source, normalizedName, normalizedVersion, log).ConfigureAwait(false);
             if (url == null)
@@ -1785,7 +1791,9 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null)
     {
         string normalizedName = packageName.ToLowerInvariant();
-        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packageName);
 
         var allVersions = await GetAllVersionsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
         if (allVersions.Versions == null)
@@ -1824,7 +1832,9 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
         List<NuGetSource> sources =
-            NuGetSourceResolver.ResolveSources(sourceOptions);
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                sourceOptions,
+                packageName);
         NuGet.Versioning.NuGetVersion? best = null;
         string? bestVersion = null;
         bool sawMetadata = false;
@@ -1892,7 +1902,9 @@ public static class PackageExtractor
     {
         string normalizedName = packageName.ToLowerInvariant();
         List<NuGetSource> sources =
-            NuGetSourceResolver.ResolveSources(sourceOptions);
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                sourceOptions,
+                packageName);
         var perSource = await FetchListingsPerSourceAsync(
             client,
             normalizedName,
@@ -1959,7 +1971,9 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null)
     {
         string normalizedName = packageName.ToLowerInvariant();
-        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packageName);
 
         var allListings = await GetAllVersionListingsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
         if (allListings == null)
@@ -2050,7 +2064,9 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null)
     {
         string normalizedName = packageName.ToLowerInvariant();
-        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+        var sources = NuGetSourceResolver.ResolveSourcesForPackage(
+            sourceOptions,
+            packageName);
 
         var perSource = await FetchListingsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
         if (perSource == null)
@@ -2115,17 +2131,17 @@ public static class PackageExtractor
     /// Chooses a short, unambiguous label for each source, keyed by source URL.
     /// </summary>
     /// <remarks>
-    /// Configured sources have useful names, but a source named on the command line that matches
-    /// nothing in configuration is called "explicit", and every such source shares that name. A
-    /// label must distinguish feeds, so the name is used only when it is meaningful, the host is
-    /// used otherwise, and the full URL is used when even that would collide.
+    /// Configured sources have useful names, while a source named on the command line that matches
+    /// nothing in configuration uses its URL as the mapping alias. A label must stay short and
+    /// distinguish feeds, so a configured name is used when present, the host is used for literal
+    /// URL aliases, and the full URL is used when even that would collide.
     /// </remarks>
     private static Dictionary<string, string> BuildFeedLabels(List<NuGetSource> sources)
     {
         static string Candidate(NuGetSource source)
         {
             if (!string.IsNullOrEmpty(source.Name)
-                && !string.Equals(source.Name, "explicit", StringComparison.Ordinal))
+                && !string.Equals(source.Name, source.Url, StringComparison.Ordinal))
             {
                 return source.Name;
             }

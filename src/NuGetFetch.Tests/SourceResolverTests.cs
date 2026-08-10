@@ -530,6 +530,181 @@ public class SourceResolverTests : IDisposable
         Assert.Equal("https://additional.example.com/v3/index.json", source.Url);
     }
 
+    [Fact]
+    public void ResolvePackageSourceMapping_Absent_IsDisabled()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSources>
+                    <add key="private" value="https://private.example/v3/index.json" />
+                  </packageSources>
+                </configuration>
+                """));
+
+        Assert.False(mapping.IsEnabled);
+        Assert.Empty(mapping.GetConfiguredPackageSources("Example.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_UsesExactThenLongestPrefixThenDefault()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSourceMapping>
+                    <packageSource key="default">
+                      <package pattern="*" />
+                    </packageSource>
+                    <packageSource key="family">
+                      <package pattern="Contoso.*" />
+                    </packageSource>
+                    <packageSource key="specific">
+                      <package pattern="Contoso.Tools.*" />
+                    </packageSource>
+                    <packageSource key="exact">
+                      <package pattern="Contoso.Tools.Build" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """));
+
+        Assert.Equal(
+            ["exact"],
+            mapping.GetConfiguredPackageSources("contoso.tools.build"));
+        Assert.Equal(
+            ["specific"],
+            mapping.GetConfiguredPackageSources("CONTOSO.Tools.Compiler"));
+        Assert.Equal(
+            ["family"],
+            mapping.GetConfiguredPackageSources("Contoso.Core"));
+        Assert.Equal(
+            ["default"],
+            mapping.GetConfiguredPackageSources("Other.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_ReturnsEverySourceWithWinningPattern()
+    {
+        PackageSourceMapping mapping = SourceResolver.ResolvePackageSourceMapping(
+            configPath: WriteConfig("""
+                <configuration>
+                  <packageSourceMapping>
+                    <packageSource key="primary">
+                      <package pattern="Contoso.*" />
+                    </packageSource>
+                    <packageSource key="mirror">
+                      <package pattern="contoso.*" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """));
+
+        Assert.Equal(
+            ["primary", "mirror"],
+            mapping.GetConfiguredPackageSources("Contoso.Core"));
+    }
+
+    [Fact]
+    public void MergePackageSourceMappings_NearestSourceKeyReplacesPatternListCaseInsensitively()
+    {
+        string parent = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="Private">
+                  <package pattern="Parent.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        string child = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="Child.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        PackageSourceMapping mapping =
+            SourceResolver.MergePackageSourceMappings([child, parent]);
+
+        Assert.Empty(mapping.GetConfiguredPackageSources("Parent.Package"));
+        Assert.Equal(
+            ["private"],
+            mapping.GetConfiguredPackageSources("Child.Package"));
+    }
+
+    [Fact]
+    public void MergePackageSourceMappings_ClearRemovesInheritedMappings()
+    {
+        string parent = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="parent">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        string child = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <clear />
+                <packageSource key="child">
+                  <package pattern="Child.*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        PackageSourceMapping mapping =
+            SourceResolver.MergePackageSourceMappings([child, parent]);
+
+        Assert.Empty(mapping.GetConfiguredPackageSources("Other.Package"));
+        Assert.Equal(
+            ["child"],
+            mapping.GetConfiguredPackageSources("Child.Package"));
+    }
+
+    [Fact]
+    public void ResolvePackageSourceMapping_SourceWithoutPatternsFails()
+    {
+        string config = WriteConfig("""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private" />
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(
+            () => SourceResolver.ResolvePackageSourceMapping(configPath: config));
+
+        Assert.Contains("must contain at least one package pattern", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Contoso.*.Tools")]
+    [InlineData("Contoso**")]
+    public void ResolvePackageSourceMapping_InvalidPatternFails(string pattern)
+    {
+        string config = WriteConfig($"""
+            <configuration>
+              <packageSourceMapping>
+                <packageSource key="private">
+                  <package pattern="{pattern}" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+
+        Assert.Throws<InvalidDataException>(
+            () => SourceResolver.ResolvePackageSourceMapping(configPath: config));
+    }
+
     private string WriteConfig(string xml)
     {
         var path = Path.Combine(_tempDir, $"nuget-{Guid.NewGuid():N}.config");

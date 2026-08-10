@@ -65,10 +65,9 @@ eligible source that appears earlier in configuration. This preserves
 cache-first and offline operation and matches NuGet's contract: package source
 mapping, not declaration order, limits which feed may serve an id.
 
-"Authorized" currently means the source appears in the caller's active sources
-and, for a discovered coordinate, reported the selected version. After
-`<packageSourceMapping>` is implemented, the payload producer must also be
-selected by the winning mapping pattern. See the
+"Authorized" means the source appears in the caller's active sources, is selected
+by the package id's winning package-source-mapping pattern when mapping is
+enabled, and, for a discovered coordinate, reported the selected version. See the
 [package source model](package-source-model.md) for the end-to-end contract.
 
 A source is identified by a digest of its canonical URL, and canonicalization is
@@ -76,10 +75,8 @@ shared with the credential scope's `IsSameEndpoint` rather than reimplemented, s
 one URL cannot mean two things in one tool. Scheme, host, default port,
 percent-escape casing, and an empty root path versus `/` fold because the URI
 grammar defines them as equivalent. Path and query case do not fold:
-`/FeedA` and `/feeda` can name different resources. A non-root trailing slash
-must likewise remain distinct, but the current cache identity incorrectly folds
-`/feed` and `/feed/`. Correcting it requires a cache namespace migration and is
-tracked by [#3737](https://github.com/richlander/dotnet-inspect/issues/3737).
+`/FeedA` and `/feeda` can name different resources. Exactly one optional trailing
+path slash folds, while repeated trailing slashes and fragments remain distinct.
 The digest keeps source URLs out of cache paths and makes every identity a
 valid path segment. It is a path-safe identifier, not a security boundary;
 source authorization comes from the source policy, not from hiding cache keys.
