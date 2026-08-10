@@ -326,15 +326,12 @@ public sealed class AssemblyContextGroup : IDisposable
         }
         finally
         {
-            try
-            {
-                if (participant is not null)
-                    ReleaseSnapshot(participant);
-            }
-            finally
-            {
+            if (participant is null)
                 EndCallback(operationFailure);
-            }
+            else
+                ReleaseSnapshotAndEndCallback(
+                    participant,
+                    operationFailure);
         }
     }
 
@@ -491,15 +488,30 @@ public sealed class AssemblyContextGroup : IDisposable
         }
     }
 
-    void ReleaseSnapshot(ParticipantState participant)
+    void ReleaseSnapshotAndEndCallback(
+        ParticipantState participant,
+        Exception? operationFailure)
     {
-        lock (_lifetimeGate)
+        bool release;
+        lock (participant.ImageLoadGate)
         {
-            if (_disposed)
-                return;
+            lock (_lifetimeGate)
+            {
+                _activeCallbacks--;
+                release =
+                    _disposed && _activeCallbacks == 0 && !_released;
+                if (release)
+                {
+                    _released = true;
+                }
+                else if (!_disposed)
+                {
+                    _retainedImageBytes -= participant.Release();
+                }
+            }
         }
 
-        ReleaseSnapshotCore(participant);
+        CompleteCallbackRelease(release, operationFailure);
     }
 
     void ReleaseSnapshotCore(ParticipantState participant)
@@ -553,19 +565,26 @@ public sealed class AssemblyContextGroup : IDisposable
                 _released = true;
         }
 
-        if (release)
+        CompleteCallbackRelease(release, operationFailure);
+    }
+
+    void CompleteCallbackRelease(
+        bool release,
+        Exception? operationFailure)
+    {
+        if (!release)
+            return;
+
+        try
         {
-            try
-            {
-                ReleaseOwnedState();
-            }
-            catch (Exception releaseFailure)
-                when (operationFailure is not null)
-            {
-                throw new AggregateException(
-                    operationFailure,
-                    releaseFailure);
-            }
+            ReleaseOwnedState();
+        }
+        catch (Exception releaseFailure)
+            when (operationFailure is not null)
+        {
+            throw new AggregateException(
+                operationFailure,
+                releaseFailure);
         }
     }
 

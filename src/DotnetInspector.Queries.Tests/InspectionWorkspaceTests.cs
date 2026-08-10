@@ -624,16 +624,14 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public async Task ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
+    public void ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
     {
         TestAssembly source = TestAssembly.Create();
-        using var workspace = new InspectionWorkspace();
+        var workspace = new InspectionWorkspace();
         AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
-        Assert.True(
-            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
-        var resource = new BlockingResource();
+        var resource = new RetainedImageAssertingResource(group);
         group.RegisterOwnedResource(resource);
 
         object participant =
@@ -641,32 +639,69 @@ public sealed class InspectionWorkspaceTests
                 group,
                 "FindParticipant",
                 source.Assembly)!;
-
+        object imageLoadGate =
+            participant.GetType().GetProperty(
+                "ImageLoadGate",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(participant)!;
+        using var callbackEntered = new ManualResetEventSlim();
+        using var callbackResume = new ManualResetEventSlim();
+        using var callbackResumed = new ManualResetEventSlim();
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        Task disposal = Task.Run(
-            workspace.Dispose,
-            cancellationToken);
-        try
+        Exception? operationFailure = null;
+        var operation = new Thread(
+            () =>
+            {
+                try
+                {
+                    AssemblyImageAccessResult<int> result =
+                        group.UseAndReleaseAssemblySessionAsync(
+                                source.Assembly,
+                                (_, _) =>
+                                {
+                                    callbackEntered.Set();
+                                    callbackResume.Wait(cancellationToken);
+                                    callbackResumed.Set();
+                                    return Task.FromResult(1);
+                                })
+                            .GetAwaiter()
+                            .GetResult();
+                    Assert.IsType<
+                        AssemblyImageAccessResult<int>.Available>(result);
+                }
+                catch (Exception ex)
+                {
+                    operationFailure = ex;
+                }
+            });
+        operation.IsBackground = true;
+        operation.Start();
+        Assert.True(
+            callbackEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        lock (imageLoadGate)
         {
+            callbackResume.Set();
             Assert.True(
-                resource.Entered.Wait(
+                callbackResumed.Wait(
                     TimeSpan.FromSeconds(10),
                     cancellationToken));
-            InvokeGroupMethod(
-                group,
-                "ReleaseSnapshot",
-                participant);
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => (operation.ThreadState & ThreadState.WaitSleepJoin)
+                        != 0,
+                    TimeSpan.FromSeconds(10)));
+
+            workspace.Dispose();
             Assert.True(group.RetainedImageBytes > 0);
         }
-        finally
-        {
-            resource.Resume.Set();
-            await disposal.WaitAsync(
-                TimeSpan.FromSeconds(10),
-                cancellationToken);
-        }
 
+        Assert.True(operation.Join(TimeSpan.FromSeconds(10)));
+        Assert.Null(operationFailure);
+        Assert.True(resource.IsDisposed);
         Assert.Equal(0, group.RetainedImageBytes);
     }
 
@@ -837,18 +872,6 @@ public sealed class InspectionWorkspaceTests
         public void Dispose() =>
             throw new InvalidOperationException(
                 "Synthetic owned-resource disposal failure.");
-    }
-
-    sealed class BlockingResource : IDisposable
-    {
-        internal ManualResetEventSlim Entered { get; } = new();
-        internal ManualResetEventSlim Resume { get; } = new();
-
-        public void Dispose()
-        {
-            Entered.Set();
-            Resume.Wait(TestContext.Current.CancellationToken);
-        }
     }
 
     sealed class RetainedImageAssertingResource(
